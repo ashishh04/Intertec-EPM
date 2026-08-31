@@ -1,0 +1,410 @@
+/**
+ * Normalized NEXUS domain models.
+ *
+ * These are deliberately NOT OpenProject API shapes. The Nexus backend adapter is
+ * responsible for transforming OpenProject `_embedded`/`_links` HAL payloads into
+ * these flat, UI-friendly models, so the frontend never has to know about
+ * OpenProject's internal schema, HAL links, or API versioning.
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Primitives                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** ISO-8601 date string, e.g. "2026-09-18" or "2026-09-18T14:32:00Z". */
+export type ISODate = string;
+
+export type ID = string;
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* People, teams, permissions                                                  */
+/* -------------------------------------------------------------------------- */
+
+export type UserStatus = 'online' | 'away' | 'offline';
+
+export type AvatarAccent = 'blue' | 'teal' | 'violet' | 'amber' | 'rose' | 'slate';
+
+export interface NexusUser {
+  id: ID;
+  name: string;
+  initials: string;
+  email: string;
+  role: string;
+  department: string;
+  avatarUrl?: string;
+  status: UserStatus;
+  timezone: string;
+  /** Deterministic accent used for the generated initials avatar. */
+  accent: AvatarAccent;
+}
+
+export interface NexusTeam {
+  id: ID;
+  name: string;
+  slug: string;
+  description: string;
+  leadId: ID;
+  memberIds: ID[];
+  projectIds: ID[];
+  /** 0-100 aggregate allocation of the team capacity. */
+  capacity: number;
+  sprintProgress: number;
+}
+
+export interface TeamMemberWorkload {
+  userId: ID;
+  /** 0-100 percentage of the weekly capacity that is allocated. */
+  allocation: number;
+  assignedTasks: number;
+  completedThisSprint: number;
+  hoursLogged: number;
+  hoursCapacity: number;
+}
+
+/** Coarse UI permission model. The real boundary is enforced by the Nexus backend. */
+export type Permission = 'view' | 'create' | 'edit' | 'delete' | 'admin';
+
+/* -------------------------------------------------------------------------- */
+/* Projects                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export type ProjectStatus = 'on_track' | 'at_risk' | 'delayed' | 'completed' | 'paused';
+
+export type HealthLevel = 'healthy' | 'warning' | 'critical';
+
+export interface ProjectHealth {
+  scope: HealthLevel;
+  schedule: HealthLevel;
+  resources: HealthLevel;
+  budget: HealthLevel;
+  overall: HealthLevel;
+}
+
+export interface NexusProject {
+  id: ID;
+  /** Human-readable short code, e.g. "AOP". Maps to the OpenProject identifier. */
+  identifier: string;
+  name: string;
+  description?: string;
+  status: ProjectStatus;
+  /** 0-100 completion. */
+  progress: number;
+  ownerId: ID;
+  memberIds: ID[];
+  startDate?: ISODate;
+  dueDate?: ISODate;
+  priority: TaskPriority;
+  health: ProjectHealth;
+  taskCount: number;
+  completedTaskCount: number;
+  openRiskCount: number;
+  /** Portfolio grouping, e.g. "Platform", "Cloud", "Customer". */
+  portfolio: string;
+  budgetUsed: number;
+  budgetTotal: number;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+export interface Milestone {
+  id: ID;
+  projectId: ID;
+  name: string;
+  date: ISODate;
+  status: 'completed' | 'in_progress' | 'upcoming';
+}
+
+/* -------------------------------------------------------------------------- */
+/* Work packages (tasks)                                                       */
+/* -------------------------------------------------------------------------- */
+
+export type TaskStatus =
+  | 'backlog'
+  | 'todo'
+  | 'in_progress'
+  | 'review'
+  | 'done'
+  | 'blocked';
+
+export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
+
+export type TaskType = 'task' | 'bug' | 'feature' | 'epic' | 'milestone' | 'support';
+
+export interface NexusTask {
+  id: ID;
+  /** Display key shown throughout the UI, e.g. "OP-142". */
+  key: string;
+  subject: string;
+  description?: string;
+  type: TaskType;
+  status: TaskStatus;
+  priority: TaskPriority;
+  projectId: ID;
+  assigneeId?: ID;
+  authorId: ID;
+  parentId?: ID;
+  sprintId?: ID;
+  version?: string;
+  startDate?: ISODate;
+  dueDate?: ISODate;
+  estimatedHours?: number;
+  spentHours?: number;
+  storyPoints?: number;
+  labels: string[];
+  /** 0-100 completion ratio (OpenProject percentageDone). */
+  progress: number;
+  watcherIds: ID[];
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+export interface TaskComment {
+  id: ID;
+  taskId: ID;
+  authorId: ID;
+  body: string;
+  createdAt: ISODate;
+}
+
+export interface CreateTaskInput {
+  subject: string;
+  description?: string;
+  type: TaskType;
+  status: TaskStatus;
+  priority: TaskPriority;
+  projectId: ID;
+  assigneeId?: ID;
+  parentId?: ID;
+  sprintId?: ID;
+  startDate?: ISODate;
+  dueDate?: ISODate;
+  estimatedHours?: number;
+  storyPoints?: number;
+  labels?: string[];
+}
+
+export type UpdateTaskInput = Partial<CreateTaskInput> & { id: ID };
+
+export interface TaskFilters {
+  projectId?: ID;
+  assigneeId?: ID;
+  status?: TaskStatus[];
+  priority?: TaskPriority[];
+  type?: TaskType[];
+  sprintId?: ID;
+  search?: string;
+  /** Personal work-queue buckets used by My Work and the dashboard. */
+  bucket?: 'open' | 'today' | 'upcoming' | 'overdue' | 'completed' | 'all';
+  page?: number;
+  pageSize?: number;
+  sortBy?: 'dueDate' | 'priority' | 'updatedAt' | 'subject' | 'status';
+  sortDir?: 'asc' | 'desc';
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sprints                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export type SprintState = 'planned' | 'active' | 'completed';
+
+export interface BurndownPoint {
+  date: ISODate;
+  label: string;
+  ideal: number;
+  remaining: number | null;
+}
+
+export interface NexusSprint {
+  id: ID;
+  name: string;
+  goal: string;
+  projectIds: ID[];
+  state: SprintState;
+  startDate: ISODate;
+  endDate: ISODate;
+  committedPoints: number;
+  completedPoints: number;
+  /** Ideal vs. actual remaining points, one entry per sprint day. */
+  burndown: BurndownPoint[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Activity, notifications, documents                                          */
+/* -------------------------------------------------------------------------- */
+
+export type ActivityAction =
+  | 'created'
+  | 'updated'
+  | 'commented'
+  | 'completed'
+  | 'assigned'
+  | 'status_changed'
+  | 'uploaded';
+
+export interface ActivityEntry {
+  id: ID;
+  actorId: ID;
+  action: ActivityAction;
+  /** What the action was performed on, e.g. "OP-142" or "Design Sign-off". */
+  objectLabel: string;
+  objectType: 'task' | 'project' | 'milestone' | 'document' | 'sprint';
+  objectId?: ID;
+  projectId?: ID;
+  detail?: string;
+  timestamp: ISODate;
+}
+
+export type NotificationCategory =
+  | 'mention'
+  | 'assignment'
+  | 'project_update'
+  | 'deadline'
+  | 'system';
+
+export interface NexusNotification {
+  id: ID;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  actorId?: ID;
+  taskKey?: string;
+  taskId?: ID;
+  projectId?: ID;
+  read: boolean;
+  timestamp: ISODate;
+}
+
+export type DocumentKind = 'pdf' | 'doc' | 'sheet' | 'slide' | 'image' | 'archive' | 'markdown';
+
+export interface NexusDocument {
+  id: ID;
+  name: string;
+  kind: DocumentKind;
+  projectId?: ID;
+  ownerId: ID;
+  sizeBytes: number;
+  updatedAt: ISODate;
+  shared: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Calendar                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export type CalendarEventKind = 'task' | 'milestone' | 'sprint' | 'meeting';
+
+export interface CalendarEvent {
+  id: ID;
+  title: string;
+  kind: CalendarEventKind;
+  date: ISODate;
+  endDate?: ISODate;
+  projectId?: ID;
+  taskId?: ID;
+  allDay: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dashboard, reporting and intelligence                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface MetricTrend {
+  /** Percentage change against the previous period. */
+  changePct: number;
+  direction: 'up' | 'down' | 'flat';
+  /** Whether an upward movement is a good thing for this metric. */
+  positiveIsUp: boolean;
+  periodLabel: string;
+}
+
+export interface DashboardMetrics {
+  myTasks: number;
+  myTasksDueThisWeek: number;
+  inProgress: number;
+  inProgressBlocked: number;
+  overdue: number;
+  overdueCritical: number;
+  activeProjects: number;
+  projectsAtRisk: number;
+  sprintProgress: number;
+  trends: {
+    myTasks: MetricTrend;
+    inProgress: MetricTrend;
+    overdue: MetricTrend;
+    activeProjects: MetricTrend;
+  };
+}
+
+export interface DeliveryTrendPoint {
+  period: string;
+  completed: number;
+  created: number;
+  velocity: number;
+}
+
+export interface PortfolioRow {
+  projectId: ID;
+  projectName: string;
+  identifier: string;
+  schedule: HealthLevel;
+  scope: HealthLevel;
+  resources: HealthLevel;
+  overall: HealthLevel;
+}
+
+export interface ExecutiveInsights {
+  portfolioHealth: number;
+  onTimeDelivery: number;
+  openRisks: number;
+  overdueTasks: number;
+  teamUtilization: number;
+  sprintVelocity: number;
+  velocityTrend: MetricTrend;
+  matrix: PortfolioRow[];
+}
+
+export interface ReportFilters {
+  from?: ISODate;
+  to?: ISODate;
+  projectId?: ID;
+  teamId?: ID;
+  status?: ProjectStatus[];
+}
+
+export interface StatusDistribution {
+  status: TaskStatus;
+  label: string;
+  count: number;
+}
+
+export interface TimeEntrySummary {
+  userId: ID;
+  hoursLogged: number;
+  hoursBillable: number;
+  projectBreakdown: { projectId: ID; hours: number }[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Integration                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export type ConnectionState = 'connected' | 'degraded' | 'disconnected';
+
+export interface IntegrationStatus {
+  provider: 'openproject';
+  state: ConnectionState;
+  instanceUrl: string;
+  apiState: ConnectionState;
+  webhookState: ConnectionState;
+  lastSyncAt: ISODate;
+  apiVersion: string;
+  syncedResources: { resource: string; count: number; lastSyncAt: ISODate }[];
+}

@@ -1,0 +1,203 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ---- Nexus light theme ------------------------------------------- */
+    --background: 217 43% 97%;          /* #F7F9FC */
+    --foreground: 220 43% 11%;          /* #101828 */
+
+    --surface: 0 0% 100%;               /* #FFFFFF */
+    --surface-elevated: 0 0% 100%;
+    --surface-sunken: 220 33% 98%;
+
+    --primary: 220 83% 51%;             /* #155EEF */
+    --primary-dark: 220 87% 35%;        /* #0B3FA8 */
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 220 83% 96%;
+
+    --accent: 173 82% 39%;              /* #12B8A6 */
+    --accent-foreground: 0 0% 100%;
+    --accent-soft: 173 60% 95%;
+
+    --highlight: 258 90% 66%;           /* #8B5CF6 */
+    --highlight-foreground: 0 0% 100%;
+    --highlight-soft: 258 90% 96%;
+
+    --muted: 220 33% 98%;
+    --muted-foreground: 218 15% 46%;    /* #667085 */
+
+    --border: 220 18% 91%;              /* #E4E7EC */
+    --input: 220 18% 89%;
+    --ring: 220 83% 51%;
+
+    --success: 152 82% 39%;             /* #12B76A */
+    --success-foreground: 0 0% 100%;
+    --success-soft: 152 60% 95%;
+
+    --warning: 35 92% 51%;              /* #F79009 */
+    --warning-foreground: 0 0% 100%;
+    --warning-soft: 35 92% 95%;
+
+    --danger: 4 86% 61%;                /* #F04438 */
+    --danger-foreground: 0 0% 100%;
+    --danger-soft: 4 86% 96%;
+
+    --neutral: 218 15% 46%;
+    --neutral-soft: 220 20% 95%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 43% 11%;
+
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 220 43% 11%;
+    --sidebar-muted: 218 15% 46%;
+    --sidebar-active: 220 83% 96%;
+    --sidebar-border: 220 18% 91%;
+
+    --radius: 0.75rem;
+    --header-height: 3.5rem;
+  }
+
+  .dark {
+    /* ---- Nexus dark theme -------------------------------------------- */
+    --background: 220 45% 7%;           /* #0B1220 */
+    --foreground: 210 20% 98%;          /* #F9FAFB */
+
+    --surface: 221 39% 11%;             /* #111827 */
+    --surface-elevated: 220 34% 15%;    /* #172033 */
+    --surface-sunken: 220 45% 9%;
+
+    --primary: 218 100% 65%;            /* #4D8DFF */
+    --primary-dark: 220 83% 51%;
+    --primary-foreground: 220 45% 7%;
+    --primary-soft: 218 60% 18%;
+
+    --accent: 172 66% 50%;              /* #2DD4BF */
+    --accent-foreground: 220 45% 7%;
+    --accent-soft: 172 45% 17%;
+
+    --highlight: 258 90% 72%;
+    --highlight-foreground: 220 45% 7%;
+    --highlight-soft: 258 40% 22%;
+
+    --muted: 220 34% 15%;
+    --muted-foreground: 218 15% 65%;    /* #98A2B3 */
+
+    --border: 218 30% 21%;              /* #243044 */
+    --input: 218 30% 24%;
+    --ring: 218 100% 65%;
+
+    --success: 152 65% 47%;
+    --success-foreground: 220 45% 7%;
+    --success-soft: 152 40% 17%;
+
+    --warning: 35 90% 58%;
+    --warning-foreground: 220 45% 7%;
+    --warning-soft: 35 45% 18%;
+
+    --danger: 4 80% 65%;
+    --danger-foreground: 220 45% 7%;
+    --danger-soft: 4 45% 20%;
+
+    --neutral: 218 15% 65%;
+    --neutral-soft: 218 30% 19%;
+
+    --popover: 220 34% 15%;
+    --popover-foreground: 210 20% 98%;
+
+    --sidebar: 221 39% 11%;
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-muted: 218 15% 65%;
+    --sidebar-active: 218 45% 18%;
+    --sidebar-border: 218 30% 21%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Visible, consistent focus treatment across the app */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/60 ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    @apply bg-primary/20 text-foreground;
+  }
+}
+
+@layer components {
+  .nexus-card {
+    @apply rounded-xl border border-border bg-surface shadow-sm;
+  }
+
+  .nexus-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  .nexus-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .nexus-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .nexus-scroll::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  .nexus-scroll::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+
+  /* Section eyebrow used above dashboard blocks */
+  .nexus-eyebrow {
+    @apply text-2xs font-semibold uppercase tracking-[0.09em] text-muted-foreground;
+  }
+
+  .nexus-mono {
+    @apply font-mono text-2xs tracking-tight;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Skeleton shimmer, respects reduced motion via the media query below */
+  .skeleton-shimmer::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.05),
+      transparent
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
