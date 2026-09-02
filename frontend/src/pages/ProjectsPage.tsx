@@ -37,11 +37,13 @@ import { usePagination } from '@/hooks/usePagination';
 import { ALL_PROJECT_STATUSES, PROJECT_STATUS_META } from '@/lib/domain';
 import { formatShortDate } from '@/lib/utils';
 import type { ProjectStatus } from '@/types';
+import { useAuth } from '@/providers/AuthProvider';
 
 const ALL = '__all__';
 
 /** Portfolio index: every project the user can see, as cards or a dense table. */
 export default function ProjectsPage() {
+  const { can } = useAuth();
   const [view, setView] = useState<'grid' | 'table'>('grid');
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -89,7 +91,7 @@ export default function ProjectsPage() {
         title="Projects"
         description="Delivery portfolio across every active engagement."
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)} disabled={!can('project:create')}>
             <Plus className="h-4 w-4" />
             New Project
           </Button>

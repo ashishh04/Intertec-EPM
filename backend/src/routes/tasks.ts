@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
+import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -182,6 +183,14 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       const body = request.body?.body?.trim();
       if (!body) throw EpmError.badRequest('A comment cannot be empty.');
 
+      // No capability covers commenting; the work package advertises it.
+      await guard.requireLink(
+        request,
+        `/work_packages/${request.params.id}`,
+        'addComment',
+        'comment on this work package',
+      );
+
       const activity = await openProject.request<OpActivity>(
         `/work_packages/${request.params.id}/activities`,
         { method: 'POST', body: { comment: { raw: body } }, signal: requestSignal(request) },
@@ -208,6 +217,8 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     const projectId = typeof input.projectId === 'string' ? input.projectId : undefined;
     if (!projectId) throw EpmError.badRequest('A project is required to create a task.');
 
+    await guard.require(request, 'task:create', projectId);
+
     const [catalog, identifiers] = await Promise.all([
       getCatalog(signal),
       projectIdentifiers(signal),
@@ -230,6 +241,12 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
     '/tasks/:id',
     async (request) => {
+      await guard.require(
+        request,
+        'task:edit',
+        await guard.projectOfWorkPackage(request, request.params.id),
+      );
+
       const signal = requestSignal(request);
       const [catalog, identifiers] = await Promise.all([
         getCatalog(signal),
@@ -253,6 +270,12 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         projectIdentifiers(signal),
       ]);
 
+      // Authorised per item: a bulk selection can span projects, and holding
+      // the permission in one is not permission for the rest.
+      for (const id of ids) {
+        await guard.require(request, 'task:edit', await guard.projectOfWorkPackage(request, id));
+      }
+
       const updated: EpmTask[] = [];
       for (const id of ids) {
         const result = await patchWorkPackage(id, patch, catalog, signal);
@@ -265,6 +288,17 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Body: { ids?: string[] } }>('/tasks/bulk', async (request, reply) => {
     const { ids = [] } = request.body ?? {};
     const signal = requestSignal(request);
+
+    // Checked for every id before deleting any, so a partly-permitted selection
+    // fails outright instead of half-completing.
+    for (const id of ids) {
+      await guard.requireLink(
+        request,
+        `/work_packages/${id}`,
+        'delete',
+        'delete this work package',
+      );
+    }
 
     for (const id of ids) {
       await openProject.request<void>(`/work_packages/${id}`, { method: 'DELETE', signal });

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
+import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, linkId } from '../openproject/client.js';
@@ -133,6 +134,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const patch = request.body ?? {};
 
+      // Editing a project's upstream fields or its EPM overlay are both project
+      // edits, so both need the permission in that project.
+      await guard.require(request, 'project:edit', id);
+
       // `payload` carries an OpenProject payload verbatim, so a form rendered
       // from OpenProject's schema can write every field the instance defines.
       // The overlay keys below stay supported for the curated screens.
@@ -185,6 +190,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.badRequest('payload is required.');
       }
 
+      // Project creation is a global capability in OpenProject.
+      await guard.require(request, 'project:create');
+
       const created = await openProject.request<{ id: number; name: string }>('/projects', {
         method: 'POST',
         body: payload,
@@ -198,6 +206,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
   /** Archive rather than delete: OpenProject deletion is asynchronous and final. */
   app.patch<{ Params: { id: string } }>('/projects/:id/archive', async (request) => {
+    await guard.require(request, 'project:archive', request.params.id);
+
     const updated = await openProject.request<{ id: number; name: string; active: boolean }>(
       `/projects/${request.params.id}`,
       { method: 'PATCH', body: { active: false }, signal: requestSignal(request) },

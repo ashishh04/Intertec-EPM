@@ -38,7 +38,7 @@ const SECTIONS: { key: NonNullable<TaskFilters['bucket']>; title: string; hint: 
  * urgency, with the same filter and board affordances as the project views.
  */
 export default function MyWorkPage() {
-  const { user } = useAuth();
+  const { user, canAnywhere } = useAuth();
   const { openTaskDrawer } = useUI();
   const [searchParams] = useSearchParams();
   const [view, setView] = useState<ViewMode>('list');
@@ -128,7 +128,10 @@ export default function MyWorkPage() {
           ) : null
         }
         actions={
-          <Button onClick={() => openTaskDrawer({ assigneeId: user?.id })}>
+          <Button
+            onClick={() => openTaskDrawer({ assigneeId: user?.id })}
+            disabled={!canAnywhere('task:create')}
+          >
             <Plus className="h-4 w-4" />
             New Task
           </Button>

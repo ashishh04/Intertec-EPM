@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
@@ -81,6 +82,10 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
       const { projectId, payload } = request.body ?? {};
       if (!projectId) throw EpmError.badRequest('projectId is required.');
 
+      // A create form describes an action; do not hand it to someone who
+      // cannot perform it.
+      await guard.require(request, 'task:create', projectId);
+
       return requestForm(
         `/projects/${projectId}/work_packages/form`,
         payload ?? {},
@@ -101,6 +106,8 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const { id } = request.params;
 
+      await guard.require(request, 'task:edit', await guard.projectOfWorkPackage(request, id));
+
       const current = await openProject
         .request<{ lockVersion: number }>(`/work_packages/${id}`, { signal: requestSignal(request) })
         .catch(() => null);
@@ -115,28 +122,46 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /** Schema for creating a project — including every custom project field. */
-  app.post<{ Body: { payload?: Record<string, unknown> } }>('/forms/projects', async (request) =>
-    requestForm('/projects/form', request.body?.payload ?? {}, requestSignal(request)),
-  );
+  app.post<{ Body: { payload?: Record<string, unknown> } }>('/forms/projects', async (request) => {
+    await guard.require(request, 'project:create');
+    return requestForm('/projects/form', request.body?.payload ?? {}, requestSignal(request));
+  });
 
   /** Schema for editing a project. */
   app.post<{ Params: { id: string }; Body: { payload?: Record<string, unknown> } }>(
     '/forms/projects/:id',
-    async (request) =>
-      requestForm(
+    async (request) => {
+      await guard.require(request, 'project:edit', request.params.id);
+      return requestForm(
         `/projects/${request.params.id}/form`,
         request.body?.payload ?? {},
         requestSignal(request),
-      ),
+      );
+    },
   );
 
   /** Schema for adding or editing a project membership. */
-  app.post<{ Body: { payload?: Record<string, unknown> } }>('/forms/memberships', async (request) =>
-    requestForm('/memberships/form', request.body?.payload ?? {}, requestSignal(request)),
+  app.post<{ Body: { projectId?: string; payload?: Record<string, unknown> } }>(
+    '/forms/memberships',
+    async (request) => {
+      // Membership management is per project, so one is required to authorise it.
+      const projectId = request.body?.projectId;
+      if (!projectId) throw EpmError.badRequest('projectId is required.');
+
+      await guard.require(request, 'member:manage', projectId);
+      return requestForm('/memberships/form', request.body?.payload ?? {}, requestSignal(request));
+    },
   );
 
   /** Schema for logging time. Requires the costs module and permission. */
-  app.post<{ Body: { payload?: Record<string, unknown> } }>('/forms/time-entries', async (request) =>
-    requestForm('/time_entries/form', request.body?.payload ?? {}, requestSignal(request)),
-  );
+  /**
+   * Time logging has no capability in OpenProject's vocabulary, so there is no
+   * authoritative source to authorise it against. Refused rather than guessed —
+   * see UNMAPPED in auth/permissions.ts.
+   */
+  app.post('/forms/time-entries', async () => {
+    throw EpmError.forbidden(
+      'Time logging is not available: this deployment has no authoritative permission source for it.',
+    );
+  });
 };

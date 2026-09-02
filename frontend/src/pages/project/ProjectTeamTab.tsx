@@ -14,11 +14,13 @@ import { useProject } from '@/hooks/useProjects';
 import { useTeamWorkloads } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
+import { useAuth } from '@/providers/AuthProvider';
 import { toast } from 'sonner';
 
 /** People assigned to a project, with their current allocation. */
 export default function ProjectTeamTab() {
   const { projectId } = useParams();
+  const { canInProject } = useAuth();
   const { data: project, isLoading } = useProject(projectId);
   const workloadsQuery = useTeamWorkloads();
   const users = useUserMap();
@@ -52,6 +54,7 @@ export default function ProjectTeamTab() {
             <Button
               size="sm"
               variant="secondary"
+              disabled={!canInProject(projectId, 'member:manage')}
               onClick={() =>
                 toast('Inviting members is not implemented yet', {
                   description: 'Memberships are managed through the EPM backend.',

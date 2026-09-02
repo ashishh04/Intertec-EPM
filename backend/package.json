@@ -18,7 +18,8 @@
     "db:down": "docker compose down",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "probe": "tsx --env-file-if-exists=.env src/scripts/probe-openproject.ts"
+    "probe": "tsx --env-file-if-exists=.env src/scripts/probe-openproject.ts",
+    "test:authz": "tsx --env-file-if-exists=.env src/scripts/authz-test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

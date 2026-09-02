@@ -32,7 +32,10 @@ export default function IntegrationPage() {
   const sync = useTriggerSync();
 
   const status = statusQuery.data;
-  const isAdmin = can('admin');
+  // Integration health is administrative. `users:manage` is the closest
+  // capability OpenProject reports; instance administration itself has no
+  // capability, so this is the honest gate rather than a fabricated one.
+  const isAdmin = can('users:manage');
 
   return (
     <div className="space-y-5">

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
@@ -35,6 +36,8 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.badRequest('payload is required.');
       }
 
+      await guard.require(request, 'task:create', projectId);
+
       const created = await openProject.request<OpWorkPackageWrite>(
         `/projects/${projectId}/work_packages`,
         {
@@ -69,6 +72,9 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.badRequest('payload is required.');
       }
 
+      // The work package's own project decides this, not the caller.
+      await guard.require(request, 'task:edit', await guard.projectOfWorkPackage(request, id));
+
       const signal = requestSignal(request);
       const current = await openProject
         .request<OpWorkPackageWrite>(`/work_packages/${id}`, { signal })
@@ -87,6 +93,13 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
   );
 
   app.delete<{ Params: { id: string } }>('/work-packages/:id', async (request, reply) => {
+    await guard.requireLink(
+      request,
+      `/work_packages/${request.params.id}`,
+      'delete',
+      'delete this work package',
+    );
+
     await openProject.request<void>(`/work_packages/${request.params.id}`, {
       method: 'DELETE',
       signal: requestSignal(request),

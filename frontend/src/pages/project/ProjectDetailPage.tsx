@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { Ellipsis, Pencil, Plus, Share2, Star, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -18,8 +19,11 @@ import { PROJECT_TABS } from '@/config/navigation';
 import { useProject } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
+import { invalidationGroups } from '@/lib/queryKeys';
+import { projectWriteService } from '@/services';
 import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/providers/AuthProvider';
 import { toast } from 'sonner';
 
 const prototypeAction = (label: string) =>
@@ -33,6 +37,31 @@ const prototypeAction = (label: string) =>
  */
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
+  const { canInProject } = useAuth();
+  const queryClient = useQueryClient();
+
+  /**
+   * Archives rather than deletes: OpenProject deletion is asynchronous and
+   * irreversible, and archiving is what the action has always meant here.
+   */
+  const archiveProject = async () => {
+    if (!project) return;
+    if (!window.confirm(`Archive ${project.name}? It will no longer appear in the portfolio.`)) {
+      return;
+    }
+
+    try {
+      await projectWriteService.archive(project.id);
+      toast.success('Project archived');
+      for (const key of invalidationGroups.projectWrite) {
+        await queryClient.invalidateQueries({ queryKey: key });
+      }
+    } catch (error) {
+      toast.error('Could not archive project', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
   const [editOpen, setEditOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const { data: project, isLoading, isError, refetch } = useProject(projectId);
@@ -87,11 +116,20 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setEditOpen(true)}
+              disabled={!canInProject(projectId, 'project:edit')}
+            >
               <Pencil className="h-3.5 w-3.5" />
               Edit
             </Button>
-            <Button size="sm" onClick={() => setNewTaskOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => setNewTaskOpen(true)}
+              disabled={!canInProject(projectId, 'task:create')}
+            >
               <Plus className="h-4 w-4" />
               Add Task
             </Button>
@@ -116,7 +154,11 @@ export default function ProjectDetailPage() {
                   Share
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => prototypeAction('Archiving a project')} destructive>
+                <DropdownMenuItem
+                  onSelect={() => void archiveProject()}
+                  disabled={!canInProject(projectId, 'project:archive')}
+                  destructive
+                >
                   Archive project
                 </DropdownMenuItem>
               </DropdownMenuContent>

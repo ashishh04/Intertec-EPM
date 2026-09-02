@@ -28,6 +28,7 @@ import { UserMenu } from './UserMenu';
 import { useUI } from '@/providers/UIProvider';
 import { env } from '@/config/env';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/providers/AuthProvider';
 import { toast } from 'sonner';
 
 const ENV_LABEL: Record<string, { label: string; className: string }> = {
@@ -39,6 +40,7 @@ const ENV_LABEL: Record<string, { label: string; className: string }> = {
 /** Sticky application header: context on the left, search and actions on the right. */
 export function TopHeader() {
   const { setCommandPaletteOpen, setMobileNavOpen, openTaskDrawer } = useUI();
+  const { can, canAnywhere } = useAuth();
   const navigate = useNavigate();
 
   const isMac =
@@ -108,12 +110,16 @@ export function TopHeader() {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
           <DropdownMenuLabel>Create new</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => openTaskDrawer()}>
+          <DropdownMenuItem
+            onSelect={() => openTaskDrawer()}
+            disabled={!canAnywhere('task:create')}
+          >
             <ListPlus />
             New Task
             <DropdownMenuShortcut>C</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem
+            disabled={!can('project:create')}
             onSelect={() =>
               toast('Project creation is not implemented yet', {
                 description: 'New projects are provisioned through the EPM backend.',

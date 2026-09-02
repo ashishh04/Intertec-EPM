@@ -40,8 +40,14 @@ const IntegrationPage = lazy(() => import('@/pages/IntegrationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
+
+  // The session is confirmed with the backend, so it is not known on first
+  // paint. Deciding before it resolves would bounce every deep link and every
+  // refresh to /login, and from there to the dashboard — losing the
+  // destination the user actually asked for.
+  if (isLoading) return null;
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -50,13 +56,17 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
 
   return (
     <Routes>
       <Route
         path="/login"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+        // Same reason as RequireAuth: show nothing until the session is known,
+        // rather than flashing the sign-in form at someone already signed in.
+        element={
+          isLoading ? null : isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
+        }
       />
 
       <Route

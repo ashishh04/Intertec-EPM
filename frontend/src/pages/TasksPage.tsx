@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { useUI } from '@/providers/UIProvider';
 import { ALL_TASK_STATUSES } from '@/lib/domain';
 import type { TaskStatus } from '@/types';
+import { useAuth } from '@/providers/AuthProvider';
 
 /** Cross-project work-package explorer. */
 export default function TasksPage() {
+  const { canAnywhere } = useAuth();
   const { openTaskDrawer } = useUI();
   const [searchParams] = useSearchParams();
 
@@ -24,7 +26,7 @@ export default function TasksPage() {
         title="Tasks"
         description="Every work package across the portfolio, with filtering and bulk actions."
         actions={
-          <Button onClick={() => openTaskDrawer()}>
+          <Button onClick={() => openTaskDrawer()} disabled={!canAnywhere('task:create')}>
             <Plus className="h-4 w-4" />
             New Task
           </Button>

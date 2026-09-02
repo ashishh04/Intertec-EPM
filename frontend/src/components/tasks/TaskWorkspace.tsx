@@ -11,6 +11,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
 import { pluralize } from '@/lib/utils';
 import type { ID, EpmProject, TaskFilters, UpdateTaskInput } from '@/types';
+import { useAuth } from '@/providers/AuthProvider';
 
 interface TaskWorkspaceProps {
   /** Locks the workspace to one project and hides the project selector. */
@@ -43,6 +44,7 @@ export function TaskWorkspace({ projectId, initialFilters, className }: TaskWork
   const sprintsQuery = useSprints();
   const { data: userList } = useUsers();
   const users = useUserMap();
+  const { canAnywhere } = useAuth();
   const bulkUpdate = useBulkUpdateTasks();
   const deleteTasks = useDeleteTasks();
 
@@ -112,7 +114,11 @@ export function TaskWorkspace({ projectId, initialFilters, className }: TaskWork
             setFilters((current) => ({ ...current, sortBy, sortDir, page: 1 }))
           }
           onBulkUpdate={handleBulkUpdate}
-          onBulkDelete={handleBulkDelete}
+          // OpenProject publishes no delete capability, so this offers the
+          // action to editors and lets the backend decide per record — it
+          // checks each work package's own `delete` affordance before removing
+          // anything, and rejects the whole batch if one is not permitted.
+          onBulkDelete={canAnywhere('task:edit') ? handleBulkDelete : undefined}
           onExport={() =>
             toast('Export runs on the EPM backend', {
               description: 'Connected workspaces generate a CSV from the current filter set.',

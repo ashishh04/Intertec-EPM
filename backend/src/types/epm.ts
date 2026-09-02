@@ -70,7 +70,41 @@ export interface TeamMemberWorkload {
 }
 
 /** Coarse UI permission model. The real boundary is enforced by the EPM backend. */
-export type Permission = 'view' | 'create' | 'edit' | 'delete' | 'admin';
+/**
+ * EPM permissions, mirroring the backend vocabulary.
+ *
+ * These are derived from the signed-in user's OpenProject capabilities. They
+ * decide what the UI offers; the backend decides what actually happens, and
+ * never trusts these.
+ */
+export type Permission =
+  | 'project:view'
+  | 'project:create'
+  | 'project:edit'
+  | 'project:archive'
+  | 'task:view'
+  | 'task:create'
+  | 'task:edit'
+  | 'task:delete'
+  | 'task:assign'
+  | 'task:status_change'
+  | 'member:view'
+  | 'member:manage'
+  | 'sprint:view'
+  | 'sprint:manage'
+  | 'time:view'
+  | 'time:log'
+  | 'document:view'
+  | 'document:upload'
+  | 'users:manage'
+  | 'groups:manage'
+  | 'departments:manage'
+  | 'teams:manage'
+  | 'roles:manage'
+  | 'system:manage';
+
+/** Nested permission map as returned by `GET /me`. */
+export type PermissionMap = Record<string, Record<string, boolean>>;
 
 /* -------------------------------------------------------------------------- */
 /* Projects                                                                    */

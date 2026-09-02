@@ -28,6 +28,7 @@ import { useCalendarEvents } from '@/hooks/useDashboard';
 import { useUI } from '@/providers/UIProvider';
 import { cn, toISODateOnly } from '@/lib/utils';
 import type { CalendarEvent, CalendarEventKind } from '@/types';
+import { useAuth } from '@/providers/AuthProvider';
 
 type ViewMode = 'month' | 'week' | 'day';
 
@@ -47,6 +48,7 @@ const KIND_LABEL: Record<CalendarEventKind, string> = {
 
 /** Deadlines, milestones, sprint boundaries and meetings on one calendar. */
 export default function CalendarPage() {
+  const { canAnywhere } = useAuth();
   const { openTaskDrawer } = useUI();
   const [view, setView] = useState<ViewMode>('month');
   const [anchor, setAnchor] = useState(() => new Date());
@@ -101,7 +103,7 @@ export default function CalendarPage() {
         title="Calendar"
         description="Deadlines, milestones and delivery ceremonies across your projects."
         actions={
-          <Button onClick={() => openTaskDrawer()}>
+          <Button onClick={() => openTaskDrawer()} disabled={!canAnywhere('task:create')}>
             <Plus className="h-4 w-4" />
             New Task
           </Button>
