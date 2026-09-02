@@ -4,11 +4,16 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { openProject } from '../openproject/client.js';
+import { openProject, type QueryParams } from '../openproject/client.js';
 import { referenceCache } from '../lib/cache.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { toEpmTask } from '../mapping/tasks.js';
-import { toEpmQuery, toFilterSchema, type QueryFilterSchema } from '../mapping/queries.js';
+import {
+  toEpmQuery,
+  toFilterSchema,
+  type QueryColumn,
+  type QueryFilterSchema,
+} from '../mapping/queries.js';
 import type { HalCollection, OpWorkPackage } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
 
@@ -47,11 +52,13 @@ const runQuery = z.object({
   showSums: z.coerce.boolean().optional(),
   includeSubprojects: z.coerce.boolean().optional(),
   timestamps: z.string().optional(),
+  /** Comma-separated column ids; sent upstream as repeated `columns[]`. */
+  columns: z.string().optional(),
 });
 
 /** Only these reach OpenProject; anything else a client sends is dropped. */
-function upstreamParams(query: z.infer<typeof runQuery>): Record<string, string> {
-  const params: Record<string, string> = {};
+function upstreamParams(query: z.infer<typeof runQuery>): QueryParams {
+  const params: QueryParams = {};
   if (query.filters !== undefined) params.filters = query.filters;
   if (query.sortBy !== undefined) params.sortBy = query.sortBy;
   if (query.groupBy !== undefined) params.groupBy = query.groupBy;
@@ -62,6 +69,14 @@ function upstreamParams(query: z.infer<typeof runQuery>): Record<string, string>
     params.includeSubprojects = String(query.includeSubprojects);
   }
   if (query.timestamps !== undefined) params.timestamps = query.timestamps;
+
+  // An empty selection is not "no override" — it would hide every column — so
+  // blank entries are dropped and an entirely empty list is ignored.
+  if (query.columns !== undefined) {
+    const columns = query.columns.split(',').map((id) => id.trim()).filter(Boolean);
+    if (columns.length > 0) params.columns = columns;
+  }
+
   return params;
 }
 
@@ -95,7 +110,7 @@ interface QueryResponse {
 /** A query plus the page of work packages it selects. */
 async function runAndNormalize(
   path: string,
-  params: Record<string, string>,
+  params: QueryParams,
   signal: AbortSignal,
 ): Promise<{ query: ReturnType<typeof toEpmQuery>; tasks: EpmTask[]; total: number; pageSize: number; page: number }> {
   const response = await openProject.request<QueryResponse & Parameters<typeof toEpmQuery>[0]>(path, {
@@ -161,6 +176,46 @@ async function applyTitles(
   }
 }
 
+
+/**
+ * Columns a query may display, read from the query creation form.
+ *
+ * The query schema declares `columns` as writable but sends no allowed values;
+ * the form does, and it is project-aware — a custom field appears there under
+ * its administrator-given name alongside the built-in attributes. There is no
+ * `/queries/columns` collection on this version, so the form is the only
+ * authoritative source.
+ *
+ * Cached with the filter titles: this is instance configuration, not per-request
+ * data, and it is scoped by project for the same reason filters are.
+ */
+async function availableColumns(
+  projectId: string | undefined,
+  signal: AbortSignal,
+): Promise<QueryColumn[]> {
+  return referenceCache.get(`query-columns:${projectId ?? 'global'}`, async () => {
+    const form = await openProject
+      .request<{
+        _embedded?: {
+          schema?: {
+            columns?: { _embedded?: { allowedValues?: { id?: string; name?: string }[] } };
+          };
+        };
+      }>('/queries/form', {
+        method: 'POST',
+        body: projectId ? { _links: { project: { href: `/api/v3/projects/${projectId}` } } } : {},
+        signal,
+      })
+      .catch(() => null);
+
+    const allowed = form?._embedded?.schema?.columns?._embedded?.allowedValues ?? [];
+
+    return allowed
+      .filter((column): column is { id: string; name?: string } => Boolean(column.id))
+      .map((column) => ({ id: column.id, name: column.name ?? column.id }));
+  }) as Promise<QueryColumn[]>;
+}
+
 export const queryRoutes: FastifyPluginAsync = async (app) => {
   /**
    * Filters available here, with their operators and value shapes.
@@ -193,7 +248,9 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
       await applyTitles(filters, projectId ?? 'global', signal);
       filters.sort((a, b) => a.name.localeCompare(b.name));
 
-      return { filters };
+      const columns = await availableColumns(projectId, signal);
+
+      return { filters, columns };
     } catch (error) {
       throw asEpmError(error);
     }

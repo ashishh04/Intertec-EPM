@@ -106,9 +106,17 @@ export function buildSort(sorts: QuerySort[]): string {
 }
 
 export class ApiQueryRepository {
-  /** Filters available, project-scoped when a project is given. */
-  getSchema(projectId?: ID): Promise<{ filters: QueryFilterSchema[] }> {
-    return apiClient.get<{ filters: QueryFilterSchema[] }>('/queries/schema', { projectId });
+  /**
+   * Filters and columns available, project-scoped when a project is given.
+   *
+   * Both are instance configuration and both vary by project — a custom field
+   * appears in each only within the projects that enable it.
+   */
+  getSchema(projectId?: ID): Promise<{ filters: QueryFilterSchema[]; columns: QueryColumn[] }> {
+    return apiClient.get<{ filters: QueryFilterSchema[]; columns: QueryColumn[] }>(
+      '/queries/schema',
+      { projectId },
+    );
   }
 
   /** Saved views the caller can see. */

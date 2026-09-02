@@ -58,10 +58,16 @@ export interface CollectionQuery {
   extra?: Record<string, string | number | boolean | undefined>;
 }
 
+/** A value array becomes repeated `key[]=` parameters, which is what OpenProject expects. */
+export type QueryParams = Record<
+  string,
+  string | number | boolean | readonly (string | number)[] | undefined
+>;
+
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: QueryParams;
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -163,12 +169,23 @@ export class OpenProjectClient {
     return auth ? `Bearer ${auth.accessToken}` : this.systemAuthorization;
   }
 
-  private url(path: string, query: Record<string, string | number | boolean | undefined> = {}) {
+  private url(path: string, query: QueryParams = {}) {
     const normalized = path.startsWith('/api/v3') ? path : `/api/v3${path.startsWith('/') ? path : `/${path}`}`;
     const url = new URL(`${this.baseUrl}${normalized}`);
+
     for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+      if (value === undefined || value === null || value === '') continue;
+
+      // OpenProject reads list parameters as repeated `key[]=` entries, not as
+      // a JSON array — sending one is answered with an internal error.
+      if (Array.isArray(value)) {
+        for (const entry of value) url.searchParams.append(`${key}[]`, String(entry));
+        continue;
+      }
+
+      url.searchParams.set(key, String(value));
     }
+
     return url;
   }
 

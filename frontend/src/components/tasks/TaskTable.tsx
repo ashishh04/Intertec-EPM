@@ -46,8 +46,16 @@ type ColumnKey =
   | 'status'
   | 'priority'
   | 'assignee'
+  | 'author'
+  | 'startDate'
   | 'dueDate'
-  | 'estimate';
+  | 'estimate'
+  | 'spent'
+  | 'progress'
+  | 'storyPoints'
+  | 'version'
+  | 'createdAt'
+  | 'updatedAt';
 
 const COLUMN_LABEL: Record<ColumnKey, string> = {
   key: 'ID',
@@ -57,8 +65,16 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   status: 'Status',
   priority: 'Priority',
   assignee: 'Assignee',
-  dueDate: 'Due date',
-  estimate: 'Estimate',
+  author: 'Author',
+  startDate: 'Start date',
+  dueDate: 'Finish date',
+  estimate: 'Work',
+  spent: 'Spent time',
+  progress: '% Complete',
+  storyPoints: 'Story points',
+  version: 'Version',
+  createdAt: 'Created on',
+  updatedAt: 'Updated on',
 };
 
 const SORTABLE: Partial<Record<ColumnKey, NonNullable<TaskFilters['sortBy']>>> = {
@@ -95,6 +111,11 @@ export interface TaskTableProps {
   onExport?: () => void;
   /** Hide the project column when the table already lives inside one project. */
   hideProjectColumn?: boolean;
+  /**
+   * Columns to show, driven by the query. When given, the table's own column
+   * menu is hidden: the query owns the configuration and it is what gets saved.
+   */
+  columns?: string[];
   emptyAction?: { label: string; onClick: () => void };
 }
 
@@ -118,6 +139,7 @@ export function TaskTable({
   onBulkDelete,
   onExport,
   hideProjectColumn = false,
+  columns: controlledColumns,
   emptyAction,
 }: TaskTableProps) {
   const [selected, setSelected] = useState<Set<ID>>(new Set());
@@ -125,14 +147,22 @@ export function TaskTable({
     hideProjectColumn ? DEFAULT_COLUMNS.filter((column) => column !== 'project') : DEFAULT_COLUMNS,
   );
 
-  const columns = useMemo(
-    () =>
-      (Object.keys(COLUMN_LABEL) as ColumnKey[]).filter(
-        (column) =>
-          visibleColumns.includes(column) && !(hideProjectColumn && column === 'project'),
-      ),
-    [visibleColumns, hideProjectColumn],
-  );
+  // A controlled selection keeps the query's own order; the internal one keeps
+  // the table's declaration order so toggling does not reshuffle headers.
+  const columns = useMemo(() => {
+    const renderable = new Set(Object.keys(COLUMN_LABEL) as ColumnKey[]);
+
+    if (controlledColumns) {
+      return controlledColumns.filter(
+        (column): column is ColumnKey =>
+          renderable.has(column as ColumnKey) && !(hideProjectColumn && column === 'project'),
+      );
+    }
+
+    return (Object.keys(COLUMN_LABEL) as ColumnKey[]).filter(
+      (column) => visibleColumns.includes(column) && !(hideProjectColumn && column === 'project'),
+    );
+  }, [controlledColumns, visibleColumns, hideProjectColumn]);
 
   const allSelected = tasks.length > 0 && tasks.every((task) => selected.has(task.id));
   const someSelected = selected.size > 0 && !allSelected;
@@ -262,9 +292,11 @@ export function TaskTable({
               {total === 0 ? 'No results' : `${total} ${pluralize(total, 'task')}`}
             </p>
             <div className="flex items-center gap-1.5">
+              {/* Hidden when a query owns the columns — two pickers editing the
+                  same thing, only one of which is saved, invites confusion. */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost">
+                  <Button size="sm" variant="ghost" className={cn(controlledColumns && 'hidden')}>
                     <Columns3 className="h-3.5 w-3.5" />
                     Columns
                   </Button>
@@ -418,6 +450,41 @@ export function TaskTable({
                         ) : column === 'estimate' ? (
                           <span className="font-mono text-2xs text-muted-foreground">
                             {formatHours(task.estimatedHours)}
+                          </span>
+                        ) : column === 'author' ? (
+                          <div className="flex items-center gap-1.5">
+                            <UserAvatarWithTooltip user={users.get(task.authorId)} size="xs" />
+                            <span className="truncate text-muted-foreground">
+                              {users.get(task.authorId)?.name ?? '—'}
+                            </span>
+                          </div>
+                        ) : column === 'startDate' ? (
+                          <span className="font-mono text-2xs text-muted-foreground">
+                            {task.startDate ?? '—'}
+                          </span>
+                        ) : column === 'spent' ? (
+                          <span className="font-mono text-2xs text-muted-foreground">
+                            {formatHours(task.spentHours)}
+                          </span>
+                        ) : column === 'progress' ? (
+                          <span className="font-mono text-2xs text-muted-foreground">
+                            {task.progress}%
+                          </span>
+                        ) : column === 'storyPoints' ? (
+                          <span className="font-mono text-2xs text-muted-foreground">
+                            {task.storyPoints ?? '—'}
+                          </span>
+                        ) : column === 'version' ? (
+                          <span className="truncate text-muted-foreground">
+                            {task.version ?? '—'}
+                          </span>
+                        ) : column === 'createdAt' ? (
+                          <span className="font-mono text-2xs text-muted-foreground">
+                            {task.createdAt.slice(0, 10)}
+                          </span>
+                        ) : column === 'updatedAt' ? (
+                          <span className="font-mono text-2xs text-muted-foreground">
+                            {task.updatedAt.slice(0, 10)}
                           </span>
                         ) : null}
                       </TableCell>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Pencil, Star, Trash2 } from 'lucide-react';
 
+import { ColumnPicker } from './ColumnPicker';
 import { QueryBuilder } from './QueryBuilder';
 import { TaskTable, TaskTableSkeleton } from './TaskTable';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
@@ -44,6 +45,58 @@ import type { ID, EpmProject, TaskFilters, UpdateTaskInput } from '@/types';
 const DEFAULT_PAGE_SIZE = 15;
 const AD_HOC = '__default__';
 
+/**
+ * Upstream column ids the table has a renderer for.
+ *
+ * The table draws the normalized task model, so a column is showable only when
+ * that model carries the attribute. Everything else OpenProject offers —
+ * category, duration, custom field values and so on — is reported as
+ * unavailable rather than rendered blank.
+ */
+const RENDERABLE_COLUMNS = [
+  'id',
+  'subject',
+  'project',
+  'type',
+  'status',
+  'priority',
+  'assignee',
+  'author',
+  'startDate',
+  'dueDate',
+  'estimatedTime',
+  'spentTime',
+  'percentageDone',
+  'storyPoints',
+  'version',
+  'createdAt',
+  'updatedAt',
+];
+
+/** Upstream column id -> the table's own key. */
+const COLUMN_TO_TABLE: Record<string, string> = {
+  id: 'key',
+  subject: 'subject',
+  project: 'project',
+  type: 'type',
+  status: 'status',
+  priority: 'priority',
+  assignee: 'assignee',
+  author: 'author',
+  startDate: 'startDate',
+  dueDate: 'dueDate',
+  estimatedTime: 'estimate',
+  spentTime: 'spent',
+  percentageDone: 'progress',
+  storyPoints: 'storyPoints',
+  version: 'version',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+};
+
+/** Without these the row cannot be identified or opened. */
+const REQUIRED_COLUMNS = ['id', 'subject'];
+
 interface QueryWorkspaceProps {
   /** Scopes to one project; omit for the portfolio-wide view. */
   projectId?: ID;
@@ -60,6 +113,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sort, setSort] = useState<{ field: string; direction: 'asc' | 'desc' }>();
   const [newName, setNewName] = useState('');
+  const [columns, setColumns] = useState<string[]>();
 
   const schemaQuery = useQuerySchema(projectId);
   const savedQueries = useSavedQueries(projectId);
@@ -75,8 +129,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       pageSize,
       ...(isAdHoc || filters.length > 0 ? { filters: buildFilters(filters) } : {}),
       ...(sort ? { sortBy: buildSort([sort]) } : {}),
+      ...(columns?.length ? { columns: columns.join(',') } : {}),
     }),
-    [projectId, page, pageSize, filters, sort, isAdHoc],
+    [projectId, page, pageSize, filters, sort, isAdHoc, columns],
   );
 
   const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides);
@@ -96,6 +151,13 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   );
 
   const current = result.data?.query;
+
+  // Until the user picks, the view's own columns apply — which is what restores
+  // a saved query's configuration on load.
+  const effectiveColumns = columns ?? current?.columns.map((column) => column.id) ?? [];
+  const tableColumns = effectiveColumns
+    .map((id) => COLUMN_TO_TABLE[id])
+    .filter((key): key is string => Boolean(key));
   const selected = savedQueries.data?.find((q) => q.id === selectedQueryId);
 
   /** Switching views resets paging and adopts that view's own filters. */
@@ -104,6 +166,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     setPage(1);
     setSort(undefined);
     setFilters(id === AD_HOC ? [] : (savedQueries.data?.find((q) => q.id === id)?.filters ?? []));
+    // Drop the local override so the newly selected view's own columns apply.
+    setColumns(undefined);
   };
 
   const save = () => {
@@ -115,6 +179,11 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         name,
         projectId,
         payload: {
+          // Columns are persisted as links, so the saved view reopens with the
+          // same configuration rather than falling back to the default set.
+          _links: {
+            columns: effectiveColumns.map((id) => ({ href: `/api/v3/queries/columns/${id}` })),
+          },
           // OpenProject persists filters in HAL form, unlike the query-string
           // shorthand used for ad-hoc runs.
           filters: filters.map((filter) => ({
@@ -249,16 +318,28 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           </div>
         </div>
 
-        <QueryBuilder
-          schema={schemaQuery.data?.filters ?? []}
-          filters={filters}
-          onChange={(next) => {
-            setFilters(next);
-            setPage(1);
-          }}
-          projectId={projectId}
-          isLoading={schemaQuery.isLoading}
-        />
+        <div className="flex flex-wrap items-start gap-2">
+          <QueryBuilder
+            schema={schemaQuery.data?.filters ?? []}
+            filters={filters}
+            onChange={(next) => {
+              setFilters(next);
+              setPage(1);
+            }}
+            projectId={projectId}
+            isLoading={schemaQuery.isLoading}
+            className="min-w-0 flex-1"
+          />
+
+          <ColumnPicker
+            available={schemaQuery.data?.columns ?? []}
+            renderable={RENDERABLE_COLUMNS}
+            selected={effectiveColumns}
+            onChange={setColumns}
+            required={REQUIRED_COLUMNS}
+            disabled={schemaQuery.isLoading}
+          />
+        </div>
       </div>
 
       <QueryBoundary
@@ -304,6 +385,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                 }
               : undefined
           }
+          columns={tableColumns}
           hideProjectColumn={Boolean(projectId)}
           emptyAction={{
             label: 'New task',
