@@ -192,6 +192,7 @@ export class OpenProjectClient {
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const { method = 'GET', body, query, signal, timeoutMs = env.OPENPROJECT_TIMEOUT_MS } = options;
     const url = this.url(path, query);
+    const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
 
     let lastError: unknown;
 
@@ -206,9 +207,12 @@ export class OpenProjectClient {
           headers: {
             Authorization: this.authorization,
             Accept: 'application/hal+json',
-            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+            // FormData carries its own multipart content type, including the
+            // boundary, which only fetch can generate. Setting one here would
+            // produce a body OpenProject cannot parse.
+            ...(body !== undefined && !isFormData ? { 'Content-Type': 'application/json' } : {}),
           },
-          body: body !== undefined ? JSON.stringify(body) : undefined,
+          body: body === undefined ? undefined : isFormData ? (body as FormData) : JSON.stringify(body),
         });
 
         if (response.ok) {
@@ -248,6 +252,22 @@ export class OpenProjectClient {
     }
 
     throw new OpenProjectError(0, 'Unable to reach OpenProject.', { cause: lastError });
+  }
+
+  /**
+   * The raw response, for bodies that should not be parsed.
+   *
+   * Attachment downloads are streamed straight through to the caller, so the
+   * bytes are never held in memory here and never re-encoded. Retries are
+   * skipped deliberately: a stream cannot be replayed once it has started.
+   */
+  async stream(path: string, signal?: AbortSignal): Promise<Response> {
+    const timeout = AbortSignal.timeout(env.OPENPROJECT_TIMEOUT_MS);
+
+    return fetch(this.url(path), {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      headers: { Authorization: this.authorization, Accept: '*/*' },
+    });
   }
 
   /** One page of a HAL collection. */

@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 
@@ -61,6 +62,13 @@ export async function buildApp(): Promise<FastifyInstance> {
       secure: isProduction,
       path: '/',
     },
+  });
+
+  // Uploads arrive as multipart. The per-file ceiling is enforced per request
+  // from the instance's own configuration; this is a backstop against a body
+  // that never ends.
+  await app.register(multipart, {
+    limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 10 },
   });
 
   await app.register(rateLimit, {

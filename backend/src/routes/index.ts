@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import { attachmentRoutes } from './attachments.js';
 import { authRoutes } from './auth.js';
 import { catalogRoutes } from './catalog.js';
 import { dashboardRoutes } from './dashboard.js';
@@ -37,5 +38,6 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(catalogRoutes);
   await app.register(formRoutes);
   await app.register(workPackageRoutes);
+  await app.register(attachmentRoutes);
   await app.register(queryRoutes);
 };
