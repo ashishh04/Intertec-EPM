@@ -359,6 +359,163 @@ async function main() {
   const schemaBody = JSON.stringify(projectSchema);
   check('the filter schema names no upstream host', /localhost:8080|openproject/i.test(schemaBody), false);
 
+  // --- Query configuration -------------------------------------------------
+  console.log('\nQuery configuration');
+
+  const schema = (await (
+    await call(`/queries/schema?projectId=${project}`, { cookie: admin })
+  ).json()) as {
+    filters: { id: string; name: string; operators: { id: string; arity?: string; valueType?: string }[] }[];
+    columns: { id: string; name: string }[];
+  };
+
+  check('the schema reports available columns', schema.columns.length > 0, true);
+  check(
+    'columns carry display names',
+    schema.columns.every((column) => Boolean(column.name)),
+    true,
+  );
+
+  // Multi-value is a property of the operator, not of the filter's name.
+  const manyOperators = schema.filters
+    .flatMap((filter) => filter.operators)
+    .filter((operator) => operator.arity === 'many');
+  check('some operators accept many values', manyOperators.length > 0, true);
+
+  const rangeOperators = schema.filters
+    .flatMap((filter) => filter.operators)
+    .filter((operator) => operator.arity === 'range');
+  check('range operators stay distinct from many', rangeOperators.length > 0, true);
+
+  // A custom field must be discovered, not enumerated.
+  const customField = schema.filters.find((filter) => filter.id.startsWith('customField'));
+  if (customField) {
+    check('the custom field keeps its configured name', customField.name.length > 0, true);
+    check(
+      'the custom field is offered as a column',
+      schema.columns.some((column) => column.id === customField.id),
+      true,
+    );
+  } else {
+    console.log('  SKIP  no custom field on this instance');
+  }
+
+  // Multiple values must reach OpenProject as a list and narrow the result.
+  const one = encodeURIComponent(JSON.stringify([{ status: { operator: '=', values: ['1'] } }]));
+  const two = encodeURIComponent(
+    JSON.stringify([{ status: { operator: '=', values: ['1', '12'] } }]),
+  );
+  const oneResult = (await (
+    await call(`/queries/default?projectId=${project}&filters=${one}`, { cookie: admin })
+  ).json()) as { total: number };
+  const twoResult = (await (
+    await call(`/queries/default?projectId=${project}&filters=${two}`, { cookie: admin })
+  ).json()) as { total: number };
+
+  check('a single-value filter runs', typeof oneResult.total === 'number', true);
+  check('a second value widens the result', twoResult.total >= oneResult.total, true);
+
+  // A valueless operator must be accepted with an empty array.
+  check(
+    'a valueless operator is accepted',
+    await status(
+      `/queries/default?projectId=${project}&filters=${encodeURIComponent(
+        JSON.stringify([{ status: { operator: 'o', values: [] } }]),
+      )}`,
+      { cookie: admin },
+    ),
+    200,
+  );
+
+  // Column overrides must be applied upstream, in the order given.
+  const chosen = ['id', 'subject', 'storyPoints', 'dueDate'];
+  const withColumns = (await (
+    await call(`/queries/default?projectId=${project}&columns=${chosen.join(',')}`, {
+      cookie: admin,
+    })
+  ).json()) as { query: { columns: { id: string }[] } };
+  check(
+    'the column override is applied in order',
+    withColumns.query.columns.map((column) => column.id).join(',') === chosen.join(','),
+    true,
+  );
+
+  // An empty column list must not be read as "hide everything".
+  const emptyColumns = (await (
+    await call(`/queries/default?projectId=${project}&columns=`, { cookie: admin })
+  ).json()) as { query: { columns: { id: string }[] } };
+  check('an empty column list falls back to the default', emptyColumns.query.columns.length > 0, true);
+
+  // A saved view must carry both its multi-value filters and its columns.
+  const viewResponse = await call('/queries', {
+    method: 'POST',
+    cookie: admin,
+    body: {
+      name: `UX Roundtrip ${Date.now()}`,
+      projectId: project,
+      payload: {
+        _links: { columns: chosen.map((id) => ({ href: `/api/v3/queries/columns/${id}` })) },
+        filters: [
+          {
+            _links: {
+              filter: { href: '/api/v3/queries/filters/status' },
+              operator: { href: '/api/v3/queries/operators/=' },
+              values: [{ href: '/api/v3/statuses/1' }, { href: '/api/v3/statuses/12' }],
+            },
+          },
+        ],
+      },
+    },
+  });
+  check('a view with columns and multiple values saves', viewResponse.status, 201);
+
+  if (viewResponse.ok) {
+    const view = (await viewResponse.json()) as { id: string };
+    const reloaded = (await (await call(`/queries/${view.id}`, { cookie: admin })).json()) as {
+      query: { columns: { id: string }[]; filters: { values: { id: string; name?: string }[] }[] };
+    };
+
+    check(
+      'the saved columns are restored',
+      reloaded.query.columns.map((column) => column.id).join(',') === chosen.join(','),
+      true,
+    );
+    check(
+      'both filter values are restored',
+      reloaded.query.filters[0]?.values.length === 2,
+      true,
+    );
+    check(
+      'restored values carry their titles',
+      reloaded.query.filters[0]?.values.every((value) => Boolean(value.name)),
+      true,
+    );
+
+    check(
+      'a restricted user cannot reconfigure that view',
+      await status(`/queries/${view.id}`, {
+        method: 'PATCH',
+        cookie: restricted,
+        body: { _links: { columns: [] } },
+      }),
+      404,
+    );
+
+    await call(`/queries/${view.id}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+
+  // Scope must not be merged: the restricted caller sees what OpenProject
+  // exposes to them, which is not necessarily what the administrator sees.
+  const restrictedSchema = (await (
+    await call(`/queries/schema?projectId=${project}`, { cookie: restricted })
+  ).json()) as typeof schema;
+  check(
+    'filter availability is per caller',
+    restrictedSchema.filters.length <= schema.filters.length,
+    true,
+  );
+  check('the restricted caller still gets columns', restrictedSchema.columns.length > 0, true);
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
