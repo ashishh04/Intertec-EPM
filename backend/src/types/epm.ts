@@ -160,13 +160,38 @@ export interface Milestone {
 /* Work packages (tasks)                                                       */
 /* -------------------------------------------------------------------------- */
 
-export type TaskStatus =
+/**
+ * EPM's progress classification for a work package.
+ *
+ * This is not the workflow status. OpenProject's statuses are
+ * instance-configurable — fourteen on the reference instance — and several map
+ * onto one category here: New, In specification and Specified are all `todo`.
+ *
+ * The category exists so that boards, charts and metrics have a small, stable
+ * set to group and colour by. Anything that shows a user "the status" should
+ * use `EpmTask.status`, which carries what OpenProject actually says.
+ */
+export type TaskStatusCategory =
   | 'backlog'
   | 'todo'
   | 'in_progress'
   | 'review'
   | 'done'
   | 'blocked';
+
+/**
+ * A work package's actual status, as OpenProject defines it.
+ *
+ * Identity is upstream's: the id is the OpenProject status id, and the name is
+ * whatever an administrator called it. Nothing here is invented, so a renamed
+ * or newly added status flows through without code changes.
+ */
+export interface TaskStatusRef {
+  id: ID;
+  name: string;
+  /** OpenProject's own notion of "this status closes the work package". */
+  isClosed: boolean;
+}
 
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
@@ -179,7 +204,10 @@ export interface EpmTask {
   subject: string;
   description?: string;
   type: TaskType;
-  status: TaskStatus;
+  /** What OpenProject calls this work package's status. Authoritative. */
+  status: TaskStatusRef;
+  /** EPM's coarse progress grouping. Presentation and analytics only. */
+  statusCategory: TaskStatusCategory;
   priority: TaskPriority;
   projectId: ID;
   assigneeId?: ID;
@@ -212,7 +240,12 @@ export interface CreateTaskInput {
   subject: string;
   description?: string;
   type: TaskType;
-  status: TaskStatus;
+  /**
+   * Written as a category, which is lossy: EPM picks a representative
+   * OpenProject status for it. The full-fidelity path is the schema-driven
+   * work package form, which writes the real status id.
+   */
+  status: TaskStatusCategory;
   priority: TaskPriority;
   projectId: ID;
   assigneeId?: ID;
@@ -230,7 +263,7 @@ export type UpdateTaskInput = Partial<CreateTaskInput> & { id: ID };
 export interface TaskFilters {
   projectId?: ID;
   assigneeId?: ID;
-  status?: TaskStatus[];
+  status?: TaskStatusCategory[];
   priority?: TaskPriority[];
   type?: TaskType[];
   sprintId?: ID;
@@ -414,7 +447,8 @@ export interface ReportFilters {
 }
 
 export interface StatusDistribution {
-  status: TaskStatus;
+  /** A progress category, not a workflow status — see TaskStatusCategory. */
+  status: TaskStatusCategory;
   label: string;
   count: number;
 }

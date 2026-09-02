@@ -1,7 +1,7 @@
 import { openProject, linkId } from '../openproject/client.js';
 import { referenceCache } from '../lib/cache.js';
 import type { OpPriority, OpStatus, OpType } from '../openproject/types.js';
-import type { TaskPriority, TaskStatus, TaskType } from '../types/epm.js';
+import type { TaskPriority, TaskStatusCategory, TaskType } from '../types/epm.js';
 
 /**
  * Reference-data translation.
@@ -18,7 +18,7 @@ import type { TaskPriority, TaskStatus, TaskType } from '../types/epm.js';
 /* Statuses                                                                    */
 /* -------------------------------------------------------------------------- */
 
-const STATUS_BY_NAME: Record<string, TaskStatus> = {
+const STATUS_BY_NAME: Record<string, TaskStatusCategory> = {
   // Not started
   'new': 'todo',
   'in specification': 'todo',
@@ -58,10 +58,10 @@ export interface StatusCatalogEntry {
   id: string;
   name: string;
   isClosed: boolean;
-  epm: TaskStatus;
+  epm: TaskStatusCategory;
 }
 
-export function classifyStatus(status: { name: string; isClosed: boolean }): TaskStatus {
+export function classifyStatus(status: { name: string; isClosed: boolean }): TaskStatusCategory {
   const mapped = STATUS_BY_NAME[status.name.trim().toLowerCase()];
   if (mapped) return mapped;
   return status.isClosed ? 'done' : 'todo';
@@ -121,7 +121,7 @@ export interface Catalog {
   typeById: Map<string, { id: string; name: string; epm: TaskType }>;
   priorityById: Map<string, { id: string; name: string; epm: TaskPriority }>;
   /** EPM status -> the OpenProject status ids that collapse into it. */
-  statusIdsByEpm: Map<TaskStatus, string[]>;
+  statusIdsByEpm: Map<TaskStatusCategory, string[]>;
   priorityIdsByEpm: Map<TaskPriority, string[]>;
   typeIdsByEpm: Map<TaskType, string[]>;
 }
@@ -134,7 +134,7 @@ async function loadCatalog(signal?: AbortSignal): Promise<Catalog> {
   ]);
 
   const statusById = new Map<string, StatusCatalogEntry>();
-  const statusIdsByEpm = new Map<TaskStatus, string[]>();
+  const statusIdsByEpm = new Map<TaskStatusCategory, string[]>();
   for (const status of statuses.items) {
     const epm = classifyStatus(status);
     const id = String(status.id);

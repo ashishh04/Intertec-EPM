@@ -14,7 +14,7 @@ import type {
   HealthLevel,
   PortfolioRow,
   StatusDistribution,
-  TaskStatus,
+  TaskStatusCategory,
   TimeEntrySummary,
 } from '../types/epm.js';
 
@@ -28,7 +28,7 @@ const filtersQuery = z.object({
   status: z.string().optional(),
 });
 
-const STATUS_LABEL: Record<TaskStatus, string> = {
+const STATUS_LABEL: Record<TaskStatusCategory, string> = {
   backlog: 'Backlog',
   todo: 'To do',
   in_progress: 'In progress',
@@ -64,7 +64,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
 
       // Several OpenProject statuses collapse into one EPM status, so counts
       // must be summed rather than mapped one to one.
-      const totals = new Map<TaskStatus, number>();
+      const totals = new Map<TaskStatusCategory, number>();
       for (const group of collection.groups ?? []) {
         const id = group._links?.valueLink?.[0]?.href?.split('/').pop();
         const epm = id ? catalog.statusById.get(id)?.epm : undefined;
@@ -72,7 +72,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
         totals.set(epm, (totals.get(epm) ?? 0) + group.count);
       }
 
-      return (Object.keys(STATUS_LABEL) as TaskStatus[])
+      return (Object.keys(STATUS_LABEL) as TaskStatusCategory[])
         .map((status): StatusDistribution => ({
           status,
           label: STATUS_LABEL[status],

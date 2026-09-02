@@ -1,8 +1,13 @@
-import { linkId } from '../openproject/client.js';
+import { linkId, linkTitle } from '../openproject/client.js';
 import { durationToHours } from '../lib/duration.js';
 import { classifyPriority, classifyType, type Catalog } from './catalog.js';
 import type { OpWorkPackage } from '../openproject/types.js';
-import type { EpmTask, TaskPriority, TaskStatus, TaskType } from '../types/epm.js';
+import type {
+  EpmTask,
+  TaskPriority,
+  TaskStatusCategory,
+  TaskType,
+} from '../types/epm.js';
 
 /** Work packages → EpmTask. */
 
@@ -30,7 +35,15 @@ export function toEpmTask(
   const projectId = linkId(links, 'project') ?? '';
   const identifier = projectIdentifierById.get(projectId);
 
-  const status: TaskStatus = statusEntry?.epm ?? 'todo';
+  // The upstream status is carried as-is; the category is EPM's grouping of it.
+  // A status the catalogue does not know still reports its real name and id —
+  // only the category falls back, so an unmapped status is never hidden.
+  const status = {
+    id: statusId ?? '',
+    name: statusEntry?.name ?? linkTitle(links, 'status') ?? 'Unknown',
+    isClosed: statusEntry?.isClosed ?? false,
+  };
+  const statusCategory: TaskStatusCategory = statusEntry?.epm ?? 'todo';
   const type: TaskType = typeEntry?.epm ?? 'task';
   const priority: TaskPriority = priorityEntry?.epm ?? 'medium';
 
@@ -49,6 +62,7 @@ export function toEpmTask(
     description: workPackage.description?.raw ?? undefined,
     type,
     status,
+    statusCategory,
     priority,
     projectId,
     assigneeId: linkId(links, 'assignee'),
@@ -80,5 +94,7 @@ export function expandIds<T extends string>(
 }
 
 export function isOverdue(task: EpmTask, today: string): boolean {
-  return Boolean(task.dueDate && task.dueDate < today && task.status !== 'done');
+  // Overdue is a question about progress, so it reads the category rather
+  // than the workflow status — 'done' is EPM's notion of complete.
+  return Boolean(task.dueDate && task.dueDate < today && task.statusCategory !== 'done');
 }
