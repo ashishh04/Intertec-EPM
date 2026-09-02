@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { MultiSelect } from '@/components/common/MultiSelect';
 import { cn } from '@/lib/utils';
 import {
   useProjectAssignees,
@@ -122,6 +123,26 @@ function ValueControl({
   }
 
   if (candidates) {
+    // `many` is the schema saying this filter takes a list — status in
+    // (Open, In progress) rather than one value at a time. `range` is handled
+    // above and is deliberately not treated as a list.
+    if (operator.arity === 'many') {
+      return (
+        <MultiSelect
+          label={`${filter.name} values`}
+          options={candidates}
+          selected={filter.values.map((value) => ({
+            id: value.id,
+            // A saved query supplies ids with titles; fall back to the
+            // candidate list, then to the raw id, so a value is never blank.
+            name: value.name ?? candidates.find((c) => c.id === value.id)?.name ?? value.id,
+          }))}
+          onChange={(values) => onChange(values.map((v) => ({ id: v.id, name: v.name })))}
+          className="w-64"
+        />
+      );
+    }
+
     const selected = filter.values[0]?.id ?? '';
     return (
       <Select
