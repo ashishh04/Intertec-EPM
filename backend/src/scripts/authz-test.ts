@@ -876,6 +876,149 @@ async function main() {
     200,
   );
 
+  // --- Status contract -------------------------------------------------------
+  console.log('\nStatus contract');
+
+  interface StatusTask {
+    id: string;
+    key: string;
+    status: { id: string; name: string; isClosed: boolean };
+    statusCategory: string;
+  }
+
+  const statuses = (await (
+    await call('/catalog/statuses', { cookie: admin })
+  ).json()) as { id: string; name: string; isClosed: boolean }[];
+
+  const withTasks = (await (
+    await call(`/queries/default?projectId=${project}&pageSize=25&filters=%5B%5D`, {
+      cookie: admin,
+    })
+  ).json()) as { tasks: StatusTask[] };
+
+  const sample = withTasks.tasks[0];
+  check('a task carries a native status object', typeof sample?.status === 'object', true);
+  check('the native status has an id', Boolean(sample?.status?.id), true);
+  check('the native status has a name', Boolean(sample?.status?.name), true);
+  check('the task still carries a category', typeof sample?.statusCategory === 'string', true);
+
+  // The identity must be OpenProject's, not something EPM minted.
+  const catalogById = new Map(statuses.map((status) => [status.id, status]));
+  check(
+    'every native status id exists in the instance catalogue',
+    withTasks.tasks.every((task) => catalogById.has(task.status.id)),
+    true,
+  );
+  check(
+    'every native status name matches the catalogue',
+    withTasks.tasks.every((task) => catalogById.get(task.status.id)?.name === task.status.name),
+    true,
+  );
+  check(
+    'isClosed matches the catalogue',
+    withTasks.tasks.every(
+      (task) => catalogById.get(task.status.id)?.isClosed === task.status.isClosed,
+    ),
+    true,
+  );
+
+  // The category is coarser than the status: that is the whole point of it.
+  const distinctStatuses = new Set(withTasks.tasks.map((task) => task.status.name));
+  const distinctCategories = new Set(withTasks.tasks.map((task) => task.statusCategory));
+  check(
+    'several statuses collapse into fewer categories',
+    distinctStatuses.size > distinctCategories.size,
+    true,
+  );
+
+  // The inconsistency this work exists to remove: a group header and the rows
+  // beneath it must name the same thing.
+  const groupedByStatus = (await (
+    await call(
+      `/queries/default?projectId=${project}&groupBy=status&pageSize=25&filters=%5B%5D`,
+      { cookie: admin },
+    )
+  ).json()) as {
+    tasks: StatusTask[];
+    groups?: { value: string | null; taskIds: string[] }[];
+  };
+
+  const taskById = new Map(groupedByStatus.tasks.map((task) => [task.id, task]));
+  const disagreements = (groupedByStatus.groups ?? []).flatMap((group) =>
+    group.taskIds
+      .map((id) => taskById.get(id))
+      .filter((task): task is StatusTask => task !== undefined)
+      .filter((task) => task.status.name !== group.value)
+      .map((task) => `${task.key}: group ${group.value} vs row ${task.status.name}`),
+  );
+  check('group headers agree with the rows beneath them', disagreements.join(','), '');
+
+  // Filtering still speaks upstream status ids, not categories.
+  const firstStatus = statuses[0];
+  if (firstStatus) {
+    const byStatus = encodeURIComponent(
+      JSON.stringify([{ status: { operator: '=', values: [firstStatus.id] } }]),
+    );
+    const filtered = (await (
+      await call(`/queries/default?projectId=${project}&filters=${byStatus}`, { cookie: admin })
+    ).json()) as { tasks: StatusTask[] };
+
+    check(
+      'a status filter returns only that status',
+      filtered.tasks.every((task) => task.status.id === firstStatus.id),
+      true,
+    );
+  }
+
+  // Nothing may hardcode the current status names: the catalogue is the source.
+  check('the instance catalogue drives the status set', statuses.length > 0, true);
+  check(
+    'catalogue entries carry id, name and closed state',
+    statuses.every(
+      (status) =>
+        Boolean(status.id) && Boolean(status.name) && typeof status.isClosed === 'boolean',
+    ),
+    true,
+  );
+
+  // Sorting and columns continue to work against the native status.
+  const sortedByStatus = (await (
+    await call(
+      `/queries/default?projectId=${project}&sortBy=${encodeURIComponent(
+        JSON.stringify([['status', 'asc']]),
+      )}&columns=id,subject,status&pageSize=5`,
+      { cookie: admin },
+    )
+  ).json()) as { query: { columns: { id: string }[]; sortBy: { field: string }[] } };
+  check('status remains sortable', sortedByStatus.query.sortBy[0]?.field, 'status');
+  check(
+    'status remains selectable as a column',
+    sortedByStatus.query.columns.some((column) => column.id === 'status'),
+    true,
+  );
+
+  // A restricted caller sees the same native identity, subject to visibility.
+  const restrictedTasks = (await (
+    await call(`/queries/default?projectId=${project}&pageSize=5`, { cookie: restricted })
+  ).json()) as { tasks: StatusTask[] };
+  check(
+    'a restricted caller also receives native statuses',
+    restrictedTasks.tasks.every((task) => Boolean(task.status?.id) && Boolean(task.status?.name)),
+    true,
+  );
+
+  // The category vocabulary is still reported by the distribution report, which
+  // aggregates deliberately rather than losing information by accident.
+  const distribution = (await (
+    await call(`/reports/status-distribution?projectId=${project}`, { cookie: admin })
+  ).json()) as { status: string; label: string; count: number }[];
+  check('the status distribution still reports categories', Array.isArray(distribution), true);
+  check(
+    'distribution rows carry a category and a label',
+    distribution.every((row) => Boolean(row.status) && Boolean(row.label)),
+    true,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);

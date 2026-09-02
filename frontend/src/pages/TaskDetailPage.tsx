@@ -64,6 +64,10 @@ export default function TaskDetailPage() {
   const sprintsQuery = useSprints();
   const updateTask = useUpdateTask();
   const addComment = useAddComment();
+  // Declared with the other hooks: the guards below return early, and a hook
+  // after them runs on some renders and not others.
+  const statuses = useStatuses();
+  const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
 
   if (isError) {
@@ -92,9 +96,6 @@ export default function TaskDetailPage() {
   const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
   const author = users.get(task.authorId);
   const sprint = sprintsQuery.data?.find((item) => item.id === task.sprintId);
-
-  const statuses = useStatuses();
-  const queryClient = useQueryClient();
 
   const patch = (values: Parameters<typeof updateTask.mutate>[0]) =>
     updateTask.mutate(values, {
