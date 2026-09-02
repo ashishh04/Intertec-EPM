@@ -473,7 +473,7 @@ export function TaskTable({
                 const { task } = row;
                 const project = projects.get(task.projectId);
                 const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
-                const due = describeDueDate(task.dueDate, task.status === 'done');
+                const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
                 const isSelected = selected.has(task.id);
 
                 return (
@@ -502,7 +502,11 @@ export function TaskTable({
                         ) : column === 'type' ? (
                           <TypeBadge type={task.type} />
                         ) : column === 'status' ? (
-                          <StatusBadge status={task.status} size="sm" />
+                          <StatusBadge
+                            status={task.statusCategory}
+                            label={task.status.name}
+                            size="sm"
+                          />
                         ) : column === 'priority' ? (
                           <PriorityBadge priority={task.priority} />
                         ) : column === 'assignee' ? (

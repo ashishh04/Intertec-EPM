@@ -17,23 +17,42 @@ import type {
   ProjectStatus,
   SprintState,
   TaskPriority,
-  TaskStatus,
+  TaskStatusCategory,
   TaskType,
 } from '@/types';
 
 export function StatusBadge({
   status,
+  label,
   size = 'default',
   className,
 }: {
-  status: TaskStatus;
+  /** Drives the tone. EPM's progress category, not the workflow status. */
+  status: TaskStatusCategory;
+  /**
+   * Text to show instead of the category's own label.
+   *
+   * Surfaces that display a specific work package pass OpenProject's actual
+   * status name here, so the badge reads "In specification" while still being
+   * coloured by the category it belongs to. Aggregate surfaces — boards,
+   * charts — omit it and show the category, which is what they group by.
+   */
+  label?: string;
   size?: 'sm' | 'default';
   className?: string;
 }) {
   const meta = TASK_STATUS_META[status];
   return (
-    <Badge tone={meta.tone} size={size} dot className={className} title={meta.description}>
-      {meta.label}
+    <Badge
+      tone={meta.tone}
+      size={size}
+      dot
+      className={className}
+      // When a real status is shown, the category becomes the explanation of
+      // the colour rather than the label itself.
+      title={label ? `${meta.label} — ${meta.description}` : meta.description}
+    >
+      {label ?? meta.label}
     </Badge>
   );
 }

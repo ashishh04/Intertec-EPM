@@ -11,7 +11,7 @@ import { useSprints } from '@/hooks/useSprints';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
-import type { ID, TaskFilters, TaskStatus } from '@/types';
+import type { ID, TaskFilters, TaskStatusCategory } from '@/types';
 
 /** Delivery board for a single project. */
 export default function ProjectBoardTab() {
@@ -28,7 +28,7 @@ export default function ProjectBoardTab() {
 
   const tasks = useMemo(() => query.data?.items ?? [], [query.data]);
 
-  const handleStatusChange = (taskId: ID, status: TaskStatus) => {
+  const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
       { id: taskId, status },
       {

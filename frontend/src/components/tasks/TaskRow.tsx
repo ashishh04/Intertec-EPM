@@ -25,7 +25,7 @@ interface TaskRowProps {
  * target so it is reachable by keyboard in a single tab stop.
  */
 function TaskRow({ task, project, assignee, className }: TaskRowProps) {
-  const due = describeDueDate(task.dueDate, task.status === 'done');
+  const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
 
   return (
     <Link
@@ -59,7 +59,12 @@ function TaskRow({ task, project, assignee, className }: TaskRowProps) {
 
       <UserAvatarWithTooltip user={assignee} size="sm" className="hidden shrink-0 sm:inline-flex" />
 
-      <StatusBadge status={task.status} size="sm" className="shrink-0" />
+      <StatusBadge
+        status={task.statusCategory}
+        label={task.status.name}
+        size="sm"
+        className="shrink-0"
+      />
     </Link>
   );
 }

@@ -20,7 +20,7 @@ import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
-import type { ID, TaskFilters, TaskStatus } from '@/types';
+import type { ID, TaskFilters, TaskStatusCategory } from '@/types';
 
 /** Board workspace with a project switcher, for teams that live on the board. */
 export default function BoardsPage() {
@@ -49,7 +49,7 @@ export default function BoardsPage() {
   const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
   const project = projectsQuery.data?.find((item) => item.id === projectId);
 
-  const handleStatusChange = (taskId: ID, status: TaskStatus) => {
+  const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
       { id: taskId, status },
       {

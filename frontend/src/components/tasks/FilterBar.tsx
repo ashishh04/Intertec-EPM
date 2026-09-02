@@ -31,7 +31,7 @@ import type {
   EpmUser,
   TaskFilters,
   TaskPriority,
-  TaskStatus,
+  TaskStatusCategory,
 } from '@/types';
 
 export interface FilterBarProps {
@@ -68,7 +68,7 @@ export function FilterBar({
 }: FilterBarProps) {
   const set = (patch: Partial<TaskFilters>) => onChange({ ...filters, ...patch, page: 1 });
 
-  const toggleStatus = (status: TaskStatus) => {
+  const toggleStatus = (status: TaskStatusCategory) => {
     const current = filters.status ?? [];
     set({
       status: current.includes(status)

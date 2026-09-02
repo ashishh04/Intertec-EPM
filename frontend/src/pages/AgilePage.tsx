@@ -27,7 +27,7 @@ import { useDeliveryTrends } from '@/hooks/useReports';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
 import { daysFromToday, formatShortDate } from '@/lib/utils';
-import type { ID, TaskStatus } from '@/types';
+import type { ID, TaskStatusCategory } from '@/types';
 
 /** Agile workspace: the sprint, its burndown and its board in one place. */
 export default function AgilePage() {
@@ -52,7 +52,7 @@ export default function AgilePage() {
   const tasksQuery = useTasks({ sprintId: sprint?.id, pageSize: 200 });
   const tasks = tasksQuery.data?.items ?? [];
 
-  const handleStatusChange = (taskId: ID, status: TaskStatus) => {
+  const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
       { id: taskId, status },
       {

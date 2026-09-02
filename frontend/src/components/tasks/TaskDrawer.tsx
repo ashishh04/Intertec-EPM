@@ -34,7 +34,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useUsers } from '@/hooks/useUsers';
 import { useSprints } from '@/hooks/useSprints';
 import { useCreateTask, useTasks } from '@/hooks/useTasks';
-import type { CreateTaskInput, TaskPriority, TaskStatus, TaskType } from '@/types';
+import type { CreateTaskInput, TaskPriority, TaskStatusCategory, TaskType } from '@/types';
 
 const NONE = '__none__';
 
@@ -137,7 +137,7 @@ export function TaskDrawer() {
       subject: values.subject.trim(),
       description: values.description?.trim() || undefined,
       type: values.type as TaskType,
-      status: values.status as TaskStatus,
+      status: values.status as TaskStatusCategory,
       priority: values.priority as TaskPriority,
       projectId: values.projectId,
       assigneeId: values.assigneeId === NONE ? undefined : values.assigneeId,

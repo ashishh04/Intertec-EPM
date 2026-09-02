@@ -207,7 +207,7 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
               >
                 {task.subject}
               </Link>
-              <StatusBadge status={task.status} size="sm" className="hidden shrink-0 sm:inline-flex" />
+              <StatusBadge status={task.statusCategory} size="sm" className="hidden shrink-0 sm:inline-flex" />
             </div>
           ))}
         </div>
@@ -318,7 +318,7 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
                   columnWidth,
                   (differenceInCalendarDays(end, start) + 1) * columnWidth,
                 );
-                const tone = TASK_STATUS_META[task.status].tone;
+                const tone = TASK_STATUS_META[task.statusCategory].tone;
 
                 // Dependency link to the previous row, drawn when it finishes first.
                 const previous = scheduled[rowIndex - 1];

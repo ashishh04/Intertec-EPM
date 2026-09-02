@@ -12,7 +12,7 @@ import { useActiveSprint } from '@/hooks/useSprints';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
-import type { ID, TaskStatus } from '@/types';
+import type { ID, TaskStatusCategory } from '@/types';
 
 /** The active sprint as it applies to this project. */
 export default function ProjectSprintTab() {
@@ -30,7 +30,7 @@ export default function ProjectSprintTab() {
 
   const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
 
-  const handleStatusChange = (taskId: ID, status: TaskStatus) => {
+  const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
       { id: taskId, status },
       {

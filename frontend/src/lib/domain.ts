@@ -7,7 +7,7 @@ import type {
   ProjectStatus,
   SprintState,
   TaskPriority,
-  TaskStatus,
+  TaskStatusCategory,
   TaskType,
 } from '@/types';
 
@@ -33,7 +33,7 @@ export interface StateMeta {
 /* Task status                                                                 */
 /* -------------------------------------------------------------------------- */
 
-export const TASK_STATUS_META: Record<TaskStatus, StateMeta> = {
+export const TASK_STATUS_META: Record<TaskStatusCategory, StateMeta> = {
   backlog: { label: 'Backlog', tone: 'neutral', description: 'Not yet scheduled' },
   todo: { label: 'To Do', tone: 'primary', description: 'Scheduled, not started' },
   in_progress: { label: 'In Progress', tone: 'accent', description: 'Actively being worked on' },
@@ -43,7 +43,7 @@ export const TASK_STATUS_META: Record<TaskStatus, StateMeta> = {
 };
 
 /** Column order used by the board, filters and status distribution charts. */
-export const TASK_STATUS_ORDER: TaskStatus[] = [
+export const TASK_STATUS_ORDER: TaskStatusCategory[] = [
   'backlog',
   'todo',
   'in_progress',
@@ -51,7 +51,7 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
   'done',
 ];
 
-export const ALL_TASK_STATUSES: TaskStatus[] = [...TASK_STATUS_ORDER, 'blocked'];
+export const ALL_TASK_STATUSES: TaskStatusCategory[] = [...TASK_STATUS_ORDER, 'blocked'];
 
 /* -------------------------------------------------------------------------- */
 /* Priority                                                                    */

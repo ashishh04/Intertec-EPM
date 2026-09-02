@@ -172,7 +172,7 @@ export function CommandPalette() {
                   <SquareKanban />
                   <span className="truncate">{task.subject}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-2">
-                    <StatusBadge status={task.status} size="sm" />
+                    <StatusBadge status={task.statusCategory} size="sm" />
                     <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
                   </span>
                 </CommandItem>

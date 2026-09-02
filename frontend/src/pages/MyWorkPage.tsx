@@ -21,7 +21,7 @@ import { useUI } from '@/providers/UIProvider';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
 import { pluralize } from '@/lib/utils';
-import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, TaskStatus } from '@/types';
+import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, TaskStatusCategory } from '@/types';
 import { toast } from 'sonner';
 
 type ViewMode = 'list' | 'board';
@@ -84,7 +84,7 @@ export default function MyWorkPage() {
     };
 
     for (const task of tasks) {
-      if (task.status === 'done') {
+      if (task.statusCategory === 'done') {
         buckets.completed.push(task);
         continue;
       }
@@ -105,7 +105,7 @@ export default function MyWorkPage() {
     ? SECTIONS.filter((section) => section.key === filters.bucket)
     : SECTIONS;
 
-  const handleStatusChange = (taskId: ID, status: TaskStatus) => {
+  const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
       { id: taskId, status },
       {

@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PriorityBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
-import type { ID, EpmTask, EpmUser, TaskStatus } from '@/types';
+import type { ID, EpmTask, EpmUser, TaskStatusCategory } from '@/types';
 
 /** Cards rendered per column before the reader has to ask for more. */
 const COLUMN_PAGE_SIZE = 15;
@@ -29,10 +29,10 @@ const COLUMN_PAGE_SIZE = 15;
 interface KanbanBoardProps {
   tasks: EpmTask[];
   users: Map<ID, EpmUser>;
-  onStatusChange: (taskId: ID, status: TaskStatus) => void;
-  onCreate?: (status: TaskStatus) => void;
+  onStatusChange: (taskId: ID, status: TaskStatusCategory) => void;
+  onCreate?: (status: TaskStatusCategory) => void;
   /** Column set. Defaults to the standard delivery flow. */
-  columns?: TaskStatus[];
+  columns?: TaskStatusCategory[];
   className?: string;
 }
 
@@ -58,11 +58,11 @@ export function KanbanBoard({
   );
 
   const grouped = useMemo(() => {
-    const map = new Map<TaskStatus, EpmTask[]>();
+    const map = new Map<TaskStatusCategory, EpmTask[]>();
     for (const status of columns) map.set(status, []);
     for (const task of tasks) {
-      if (!map.has(task.status)) continue;
-      map.get(task.status)!.push(task);
+      if (!map.has(task.statusCategory)) continue;
+      map.get(task.statusCategory)!.push(task);
     }
     return map;
   }, [tasks, columns]);
@@ -76,9 +76,9 @@ export function KanbanBoard({
     const { active, over } = event;
     if (!over) return;
 
-    const nextStatus = over.id as TaskStatus;
+    const nextStatus = over.id as TaskStatusCategory;
     const task = tasks.find((item) => item.id === active.id);
-    if (!task || task.status === nextStatus) return;
+    if (!task || task.statusCategory === nextStatus) return;
     onStatusChange(task.id, nextStatus);
   };
 
@@ -121,10 +121,10 @@ function KanbanColumn({
   users,
   onCreate,
 }: {
-  status: TaskStatus;
+  status: TaskStatusCategory;
   tasks: EpmTask[];
   users: Map<ID, EpmUser>;
-  onCreate?: (status: TaskStatus) => void;
+  onCreate?: (status: TaskStatusCategory) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
   const meta = TASK_STATUS_META[status];
@@ -221,7 +221,7 @@ function KanbanCard({
   assignee?: EpmUser;
   dragging?: boolean;
 }) {
-  const due = describeDueDate(task.dueDate, task.status === 'done');
+  const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
 
   return (
     <article

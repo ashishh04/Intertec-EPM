@@ -99,7 +99,7 @@ export default function ReportsPage() {
   const overdue = useMemo(
     () =>
       (tasksQuery.data?.items ?? [])
-        .filter((task) => task.status !== 'done' && (daysFromToday(task.dueDate) ?? 0) < 0)
+        .filter((task) => task.statusCategory !== 'done' && (daysFromToday(task.dueDate) ?? 0) < 0)
         .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '')),
     [tasksQuery.data],
   );

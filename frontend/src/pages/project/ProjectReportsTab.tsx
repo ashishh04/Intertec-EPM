@@ -25,7 +25,7 @@ export default function ProjectReportsTab() {
   const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
 
   const stats = useMemo(() => {
-    const open = tasks.filter((task) => task.status !== 'done');
+    const open = tasks.filter((task) => task.statusCategory !== 'done');
     const overdue = open.filter((task) => (daysFromToday(task.dueDate) ?? 0) < 0);
     const spent = tasks.reduce((sum, task) => sum + (task.spentHours ?? 0), 0);
     const estimated = tasks.reduce((sum, task) => sum + (task.estimatedHours ?? 0), 0);
@@ -43,7 +43,7 @@ export default function ProjectReportsTab() {
   const byAssignee = useMemo(() => {
     const counts = new Map<string, number>();
     for (const task of tasks) {
-      if (task.status === 'done' || !task.assigneeId) continue;
+      if (task.statusCategory === 'done' || !task.assigneeId) continue;
       counts.set(task.assigneeId, (counts.get(task.assigneeId) ?? 0) + 1);
     }
     return [...counts.entries()]

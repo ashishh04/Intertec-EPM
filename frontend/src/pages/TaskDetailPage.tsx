@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { Ellipsis, Eye, Pencil, Send, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -41,12 +42,13 @@ import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useSprints } from '@/hooks/useSprints';
 import {
   ALL_TASK_PRIORITIES,
-  ALL_TASK_STATUSES,
   TASK_PRIORITY_META,
-  TASK_STATUS_META,
 } from '@/lib/domain';
 import { formatDateTime, formatHours, formatLongDate, formatRelative } from '@/lib/utils';
-import type { TaskPriority, TaskStatus } from '@/types';
+import type { TaskPriority } from '@/types';
+import { useStatuses } from '@/hooks/useCatalog';
+import { invalidationGroups } from '@/lib/queryKeys';
+import { workPackageService } from '@/services';
 
 /** Work-package detail. Content on the left, the full metadata panel on the right. */
 export default function TaskDetailPage() {
@@ -91,6 +93,9 @@ export default function TaskDetailPage() {
   const author = users.get(task.authorId);
   const sprint = sprintsQuery.data?.find((item) => item.id === task.sprintId);
 
+  const statuses = useStatuses();
+  const queryClient = useQueryClient();
+
   const patch = (values: Parameters<typeof updateTask.mutate>[0]) =>
     updateTask.mutate(values, {
       onSuccess: () => toast.success('Task updated'),
@@ -133,7 +138,7 @@ export default function TaskDetailPage() {
         title={task.subject}
         meta={
           <>
-            <StatusBadge status={task.status} />
+            <StatusBadge status={task.statusCategory} label={task.status.name} />
             <TypeBadge type={task.type} />
           </>
         }
@@ -358,17 +363,38 @@ export default function TaskDetailPage() {
           <CardContent className="space-y-4 pt-4">
             <div className="space-y-1.5">
               <p className="epm-eyebrow">Status</p>
+              {/*
+                * Offers the instance's real statuses rather than EPM's six
+                * categories, and writes the status id upstream. Choosing from
+                * categories would have meant picking a representative status on
+                * the user's behalf — a page showing "New" that could only be
+                * set back to "To Do".
+                */}
               <Select
-                value={task.status}
-                onValueChange={(value) => patch({ id: task.id, status: value as TaskStatus })}
+                value={task.status.id}
+                onValueChange={(statusId) => {
+                  workPackageService
+                    .update(task.id, { _links: { status: { href: `/api/v3/statuses/${statusId}` } } })
+                    .then(async () => {
+                      toast.success('Task updated');
+                      for (const key of invalidationGroups.taskWrite) {
+                        await queryClient.invalidateQueries({ queryKey: key });
+                      }
+                    })
+                    .catch((error: unknown) =>
+                      toast.error('Unable to save changes', {
+                        description: error instanceof Error ? error.message : undefined,
+                      }),
+                    );
+                }}
               >
                 <SelectTrigger className="h-8 text-xs" aria-label="Task status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ALL_TASK_STATUSES.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {TASK_STATUS_META[status].label}
+                  {(statuses.data ?? []).map((status) => (
+                    <SelectItem key={status.id} value={status.id}>
+                      {status.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
