@@ -1,8 +1,8 @@
 import { useParams } from 'react-router-dom';
-import { TaskWorkspace } from '@/components/tasks/TaskWorkspace';
+import { QueryWorkspace } from '@/components/tasks/QueryWorkspace';
 
 /** All work packages inside one project. */
 export default function ProjectTasksTab() {
   const { projectId } = useParams();
-  return <TaskWorkspace projectId={projectId} />;
+  return <QueryWorkspace projectId={projectId} />;
 }
