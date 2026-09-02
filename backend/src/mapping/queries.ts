@@ -181,6 +181,22 @@ export interface QueryColumn {
   name: string;
 }
 
+/**
+ * One group in a grouped result.
+ *
+ * `count` is authoritative for the whole filtered set, not for the page:
+ * OpenProject paginates work packages, and reports every group with its true
+ * size regardless of which of them landed on this page. A group can therefore
+ * legitimately show a count of seven while contributing two rows here.
+ */
+export interface TaskGroup {
+  /** Display value. Null when the grouped attribute is unset on those records. */
+  value: string | null;
+  count: number;
+  /** Ids of the records on the current page belonging to this group. */
+  taskIds: string[];
+}
+
 export interface QuerySort {
   field: string;
   direction: 'asc' | 'desc';
@@ -298,6 +314,66 @@ export function toEpmQuery(query: OpQuery): EpmQuery {
       unstar: Object.hasOwn(links, 'unstar'),
     },
   };
+}
+
+/**
+ * The value a work package groups under, for the field being grouped by.
+ *
+ * Resource attributes carry their label on the link; scalars sit on the record.
+ * Read generically rather than by field, so grouping by a custom field needs no
+ * special case.
+ */
+function groupValueOf(workPackage: Record<string, unknown>, field: string): string | null {
+  const links = workPackage._links as Record<string, { title?: string | null } | undefined> | undefined;
+  const title = links?.[field]?.title;
+  if (title !== undefined && title !== null) return String(title);
+
+  const scalar = workPackage[field];
+  if (scalar === undefined || scalar === null) return null;
+
+  // A Formattable renders as its raw text; anything else stringifies.
+  if (typeof scalar === 'object' && 'raw' in (scalar as object)) {
+    const raw = (scalar as { raw?: unknown }).raw;
+    return raw === undefined || raw === null ? null : String(raw);
+  }
+
+  return String(scalar);
+}
+
+/**
+ * Attaches the current page's records to the groups OpenProject reported.
+ *
+ * Elements arrive ordered so that groups are contiguous and in the same order
+ * as the summary, but the summary's counts span the whole result set, so they
+ * cannot be used to slice the page. Each record's own value decides where it
+ * belongs, which also keeps this correct if the ordering guarantee ever changes.
+ */
+export function toTaskGroups(
+  groups: { value?: unknown; count?: number }[],
+  elements: Record<string, unknown>[],
+  field: string,
+): TaskGroup[] {
+  const byValue = new Map<string, string[]>();
+
+  for (const element of elements) {
+    const value = groupValueOf(element, field);
+    const key = value ?? ' null';
+    const bucket = byValue.get(key);
+    const id = String(element.id ?? '');
+    if (!id) continue;
+    if (bucket) bucket.push(id);
+    else byValue.set(key, [id]);
+  }
+
+  return groups.map((group) => {
+    const value =
+      group.value === undefined || group.value === null ? null : String(group.value);
+    return {
+      value,
+      count: group.count ?? 0,
+      taskIds: byValue.get(value ?? ' null') ?? [],
+    };
+  });
 }
 
 export { linkTitle };

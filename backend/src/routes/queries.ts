@@ -11,8 +11,10 @@ import { toEpmTask } from '../mapping/tasks.js';
 import {
   toEpmQuery,
   toFilterSchema,
+  toTaskGroups,
   type QueryColumn,
   type QueryFilterSchema,
+  type TaskGroup,
 } from '../mapping/queries.js';
 import type { HalCollection, OpWorkPackage } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
@@ -104,7 +106,13 @@ function asEpmError(error: unknown): EpmError {
 }
 
 interface QueryResponse {
-  _embedded?: { results?: HalCollection<OpWorkPackage> & { total?: number } };
+  _embedded?: {
+    results?: HalCollection<OpWorkPackage> & {
+      total?: number;
+      /** Present only when the query groups; summarises the whole result set. */
+      groups?: { value?: unknown; count?: number }[];
+    };
+  };
 }
 
 /** A query plus the page of work packages it selects. */
@@ -112,7 +120,15 @@ async function runAndNormalize(
   path: string,
   params: QueryParams,
   signal: AbortSignal,
-): Promise<{ query: ReturnType<typeof toEpmQuery>; tasks: EpmTask[]; total: number; pageSize: number; page: number }> {
+): Promise<{
+  query: ReturnType<typeof toEpmQuery>;
+  tasks: EpmTask[];
+  /** Present only when grouping; absent rather than empty when not. */
+  groups?: TaskGroup[];
+  total: number;
+  pageSize: number;
+  page: number;
+}> {
   const response = await openProject.request<QueryResponse & Parameters<typeof toEpmQuery>[0]>(path, {
     query: params,
     signal,
@@ -124,9 +140,23 @@ async function runAndNormalize(
   const catalog = await getCatalog(signal);
   const identifiers = new Map<string, string>();
 
+  const query = toEpmQuery(response);
+
+  // Groups only mean something alongside the field they were built from.
+  const rawGroups = results?.groups;
+  const groups =
+    rawGroups && query.groupBy
+      ? toTaskGroups(
+          rawGroups,
+          elements as unknown as Record<string, unknown>[],
+          query.groupBy,
+        )
+      : undefined;
+
   return {
-    query: toEpmQuery(response),
+    query,
     tasks: elements.map((workPackage) => toEpmTask(workPackage, catalog, identifiers)),
+    ...(groups ? { groups } : {}),
     total: results?.total ?? elements.length,
     pageSize: (results as { pageSize?: number } | undefined)?.pageSize ?? elements.length,
     page: (results as { offset?: number } | undefined)?.offset ?? 1,
@@ -196,7 +226,7 @@ async function applyTitles(
 async function queryCapabilities(
   projectId: string | undefined,
   signal: AbortSignal,
-): Promise<{ columns: QueryColumn[]; sortable: string[] }> {
+): Promise<{ columns: QueryColumn[]; sortable: string[]; groupable: QueryColumn[] }> {
   return referenceCache.get(`query-capabilities:${projectId ?? 'global'}`, async () => {
     const form = await openProject
       .request<{
@@ -206,6 +236,7 @@ async function queryCapabilities(
             sortBy?: {
               _embedded?: { allowedValues?: { _links?: { column?: { href?: string } } }[] };
             };
+            groupBy?: { _embedded?: { allowedValues?: { id?: string; name?: string }[] } };
           };
         };
       }>('/queries/form', {
@@ -231,8 +262,14 @@ async function queryCapabilities(
       ),
     ];
 
-    return { columns, sortable };
-  }) as Promise<{ columns: QueryColumn[]; sortable: string[] }>;
+    // Grouping is offered for a much narrower set than columns or sorting, and
+    // carries its own titles — including a custom field's configured name.
+    const groupable = (schema?.groupBy?._embedded?.allowedValues ?? [])
+      .filter((option): option is { id: string; name?: string } => Boolean(option.id))
+      .map((option) => ({ id: option.id, name: option.name ?? option.id }));
+
+    return { columns, sortable, groupable };
+  }) as Promise<{ columns: QueryColumn[]; sortable: string[]; groupable: QueryColumn[] }>;
 }
 
 export const queryRoutes: FastifyPluginAsync = async (app) => {
@@ -267,9 +304,9 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
       await applyTitles(filters, projectId ?? 'global', signal);
       filters.sort((a, b) => a.name.localeCompare(b.name));
 
-      const { columns, sortable } = await queryCapabilities(projectId, signal);
+      const { columns, sortable, groupable } = await queryCapabilities(projectId, signal);
 
-      return { filters, columns, sortable };
+      return { filters, columns, sortable, groupable };
     } catch (error) {
       throw asEpmError(error);
     }
