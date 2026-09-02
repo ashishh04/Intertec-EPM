@@ -82,6 +82,15 @@ export const watcherRoutes: FastifyPluginAsync = async (app) => {
 
     const links = await workPackageLinks(request, id);
 
+    // Seeing who watches a work package is a permission of its own upstream
+    // (`view_work_package_watchers`), separate from seeing the work package.
+    // Attachments have no such split, which is why they are readable by anyone
+    // who can open the task and these are not. The published link is the
+    // authority for it.
+    if (!Object.hasOwn(links, 'watchers')) {
+      throw EpmError.forbidden('You do not have permission to see who is watching this work package.');
+    }
+
     // `watch` and `unwatch` are mutually exclusive: OpenProject publishes
     // whichever one is the available next move, which is what makes the
     // presence of `unwatch` a reliable "you are watching this" signal.
@@ -116,6 +125,12 @@ export const watcherRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
 
       await guard.require(request, 'task:view', await guard.projectOfWorkPackage(request, id));
+
+      const links = await workPackageLinks(request, id);
+
+      if (!Object.hasOwn(links, 'availableWatchers')) {
+        throw EpmError.forbidden('You do not have permission to add watchers to this work package.');
+      }
 
       const collection = await openProject.getCollection<OpUser>(
         `/work_packages/${id}/available_watchers`,

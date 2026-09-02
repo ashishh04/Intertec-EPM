@@ -23,6 +23,10 @@ import type { ID } from '@/types';
  * Every control here is shown on an affordance OpenProject published for this
  * user and this record, and the backend re-checks the same one. Candidates come
  * from upstream too, so the picker cannot offer someone it would then refuse.
+ *
+ * Whether the panel appears at all is the same question: viewing watchers is a
+ * distinct permission upstream, so a user who can open the task may still not
+ * be allowed to see who follows it.
  */
 
 interface TaskWatchersProps {
@@ -38,6 +42,10 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
 
   const [picking, setPicking] = useState(false);
   const available = useAvailableWatchers(workPackageId, picking);
+
+  // Not an error worth showing: this user simply may not see watchers, so the
+  // section is absent rather than present and empty.
+  if (state.isError) return null;
 
   const watchers = state.data?.watchers ?? [];
   const can = state.data?.can;

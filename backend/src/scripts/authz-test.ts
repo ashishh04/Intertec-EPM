@@ -1205,6 +1205,311 @@ async function main() {
     400,
   );
 
+  // --- Watchers ------------------------------------------------------------
+  console.log('\nWatchers');
+
+  const adminId = adminMe.id;
+
+  check('anonymous cannot list watchers', await status(`/work-packages/${target}/watchers`), 401);
+  check(
+    'anonymous cannot list available watchers',
+    await status(`/work-packages/${target}/available-watchers`),
+    401,
+  );
+
+  const watcherState = async (cookie: string) =>
+    (await (await call(`/work-packages/${target}/watchers`, { cookie })).json()) as {
+      watchers: { id: string; name: string }[];
+      isWatching: boolean;
+      can: { add: boolean; remove: boolean; watchSelf: boolean };
+    };
+
+  check(
+    'a permitted caller can list watchers',
+    await status(`/work-packages/${target}/watchers`, { cookie: admin }),
+    200,
+  );
+
+  // Left clean first: an earlier interrupted run can leave the caller watching,
+  // and the add/remove cases below assert a starting point rather than assuming
+  // one.
+  await call(`/work-packages/${target}/watchers/${adminId}`, {
+    method: 'DELETE',
+    cookie: admin,
+  }).catch(() => undefined);
+
+  const initialWatchers = await watcherState(admin);
+  check('the watcher state starts from not watching', initialWatchers.isWatching, false);
+  check('the watcher state reports the add capability', typeof initialWatchers.can.add, 'boolean');
+
+  const candidates = (await (
+    await call(`/work-packages/${target}/available-watchers`, { cookie: admin })
+  ).json()) as Record<string, unknown>[];
+
+  check('available watchers is a list', Array.isArray(candidates), true);
+  // Watchers are people, and the collection upstream returns carries their
+  // email and login. Neither is needed to render one, so neither is passed on.
+  check(
+    'a candidate carries no email or login',
+    candidates.every((c) => !('email' in c) && !('login' in c)),
+    true,
+  );
+  check(
+    'a candidate offers only id and name',
+    candidates.every((c) => Object.keys(c).sort().join() === 'id,name'),
+    true,
+  );
+
+  check(
+    'adding a watcher without a user is rejected',
+    await status(`/work-packages/${target}/watchers`, { method: 'POST', cookie: admin, body: {} }),
+    400,
+  );
+
+  check(
+    'a permitted caller can add a watcher',
+    await status(`/work-packages/${target}/watchers`, {
+      method: 'POST',
+      cookie: admin,
+      body: { userId: adminId },
+    }),
+    201,
+  );
+
+  const watching = await watcherState(admin);
+  check('the watcher now appears in the list', watching.watchers.some((w) => w.id === adminId), true);
+  check('the caller is reported as watching', watching.isWatching, true);
+
+  const narrowed = (await (
+    await call(`/work-packages/${target}/available-watchers`, { cookie: admin })
+  ).json()) as { id: string }[];
+  check(
+    'an existing watcher is no longer a candidate',
+    narrowed.some((c) => c.id === adminId),
+    false,
+  );
+
+  // Unlike attachments, which anyone who can open a task may list, seeing
+  // watchers is a permission of its own upstream. A caller who can read the
+  // work package is therefore still refused here, and that is upstream's
+  // decision rather than a rule invented in EPM.
+  check(
+    'a caller without the watchers permission cannot list them',
+    await status(`/work-packages/${target}/watchers`, { cookie: restricted }),
+    403,
+  );
+  check(
+    'nor the candidates for adding one',
+    await status(`/work-packages/${target}/available-watchers`, { cookie: restricted }),
+    403,
+  );
+  check(
+    'a restricted caller cannot remove someone else',
+    await status(`/work-packages/${target}/watchers/${adminId}`, {
+      method: 'DELETE',
+      cookie: restricted,
+    }),
+    403,
+  );
+
+  check(
+    'a permitted caller can remove a watcher',
+    await status(`/work-packages/${target}/watchers/${adminId}`, {
+      method: 'DELETE',
+      cookie: admin,
+    }),
+    204,
+  );
+
+  const after = await watcherState(admin);
+  check('the watcher is gone afterwards', after.watchers.some((w) => w.id === adminId), false);
+  check('the caller is no longer reported as watching', after.isWatching, false);
+
+  // --- Relations -----------------------------------------------------------
+  console.log('\nRelations');
+
+  interface TestRelation {
+    id: string;
+    type: string;
+    label: string;
+    related: { id: string; subject: string };
+    can: { delete: boolean; update: boolean };
+  }
+
+  check('anonymous cannot list relations', await status(`/work-packages/${target}/relations`), 401);
+  check('anonymous cannot read the relation vocabulary', await status('/relation-types'), 401);
+
+  check(
+    'a permitted caller can list relations',
+    await status(`/work-packages/${target}/relations`, { cookie: admin }),
+    200,
+  );
+
+  const vocabulary = (await (await call('/relation-types', { cookie: admin })).json()) as {
+    value: string;
+    label: string;
+  }[];
+
+  check('the relation vocabulary is served by the backend', vocabulary.length > 0, true);
+  // Both directions of every asymmetric pair have to be offerable, or half the
+  // relations a user might want could only be created from the other task.
+  check(
+    'the vocabulary offers both directions of each pair',
+    ['blocks', 'blocked', 'follows', 'precedes', 'includes', 'partof', 'requires', 'required', 'duplicates', 'duplicated', 'relates'].every(
+      (value) => vocabulary.some((entry) => entry.value === value),
+    ),
+    true,
+  );
+
+  const relatable = (await (
+    await call(`/work-packages/${target}/relatable`, { cookie: admin })
+  ).json()) as { id: string; subject: string }[];
+
+  check('relatable work packages are offered', relatable.length > 0, true);
+  check(
+    'a work package is not offered as related to itself',
+    relatable.some((w) => w.id === target),
+    false,
+  );
+
+  const other = relatable[0]?.id;
+  if (!other) throw new Error('No second work package available to relate to.');
+
+  const searched = (await (
+    await call(`/work-packages/${target}/relatable?q=${encodeURIComponent(relatable[0]!.subject.slice(0, 12))}`, {
+      cookie: admin,
+    })
+  ).json()) as { id: string }[];
+  check('a search term narrows the candidates', searched.length <= relatable.length, true);
+
+  check(
+    'creating a relation without a target is rejected',
+    await status(`/work-packages/${target}/relations`, {
+      method: 'POST',
+      cookie: admin,
+      body: { type: 'blocks' },
+    }),
+    400,
+  );
+  check(
+    'an unknown relation type is rejected before it reaches upstream',
+    await status(`/work-packages/${target}/relations`, {
+      method: 'POST',
+      cookie: admin,
+      body: { type: 'entangles', relatedId: other },
+    }),
+    400,
+  );
+  check(
+    'a work package cannot be related to itself',
+    await status(`/work-packages/${target}/relations`, {
+      method: 'POST',
+      cookie: admin,
+      body: { type: 'relates', relatedId: target },
+    }),
+    422,
+  );
+
+  check(
+    'a restricted caller cannot create a relation',
+    await status(`/work-packages/${target}/relations`, {
+      method: 'POST',
+      cookie: restricted,
+      body: { type: 'blocks', relatedId: other },
+    }),
+    403,
+  );
+
+  const createResponse = await call(`/work-packages/${target}/relations`, {
+    method: 'POST',
+    cookie: admin,
+    body: { type: 'blocks', relatedId: other },
+  });
+  check('a permitted caller can create a relation', createResponse.status, 201);
+
+  const relation = (await createResponse.json()) as TestRelation;
+  check('the new relation reads forward from its source', relation.type, 'blocks');
+  check('it names the other work package, not this one', relation.related.id, other);
+  check('the creator is told they may delete it', relation.can.delete, true);
+  // An EPM id, not an upstream href. A leaked /api/v3/... path would tell the
+  // browser where OpenProject is.
+  check('the relation id is not an upstream url', relation.id.includes('/'), false);
+
+  const fromSource = (await (
+    await call(`/work-packages/${target}/relations`, { cookie: admin })
+  ).json()) as TestRelation[];
+  check(
+    'the source sees it as blocking',
+    fromSource.find((r) => r.id === relation.id)?.type,
+    'blocks',
+  );
+
+  // The same stored row, read from the other end. This is the case that would
+  // silently invert if direction were not normalized in the backend.
+  const fromTarget = (await (
+    await call(`/work-packages/${other}/relations`, { cookie: admin })
+  ).json()) as TestRelation[];
+  const mirrored = fromTarget.find((r) => r.id === relation.id);
+  check('the target sees the same relation', Boolean(mirrored), true);
+  check('the target sees it as blocked, not blocking', mirrored?.type, 'blocked');
+  check('the target reads a reversed label', mirrored?.label, 'blocked by');
+  check('the target names the source as the other end', mirrored?.related.id, target);
+
+  check(
+    'the same relation cannot be created twice',
+    await status(`/work-packages/${target}/relations`, {
+      method: 'POST',
+      cookie: admin,
+      body: { type: 'blocks', relatedId: other },
+    }),
+    422,
+  );
+
+  check(
+    'a restricted caller cannot delete a relation',
+    await status(`/relations/${relation.id}`, { method: 'DELETE', cookie: restricted }),
+    403,
+  );
+  check(
+    'a permitted caller can delete a relation',
+    await status(`/relations/${relation.id}`, { method: 'DELETE', cookie: admin }),
+    204,
+  );
+  check(
+    'it is gone from both ends afterwards',
+    ((await (await call(`/work-packages/${other}/relations`, { cookie: admin })).json()) as TestRelation[])
+      .some((r) => r.id === relation.id),
+    false,
+  );
+
+  // Creating in the reverse direction. OpenProject stores the canonical form
+  // with the endpoints swapped, and the response has to read the way it was
+  // asked for rather than the way it was stored.
+  const reverseResponse = await call(`/work-packages/${target}/relations`, {
+    method: 'POST',
+    cookie: admin,
+    body: { type: 'blocked', relatedId: other },
+  });
+  check('a relation can be created in the reverse direction', reverseResponse.status, 201);
+
+  const reverse = (await reverseResponse.json()) as TestRelation;
+  check('the reverse relation reads as it was asked for', reverse.type, 'blocked');
+
+  const reverseFromTarget = (await (
+    await call(`/work-packages/${other}/relations`, { cookie: admin })
+  ).json()) as TestRelation[];
+  check(
+    'the other end of a reverse relation reads forward',
+    reverseFromTarget.find((r) => r.id === reverse.id)?.type,
+    'blocks',
+  );
+
+  check(
+    'the reverse relation can be deleted',
+    await status(`/relations/${reverse.id}`, { method: 'DELETE', cookie: admin }),
+    204,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);

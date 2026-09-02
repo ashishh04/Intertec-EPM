@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { ApiError } from '@/services/api/client';
 import { relationService, watcherService } from '@/services';
 import type { ID } from '@/types';
 
@@ -22,12 +23,19 @@ export const relationKeys = {
     ['relations', workPackageId, 'relatable', term] as const,
 };
 
+/**
+ * Seeing who watches a work package is a permission of its own in OpenProject,
+ * separate from seeing the work package. A 403 here is therefore a normal
+ * answer for some users rather than a fault, so it is not retried.
+ */
 export function useWatchers(workPackageId?: ID) {
   return useQuery({
     queryKey: watcherKeys.state(workPackageId ?? 'unknown'),
     queryFn: () => watcherService.get(workPackageId!),
     enabled: Boolean(workPackageId),
     staleTime: 30_000,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 403) && failureCount < 1,
   });
 }
 
@@ -38,6 +46,8 @@ export function useAvailableWatchers(workPackageId: ID, enabled: boolean) {
     queryFn: () => watcherService.available(workPackageId),
     enabled,
     staleTime: 30_000,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 403) && failureCount < 1,
   });
 }
 
