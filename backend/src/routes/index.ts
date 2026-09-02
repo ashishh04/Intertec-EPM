@@ -8,6 +8,7 @@ import { formRoutes } from './forms.js';
 import { integrationRoutes } from './integrations.js';
 import { notificationRoutes } from './notifications.js';
 import { projectRoutes } from './projects.js';
+import { queryRoutes } from './queries.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
@@ -36,4 +37,5 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(catalogRoutes);
   await app.register(formRoutes);
   await app.register(workPackageRoutes);
+  await app.register(queryRoutes);
 };
