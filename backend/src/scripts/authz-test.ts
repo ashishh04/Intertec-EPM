@@ -1510,6 +1510,210 @@ async function main() {
     204,
   );
 
+  // --- Comments ------------------------------------------------------------
+  console.log('\nComments');
+
+  interface TestComment {
+    id: string;
+    author: { id: string; name: string };
+    body: string;
+    createdAt: string;
+    updatedAt?: string;
+    editable: boolean;
+    deletable: boolean;
+  }
+
+  const commentsOf = async (cookie: string) =>
+    (await (await call(`/work-packages/${target}/comments`, { cookie })).json()) as TestComment[];
+
+  check('anonymous cannot list comments', await status(`/work-packages/${target}/comments`), 401);
+  check(
+    'anonymous cannot comment',
+    await status(`/work-packages/${target}/comments`, { method: 'POST', body: { body: 'no' } }),
+    401,
+  );
+
+  // Both identities can read the task and its discussion.
+  check('admin can view the task', await status(`/tasks/${target}`, { cookie: admin }), 200);
+  check('a restricted caller can view the task', await status(`/tasks/${target}`, { cookie: restricted }), 200);
+  check(
+    'admin can list comments',
+    await status(`/work-packages/${target}/comments`, { cookie: admin }),
+    200,
+  );
+  // Unlike watchers, reading comments needs no permission beyond seeing the
+  // work package, so this is 200 where the watcher list is 403.
+  check(
+    'a restricted caller can list comments',
+    await status(`/work-packages/${target}/comments`, { cookie: restricted }),
+    200,
+  );
+
+  check(
+    'an empty comment is rejected',
+    await status(`/work-packages/${target}/comments`, { method: 'POST', cookie: admin, body: { body: '' } }),
+    400,
+  );
+  check(
+    'a whitespace-only comment is rejected',
+    await status(`/work-packages/${target}/comments`, { method: 'POST', cookie: admin, body: { body: '   ' } }),
+    400,
+  );
+
+  check(
+    'a restricted caller cannot comment',
+    await status(`/work-packages/${target}/comments`, {
+      method: 'POST',
+      cookie: restricted,
+      body: { body: 'should not post' },
+    }),
+    403,
+  );
+
+  const postResponse = await call(`/work-packages/${target}/comments`, {
+    method: 'POST',
+    cookie: admin,
+    body: { body: 'EPM authorization test comment' },
+  });
+  check('a permitted caller can comment', postResponse.status, 201);
+
+  const posted = (await postResponse.json()) as TestComment;
+  check('the comment names its author', posted.author.id, adminId);
+  check('the author carries a display name', posted.author.name.length > 0, true);
+  check('the body is returned as written', posted.body, 'EPM authorization test comment');
+  // Not asserted as "never edited": OpenProject aggregates journal entries, so
+  // a comment posted soon after another by the same user is folded into it and
+  // comes back already carrying an edit time. What must hold is that an edit
+  // time, when there is one, is never before the comment was written.
+  check(
+    'any edit time is not before the creation time',
+    posted.updatedAt === undefined || posted.updatedAt >= posted.createdAt,
+    true,
+  );
+  // An EPM id, not an upstream href.
+  check('the comment id is not an upstream url', posted.id.includes('/'), false);
+
+  const listed = await commentsOf(admin);
+  check('it appears in the list', listed.some((c) => c.id === posted.id), true);
+  check(
+    'the listed copy matches what was posted',
+    listed.find((c) => c.id === posted.id)?.body,
+    'EPM authorization test comment',
+  );
+
+  // Upstream returns both markdown source and its own rendered html. Only the
+  // source is passed on, so no foreign markup can reach this origin.
+  check(
+    'no rendered html is exposed',
+    listed.every((c) => !('html' in (c as unknown as Record<string, unknown>))),
+    true,
+  );
+  check(
+    'a comment reports whether it can be edited',
+    listed.every((c) => typeof c.editable === 'boolean'),
+    true,
+  );
+  // OpenProject publishes no delete affordance on any activity, and offers no
+  // verb for it, so nothing is ever deletable.
+  check(
+    'no comment is deletable, because upstream offers no deletion',
+    listed.some((c) => c.deletable),
+    false,
+  );
+
+  check(
+    'the author is told they may edit it',
+    listed.find((c) => c.id === posted.id)?.editable,
+    true,
+  );
+
+  const editResponse = await call(`/work-packages/${target}/comments/${posted.id}`, {
+    method: 'PATCH',
+    cookie: admin,
+    body: { body: 'EPM authorization test comment, edited' },
+  });
+  check('a permitted caller can edit a comment', editResponse.status, 200);
+
+  const edited = (await editResponse.json()) as TestComment;
+  check('the edit changes the body', edited.body, 'EPM authorization test comment, edited');
+  check('an edited comment reports when it changed', typeof edited.updatedAt, 'string');
+  check('editing does not change the author', edited.author.id, adminId);
+  check('editing does not change the creation time', edited.createdAt, posted.createdAt);
+
+  check(
+    'an edit cannot blank a comment',
+    await status(`/work-packages/${target}/comments/${posted.id}`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { body: '  ' },
+    }),
+    400,
+  );
+
+  // A caller who may not comment may not edit one either, and is not told
+  // otherwise by the flags they receive.
+  const restrictedView = await commentsOf(restricted);
+  check(
+    'a restricted caller is offered no editable comment',
+    restrictedView.some((c) => c.editable),
+    false,
+  );
+  check(
+    'a restricted caller cannot edit a comment',
+    await status(`/work-packages/${target}/comments/${posted.id}`, {
+      method: 'PATCH',
+      cookie: restricted,
+      body: { body: 'should not apply' },
+    }),
+    403,
+  );
+  check(
+    'the comment is unchanged after the refused edit',
+    (await commentsOf(admin)).find((c) => c.id === posted.id)?.body,
+    'EPM authorization test comment, edited',
+  );
+  check(
+    'anonymous cannot edit a comment',
+    await status(`/work-packages/${target}/comments/${posted.id}`, {
+      method: 'PATCH',
+      body: { body: 'no' },
+    }),
+    401,
+  );
+
+  // The comment id is checked against the work package in the path, so one
+  // task's route cannot be used to edit another task's comments.
+  check(
+    'a comment cannot be edited through another work package',
+    await status(`/work-packages/99999999/comments/${posted.id}`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { body: 'wrong container' },
+    }),
+    404,
+  );
+  check(
+    'an unknown comment cannot be edited',
+    await status(`/work-packages/${target}/comments/99999999`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { body: 'nothing there' },
+    }),
+    404,
+  );
+  check(
+    'an unknown work package has no comments',
+    await status('/work-packages/99999999/comments', { cookie: admin }),
+    404,
+  );
+
+  // No delete route exists, because upstream supports no such operation.
+  check(
+    'there is no route for deleting a comment',
+    await status(`/work-packages/${target}/comments/${posted.id}`, { method: 'DELETE', cookie: admin }),
+    404,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);

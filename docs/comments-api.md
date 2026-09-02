@@ -53,6 +53,20 @@ Two `_type` values come back from the same collection:
 | body | `comment.format` is always `markdown`. Both `raw` and upstream-rendered `html` are returned. |
 | affordances | `self`, `workPackage`, `user`, and `update` when the caller may edit. No `delete`, ever. |
 
+## Journal aggregation
+
+A comment posted soon after another by the same user is **folded into the existing
+journal entry** rather than added as a new one. `POST` then returns an id that already
+existed, with the earlier text replaced and `updatedAt` already set — so a freshly
+created comment can come back looking edited, and the collection can be the same length
+afterwards as before.
+
+Observed directly: a `POST` at 18:00:31 returned id 96, an entry created at 17:56:44.
+The window is OpenProject's `journal_aggregation_time_minutes`, 5 by default.
+
+Two consequences: a client must refetch after writing instead of appending what the
+write returned, and "was this edited" cannot be answered by comparing timestamps alone.
+
 ## Pagination
 
 Not honoured. `pageSize` and `offset` are accepted and ignored: `total` always equals

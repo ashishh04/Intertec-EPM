@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
-import { Textarea } from '@/components/ui/textarea';
+import { Textarea } from '@/components/ui/input';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { useAddComment, useComments, useEditComment } from '@/hooks/useComments';

@@ -60,14 +60,3 @@ export function useDeleteTasks() {
   });
 }
 
-export function useAddComment() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ taskId, body }: { taskId: ID; body: string }) =>
-      taskService.addComment(taskId, body),
-    onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.taskComments(variables.taskId) });
-      queryClient.invalidateQueries({ queryKey: ['activity'] });
-    },
-  });
-}
