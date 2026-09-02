@@ -10,11 +10,13 @@ import { integrationRoutes } from './integrations.js';
 import { notificationRoutes } from './notifications.js';
 import { projectRoutes } from './projects.js';
 import { queryRoutes } from './queries.js';
+import { relationRoutes } from './relations.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { teamRoutes } from './teams.js';
 import { userRoutes } from './users.js';
+import { watcherRoutes } from './watchers.js';
 import { workPackageRoutes } from './work-packages.js';
 
 /**
@@ -40,4 +42,6 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(workPackageRoutes);
   await app.register(attachmentRoutes);
   await app.register(queryRoutes);
+  await app.register(watcherRoutes);
+  await app.register(relationRoutes);
 };
