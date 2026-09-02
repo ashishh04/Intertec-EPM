@@ -49,6 +49,8 @@ import type { TaskPriority } from '@/types';
 import { useStatuses } from '@/hooks/useCatalog';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { workPackageService } from '@/services';
+import { TaskAttachments } from '@/components/tasks/TaskAttachments';
+import { useAuth } from '@/providers/AuthProvider';
 
 /** Work-package detail. Content on the left, the full metadata panel on the right. */
 export default function TaskDetailPage() {
@@ -66,6 +68,7 @@ export default function TaskDetailPage() {
   const addComment = useAddComment();
   // Declared with the other hooks: the guards below return early, and a hook
   // after them runs on some renders and not others.
+  const { canInProject } = useAuth();
   const statuses = useStatuses();
   const queryClient = useQueryClient();
   const [comment, setComment] = useState('');
@@ -249,6 +252,13 @@ export default function TaskDetailPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          <TaskAttachments
+            workPackageId={task.id}
+            // Attaching is an edit of the work package, so it follows the same
+            // permission; the backend checks it again regardless.
+            canUpload={canInProject(task.projectId, 'task:edit')}
+          />
 
           <Card>
             <Tabs defaultValue="comments">

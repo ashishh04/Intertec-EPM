@@ -19,6 +19,7 @@ import { ApiNotificationRepository } from './api/notifications';
 import { ApiDocumentRepository } from './api/documents';
 import { ApiIntegrationRepository } from './api/integration';
 import { ApiCatalogRepository } from './api/catalog';
+import { ApiAttachmentRepository } from './api/attachments';
 import { ApiQueryRepository } from './api/queries';
 import {
   ApiFormRepository,
@@ -60,5 +61,6 @@ export const formService = new ApiFormRepository();
 export const workPackageService = new ApiWorkPackageRepository();
 export const projectWriteService = new ApiProjectWriteRepository();
 export const queryService = new ApiQueryRepository();
+export const attachmentService = new ApiAttachmentRepository();
 
 export type { EpmRepositories } from './repositories';
