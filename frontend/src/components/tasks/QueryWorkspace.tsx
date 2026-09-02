@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Star, Trash2 } from 'lucide-react';
+import { Pencil, Star, Trash2 } from 'lucide-react';
 
 import { QueryBuilder } from './QueryBuilder';
 import { TaskTable, TaskTableSkeleton } from './TaskTable';
@@ -21,6 +21,7 @@ import {
   useQuerySchema,
   useSavedQueries,
   useToggleStar,
+  useUpdateQuery,
 } from '@/hooks/useQueries';
 import { useBulkUpdateTasks, useDeleteTasks } from '@/hooks/useTasks';
 import { useProjects } from '@/hooks/useProjects';
@@ -86,6 +87,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const deleteTasks = useDeleteTasks();
   const createQuery = useCreateQuery();
   const deleteQuery = useDeleteQuery();
+  const updateQuery = useUpdateQuery();
   const toggleStar = useToggleStar();
 
   const projectsById = useMemo(
@@ -132,6 +134,24 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         },
         onError: (error) =>
           toast.error('Could not save this view', {
+            description: error instanceof Error ? error.message : undefined,
+          }),
+      },
+    );
+  };
+
+  const rename = () => {
+    if (!selected?.id) return;
+
+    const name = window.prompt('Rename this view', selected.name)?.trim();
+    if (!name || name === selected.name) return;
+
+    updateQuery.mutate(
+      { id: selected.id, patch: { name } },
+      {
+        onSuccess: () => toast.success('View renamed'),
+        onError: (error) =>
+          toast.error('Could not rename this view', {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -189,6 +209,14 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                     aria-hidden
                   />
                   {selected.starred ? 'Unstar' : 'Star'}
+                </Button>
+              ) : null}
+
+              {/* Offered only when OpenProject says this user may change it. */}
+              {selected.can.update ? (
+                <Button variant="ghost" size="sm" className="h-8" onClick={rename}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Rename
                 </Button>
               ) : null}
 

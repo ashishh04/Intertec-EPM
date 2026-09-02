@@ -212,6 +212,153 @@ async function main() {
     403,
   );
 
+  // --- Queries -------------------------------------------------------------
+  console.log('\nQueries');
+
+  check('anonymous cannot list views', await status('/queries'), 401);
+  check('anonymous cannot read the filter schema', await status('/queries/schema'), 401);
+
+  check('admin can list views', await status('/queries', { cookie: admin }), 200);
+  check(
+    'restricted user can list views they may see',
+    await status('/queries', { cookie: restricted }),
+    200,
+  );
+
+  // Filter discovery is project-scoped: custom fields are enabled per project
+  // and only appear in that scope.
+  const globalSchema = (await (await call('/queries/schema', { cookie: admin })).json()) as {
+    filters: { id: string; name: string; operators: { id: string; valueType?: string }[] }[];
+  };
+  const projectSchema = (await (
+    await call(`/queries/schema?projectId=${project}`, { cookie: admin })
+  ).json()) as typeof globalSchema;
+
+  check('global filter discovery returns filters', globalSchema.filters.length > 0, true);
+  check(
+    'project scope offers at least as many filters as global',
+    projectSchema.filters.length >= globalSchema.filters.length,
+    true,
+  );
+  check(
+    'every filter reports at least one operator',
+    projectSchema.filters.every((filter) => filter.operators.length > 0),
+    true,
+  );
+  // Operators such as `open` and `is empty` take no values; a value control for
+  // them would produce a request OpenProject rejects.
+  check(
+    'valueless operators are marked as such',
+    projectSchema.filters
+      .flatMap((filter) => filter.operators)
+      .some((operator) => operator.valueType === undefined),
+    true,
+  );
+
+  const results = (await (
+    await call(`/queries/default?projectId=${project}&pageSize=5`, { cookie: admin })
+  ).json()) as { query: { name: string }; tasks: unknown[]; total: number; pageSize: number };
+
+  check('the default view returns results', Array.isArray(results.tasks), true);
+  check('paging is applied upstream, not in the client', results.tasks.length <= 5, true);
+  check('the total exceeds the page', results.total >= results.tasks.length, true);
+
+  // Filtering must change the result set, and must happen upstream.
+  const closed = encodeURIComponent(JSON.stringify([{ status: { operator: 'c', values: [] } }]));
+  const filtered = (await (
+    await call(`/queries/default?projectId=${project}&filters=${closed}`, { cookie: admin })
+  ).json()) as { total: number };
+  check('a status filter changes the total', filtered.total !== results.total, true);
+
+  // Upstream validation is preserved rather than swallowed.
+  const badFilter = encodeURIComponent(JSON.stringify([{ nope: { operator: '=', values: [] } }]));
+  check(
+    'an unknown filter is rejected',
+    await status(`/queries/default?projectId=${project}&filters=${badFilter}`, { cookie: admin }),
+    400,
+  );
+  const badOperator = encodeURIComponent(
+    JSON.stringify([{ status: { operator: '~~~', values: [] } }]),
+  );
+  check(
+    'an invalid operator is rejected',
+    await status(`/queries/default?projectId=${project}&filters=${badOperator}`, { cookie: admin }),
+    400,
+  );
+
+  // Saved view lifecycle, and whether a restricted caller can subvert it.
+  const savedResponse = await call('/queries', {
+    method: 'POST',
+    cookie: admin,
+    body: { name: `Authz View ${Date.now()}`, projectId: project },
+  });
+  check('admin can save a view', savedResponse.status, 201);
+  const saved = savedResponse.ok ? ((await savedResponse.json()) as { id: string }) : undefined;
+
+  if (saved?.id) {
+    check(
+      'restricted user cannot rename a view owned by someone else',
+      await status(`/queries/${saved.id}`, {
+        method: 'PATCH',
+        cookie: restricted,
+        body: { name: 'hijacked' },
+      }),
+      404,
+    );
+    check(
+      'restricted user cannot delete a view owned by someone else',
+      await status(`/queries/${saved.id}`, { method: 'DELETE', cookie: restricted }),
+      404,
+    );
+    check(
+      'restricted user cannot star a view owned by someone else',
+      await status(`/queries/${saved.id}/star`, { method: 'PATCH', cookie: restricted }),
+      404,
+    );
+
+    check(
+      'admin can star their own view',
+      await status(`/queries/${saved.id}/star`, { method: 'PATCH', cookie: admin }),
+      200,
+    );
+    check(
+      'admin can delete their own view',
+      await status(`/queries/${saved.id}`, { method: 'DELETE', cookie: admin }),
+      204,
+    );
+  }
+
+  // A view the restricted user can see but not change must be refused, and the
+  // refusal must be a 403 rather than a 404 — it exists, they just may not.
+  const visible = (await (await call('/queries', { cookie: restricted })).json()) as {
+    id: string;
+    can: { update: boolean; delete: boolean };
+  }[];
+  const readOnly = visible.find((view) => !view.can.update && !view.can.delete);
+
+  if (readOnly) {
+    check(
+      'a visible but unmodifiable view is refused',
+      await status(`/queries/${readOnly.id}`, {
+        method: 'PATCH',
+        cookie: restricted,
+        body: { name: 'hijacked' },
+      }),
+      403,
+    );
+    check(
+      'deleting a visible but undeletable view is refused',
+      await status(`/queries/${readOnly.id}`, { method: 'DELETE', cookie: restricted }),
+      403,
+    );
+  } else {
+    console.log('  SKIP  no read-only view available to test the 403 path');
+  }
+
+  // Nothing about the upstream system may reach the client.
+  const schemaBody = JSON.stringify(projectSchema);
+  check('the filter schema names no upstream host', /localhost:8080|openproject/i.test(schemaBody), false);
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
