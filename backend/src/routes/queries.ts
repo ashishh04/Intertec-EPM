@@ -178,27 +178,34 @@ async function applyTitles(
 
 
 /**
- * Columns a query may display, read from the query creation form.
+ * What a query may display and sort by, read from the query creation form.
  *
- * The query schema declares `columns` as writable but sends no allowed values;
- * the form does, and it is project-aware — a custom field appears there under
- * its administrator-given name alongside the built-in attributes. There is no
- * `/queries/columns` collection on this version, so the form is the only
- * authoritative source.
+ * The query schema declares `columns` and `sortBy` writable but sends no
+ * allowed values; the form does, and it is project-aware, so a custom field
+ * appears in both under its administrator-given name. There is no
+ * `/queries/columns` or `/queries/sort_bys` collection on this version.
  *
- * Cached with the filter titles: this is instance configuration, not per-request
- * data, and it is scoped by project for the same reason filters are.
+ * Sortability is reported separately from the column list because the two are
+ * genuinely different questions. This instance can render spent time but not
+ * sort by it, and can sort by category and duration without EPM having anywhere
+ * to show them — conflating the two would get both wrong.
+ *
+ * Cached alongside the filter titles: instance configuration, scoped by project
+ * for the same reason filters are.
  */
-async function availableColumns(
+async function queryCapabilities(
   projectId: string | undefined,
   signal: AbortSignal,
-): Promise<QueryColumn[]> {
-  return referenceCache.get(`query-columns:${projectId ?? 'global'}`, async () => {
+): Promise<{ columns: QueryColumn[]; sortable: string[] }> {
+  return referenceCache.get(`query-capabilities:${projectId ?? 'global'}`, async () => {
     const form = await openProject
       .request<{
         _embedded?: {
           schema?: {
             columns?: { _embedded?: { allowedValues?: { id?: string; name?: string }[] } };
+            sortBy?: {
+              _embedded?: { allowedValues?: { _links?: { column?: { href?: string } } }[] };
+            };
           };
         };
       }>('/queries/form', {
@@ -208,12 +215,24 @@ async function availableColumns(
       })
       .catch(() => null);
 
-    const allowed = form?._embedded?.schema?.columns?._embedded?.allowedValues ?? [];
+    const schema = form?._embedded?.schema;
 
-    return allowed
+    const columns = (schema?.columns?._embedded?.allowedValues ?? [])
       .filter((column): column is { id: string; name?: string } => Boolean(column.id))
       .map((column) => ({ id: column.id, name: column.name ?? column.id }));
-  }) as Promise<QueryColumn[]>;
+
+    // Each entry is one direction of one column ("id-asc", "id-desc"), so the
+    // column link is the distinct field rather than the entry id.
+    const sortable = [
+      ...new Set(
+        (schema?.sortBy?._embedded?.allowedValues ?? [])
+          .map((entry) => entry._links?.column?.href?.split('/').pop())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    return { columns, sortable };
+  }) as Promise<{ columns: QueryColumn[]; sortable: string[] }>;
 }
 
 export const queryRoutes: FastifyPluginAsync = async (app) => {
@@ -248,9 +267,9 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
       await applyTitles(filters, projectId ?? 'global', signal);
       filters.sort((a, b) => a.name.localeCompare(b.name));
 
-      const columns = await availableColumns(projectId, signal);
+      const { columns, sortable } = await queryCapabilities(projectId, signal);
 
-      return { filters, columns };
+      return { filters, columns, sortable };
     } catch (error) {
       throw asEpmError(error);
     }

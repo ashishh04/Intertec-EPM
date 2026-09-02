@@ -77,12 +77,15 @@ const COLUMN_LABEL: Record<ColumnKey, string> = {
   updatedAt: 'Updated on',
 };
 
-const SORTABLE: Partial<Record<ColumnKey, NonNullable<TaskFilters['sortBy']>>> = {
-  subject: 'subject',
-  status: 'status',
-  priority: 'priority',
-  dueDate: 'dueDate',
-};
+/**
+ * Fallback sortable set, used only when no query supplies one.
+ *
+ * With a query the sortable columns come from OpenProject, which knows far more
+ * than this: it can sort by story points, custom fields and dates that were
+ * never in this list. These four remain for the surfaces that render the table
+ * without a query behind it.
+ */
+const FALLBACK_SORTABLE: ColumnKey[] = ['subject', 'status', 'priority', 'dueDate'];
 
 const DEFAULT_COLUMNS: ColumnKey[] = [
   'key',
@@ -103,9 +106,16 @@ export interface TaskTableProps {
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
-  sortBy?: TaskFilters['sortBy'];
+  /**
+   * Sort key, as a column key rather than a fixed union — a query can sort by
+   * anything OpenProject offers, which is more than this table once allowed.
+   */
+  sortBy?: string;
   sortDir?: TaskFilters['sortDir'];
-  onSortChange: (sortBy: NonNullable<TaskFilters['sortBy']>, sortDir: 'asc' | 'desc') => void;
+  /** `null` clears the sort, which is the third state of the header cycle. */
+  onSortChange: (sortBy: string | null, sortDir: 'asc' | 'desc') => void;
+  /** Columns that may be sorted. Defaults to the fallback set. */
+  sortable?: string[];
   onBulkUpdate?: (ids: ID[], patch: Partial<UpdateTaskInput>) => void;
   onBulkDelete?: (ids: ID[]) => void;
   onExport?: () => void;
@@ -140,6 +150,7 @@ export function TaskTable({
   onExport,
   hideProjectColumn = false,
   columns: controlledColumns,
+  sortable,
   emptyAction,
 }: TaskTableProps) {
   const [selected, setSelected] = useState<Set<ID>>(new Set());
@@ -181,10 +192,23 @@ export function TaskTable({
     });
   };
 
+  const sortableColumns = useMemo(
+    () => new Set<string>(sortable ?? FALLBACK_SORTABLE),
+    [sortable],
+  );
+
+  /**
+   * Ascending, then descending, then cleared.
+   *
+   * The third click removing the sort is what lets a user get back to the
+   * view's own order without reloading it.
+   */
   const handleSort = (column: ColumnKey) => {
-    const key = SORTABLE[column];
-    if (!key) return;
-    onSortChange(key, sortBy === key && sortDir === 'asc' ? 'desc' : 'asc');
+    if (!sortableColumns.has(column)) return;
+
+    if (sortBy !== column) return onSortChange(column, 'asc');
+    if (sortDir === 'asc') return onSortChange(column, 'desc');
+    return onSortChange(null, 'asc');
   };
 
   return (
@@ -355,8 +379,8 @@ export function TaskTable({
                   />
                 </TableHead>
                 {columns.map((column) => {
-                  const sortKey = SORTABLE[column];
-                  const isSorted = sortKey && sortBy === sortKey;
+                  const sortKey = sortableColumns.has(column) ? column : undefined;
+                  const isSorted = sortKey !== undefined && sortBy === column;
                   return (
                     <TableHead
                       key={column}

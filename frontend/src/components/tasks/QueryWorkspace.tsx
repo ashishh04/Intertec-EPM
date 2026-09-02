@@ -31,7 +31,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { pluralize } from '@/lib/utils';
 import { buildFilters, buildSort, type QueryFilterInstance } from '@/services/api/queries';
-import type { ID, EpmProject, TaskFilters, UpdateTaskInput } from '@/types';
+import type { ID, EpmProject, UpdateTaskInput } from '@/types';
 
 /**
  * Work package workspace driven by OpenProject views.
@@ -97,6 +97,11 @@ const COLUMN_TO_TABLE: Record<string, string> = {
 /** Without these the row cannot be identified or opened. */
 const REQUIRED_COLUMNS = ['id', 'subject'];
 
+/** The table's own key -> the upstream column id, for sorting. */
+const TABLE_TO_COLUMN: Record<string, string> = Object.fromEntries(
+  Object.entries(COLUMN_TO_TABLE).map(([column, key]) => [key, column]),
+);
+
 interface QueryWorkspaceProps {
   /** Scopes to one project; omit for the portfolio-wide view. */
   projectId?: ID;
@@ -120,6 +125,27 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
   const isAdHoc = selectedQueryId === AD_HOC;
 
+  /**
+   * Filters that are actually expressible.
+   *
+   * A filter is added before its value is chosen, and an operator that requires
+   * values is rejected outright without them — "Status can't be blank" — which
+   * would break the whole view between adding a filter and filling it in. An
+   * incomplete filter is not yet a constraint, so it is left out until it is.
+   */
+  const appliedFilters = useMemo(() => {
+    const schema = new Map((schemaQuery.data?.filters ?? []).map((entry) => [entry.id, entry]));
+
+    return filters.filter((filter) => {
+      const operator = schema.get(filter.id)?.operators.find((o) => o.id === filter.operator);
+      // An unknown operator is passed through; upstream is the authority on it.
+      if (!operator) return true;
+      // Operators that take no values are complete on their own.
+      if (!operator.valueType) return true;
+      return filter.values.length > 0;
+    });
+  }, [filters, schemaQuery.data]);
+
   // Overrides are only sent when set. Omitting `filters` entirely lets a saved
   // view keep its own; sending an empty array would silently clear it.
   const overrides = useMemo(
@@ -127,11 +153,17 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       projectId,
       offset: page,
       pageSize,
-      ...(isAdHoc || filters.length > 0 ? { filters: buildFilters(filters) } : {}),
-      ...(sort ? { sortBy: buildSort([sort]) } : {}),
+      ...(isAdHoc || appliedFilters.length > 0 ? { filters: buildFilters(appliedFilters) } : {}),
+      ...(sort
+        ? {
+            sortBy: buildSort([
+              { field: TABLE_TO_COLUMN[sort.field] ?? sort.field, direction: sort.direction },
+            ]),
+          }
+        : {}),
       ...(columns?.length ? { columns: columns.join(',') } : {}),
     }),
-    [projectId, page, pageSize, filters, sort, isAdHoc, columns],
+    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns],
   );
 
   const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides);
@@ -158,6 +190,19 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const tableColumns = effectiveColumns
     .map((id) => COLUMN_TO_TABLE[id])
     .filter((key): key is string => Boolean(key));
+
+  // Sortability is OpenProject's answer, translated into the table's keys.
+  // A column can be shown without being sortable, and vice versa.
+  const sortableColumns = (schemaQuery.data?.sortable ?? [])
+    .map((id) => COLUMN_TO_TABLE[id])
+    .filter((key): key is string => Boolean(key));
+
+  // The view's own sort applies until the user chooses one.
+  const activeSort =
+    sort ??
+    (current?.sortBy[0]
+      ? { field: COLUMN_TO_TABLE[current.sortBy[0].field] ?? '', direction: current.sortBy[0].direction }
+      : undefined);
   const selected = savedQueries.data?.find((q) => q.id === selectedQueryId);
 
   /** Switching views resets paging and adopts that view's own filters. */
@@ -186,7 +231,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           },
           // OpenProject persists filters in HAL form, unlike the query-string
           // shorthand used for ad-hoc runs.
-          filters: filters.map((filter) => ({
+          filters: appliedFilters.map((filter) => ({
             _links: {
               filter: { href: `/api/v3/queries/filters/${filter.id}` },
               operator: { href: `/api/v3/queries/operators/${encodeURIComponent(filter.operator)}` },
@@ -363,9 +408,14 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             setPageSize(size);
             setPage(1);
           }}
-          sortBy={sort?.field as TaskFilters['sortBy']}
-          sortDir={sort?.direction}
-          onSortChange={(field, direction) => setSort({ field, direction })}
+          sortBy={activeSort?.field}
+          sortDir={activeSort?.direction}
+          sortable={sortableColumns}
+          // A null field is the third click: drop the override and fall back to
+          // whatever order the view itself defines.
+          onSortChange={(field, direction) =>
+            setSort(field === null ? undefined : { field, direction })
+          }
           onBulkUpdate={(ids: ID[], patch: Partial<UpdateTaskInput>) =>
             bulkUpdate.mutate(
               { ids, patch },
@@ -397,7 +447,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       {current ? (
         <p className="mt-2 text-2xs text-muted-foreground">
           {result.data?.total ?? 0} {pluralize(result.data?.total ?? 0, 'work package')} ·{' '}
-          {filters.length} {pluralize(filters.length, 'filter')} applied
+          {appliedFilters.length} {pluralize(appliedFilters.length, 'filter')} applied
         </p>
       ) : null}
     </div>

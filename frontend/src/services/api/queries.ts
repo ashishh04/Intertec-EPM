@@ -105,6 +105,19 @@ export function buildSort(sorts: QuerySort[]): string {
   return JSON.stringify(sorts.map((sort) => [sort.field, sort.direction]));
 }
 
+export interface QuerySchemaResponse {
+  filters: QueryFilterSchema[];
+  columns: QueryColumn[];
+  /**
+   * Column ids OpenProject can sort by.
+   *
+   * Deliberately separate from `columns`: this instance renders spent time but
+   * cannot sort by it, and can sort by category and duration without EPM having
+   * anywhere to display them. Treating the two as one gets both wrong.
+   */
+  sortable: string[];
+}
+
 export class ApiQueryRepository {
   /**
    * Filters and columns available, project-scoped when a project is given.
@@ -112,11 +125,8 @@ export class ApiQueryRepository {
    * Both are instance configuration and both vary by project — a custom field
    * appears in each only within the projects that enable it.
    */
-  getSchema(projectId?: ID): Promise<{ filters: QueryFilterSchema[]; columns: QueryColumn[] }> {
-    return apiClient.get<{ filters: QueryFilterSchema[]; columns: QueryColumn[] }>(
-      '/queries/schema',
-      { projectId },
-    );
+  getSchema(projectId?: ID): Promise<QuerySchemaResponse> {
+    return apiClient.get<QuerySchemaResponse>('/queries/schema', { projectId });
   }
 
   /** Saved views the caller can see. */
