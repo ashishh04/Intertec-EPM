@@ -37,23 +37,38 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   /** Lets the sign-in screen explain a misconfiguration instead of failing blankly. */
   app.get('/auth/config', async () => ({ signInAvailable: isSignInConfigured() }));
 
-  app.post<{ Body: unknown }>('/auth/login', async (request, reply) => {
-    const parsed = credentials.safeParse(request.body);
-    if (!parsed.success) {
-      throw EpmError.badRequest('Enter your username and password.');
-    }
+  app.post<{ Body: unknown }>(
+    '/auth/login',
+    {
+      /**
+       * Far tighter than the global allowance.
+       *
+       * Sign-in is the one endpoint where the request count *is* the attack:
+       * the global 600/minute would let an attacker try six hundred passwords a
+       * minute from one address. OpenProject blocks per account after repeated
+       * failures, which does not help when the attacker sprays one password
+       * across many accounts, so the caller is limited here as well.
+       */
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const parsed = credentials.safeParse(request.body);
+      if (!parsed.success) {
+        throw EpmError.badRequest('Enter your username and password.');
+      }
 
-    const { username, password } = parsed.data;
+      const { username, password } = parsed.data;
 
-    const session = await signInWithPassword(
-      username,
-      password,
-      request.headers['user-agent'],
-    );
+      const session = await signInWithPassword(
+        username,
+        password,
+        request.headers['user-agent'],
+      );
 
-    reply.setCookie(SESSION_COOKIE, session.sessionId, COOKIE_OPTIONS);
-    return { userId: session.userId, authenticated: true };
-  });
+      reply.setCookie(SESSION_COOKIE, session.sessionId, COOKIE_OPTIONS);
+      return { userId: session.userId, authenticated: true };
+    },
+  );
 
   app.post('/auth/logout', async (request, reply) => {
     const cookie = request.cookies[SESSION_COOKIE];

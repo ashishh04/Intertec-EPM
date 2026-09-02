@@ -66,8 +66,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(rateLimit, {
     max: 600,
     timeWindow: '1 minute',
-    errorResponseBuilder: () => ({
-      message: 'Too many requests. Please slow down.',
+    // `statusCode` has to be on the returned object: the plugin throws it as
+    // the error, and without it the handler below sees no status and reports a
+    // 500 — which reads as a server fault rather than a deliberate refusal.
+    errorResponseBuilder: (_request, context) => ({
+      statusCode: 429,
+      message: `Too many requests. Please retry in ${Math.ceil(context.ttl / 1000)} seconds.`,
       code: 'RATE_LIMITED',
     }),
   });
@@ -99,9 +103,14 @@ export async function buildApp(): Promise<FastifyInstance> {
     // arrive with a statusCode already set.
     const statusCode = (error as { statusCode?: number }).statusCode;
     if (statusCode && statusCode >= 400 && statusCode < 500) {
+      // Keep the plugin's own code when it supplies one, so a throttled caller
+      // is told they were throttled rather than that their request was invalid.
+      // Plugins may throw a plain object rather than an Error, so read the
+      // message off the value instead of gating on `instanceof`.
+      const { code = 'BAD_REQUEST', message } = error as { code?: string; message?: string };
       return reply.status(statusCode).send({
-        message: error instanceof Error ? error.message : 'The request was not valid.',
-        code: 'BAD_REQUEST',
+        message: message ?? 'The request was not valid.',
+        code,
       });
     }
 

@@ -15,6 +15,13 @@
  *   AUTHZ_RESTRICTED_USER / AUTHZ_RESTRICTED_PASSWORD
  *
  * No credential is written to stdout, on success or failure.
+ *
+ * Note: the negative cases deliberately fail a sign-in, and OpenProject blocks
+ * an account after `brute_force_block_after_failed_logins` consecutive failures
+ * (20 by default, for 30 minutes). Running this in a tight loop will therefore
+ * lock the account it tests against — which is the protection working, not a
+ * fault. The wrong-password case uses the restricted account rather than the
+ * administrator so a lockout cannot cost administrative access.
  */
 
 const BASE = process.env.AUTHZ_BASE_URL ?? 'http://localhost:8000/api';
@@ -84,7 +91,7 @@ async function main() {
 
   const badCredentials = await call('/auth/login', {
     method: 'POST',
-    body: { username: ADMIN.username, password: 'definitely-not-the-password' },
+    body: { username: RESTRICTED.username, password: 'definitely-not-the-password' },
   });
   check('wrong password is rejected', badCredentials.status, 401);
 
