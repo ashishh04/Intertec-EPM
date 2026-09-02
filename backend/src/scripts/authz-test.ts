@@ -676,6 +676,206 @@ async function main() {
     200,
   );
 
+  // --- Grouping --------------------------------------------------------------
+  console.log('\nGrouping');
+
+  const grouping = (await (
+    await call(`/queries/schema?projectId=${project}`, { cookie: admin })
+  ).json()) as { groupable: { id: string; name: string }[] };
+
+  check('grouping options are discovered', grouping.groupable.length > 0, true);
+  check(
+    'grouping options carry upstream titles',
+    grouping.groupable.every((option) => Boolean(option.name)),
+    true,
+  );
+
+  const globalGrouping = (await (
+    await call('/queries/schema', { cookie: admin })
+  ).json()) as typeof grouping;
+  check('grouping is discoverable globally too', globalGrouping.groupable.length > 0, true);
+
+  interface Grouped {
+    total: number;
+    tasks: { id: string; subject: string }[];
+    groups?: { value: string | null; count: number; taskIds: string[] }[];
+  }
+
+  const ungrouped = (await (
+    await call(`/queries/default?projectId=${project}&pageSize=5`, { cookie: admin })
+  ).json()) as Grouped;
+  check('an ungrouped result carries no groups', ungrouped.groups, undefined);
+
+  const grouped = (await (
+    await call(`/queries/default?projectId=${project}&groupBy=status&pageSize=5`, { cookie: admin })
+  ).json()) as Grouped;
+  check('a grouped result carries groups', Array.isArray(grouped.groups), true);
+  check('grouping does not change the total', grouped.total, ungrouped.total);
+
+  // The counts describe the whole result set rather than the page, which is the
+  // property that makes grouping in the client across pages wrong.
+  check(
+    'group counts sum to the total',
+    (grouped.groups ?? []).reduce((sum, group) => sum + group.count, 0),
+    grouped.total,
+  );
+  check('the page holds no more than a page', grouped.tasks.length <= 5, true);
+  check(
+    'group membership only names records on this page',
+    (grouped.groups ?? []).every((group) =>
+      group.taskIds.every((id) => grouped.tasks.some((task) => task.id === id)),
+    ),
+    true,
+  );
+  check(
+    'a group may report more than it contributes to this page',
+    (grouped.groups ?? []).some((group) => group.count > group.taskIds.length),
+    true,
+  );
+
+  // Groups must describe the filtered set, not the whole project.
+  const openOnly = encodeURIComponent(JSON.stringify([{ status: { operator: 'o', values: [] } }]));
+  const groupedFiltered = (await (
+    await call(`/queries/default?projectId=${project}&groupBy=status&filters=${openOnly}`, {
+      cookie: admin,
+    })
+  ).json()) as Grouped;
+  check(
+    'grouped counts follow the filter',
+    (groupedFiltered.groups ?? []).reduce((sum, group) => sum + group.count, 0),
+    groupedFiltered.total,
+  );
+  // Compared against an explicitly unfiltered run, not the default view: the
+  // default already filters to open work packages, so applying that same filter
+  // narrows nothing.
+  const groupedAll = (await (
+    await call(`/queries/default?projectId=${project}&groupBy=status&filters=%5B%5D`, {
+      cookie: admin,
+    })
+  ).json()) as Grouped;
+  check('filtering narrows the grouped total', groupedFiltered.total < groupedAll.total, true);
+  check(
+    'the unfiltered grouped counts also sum to their total',
+    (groupedAll.groups ?? []).reduce((sum, group) => sum + group.count, 0),
+    groupedAll.total,
+  );
+
+  // Sorting orders records within groups and must not be discarded.
+  const sortDesc = encodeURIComponent(JSON.stringify([['subject', 'desc']]));
+  const groupedSorted = (await (
+    await call(
+      `/queries/default?projectId=${project}&groupBy=status&sortBy=${sortDesc}&pageSize=25`,
+      { cookie: admin },
+    )
+  ).json()) as Grouped & { query: { sortBy: { field: string }[]; groupBy?: string } };
+
+  check('grouping preserves the sort', groupedSorted.query.sortBy[0]?.field, 'subject');
+  check('grouping is reported on the query', groupedSorted.query.groupBy, 'status');
+
+  const populated = groupedSorted.groups?.find((group) => group.taskIds.length > 1);
+  if (populated) {
+    const subjectById = new Map(groupedSorted.tasks.map((task) => [task.id, task.subject]));
+    const subjects = populated.taskIds.map((id) => subjectById.get(id) ?? '');
+    const descending = [...subjects].sort().reverse();
+    check('records are sorted within their group', subjects.join('|'), descending.join('|'));
+  } else {
+    console.log('  SKIP  no group with more than one record on the page');
+  }
+
+  // An unset attribute is a group, not an error.
+  const groupedByVersion = (await (
+    await call(`/queries/default?projectId=${project}&groupBy=version&pageSize=5`, { cookie: admin })
+  ).json()) as Grouped;
+  check(
+    'an unset value groups as null rather than failing',
+    (groupedByVersion.groups ?? []).some((group) => group.value === null),
+    true,
+  );
+
+  // Grouping by a custom field, discovered rather than named.
+  const groupableCustomField = grouping.groupable.find((option) =>
+    option.id.startsWith('customField'),
+  );
+  if (groupableCustomField) {
+    const byCustom = (await (
+      await call(`/queries/default?projectId=${project}&groupBy=${groupableCustomField.id}`, {
+        cookie: admin,
+      })
+    ).json()) as { query: { groupBy?: string } };
+    check('a custom field can be grouped', byCustom.query.groupBy, groupableCustomField.id);
+  } else {
+    console.log('  SKIP  no groupable custom field on this instance');
+  }
+
+  // Grouping saves and reloads alongside the other query properties.
+  const groupedView = await call('/queries', {
+    method: 'POST',
+    cookie: admin,
+    body: {
+      name: `Group Roundtrip ${Date.now()}`,
+      projectId: project,
+      payload: {
+        _links: {
+          groupBy: { href: '/api/v3/queries/group_bys/status' },
+          sortBy: [{ href: '/api/v3/queries/sort_bys/subject-desc' }],
+          columns: [
+            { href: '/api/v3/queries/columns/id' },
+            { href: '/api/v3/queries/columns/subject' },
+          ],
+        },
+      },
+    },
+  });
+  check('a view saves its grouping', groupedView.status, 201);
+
+  if (groupedView.ok) {
+    const view = (await groupedView.json()) as { id: string };
+    const reload = async (suffix = '') =>
+      (await (await call(`/queries/${view.id}${suffix}`, { cookie: admin })).json()) as {
+        query: { groupBy?: string; sortBy: { field: string }[]; columns: { id: string }[] };
+      };
+
+    const restored = await reload();
+    check('the saved grouping is restored', restored.query.groupBy, 'status');
+    check('grouping does not displace the sort', restored.query.sortBy[0]?.field, 'subject');
+    check('grouping does not displace the columns', restored.query.columns.length, 2);
+
+    check(
+      'grouping survives a filter override',
+      (await reload(`?filters=${openOnly}`)).query.groupBy,
+      'status',
+    );
+    check(
+      'grouping survives a column override',
+      (await reload('?columns=id,subject,status')).query.groupBy,
+      'status',
+    );
+    const sortAsc = encodeURIComponent(JSON.stringify([['id', 'asc']]));
+    check(
+      'grouping survives a sort override',
+      (await reload(`?sortBy=${sortAsc}`)).query.groupBy,
+      'status',
+    );
+
+    check(
+      'a restricted caller cannot regroup a view owned by someone else',
+      await status(`/queries/${view.id}`, {
+        method: 'PATCH',
+        cookie: restricted,
+        body: { _links: { groupBy: { href: null } } },
+      }),
+      404,
+    );
+
+    await call(`/queries/${view.id}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+
+  check(
+    'a restricted caller may group what they can see',
+    await status(`/queries/default?projectId=${project}&groupBy=status`, { cookie: restricted }),
+    200,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
