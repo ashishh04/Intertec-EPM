@@ -50,6 +50,8 @@ import { useStatuses } from '@/hooks/useCatalog';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { workPackageService } from '@/services';
 import { TaskAttachments } from '@/components/tasks/TaskAttachments';
+import { TaskRelations } from '@/components/tasks/TaskRelations';
+import { TaskWatchers } from '@/components/tasks/TaskWatchers';
 import { useAuth } from '@/providers/AuthProvider';
 
 /** Work-package detail. Content on the left, the full metadata panel on the right. */
@@ -259,6 +261,12 @@ export default function TaskDetailPage() {
             // permission; the backend checks it again regardless.
             canUpload={canInProject(task.projectId, 'task:edit')}
           />
+
+          {/* Both are affordance-gated inside: what a user may do is decided by
+              what OpenProject offered on this record, not by a role check. */}
+          <TaskRelations workPackageId={task.id} />
+
+          <TaskWatchers workPackageId={task.id} />
 
           <Card>
             <Tabs defaultValue="comments">

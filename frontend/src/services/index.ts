@@ -21,6 +21,7 @@ import { ApiIntegrationRepository } from './api/integration';
 import { ApiCatalogRepository } from './api/catalog';
 import { ApiAttachmentRepository } from './api/attachments';
 import { ApiQueryRepository } from './api/queries';
+import { ApiRelationRepository, ApiWatcherRepository } from './api/collaboration';
 import {
   ApiFormRepository,
   ApiProjectWriteRepository,
@@ -62,5 +63,7 @@ export const workPackageService = new ApiWorkPackageRepository();
 export const projectWriteService = new ApiProjectWriteRepository();
 export const queryService = new ApiQueryRepository();
 export const attachmentService = new ApiAttachmentRepository();
+export const watcherService = new ApiWatcherRepository();
+export const relationService = new ApiRelationRepository();
 
 export type { EpmRepositories } from './repositories';
