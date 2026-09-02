@@ -1019,6 +1019,192 @@ async function main() {
     true,
   );
 
+  // --- Attachments -----------------------------------------------------------
+  console.log('\nAttachments');
+
+  interface Attachment {
+    id: string;
+    fileName: string;
+    fileSize: number;
+    contentType: string;
+    createdAt: string;
+    authorId?: string;
+    can: { delete: boolean };
+  }
+
+  /** Multipart upload, built the way a browser would. */
+  const uploadFile = async (
+    workPackageId: string,
+    name: string,
+    contents: string,
+    cookie: string,
+    type = 'text/plain',
+  ) => {
+    const body = new FormData();
+    body.append('file', new Blob([contents], { type }), name);
+
+    return fetch(`${BASE}/work-packages/${workPackageId}/attachments`, {
+      method: 'POST',
+      headers: { cookie },
+      body,
+    });
+  };
+
+  const target = (
+    (await (
+      await call(`/queries/default?projectId=${project}&pageSize=1`, { cookie: admin })
+    ).json()) as { tasks: { id: string }[] }
+  ).tasks[0]?.id;
+
+  if (!target) throw new Error('No work package available to attach to.');
+
+  check('anonymous cannot list attachments', await status(`/work-packages/${target}/attachments`), 401);
+
+  const before = (await (
+    await call(`/work-packages/${target}/attachments`, { cookie: admin })
+  ).json()) as Attachment[];
+  check('an authenticated caller can list attachments', Array.isArray(before), true);
+
+  const uploaded = await uploadFile(target, 'epm-test.txt', 'attachment contents\n', admin);
+  check('upload succeeds', uploaded.status, 201);
+
+  const attachment = uploaded.ok ? ((await uploaded.json()) as Attachment) : undefined;
+
+  if (attachment) {
+    check('the response carries the file name', attachment.fileName, 'epm-test.txt');
+    check('the response carries a size', attachment.fileSize > 0, true);
+    check('the response carries a content type', Boolean(attachment.contentType), true);
+    check('the response carries an upload time', Boolean(attachment.createdAt), true);
+    check('the response names the uploader', Boolean(attachment.authorId), true);
+
+    // Association: it must appear on the work package it was posted to.
+    const after = (await (
+      await call(`/work-packages/${target}/attachments`, { cookie: admin })
+    ).json()) as Attachment[];
+    check('it appears on that work package', after.length, before.length + 1);
+    check(
+      'it appears by id',
+      after.some((entry) => entry.id === attachment.id),
+      true,
+    );
+
+    // Metadata endpoint agrees with the upload response.
+    const fetched = (await (
+      await call(`/attachments/${attachment.id}`, { cookie: admin })
+    ).json()) as Attachment;
+    check('metadata can be read back', fetched.fileName, attachment.fileName);
+
+    // Download: content, headers, and the security properties that matter.
+    const download = await call(`/attachments/${attachment.id}/content`, { cookie: admin });
+    check('download succeeds', download.status, 200);
+    check('the content is byte-identical', await download.text(), 'attachment contents\n');
+
+    const disposition = download.headers.get('content-disposition') ?? '';
+    check('the filename is preserved', disposition.includes('epm-test.txt'), true);
+    // Serving an upload inline would let an uploaded HTML or SVG run as script
+    // in EPM's own origin, and the content type is the uploader's claim.
+    check('it is served as an attachment, never inline', disposition.startsWith('attachment'), true);
+    check(
+      'the content type is preserved',
+      (download.headers.get('content-type') ?? '').includes('text/plain'),
+      true,
+    );
+    check('sniffing is disabled', download.headers.get('x-content-type-options'), 'nosniff');
+
+    // OpenProject marks these publicly cacheable; they are private records.
+    const cacheControl = download.headers.get('cache-control') ?? '';
+    check('it is not publicly cacheable', cacheControl.includes('public'), false);
+    check('it is marked private', cacheControl.includes('private'), true);
+
+    // Nothing about the upstream may reach the client.
+    const headerDump = [...download.headers.entries()].map(([k, v]) => `${k}:${v}`).join('\n');
+    check(
+      'no upstream host in the download headers',
+      /localhost:8080|openproject/i.test(headerDump),
+      false,
+    );
+    check(
+      'no credential in the download headers',
+      /bearer|authorization|access_token/i.test(headerDump),
+      false,
+    );
+
+    check('anonymous cannot download it', await status(`/attachments/${attachment.id}/content`), 401);
+
+    // A restricted caller may read what they can see, and no more.
+    check(
+      'a restricted caller can list attachments they can see',
+      await status(`/work-packages/${target}/attachments`, { cookie: restricted }),
+      200,
+    );
+    const restrictedUpload = await uploadFile(target, 'nope.txt', 'x', restricted);
+    check('a restricted caller cannot upload', restrictedUpload.status, 403);
+    check(
+      'a restricted caller cannot delete',
+      await status(`/attachments/${attachment.id}`, { method: 'DELETE', cookie: restricted }),
+      403,
+    );
+
+    // Deletion is offered only where OpenProject publishes it.
+    check('the uploader is told they may delete it', attachment.can.delete, true);
+    check(
+      'delete succeeds for the uploader',
+      await status(`/attachments/${attachment.id}`, { method: 'DELETE', cookie: admin }),
+      204,
+    );
+    check(
+      'it is gone afterwards',
+      await status(`/attachments/${attachment.id}`, { cookie: admin }),
+      404,
+    );
+  }
+
+  // Filenames are upstream's to sanitise, but the result must be safe to serve.
+  const awkward = await uploadFile(target, 'my report v2.txt', 'spaces\n', admin);
+  check('a filename with spaces is accepted', awkward.status, 201);
+  if (awkward.ok) {
+    const stored = (await awkward.json()) as Attachment;
+    const download = await call(`/attachments/${stored.id}/content`, { cookie: admin });
+    const disposition = download.headers.get('content-disposition') ?? '';
+    // A raw space or quote would terminate the header value early.
+    check('the disposition header is well formed', /^attachment; filename="[^"]*"/.test(disposition), true);
+    check('no newline reaches the header', /[\r\n]/.test(disposition), false);
+    await call(`/attachments/${stored.id}`, { method: 'DELETE', cookie: admin }).catch(
+      () => undefined,
+    );
+  }
+
+  const traversal = await uploadFile(target, 'evil.txt', 'traversal\n', admin);
+  if (traversal.ok) {
+    const stored = (await traversal.json()) as Attachment;
+    check('no path separator survives in the stored name', /[/\\]/.test(stored.fileName), false);
+    await call(`/attachments/${stored.id}`, { method: 'DELETE', cookie: admin }).catch(
+      () => undefined,
+    );
+  }
+
+  // Absent resources, and a body that is not multipart at all.
+  check('an unknown attachment is not found', await status('/attachments/999999', { cookie: admin }), 404);
+  check(
+    'an unknown attachment cannot be downloaded',
+    await status('/attachments/999999/content', { cookie: admin }),
+    404,
+  );
+  check(
+    'an unknown work package has no attachments',
+    await status('/work-packages/999999/attachments', { cookie: admin }),
+    404,
+  );
+  check(
+    'a non-multipart upload is rejected as a bad request',
+    await status(`/work-packages/${target}/attachments`, {
+      method: 'POST',
+      cookie: admin,
+      body: {},
+    }),
+    400,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
