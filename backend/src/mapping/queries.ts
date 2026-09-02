@@ -200,6 +200,15 @@ export interface EpmQuery {
   starred: boolean;
   updatedAt?: string;
   /**
+   * OpenProject's `hidden` flag, reported as given.
+   *
+   * It does not mean "internal". Several of this instance's own named views
+   * carry it — Closed, In progress, Rejected — because it controls sidebar
+   * placement rather than whether a view is real. Filtering on it removes
+   * legitimate views, so nothing here does.
+   */
+  hidden: boolean;
+  /**
    * What the signed-in user may do with this query, taken from the affordances
    * OpenProject publishes on it. Never inferred from a role.
    */
@@ -218,6 +227,7 @@ interface OpQueryFilter {
 interface OpQuery {
   id?: number;
   name?: string;
+  hidden?: boolean;
   sums?: boolean;
   public?: boolean;
   starred?: boolean;
@@ -276,6 +286,7 @@ export function toEpmQuery(query: OpQuery): EpmQuery {
 
     groupBy: query._embedded?.groupBy?.id ?? undefined,
     sums: Boolean(query.sums),
+    hidden: Boolean(query.hidden),
     public: Boolean(query.public),
     starred: Boolean(query.starred),
     updatedAt: query.updatedAt,

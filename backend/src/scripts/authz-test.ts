@@ -516,6 +516,166 @@ async function main() {
   );
   check('the restricted caller still gets columns', restrictedSchema.columns.length > 0, true);
 
+  // --- Sorting ---------------------------------------------------------------
+  console.log('\nSorting');
+
+  const capabilities = (await (
+    await call(`/queries/schema?projectId=${project}`, { cookie: admin })
+  ).json()) as { columns: { id: string }[]; sortable: string[] };
+
+  check('the schema reports sortable fields', capabilities.sortable.length > 0, true);
+  check(
+    'more is sortable than the four columns the table once allowed',
+    capabilities.sortable.length > 4,
+    true,
+  );
+
+  // Sorting and rendering are separate questions; the sets must not be assumed
+  // equal in either direction.
+  const columnIds = new Set(capabilities.columns.map((column) => column.id));
+  const sortableSet = new Set(capabilities.sortable);
+  check(
+    'some columns are shown but cannot be sorted',
+    capabilities.columns.some((column) => !sortableSet.has(column.id)),
+    true,
+  );
+  check(
+    'some sortable fields are not display columns',
+    capabilities.sortable.some((id) => !columnIds.has(id)),
+    true,
+  );
+
+  const sortParam = (field: string, direction: string) =>
+    encodeURIComponent(JSON.stringify([[field, direction]]));
+
+  const runSorted = async (field: string, direction: string) =>
+    (await (
+      await call(`/queries/default?projectId=${project}&sortBy=${sortParam(field, direction)}&pageSize=5`, {
+        cookie: admin,
+      })
+    ).json()) as { query: { sortBy: { field: string; direction: string }[] }; tasks: { subject: string }[] };
+
+  const ascending = await runSorted('subject', 'asc');
+  const descending = await runSorted('subject', 'desc');
+
+  check('ascending is applied upstream', ascending.query.sortBy[0]?.direction, 'asc');
+  check('descending is applied upstream', descending.query.sortBy[0]?.direction, 'desc');
+  check(
+    'the two orders actually differ',
+    ascending.tasks[0]?.subject !== descending.tasks[0]?.subject,
+    true,
+  );
+
+  // Sorting must persist across pages rather than being applied per page.
+  const pageOne = await runSorted('subject', 'asc');
+  const pageTwo = (await (
+    await call(
+      `/queries/default?projectId=${project}&sortBy=${sortParam('subject', 'asc')}&pageSize=5&offset=2`,
+      { cookie: admin },
+    )
+  ).json()) as { tasks: { subject: string }[] };
+  check(
+    'sorting continues onto the next page',
+    (pageTwo.tasks[0]?.subject ?? '') > (pageOne.tasks[0]?.subject ?? ''),
+    true,
+  );
+
+  // A field the table gained a renderer for, which the old union excluded.
+  if (sortableSet.has('storyPoints')) {
+    const byPoints = await runSorted('storyPoints', 'desc');
+    check('story points can be sorted', byPoints.query.sortBy[0]?.field, 'storyPoints');
+  } else {
+    console.log('  SKIP  story points is not sortable on this instance');
+  }
+
+  // Custom field sorting, discovered rather than named.
+  const sortableCustomField = capabilities.sortable.find((id) => id.startsWith('customField'));
+  if (sortableCustomField) {
+    const byCustom = await runSorted(sortableCustomField, 'asc');
+    check('a custom field can be sorted', byCustom.query.sortBy[0]?.field, sortableCustomField);
+  } else {
+    console.log('  SKIP  no sortable custom field on this instance');
+  }
+
+  // EPM must not fabricate sorting: whatever OpenProject decides about a field
+  // is what happens. The advertised sortBy list turns out to under-report —
+  // `parent` is absent from it and accepted anyway — so this asserts the
+  // forwarding behaviour rather than assuming the list is exhaustive.
+  const notAdvertised = capabilities.columns.filter((column) => !sortableSet.has(column.id));
+  const outcomes = await Promise.all(
+    notAdvertised.map(async (column) => ({
+      id: column.id,
+      status: await status(
+        `/queries/default?projectId=${project}&sortBy=${sortParam(column.id, 'asc')}`,
+        { cookie: admin },
+      ),
+    })),
+  );
+
+  check(
+    'every unadvertised sort is either accepted or refused, never fabricated',
+    outcomes.every((outcome) => outcome.status === 200 || outcome.status === 400),
+    true,
+  );
+  check(
+    'at least one unadvertised sort is genuinely refused upstream',
+    outcomes.some((outcome) => outcome.status === 400),
+    true,
+  );
+
+  // Sort must survive being saved, and survive a filter override afterwards.
+  const sortedView = await call('/queries', {
+    method: 'POST',
+    cookie: admin,
+    body: {
+      name: `Sort Roundtrip ${Date.now()}`,
+      projectId: project,
+      payload: {
+        _links: {
+          sortBy: [{ href: '/api/v3/queries/sort_bys/subject-desc' }],
+          columns: [
+            { href: '/api/v3/queries/columns/id' },
+            { href: '/api/v3/queries/columns/subject' },
+          ],
+        },
+      },
+    },
+  });
+  check('a view saves its sort', sortedView.status, 201);
+
+  if (sortedView.ok) {
+    const view = (await sortedView.json()) as { id: string };
+
+    const reloaded = (await (await call(`/queries/${view.id}`, { cookie: admin })).json()) as {
+      query: { sortBy: { field: string; direction: string }[] };
+    };
+    check('the saved sort field is restored', reloaded.query.sortBy[0]?.field, 'subject');
+    check('the saved sort direction is restored', reloaded.query.sortBy[0]?.direction, 'desc');
+
+    const openOnly = encodeURIComponent(JSON.stringify([{ status: { operator: 'o', values: [] } }]));
+    const filtered = (await (
+      await call(`/queries/${view.id}?filters=${openOnly}`, { cookie: admin })
+    ).json()) as { query: { sortBy: { field: string; direction: string }[] } };
+    check('filtering does not clear the saved sort', filtered.query.sortBy[0]?.field, 'subject');
+
+    const recoloured = (await (
+      await call(`/queries/${view.id}?columns=id,subject,status`, { cookie: admin })
+    ).json()) as { query: { sortBy: { field: string }[]; columns: { id: string }[] } };
+    check('changing columns does not clear the sort', recoloured.query.sortBy[0]?.field, 'subject');
+    check('the column override still applies', recoloured.query.columns.length, 3);
+
+    await call(`/queries/${view.id}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+
+  // Sorting is subject to the caller's own identity, like everything else.
+  check(
+    'a restricted caller may still sort what they can see',
+    await status(`/queries/default?projectId=${project}&sortBy=${sortParam('subject', 'asc')}`, {
+      cookie: restricted,
+    }),
+    200,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
