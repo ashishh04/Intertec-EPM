@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { attachmentRoutes } from './attachments.js';
 import { authRoutes } from './auth.js';
 import { catalogRoutes } from './catalog.js';
+import { commentRoutes } from './comments.js';
 import { dashboardRoutes } from './dashboard.js';
 import { documentRoutes } from './documents.js';
 import { formRoutes } from './forms.js';
@@ -44,4 +45,5 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(queryRoutes);
   await app.register(watcherRoutes);
   await app.register(relationRoutes);
+  await app.register(commentRoutes);
 };

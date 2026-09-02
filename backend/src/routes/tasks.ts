@@ -9,8 +9,8 @@ import { hoursToDuration } from '../lib/duration.js';
 import { openProject, type OpFilter, type SortDirection } from '../openproject/client.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { expandIds, toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
-import type { OpActivity, OpProject } from '../openproject/types.js';
-import type { EpmTask, TaskComment } from '../types/epm.js';
+import type { OpProject } from '../openproject/types.js';
+import type { EpmTask } from '../types/epm.js';
 
 /**
  * Work packages.
@@ -150,65 +150,6 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
     return toEpmTask(workPackage, catalog, identifiers);
   });
-
-  app.get<{ Params: { id: string } }>('/tasks/:id/comments', async (request) => {
-    const signal = requestSignal(request);
-
-    const activities = await openProject
-      .getAll<OpActivity>(
-        `/work_packages/${request.params.id}/activities`,
-        { pageSize: 100 },
-        { signal },
-      )
-      .catch(() => ({ items: [] as OpActivity[] }));
-
-    return activities.items
-      .filter((activity) => (activity.comment?.raw ?? '').trim().length > 0)
-      .map((activity): TaskComment => {
-        const author = activity._links?.user;
-        const href = Array.isArray(author) ? author[0]?.href : author?.href;
-        return {
-          id: String(activity.id),
-          taskId: request.params.id,
-          authorId: href?.split('/').pop() ?? '',
-          body: activity.comment?.raw ?? '',
-          createdAt: activity.createdAt,
-        };
-      });
-  });
-
-  app.post<{ Params: { id: string }; Body: { body?: string } }>(
-    '/tasks/:id/comments',
-    async (request, reply) => {
-      const body = request.body?.body?.trim();
-      if (!body) throw EpmError.badRequest('A comment cannot be empty.');
-
-      // No capability covers commenting; the work package advertises it.
-      await guard.requireLink(
-        request,
-        `/work_packages/${request.params.id}`,
-        'addComment',
-        'comment on this work package',
-      );
-
-      const activity = await openProject.request<OpActivity>(
-        `/work_packages/${request.params.id}/activities`,
-        { method: 'POST', body: { comment: { raw: body } }, signal: requestSignal(request) },
-      );
-
-      reply.status(201);
-      const author = activity._links?.user;
-      const href = Array.isArray(author) ? author[0]?.href : author?.href;
-
-      return {
-        id: String(activity.id),
-        taskId: request.params.id,
-        authorId: href?.split('/').pop() ?? '',
-        body: activity.comment?.raw ?? body,
-        createdAt: activity.createdAt,
-      } satisfies TaskComment;
-    },
-  );
 
   app.post<{ Body: Record<string, unknown> }>('/tasks', async (request, reply) => {
     const signal = requestSignal(request);
