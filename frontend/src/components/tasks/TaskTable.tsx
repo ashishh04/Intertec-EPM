@@ -19,6 +19,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
@@ -116,6 +117,14 @@ export interface TaskTableProps {
   onSortChange: (sortBy: string | null, sortDir: 'asc' | 'desc') => void;
   /** Columns that may be sorted. Defaults to the fallback set. */
   sortable?: string[];
+  /**
+   * Groups to render the rows under, in order.
+   *
+   * Counts are for the whole result set while the rows are one page, so a
+   * group can show more than it contributes here — that is the upstream
+   * semantics, not a discrepancy to paper over.
+   */
+  groups?: { value: string | null; count: number; taskIds: ID[] }[];
   onBulkUpdate?: (ids: ID[], patch: Partial<UpdateTaskInput>) => void;
   onBulkDelete?: (ids: ID[]) => void;
   onExport?: () => void;
@@ -151,6 +160,7 @@ export function TaskTable({
   hideProjectColumn = false,
   columns: controlledColumns,
   sortable,
+  groups,
   emptyAction,
 }: TaskTableProps) {
   const [selected, setSelected] = useState<Set<ID>>(new Set());
@@ -174,6 +184,29 @@ export function TaskTable({
       (column) => visibleColumns.includes(column) && !(hideProjectColumn && column === 'project'),
     );
   }, [controlledColumns, visibleColumns, hideProjectColumn]);
+
+  /**
+   * The body's rows: either a flat list, or group headers interleaved with the
+   * rows belonging to each group.
+   *
+   * Groups with nothing on this page are still rendered, because their count is
+   * real and omitting them would make the page look like the whole result.
+   */
+  const rows = useMemo(() => {
+    if (!groups?.length) {
+      return tasks.map((task) => ({ kind: 'task' as const, task }));
+    }
+
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+
+    return groups.flatMap((group) => [
+      { kind: 'group' as const, group },
+      ...group.taskIds
+        .map((id) => byId.get(id))
+        .filter((task): task is EpmTask => task !== undefined)
+        .map((task) => ({ kind: 'task' as const, task })),
+    ]);
+  }, [groups, tasks]);
 
   const allSelected = tasks.length > 0 && tasks.every((task) => selected.has(task.id));
   const someSelected = selected.size > 0 && !allSelected;
@@ -416,7 +449,28 @@ export function TaskTable({
             </TableHeader>
 
             <TableBody>
-              {tasks.map((task) => {
+              {rows.map((row) => {
+                if (row.kind === 'group') {
+                  const { group } = row;
+                  return (
+                    <TableRow key={`group-${group.value ?? '__none__'}`} className="bg-muted/50">
+                      <TableCell colSpan={columns.length + 1} className="py-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-foreground">
+                            {/* An unset attribute is a real group, not a failure
+                                to look one up, so it says so plainly. */}
+                            {group.value ?? 'None'}
+                          </span>
+                          <Badge tone="neutral" size="sm">
+                            {group.count}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
+
+                const { task } = row;
                 const project = projects.get(task.projectId);
                 const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
                 const due = describeDueDate(task.dueDate, task.status === 'done');

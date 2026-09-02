@@ -69,9 +69,25 @@ export interface EpmQuery {
   can: { update: boolean; delete: boolean; star: boolean; unstar: boolean };
 }
 
+/**
+ * One group in a grouped result.
+ *
+ * `count` is authoritative for the whole filtered set; `taskIds` are only those
+ * on the current page. A group showing seven can contribute two rows here,
+ * because OpenProject paginates work packages rather than groups.
+ */
+export interface TaskGroup {
+  /** Display value. Null when the grouped attribute is unset on those records. */
+  value: string | null;
+  count: number;
+  taskIds: ID[];
+}
+
 export interface QueryResult {
   query: EpmQuery;
   tasks: EpmTask[];
+  /** Present only when the query groups. */
+  groups?: TaskGroup[];
   total: number;
   pageSize: number;
   page: number;
@@ -108,6 +124,8 @@ export function buildSort(sorts: QuerySort[]): string {
 export interface QuerySchemaResponse {
   filters: QueryFilterSchema[];
   columns: QueryColumn[];
+  /** Fields the query may group by, with their upstream titles. */
+  groupable: QueryColumn[];
   /**
    * Column ids OpenProject can sort by.
    *

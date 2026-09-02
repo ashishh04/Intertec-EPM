@@ -44,6 +44,8 @@ import type { ID, EpmProject, UpdateTaskInput } from '@/types';
 
 const DEFAULT_PAGE_SIZE = 15;
 const AD_HOC = '__default__';
+/** Radix selects cannot hold an empty value, so absence needs a sentinel. */
+const NO_GROUP = '__nogroup__';
 
 /**
  * Upstream column ids the table has a renderer for.
@@ -119,6 +121,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const [sort, setSort] = useState<{ field: string; direction: 'asc' | 'desc' }>();
   const [newName, setNewName] = useState('');
   const [columns, setColumns] = useState<string[]>();
+  const [groupBy, setGroupBy] = useState<string>();
 
   const schemaQuery = useQuerySchema(projectId);
   const savedQueries = useSavedQueries(projectId);
@@ -162,8 +165,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           }
         : {}),
       ...(columns?.length ? { columns: columns.join(',') } : {}),
+      ...(groupBy ? { groupBy } : {}),
     }),
-    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns],
+    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns, groupBy],
   );
 
   const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides);
@@ -197,6 +201,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     .map((id) => COLUMN_TO_TABLE[id])
     .filter((key): key is string => Boolean(key));
 
+  // As with columns and sort, the view's own grouping applies until overridden.
+  const effectiveGroupBy = groupBy ?? current?.groupBy;
+
   // The view's own sort applies until the user chooses one.
   const activeSort =
     sort ??
@@ -211,8 +218,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     setPage(1);
     setSort(undefined);
     setFilters(id === AD_HOC ? [] : (savedQueries.data?.find((q) => q.id === id)?.filters ?? []));
-    // Drop the local override so the newly selected view's own columns apply.
+    // Drop local overrides so the newly selected view's own configuration applies.
     setColumns(undefined);
+    setGroupBy(undefined);
   };
 
   const save = () => {
@@ -228,6 +236,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           // same configuration rather than falling back to the default set.
           _links: {
             columns: effectiveColumns.map((id) => ({ href: `/api/v3/queries/columns/${id}` })),
+            groupBy: effectiveGroupBy
+              ? { href: `/api/v3/queries/group_bys/${effectiveGroupBy}` }
+              : { href: null },
           },
           // OpenProject persists filters in HAL form, unlike the query-string
           // shorthand used for ad-hoc runs.
@@ -376,6 +387,26 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             className="min-w-0 flex-1"
           />
 
+          <Select
+            value={effectiveGroupBy ?? NO_GROUP}
+            onValueChange={(value) => {
+              setGroupBy(value === NO_GROUP ? undefined : value);
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="h-8 w-48 shrink-0" aria-label="Group by">
+              <SelectValue placeholder="No grouping" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_GROUP}>No grouping</SelectItem>
+              {(schemaQuery.data?.groupable ?? []).map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  Group by {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <ColumnPicker
             available={schemaQuery.data?.columns ?? []}
             renderable={RENDERABLE_COLUMNS}
@@ -435,6 +466,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                 }
               : undefined
           }
+          groups={result.data?.groups}
           columns={tableColumns}
           hideProjectColumn={Boolean(projectId)}
           emptyAction={{
