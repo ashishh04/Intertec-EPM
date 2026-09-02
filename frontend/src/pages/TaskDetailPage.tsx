@@ -1,20 +1,16 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
-import { Ellipsis, Eye, Pencil, Send, UserPlus } from 'lucide-react';
+import { Ellipsis, Eye, Pencil, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ErrorState } from '@/components/common/ErrorState';
-import { EmptyState } from '@/components/common/EmptyState';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { PriorityBadge, StatusBadge, TypeBadge } from '@/components/common/StatusBadge';
 import { UserAvatar } from '@/components/common/UserAvatar';
-import { Pagination } from '@/components/common/Pagination';
-import { usePagination } from '@/hooks/usePagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,7 +31,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAddComment, useTask, useTaskComments, useUpdateTask } from '@/hooks/useTasks';
+import { useComments } from '@/hooks/useComments';
+import { useTask, useUpdateTask } from '@/hooks/useTasks';
 import { useProject } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
@@ -50,6 +47,7 @@ import { useStatuses } from '@/hooks/useCatalog';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { workPackageService } from '@/services';
 import { TaskAttachments } from '@/components/tasks/TaskAttachments';
+import { TaskComments } from '@/components/tasks/TaskComments';
 import { TaskRelations } from '@/components/tasks/TaskRelations';
 import { TaskWatchers } from '@/components/tasks/TaskWatchers';
 import { useAuth } from '@/providers/AuthProvider';
@@ -59,21 +57,19 @@ export default function TaskDetailPage() {
   const { taskId } = useParams();
   const { data: task, isLoading, isError, refetch } = useTask(taskId);
   const { data: project } = useProject(task?.projectId);
-  const commentsQuery = useTaskComments(taskId);
-  // A long-running work package accumulates discussion; show the latest page first.
-  const commentPage = usePagination(commentsQuery.data ?? [], { pageSize: 10, resetKey: taskId });
+  // Read here only for the tab's count. TaskComments asks for the same data and
+  // React Query serves both from one request.
+  const comments = useComments(taskId);
   const activityQuery = useActivity({ projectId: task?.projectId, limit: 12 });
   const { data: userList } = useUsers();
   const users = useUserMap();
   const sprintsQuery = useSprints();
   const updateTask = useUpdateTask();
-  const addComment = useAddComment();
   // Declared with the other hooks: the guards below return early, and a hook
   // after them runs on some renders and not others.
   const { canInProject } = useAuth();
   const statuses = useStatuses();
   const queryClient = useQueryClient();
-  const [comment, setComment] = useState('');
 
   if (isError) {
     return (
@@ -107,23 +103,6 @@ export default function TaskDetailPage() {
       onSuccess: () => toast.success('Task updated'),
       onError: () => toast.error('Unable to save changes'),
     });
-
-  const submitComment = (event: React.FormEvent) => {
-    event.preventDefault();
-    const body = comment.trim();
-    if (!body) return;
-
-    addComment.mutate(
-      { taskId: task.id, body },
-      {
-        onSuccess: () => {
-          setComment('');
-          toast.success('Comment added');
-        },
-        onError: () => toast.error('Unable to post the comment'),
-      },
-    );
-  };
 
   return (
     <div className="space-y-5">
@@ -275,7 +254,7 @@ export default function TaskDetailPage() {
                   <TabsTrigger value="comments" variant="underline">
                     Comments{' '}
                     <span className="font-mono text-2xs text-muted-foreground">
-                      {commentsQuery.data?.length ?? 0}
+                      {comments.data?.length ?? 0}
                     </span>
                   </TabsTrigger>
                   <TabsTrigger value="activity" variant="underline">
@@ -285,78 +264,12 @@ export default function TaskDetailPage() {
               </div>
 
               <TabsContent value="comments" className="p-4">
-                <QueryBoundary
-                  isLoading={commentsQuery.isLoading}
-                  isError={commentsQuery.isError}
-                  onRetry={() => commentsQuery.refetch()}
-                  errorTitle="Unable to load comments"
-                  skeleton={<ActivityTimelineSkeleton rows={3} />}
-                  isEmpty={(commentsQuery.data?.length ?? 0) === 0}
-                  empty={
-                    <EmptyState
-                      size="inline"
-                      title="No comments yet"
-                      description="Start the discussion for this work package."
-                    />
-                  }
-                >
-                  <ul className="space-y-4">
-                    {commentPage.items.map((entry) => {
-                      const commentAuthor = users.get(entry.authorId);
-                      return (
-                        <li key={entry.id} className="flex gap-3">
-                          <UserAvatar user={commentAuthor} size="default" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-baseline gap-2">
-                              <span className="text-xs font-medium">
-                                {commentAuthor?.name ?? 'A teammate'}
-                              </span>
-                              <time className="text-2xs text-muted-foreground">
-                                {formatRelative(entry.createdAt)}
-                              </time>
-                            </div>
-                            <p className="mt-1 rounded-lg bg-muted/70 px-3 py-2 text-xs leading-relaxed text-foreground">
-                              {entry.body}
-                            </p>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  <Pagination
-                    page={commentPage.page}
-                    pageSize={commentPage.pageSize}
-                    total={commentPage.total}
-                    onPageChange={commentPage.setPage}
-                    itemLabel="comment"
-                    variant="compact"
-                    className="mt-3 justify-end border-t border-border pt-2"
-                  />
-                </QueryBoundary>
-
-                <form onSubmit={submitComment} className="mt-4 space-y-2 border-t border-border pt-4">
-                  <label htmlFor="task-comment" className="sr-only">
-                    Add a comment
-                  </label>
-                  <Textarea
-                    id="task-comment"
-                    rows={3}
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                    placeholder="Add a comment, decision or blocker..."
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      size="sm"
-                      disabled={!comment.trim()}
-                      loading={addComment.isPending}
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      Comment
-                    </Button>
-                  </div>
-                </form>
+                <TaskComments
+                  workPackageId={task.id}
+                  // Commenting is affordance-gated in the backend; this only
+                  // decides whether the box is worth showing.
+                  canComment={canInProject(task.projectId, 'task:edit')}
+                />
               </TabsContent>
 
               <TabsContent value="activity" className="p-4">

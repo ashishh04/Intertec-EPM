@@ -21,14 +21,6 @@ export function useTask(id?: ID) {
   });
 }
 
-export function useTaskComments(id?: ID) {
-  return useQuery({
-    queryKey: queryKeys.taskComments(id ?? 'unknown'),
-    queryFn: () => taskService.getComments(id!),
-    enabled: Boolean(id),
-  });
-}
-
 function useTaskInvalidation() {
   const queryClient = useQueryClient();
   return () =>

@@ -25,7 +25,6 @@ import type {
   Paginated,
   ReportFilters,
   StatusDistribution,
-  TaskComment,
   TaskFilters,
   TeamMemberWorkload,
   TimeEntrySummary,
@@ -42,8 +41,6 @@ export interface ProjectRepository {
 export interface TaskRepository {
   getTasks(filters?: TaskFilters): Promise<Paginated<EpmTask>>;
   getTask(id: ID): Promise<EpmTask>;
-  getComments(taskId: ID): Promise<TaskComment[]>;
-  addComment(taskId: ID, body: string): Promise<TaskComment>;
   createTask(input: CreateTaskInput): Promise<EpmTask>;
   updateTask(input: UpdateTaskInput): Promise<EpmTask>;
   bulkUpdate(ids: ID[], patch: Partial<UpdateTaskInput>): Promise<EpmTask[]>;

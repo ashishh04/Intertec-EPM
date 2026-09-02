@@ -228,14 +228,6 @@ export interface EpmTask {
   updatedAt: ISODate;
 }
 
-export interface TaskComment {
-  id: ID;
-  taskId: ID;
-  authorId: ID;
-  body: string;
-  createdAt: ISODate;
-}
-
 export interface CreateTaskInput {
   subject: string;
   description?: string;

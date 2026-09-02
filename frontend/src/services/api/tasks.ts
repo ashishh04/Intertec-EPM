@@ -5,7 +5,6 @@ import type {
   ID,
   EpmTask,
   Paginated,
-  TaskComment,
   TaskFilters,
   UpdateTaskInput,
 } from '@/types';
@@ -31,14 +30,6 @@ export class ApiTaskRepository implements TaskRepository {
 
   getTask(id: ID): Promise<EpmTask> {
     return apiClient.get<EpmTask>(`/tasks/${id}`);
-  }
-
-  getComments(taskId: ID): Promise<TaskComment[]> {
-    return apiClient.get<TaskComment[]>(`/tasks/${taskId}/comments`);
-  }
-
-  addComment(taskId: ID, body: string): Promise<TaskComment> {
-    return apiClient.post<TaskComment>(`/tasks/${taskId}/comments`, { body });
   }
 
   createTask(input: CreateTaskInput): Promise<EpmTask> {

@@ -18,7 +18,6 @@ export const queryKeys = {
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,
-  taskComments: (id: ID) => ['tasks', 'detail', id, 'comments'] as const,
 
   teams: ['teams'] as const,
   team: (id: ID) => ['teams', id] as const,
