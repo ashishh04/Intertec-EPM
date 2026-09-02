@@ -1,0 +1,46 @@
+# OpenProject, reproduced from the container that was originally created by
+# hand with `docker run`, plus the one thing that container could not carry:
+# the EPM password-grant initializer.
+#
+# Why this file exists
+# -------------------
+# EPM signs users in on its own form and exchanges their credentials for an
+# OpenProject token. That needs `zzz_epm_password_grant.rb` present inside the
+# container. Copying it in with `docker cp` works until the container is
+# recreated, at which point sign-in breaks with no obvious cause. Mounting it
+# from the repository makes the dependency explicit and survivable.
+#
+# Usage
+# -----
+#   docker compose -f backend/openproject/docker-compose.openproject.yml up -d
+#
+# The data directories are bind mounts on the host, so recreating the container
+# does not touch the database or attachments. Override their location with
+# OPENPROJECT_DATA_DIR if this is deployed elsewhere.
+#
+# Upgrade implications
+# --------------------
+# The initializer mutates Doorkeeper's configuration and calls
+# `User.try_to_login`. Both are internal OpenProject APIs. After changing the
+# `image` tag below, verify sign-in still works before considering the upgrade
+# done — see backend/openproject/README.md.
+
+services:
+  openproject:
+    image: openproject/openproject:15
+    container_name: openproject
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    environment:
+      # Matches the original container. SECRET_KEY_BASE must be a real secret
+      # in any deployment that is not a local throwaway.
+      OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:-secret}
+      OPENPROJECT_HOST__NAME: ${OPENPROJECT_HOST__NAME:-localhost:8080}
+      OPENPROJECT_HTTPS: ${OPENPROJECT_HTTPS:-false}
+      OPENPROJECT_DEFAULT__LANGUAGE: en
+    volumes:
+      - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/pgdata:/var/openproject/pgdata
+      - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/assets:/var/openproject/assets
+      # The EPM patch. Read-only: nothing in the container should rewrite it.
+      - ./zzz_epm_password_grant.rb:/app/config/initializers/zzz_epm_password_grant.rb:ro
