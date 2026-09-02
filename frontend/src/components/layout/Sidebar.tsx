@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { useUI } from '@/providers/UIProvider';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUnreadCount } from '@/hooks/useNotifications';
-import { NexusLogo, NexusMark } from '@/components/common/NexusLogo';
+import { EpmLogo, EpmMark } from '@/components/common/EpmLogo';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -57,21 +57,21 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
         )}
       >
         {collapsed ? (
-          <NexusMark className="h-8 w-8" />
+          <EpmMark className="h-8 w-8" />
         ) : (
-          <NexusLogo variant="full" className="min-w-0" />
+          <EpmLogo variant="full" className="min-w-0" />
         )}
       </div>
 
       {/* Navigation */}
       <nav
         aria-label="Primary"
-        className={cn('nexus-scroll flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}
+        className={cn('epm-scroll flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}
       >
         {NAV_SECTIONS.map((section, sectionIndex) => (
           <div key={section.title ?? `section-${sectionIndex}`} className={cn(sectionIndex > 0 && 'mt-4')}>
             {section.title && !collapsed ? (
-              <p className="nexus-eyebrow px-2.5 pb-1.5">{section.title}</p>
+              <p className="epm-eyebrow px-2.5 pb-1.5">{section.title}</p>
             ) : null}
             {section.title && collapsed ? (
               <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" aria-hidden />
@@ -142,12 +142,12 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
           </div>
         ))}
 
-        {featureFlags.nexusAi ? (
+        {featureFlags.epmAi ? (
           <div className={cn('mt-4', collapsed ? '' : 'px-0.5')}>
             <button
               type="button"
               onClick={() =>
-                toast('Nexus AI is not available yet', {
+                toast('EPM AI is not available yet', {
                   description: 'The assistant entry point is reserved for a future release.',
                 })
               }
@@ -158,7 +158,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
               )}
             >
               <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
-              {!collapsed ? <span>Ask Nexus</span> : <span className="sr-only">Ask Nexus</span>}
+              {!collapsed ? <span>Ask EPM</span> : <span className="sr-only">Ask EPM</span>}
             </button>
           </div>
         ) : null}

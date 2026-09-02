@@ -3,7 +3,7 @@ import type { TaskRepository } from '../repositories';
 import type {
   CreateTaskInput,
   ID,
-  NexusTask,
+  EpmTask,
   Paginated,
   TaskComment,
   TaskFilters,
@@ -12,8 +12,8 @@ import type {
 
 /** Work packages. Filtering and pagination are pushed down to the backend. */
 export class ApiTaskRepository implements TaskRepository {
-  getTasks(filters: TaskFilters = {}): Promise<Paginated<NexusTask>> {
-    return apiClient.get<Paginated<NexusTask>>('/tasks', {
+  getTasks(filters: TaskFilters = {}): Promise<Paginated<EpmTask>> {
+    return apiClient.get<Paginated<EpmTask>>('/tasks', {
       projectId: filters.projectId,
       assigneeId: filters.assigneeId,
       status: filters.status,
@@ -29,8 +29,8 @@ export class ApiTaskRepository implements TaskRepository {
     });
   }
 
-  getTask(id: ID): Promise<NexusTask> {
-    return apiClient.get<NexusTask>(`/tasks/${id}`);
+  getTask(id: ID): Promise<EpmTask> {
+    return apiClient.get<EpmTask>(`/tasks/${id}`);
   }
 
   getComments(taskId: ID): Promise<TaskComment[]> {
@@ -41,17 +41,17 @@ export class ApiTaskRepository implements TaskRepository {
     return apiClient.post<TaskComment>(`/tasks/${taskId}/comments`, { body });
   }
 
-  createTask(input: CreateTaskInput): Promise<NexusTask> {
-    return apiClient.post<NexusTask>('/tasks', input);
+  createTask(input: CreateTaskInput): Promise<EpmTask> {
+    return apiClient.post<EpmTask>('/tasks', input);
   }
 
-  updateTask(input: UpdateTaskInput): Promise<NexusTask> {
+  updateTask(input: UpdateTaskInput): Promise<EpmTask> {
     const { id, ...patch } = input;
-    return apiClient.patch<NexusTask>(`/tasks/${id}`, patch);
+    return apiClient.patch<EpmTask>(`/tasks/${id}`, patch);
   }
 
-  bulkUpdate(ids: ID[], patch: Partial<UpdateTaskInput>): Promise<NexusTask[]> {
-    return apiClient.patch<NexusTask[]>('/tasks/bulk', { ids, patch });
+  bulkUpdate(ids: ID[], patch: Partial<UpdateTaskInput>): Promise<EpmTask[]> {
+    return apiClient.patch<EpmTask[]>('/tasks/bulk', { ids, patch });
   }
 
   async deleteTasks(ids: ID[]): Promise<void> {

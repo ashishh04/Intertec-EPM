@@ -1,0 +1,84 @@
+import { linkId } from '../openproject/client.js';
+import { durationToHours } from '../lib/duration.js';
+import { classifyPriority, classifyType, type Catalog } from './catalog.js';
+import type { OpWorkPackage } from '../openproject/types.js';
+import type { EpmTask, TaskPriority, TaskStatus, TaskType } from '../types/epm.js';
+
+/** Work packages → EpmTask. */
+
+/** Backlogs adds `storyPoints`; it is absent when the plugin is not installed. */
+export interface WorkPackageWithPoints extends OpWorkPackage {
+  storyPoints?: number | null;
+}
+
+export function toEpmTask(
+  workPackage: WorkPackageWithPoints,
+  catalog: Catalog,
+  projectIdentifierById: Map<string, string>,
+): EpmTask {
+  const links = workPackage._links;
+
+  const statusId = linkId(links, 'status');
+  const statusEntry = statusId ? catalog.statusById.get(statusId) : undefined;
+
+  const typeId = linkId(links, 'type');
+  const typeEntry = typeId ? catalog.typeById.get(typeId) : undefined;
+
+  const priorityId = linkId(links, 'priority');
+  const priorityEntry = priorityId ? catalog.priorityById.get(priorityId) : undefined;
+
+  const projectId = linkId(links, 'project') ?? '';
+  const identifier = projectIdentifierById.get(projectId);
+
+  const status: TaskStatus = statusEntry?.epm ?? 'todo';
+  const type: TaskType = typeEntry?.epm ?? 'task';
+  const priority: TaskPriority = priorityEntry?.epm ?? 'medium';
+
+  // Milestones carry a single `date`; everything else has start/due.
+  const startDate = workPackage.startDate ?? workPackage.date ?? undefined;
+  const dueDate = workPackage.dueDate ?? workPackage.date ?? undefined;
+
+  const version = linkId(links, 'version');
+
+  return {
+    id: String(workPackage.id),
+    // The UI shows a short key throughout. OpenProject has no such concept, so
+    // it is composed from the project identifier and the work package id.
+    key: identifier ? `${identifier.slice(0, 6).toUpperCase()}-${workPackage.id}` : `WP-${workPackage.id}`,
+    subject: workPackage.subject,
+    description: workPackage.description?.raw ?? undefined,
+    type,
+    status,
+    priority,
+    projectId,
+    assigneeId: linkId(links, 'assignee'),
+    authorId: linkId(links, 'author') ?? '',
+    parentId: linkId(links, 'parent'),
+    sprintId: version,
+    version: links?.version && !Array.isArray(links.version) ? links.version.title : undefined,
+    startDate,
+    dueDate,
+    estimatedHours: durationToHours(workPackage.estimatedTime),
+    spentHours: durationToHours(workPackage.spentTime),
+    storyPoints: typeof workPackage.storyPoints === 'number' ? workPackage.storyPoints : undefined,
+    labels: [],
+    progress: workPackage.percentageDone ?? 0,
+    watcherIds: [],
+    createdAt: workPackage.createdAt,
+    updatedAt: workPackage.updatedAt,
+  };
+}
+
+/** Maps EPM filter values onto the OpenProject status/type/priority ids. */
+export function expandIds<T extends string>(
+  values: T[] | undefined,
+  lookup: Map<T, string[]>,
+): string[] | undefined {
+  if (!values?.length) return undefined;
+  const ids = values.flatMap((value) => lookup.get(value) ?? []);
+  return ids.length ? ids : undefined;
+}
+
+export function isOverdue(task: EpmTask, today: string): boolean {
+  return Boolean(task.dueDate && task.dueDate < today && task.status !== 'done');
+}

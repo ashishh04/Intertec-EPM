@@ -26,7 +26,7 @@ import { StatusBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { TASK_STATUS_META, TONE_FILL } from '@/lib/domain';
 import { cn, formatShortDate } from '@/lib/utils';
-import type { ID, Milestone, NexusTask, NexusUser } from '@/types';
+import type { ID, Milestone, EpmTask, EpmUser } from '@/types';
 
 type ZoomLevel = 'day' | 'week' | 'month';
 
@@ -36,8 +36,8 @@ const ROW_HEIGHT = 34;
 const MILESTONE_LANE = 22;
 
 interface GanttChartProps {
-  tasks: NexusTask[];
-  users: Map<ID, NexusUser>;
+  tasks: EpmTask[];
+  users: Map<ID, EpmUser>;
   milestones?: Milestone[];
   className?: string;
 }
@@ -180,15 +180,15 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
         {/* Task pane */}
         <div className="w-64 shrink-0 border-r border-border sm:w-80">
           <div className="flex h-12 items-end border-b border-border px-3 pb-1.5">
-            <span className="nexus-eyebrow">Task</span>
-            <span className="nexus-eyebrow ml-auto hidden sm:block">Status</span>
+            <span className="epm-eyebrow">Task</span>
+            <span className="epm-eyebrow ml-auto hidden sm:block">Status</span>
           </div>
           {milestones.length > 0 ? (
             <div
               style={{ height: MILESTONE_LANE }}
               className="flex items-center border-b border-border px-3"
             >
-              <span className="nexus-eyebrow">Milestones</span>
+              <span className="epm-eyebrow">Milestones</span>
             </div>
           ) : null}
           {scheduled.map((task) => (
@@ -213,7 +213,7 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
         </div>
 
         {/* Timeline pane */}
-        <div ref={scrollRef} className="nexus-scroll flex-1 overflow-x-auto">
+        <div ref={scrollRef} className="epm-scroll flex-1 overflow-x-auto">
           <div style={{ width: totalWidth, minWidth: '100%' }} className="relative">
             {/* Scale */}
             <div className="sticky top-0 z-10 h-12 border-b border-border bg-surface">

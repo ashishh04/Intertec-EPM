@@ -143,7 +143,7 @@ export default function TaskDetailPage() {
               variant="secondary"
               size="sm"
               onClick={() =>
-                toast('Inline editing is not enabled in the demo', {
+                toast('Inline editing is not implemented yet', {
                   description: 'Use the properties panel to change status, priority or assignee.',
                 })
               }
@@ -357,7 +357,7 @@ export default function TaskDetailPage() {
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
             <div className="space-y-1.5">
-              <p className="nexus-eyebrow">Status</p>
+              <p className="epm-eyebrow">Status</p>
               <Select
                 value={task.status}
                 onValueChange={(value) => patch({ id: task.id, status: value as TaskStatus })}
@@ -376,7 +376,7 @@ export default function TaskDetailPage() {
             </div>
 
             <div className="space-y-1.5">
-              <p className="nexus-eyebrow">Priority</p>
+              <p className="epm-eyebrow">Priority</p>
               <Select
                 value={task.priority}
                 onValueChange={(value) => patch({ id: task.id, priority: value as TaskPriority })}
@@ -397,7 +397,7 @@ export default function TaskDetailPage() {
             <Separator />
 
             <div className="space-y-1.5">
-              <p className="nexus-eyebrow">Progress</p>
+              <p className="epm-eyebrow">Progress</p>
               <div className="flex items-center gap-2">
                 <ProgressBar value={task.progress} size="sm" label="Task progress" className="flex-1" />
                 <span className="font-mono text-2xs tabular-nums">{task.progress}%</span>

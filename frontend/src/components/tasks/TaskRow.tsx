@@ -3,7 +3,7 @@ import { cn, describeDueDate } from '@/lib/utils';
 import { StatusBadge, PriorityBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { NexusProject, NexusTask, NexusUser } from '@/types';
+import type { EpmProject, EpmTask, EpmUser } from '@/types';
 
 const DUE_TONE = {
   overdue: 'text-danger font-medium',
@@ -14,9 +14,9 @@ const DUE_TONE = {
 } as const;
 
 interface TaskRowProps {
-  task: NexusTask;
-  project?: NexusProject;
-  assignee?: NexusUser;
+  task: EpmTask;
+  project?: EpmProject;
+  assignee?: EpmUser;
   className?: string;
 }
 

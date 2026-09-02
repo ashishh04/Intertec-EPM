@@ -17,7 +17,7 @@ import { SprintStateBadge } from '@/components/common/StatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { KanbanBoard, KanbanBoardSkeleton } from '@/components/board/KanbanBoard';
-import { BurndownChart, VelocityChart } from '@/components/charts/NexusCharts';
+import { BurndownChart, VelocityChart } from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
@@ -131,7 +131,7 @@ export default function AgilePage() {
             {sprint.state === 'planned' ? (
               <Button
                 onClick={() =>
-                  toast('Starting a sprint is not enabled in the demo', {
+                  toast('Starting a sprint is not implemented yet', {
                     description: 'A connected workspace opens the sprint and locks its scope.',
                   })
                 }
@@ -142,7 +142,7 @@ export default function AgilePage() {
             ) : sprint.state === 'active' ? (
               <Button
                 onClick={() =>
-                  toast('Completing a sprint is not enabled in the demo', {
+                  toast('Completing a sprint is not implemented yet', {
                     description: 'Unfinished work would move to the next sprint or the backlog.',
                   })
                 }
@@ -164,7 +164,7 @@ export default function AgilePage() {
           <Flag className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="nexus-eyebrow">Sprint goal</p>
+          <p className="epm-eyebrow">Sprint goal</p>
           <p className="mt-1 text-xs leading-relaxed text-foreground">{sprint.goal}</p>
         </div>
         <div className="hidden w-40 shrink-0 space-y-1.5 sm:block">

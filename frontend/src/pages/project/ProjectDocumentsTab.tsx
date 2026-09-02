@@ -14,7 +14,7 @@ import { Card } from '@/components/ui/card';
 import { useDocuments, useUploadDocument } from '@/hooks/useDocuments';
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
-import type { ID, NexusProject } from '@/types';
+import type { ID, EpmProject } from '@/types';
 
 /** Files attached to a project. */
 export default function ProjectDocumentsTab() {
@@ -25,7 +25,7 @@ export default function ProjectDocumentsTab() {
   const users = useUserMap();
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -59,7 +59,7 @@ export default function ProjectDocumentsTab() {
           users={users}
           projects={projectsById}
           onOpen={(document) =>
-            toast('Preview is not available in the demo', { description: document.name })
+            toast('Preview is not implemented yet', { description: document.name })
           }
         />
       </QueryBoundary>

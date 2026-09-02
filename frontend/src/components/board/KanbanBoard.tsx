@@ -21,14 +21,14 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PriorityBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
-import type { ID, NexusTask, NexusUser, TaskStatus } from '@/types';
+import type { ID, EpmTask, EpmUser, TaskStatus } from '@/types';
 
 /** Cards rendered per column before the reader has to ask for more. */
 const COLUMN_PAGE_SIZE = 15;
 
 interface KanbanBoardProps {
-  tasks: NexusTask[];
-  users: Map<ID, NexusUser>;
+  tasks: EpmTask[];
+  users: Map<ID, EpmUser>;
   onStatusChange: (taskId: ID, status: TaskStatus) => void;
   onCreate?: (status: TaskStatus) => void;
   /** Column set. Defaults to the standard delivery flow. */
@@ -58,7 +58,7 @@ export function KanbanBoard({
   );
 
   const grouped = useMemo(() => {
-    const map = new Map<TaskStatus, NexusTask[]>();
+    const map = new Map<TaskStatus, EpmTask[]>();
     for (const status of columns) map.set(status, []);
     for (const task of tasks) {
       if (!map.has(task.status)) continue;
@@ -90,7 +90,7 @@ export function KanbanBoard({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className={cn('nexus-scroll flex gap-3 overflow-x-auto pb-2', className)}>
+      <div className={cn('epm-scroll flex gap-3 overflow-x-auto pb-2', className)}>
         {columns.map((status) => (
           <KanbanColumn
             key={status}
@@ -122,8 +122,8 @@ function KanbanColumn({
   onCreate,
 }: {
   status: TaskStatus;
-  tasks: NexusTask[];
-  users: Map<ID, NexusUser>;
+  tasks: EpmTask[];
+  users: Map<ID, EpmUser>;
   onCreate?: (status: TaskStatus) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
@@ -160,7 +160,7 @@ function KanbanColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          'nexus-scroll flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto rounded-b-xl px-2 pb-2 transition-colors',
+          'epm-scroll flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto rounded-b-xl px-2 pb-2 transition-colors',
           isOver && 'bg-primary-soft/60 ring-1 ring-inset ring-primary/30',
         )}
       >
@@ -196,7 +196,7 @@ function KanbanColumn({
   );
 }
 
-function DraggableCard({ task, assignee }: { task: NexusTask; assignee?: NexusUser }) {
+function DraggableCard({ task, assignee }: { task: EpmTask; assignee?: EpmUser }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id });
 
   return (
@@ -217,8 +217,8 @@ function KanbanCard({
   assignee,
   dragging = false,
 }: {
-  task: NexusTask;
-  assignee?: NexusUser;
+  task: EpmTask;
+  assignee?: EpmUser;
   dragging?: boolean;
 }) {
   const due = describeDueDate(task.dueDate, task.status === 'done');

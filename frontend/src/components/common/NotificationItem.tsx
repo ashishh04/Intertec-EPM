@@ -3,7 +3,7 @@ import { AtSign, Bell, CalendarClock, FolderKanban, Server, UserPlus } from 'luc
 import { cn, formatRelative } from '@/lib/utils';
 import { NOTIFICATION_CATEGORY_META, TONE_SOFT } from '@/lib/domain';
 import { UserAvatar } from './UserAvatar';
-import type { ID, NexusNotification, NexusUser, NotificationCategory } from '@/types';
+import type { ID, EpmNotification, EpmUser, NotificationCategory } from '@/types';
 
 const CATEGORY_ICON: Record<NotificationCategory, typeof Bell> = {
   mention: AtSign,
@@ -14,15 +14,15 @@ const CATEGORY_ICON: Record<NotificationCategory, typeof Bell> = {
 };
 
 interface NotificationItemProps {
-  notification: NexusNotification;
-  users: Map<ID, NexusUser>;
+  notification: EpmNotification;
+  users: Map<ID, EpmUser>;
   onRead?: (id: ID) => void;
   /** Dense variant used inside the header popover. */
   compact?: boolean;
   className?: string;
 }
 
-function targetFor(notification: NexusNotification): string {
+function targetFor(notification: EpmNotification): string {
   if (notification.taskId) return `/tasks/${notification.taskId}`;
   if (notification.projectId) return `/projects/${notification.projectId}`;
   return '/notifications';

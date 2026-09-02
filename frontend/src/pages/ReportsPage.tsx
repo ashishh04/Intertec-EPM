@@ -21,7 +21,7 @@ import {
   HorizontalBarChart,
   StatusDistributionChart,
   VelocityChart,
-} from '@/components/charts/NexusCharts';
+} from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -143,7 +143,7 @@ export default function ReportsPage() {
             variant="secondary"
             size="sm"
             onClick={() =>
-              toast('Export runs on the Nexus backend', {
+              toast('Export runs on the EPM backend', {
                 description: 'Connected workspaces generate a PDF or CSV from the current filters.',
               })
             }
@@ -287,7 +287,7 @@ export default function ReportsPage() {
       </div>
 
       <Tabs value={report} onValueChange={(value) => setReport(value as typeof report)}>
-        <div className="nexus-scroll overflow-x-auto">
+        <div className="epm-scroll overflow-x-auto">
           <TabsList variant="underline" className="min-w-max">
             {REPORTS.map((item) => (
               <TabsTrigger key={item.value} value={item.value} variant="underline">

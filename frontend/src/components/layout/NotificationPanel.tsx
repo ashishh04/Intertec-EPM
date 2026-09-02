@@ -73,7 +73,7 @@ export function NotificationPanel() {
           ) : null}
         </div>
 
-        <div className="nexus-scroll max-h-96 overflow-y-auto">
+        <div className="epm-scroll max-h-96 overflow-y-auto">
           {isLoading ? (
             <div className="space-y-3 p-3">
               {[0, 1, 2, 3].map((index) => (

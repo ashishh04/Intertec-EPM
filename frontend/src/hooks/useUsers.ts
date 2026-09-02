@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { userService } from '@/services';
 import { queryKeys } from '@/lib/queryKeys';
-import type { ID, NexusUser } from '@/types';
+import type { ID, EpmUser } from '@/types';
 
-export function useCurrentUser() {
+export function useCurrentUser(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.currentUser,
     queryFn: () => userService.getCurrentUser(),
+    // Asking before a session exists just 401s; AuthProvider gates on this.
+    enabled: options.enabled ?? true,
     staleTime: Infinity,
   });
 }
@@ -19,17 +21,8 @@ export function useUsers() {
   });
 }
 
-export function useUser(id?: ID) {
-  return useQuery({
-    queryKey: queryKeys.user(id ?? 'unknown'),
-    queryFn: () => userService.getUser(id!),
-    enabled: Boolean(id),
-    staleTime: 300_000,
-  });
-}
-
 /** Convenience lookup so lists can resolve assignees without extra requests. */
-export function useUserMap(): Map<ID, NexusUser> {
+export function useUserMap(): Map<ID, EpmUser> {
   const { data } = useUsers();
   return new Map((data ?? []).map((user) => [user.id, user]));
 }

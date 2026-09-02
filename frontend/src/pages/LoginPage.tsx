@@ -5,12 +5,9 @@ import { ArrowRight, GitBranch, Layers, ShieldCheck, TrendingUp } from 'lucide-r
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label, FieldHint } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Separator } from '@/components/ui/separator';
-import { NexusLogo, NexusMark } from '@/components/common/NexusLogo';
+import { EpmLogo, EpmMark } from '@/components/common/EpmLogo';
 import { useAuth } from '@/providers/AuthProvider';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME, env } from '@/config/env';
-import { toast } from 'sonner';
 
 const PILLARS = [
   { icon: Layers, title: 'Portfolio in one view', body: 'Every project, sprint and dependency in a single operating picture.' },
@@ -18,25 +15,40 @@ const PILLARS = [
   { icon: GitBranch, title: 'Connected to your tools', body: 'Work packages stay in sync with the delivery systems your teams already use.' },
 ];
 
-/**
- * Enterprise sign-in. SSO is the primary path; the email form exists only so the
- * prototype can be explored without an identity provider configured.
- */
+/** Sign-in. Credentials are verified by the EPM backend; none are kept here. */
 export default function LoginPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('alex.morgan@demo.intertec.test');
-  const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(true);
-  const [pending, setPending] = useState<'sso' | 'password' | null>(null);
 
-  const enter = (method: 'sso' | 'password') => {
-    setPending(method);
-    // No real authentication happens here — the Nexus backend owns the session.
-    window.setTimeout(() => {
-      signIn();
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [pending, setPending] = useState(false);
+  const [failure, setFailure] = useState<string>();
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!username.trim() || !password) {
+      setFailure('Enter your username and password.');
+      return;
+    }
+
+    setPending(true);
+    setFailure(undefined);
+    try {
+      await signIn(username.trim(), password);
       navigate('/dashboard', { replace: true });
-    }, 450);
+    } catch (error) {
+      // The backend deliberately reports one message for every rejection so the
+      // form cannot be used to discover which usernames exist.
+      setFailure(
+        error instanceof Error && error.message
+          ? error.message
+          : 'Sign-in failed. Please try again.',
+      );
+      setPassword('');
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -59,7 +71,7 @@ export default function LoginPage() {
           transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
           className="relative flex items-center gap-3"
         >
-          <NexusMark className="h-9 w-9" />
+          <EpmMark className="h-9 w-9" />
           <div>
             <p className="text-sm font-semibold tracking-tight">{APP_NAME}</p>
             <p className="text-2xs text-primary-foreground/70">{ORG_NAME}</p>
@@ -111,7 +123,7 @@ export default function LoginPage() {
           className="w-full max-w-sm space-y-6"
         >
           <div className="space-y-2 lg:hidden">
-            <NexusLogo variant="full" showDescriptor />
+            <EpmLogo variant="full" showDescriptor />
           </div>
 
           <div className="space-y-1.5">
@@ -121,64 +133,36 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <Button
-            size="lg"
-            className="w-full"
-            loading={pending === 'sso'}
-            onClick={() => enter('sso')}
-          >
-            <MicrosoftGlyph />
-            Continue with Microsoft
-          </Button>
+          {failure ? (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-soft p-3"
+            >
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
+              <p className="text-2xs text-muted-foreground">{failure}</p>
+            </div>
+          ) : null}
 
-          <div className="flex items-center gap-3">
-            <Separator className="flex-1" />
-            <span className="text-2xs uppercase tracking-wide text-muted-foreground">
-              or use email
-            </span>
-            <Separator className="flex-1" />
-          </div>
-
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!email.trim()) {
-                toast.error('Enter your work email address');
-                return;
-              }
-              enter('password');
-            }}
-          >
+          <form className="space-y-4" onSubmit={submit}>
             <div className="space-y-1.5">
-              <Label htmlFor="login-email" required>
-                Work email
+              <Label htmlFor="login-username" required>
+                Username
               </Label>
               <Input
-                id="login-email"
-                type="email"
+                id="login-username"
                 autoComplete="username"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@intertecsystems.com"
+                autoFocus
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="Your work username"
+                aria-invalid={Boolean(failure)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="login-password">Password</Label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    toast('Password recovery is handled by your identity provider', {
-                      description: 'Contact the IT service desk to reset your account.',
-                    })
-                  }
-                  className="text-2xs font-medium text-primary underline-offset-2 hover:underline"
-                >
-                  Forgot password?
-                </button>
-              </div>
+              <Label htmlFor="login-password" required>
+                Password
+              </Label>
               <Input
                 id="login-password"
                 type="password"
@@ -186,27 +170,14 @@ export default function LoginPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder="••••••••"
+                aria-invalid={Boolean(failure)}
               />
               <FieldHint>
-                Demo access only. Credentials are never stored in the browser.
+                Your password is verified on the server and is never stored in this browser.
               </FieldHint>
             </div>
 
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={remember}
-                onCheckedChange={(checked) => setRemember(checked === true)}
-                aria-label="Remember me on this device"
-              />
-              Remember me on this device
-            </label>
-
-            <Button
-              type="submit"
-              variant="secondary"
-              className="w-full"
-              loading={pending === 'password'}
-            >
+            <Button type="submit" size="lg" className="w-full" loading={pending}>
               Sign in
               <ArrowRight className="h-4 w-4" />
             </Button>
@@ -216,7 +187,7 @@ export default function LoginPage() {
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
             <p className="text-2xs text-muted-foreground">
               This build runs on <span className="font-medium text-foreground">{env.appEnv}</span>{' '}
-              data. Sessions are issued by the Nexus backend; no credentials or API tokens are held
+              data. Sessions are issued by the EPM backend; no credentials or API tokens are held
               in the frontend.
             </p>
           </div>
@@ -226,13 +197,3 @@ export default function LoginPage() {
   );
 }
 
-function MicrosoftGlyph() {
-  return (
-    <svg viewBox="0 0 20 20" className="h-4 w-4" aria-hidden>
-      <rect x="1" y="1" width="8" height="8" fill="#F25022" />
-      <rect x="11" y="1" width="8" height="8" fill="#7FBA00" />
-      <rect x="1" y="11" width="8" height="8" fill="#00A4EF" />
-      <rect x="11" y="11" width="8" height="8" fill="#FFB900" />
-    </svg>
-  );
-}

@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, Minus, ShieldAlert } from 'lucide-react';
+import { ArrowDown, ArrowUp, Minus, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import {
@@ -136,16 +136,6 @@ export function HealthIndicator({
       <span className={cn('h-2 w-2 shrink-0 rounded-full', TONE_FILL[meta.tone])} aria-hidden />
       <span className={cn('font-medium', TONE_TEXT[meta.tone])}>{label ?? meta.label}</span>
     </span>
-  );
-}
-
-export function RiskIcon({ level, className }: { level: HealthLevel; className?: string }) {
-  if (level === 'healthy') return null;
-  return (
-    <AlertTriangle
-      className={cn('h-3.5 w-3.5', level === 'critical' ? 'text-danger' : 'text-warning', className)}
-      aria-hidden
-    />
   );
 }
 

@@ -1,77 +1,86 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import type { NexusUser, Permission } from '@/types';
+import { createContext, useCallback, useContext, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/services/api/client';
+import type { EpmUser, Permission } from '@/types';
 import { useCurrentUser } from '@/hooks/useUsers';
 
 /**
- * Session state for the prototype.
+ * Session state.
  *
- * No credentials are ever stored client-side. A real deployment replaces this
- * with the Nexus backend session (an HTTP-only cookie) and an SSO redirect; the
- * only thing kept here is a non-sensitive "a session exists" marker so a page
- * refresh does not bounce the user back to the login screen.
+ * Credentials are posted to the EPM backend, which verifies them upstream and
+ * keeps the resulting tokens server-side behind an HTTP-only cookie. The
+ * browser never holds a credential, and every request travels on the signed-in
+ * user's own token, so their real permissions apply.
  */
 
-const SESSION_FLAG = 'nexus.session';
+interface SessionResponse {
+  userId: string;
+  authenticated: boolean;
+}
 
 interface AuthContextValue {
-  user: NexusUser | undefined;
+  user: EpmUser | undefined;
   isAuthenticated: boolean;
   isLoading: boolean;
   permissions: Permission[];
   can: (permission: Permission) => boolean;
-  signIn: () => void;
+  signIn: (username: string, password: string) => Promise<void>;
   signOut: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function readSessionFlag(): boolean {
-  try {
-    return window.sessionStorage.getItem(SESSION_FLAG) === 'active';
-  } catch {
-    return false;
-  }
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [hasSession, setHasSession] = useState(readSessionFlag);
   const queryClient = useQueryClient();
-  const { data: user, isLoading } = useCurrentUser();
 
-  const signIn = useCallback(() => {
-    try {
-      window.sessionStorage.setItem(SESSION_FLAG, 'active');
-    } catch {
-      /* storage unavailable — the session lasts until navigation */
-    }
-    setHasSession(true);
-  }, []);
+  const sessionQuery = useQuery({
+    queryKey: ['auth', 'session'],
+    queryFn: () => apiClient.get<SessionResponse>('/auth/session'),
+    // A 401 here is the normal signed-out answer, not a fault to retry.
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const hasSession = sessionQuery.data?.authenticated === true;
+
+  // Only ask who the user is once a session exists, or the request 401s and
+  // the error surfaces as a broken page behind the login screen.
+  const { data: user, isLoading: isUserLoading } = useCurrentUser({ enabled: hasSession });
+
+  const signIn = useCallback(
+    async (username: string, password: string) => {
+      await apiClient.post<SessionResponse>('/auth/login', { username, password });
+      // The session cookie is set; re-read rather than assuming success shape.
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+    },
+    [queryClient],
+  );
 
   const signOut = useCallback(() => {
-    try {
-      window.sessionStorage.removeItem(SESSION_FLAG);
-    } catch {
-      /* nothing to clear */
-    }
-    setHasSession(false);
-    queryClient.clear();
+    void apiClient
+      .post('/auth/logout')
+      .catch(() => undefined)
+      .finally(() => {
+        queryClient.clear();
+        window.location.assign('/login');
+      });
   }, [queryClient]);
 
-  // The demo user is a project manager: full delivery rights, no admin.
+  // TODO: source from the backend. Hardcoded to full delivery rights until
+  // /api/me carries the caller's OpenProject permissions.
   const permissions = useMemo<Permission[]>(() => ['view', 'create', 'edit', 'delete'], []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isAuthenticated: hasSession,
-      isLoading: hasSession && isLoading,
+      isLoading: sessionQuery.isLoading || (hasSession && isUserLoading),
       permissions,
       can: (permission) => permissions.includes(permission),
       signIn,
       signOut,
     }),
-    [user, hasSession, isLoading, permissions, signIn, signOut],
+    [user, hasSession, sessionQuery.isLoading, isUserLoading, permissions, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -79,6 +88,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used inside an AuthProvider');
+  if (!context) throw new Error('useAuth must be used within an AuthProvider.');
   return context;
 }

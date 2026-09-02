@@ -1,18 +1,18 @@
 import { apiClient } from './client';
 import type { UserRepository } from '../repositories';
-import type { ID, NexusUser } from '@/types';
+import type { ID, EpmUser } from '@/types';
 
-/** Reads Nexus users, which the backend derives from OpenProject principals. */
+/** Reads EPM users, which the backend derives from OpenProject principals. */
 export class ApiUserRepository implements UserRepository {
-  getCurrentUser(): Promise<NexusUser> {
-    return apiClient.get<NexusUser>('/me');
+  getCurrentUser(): Promise<EpmUser> {
+    return apiClient.get<EpmUser>('/me');
   }
 
-  getUsers(): Promise<NexusUser[]> {
-    return apiClient.get<NexusUser[]>('/users');
+  getUsers(): Promise<EpmUser[]> {
+    return apiClient.get<EpmUser[]>('/users');
   }
 
-  getUser(id: ID): Promise<NexusUser> {
-    return apiClient.get<NexusUser>(`/users/${id}`);
+  getUser(id: ID): Promise<EpmUser> {
+    return apiClient.get<EpmUser>(`/users/${id}`);
   }
 }

@@ -41,7 +41,7 @@ export const queryKeys = {
 
   notifications: ['notifications'] as const,
   documents: (params?: { projectId?: ID; search?: string }) => ['documents', params ?? {}] as const,
-  integrationStatus: ['integrations', 'openproject'] as const,
+  integrationStatus: ['integrations', 'status'] as const,
 } as const;
 
 /** Root keys used for coarse invalidation after a mutation. */

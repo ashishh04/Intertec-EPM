@@ -14,7 +14,7 @@ import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
-import { DeliveryTrendChart, StatusDistributionChart, VelocityChart } from '@/components/charts/NexusCharts';
+import { DeliveryTrendChart, StatusDistributionChart, VelocityChart } from '@/components/charts/EpmCharts';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {

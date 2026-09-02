@@ -7,11 +7,11 @@ import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ProjectStatusBadge } from './StatusBadge';
 import { AvatarGroup } from './UserAvatar';
-import type { ID, NexusProject, NexusUser } from '@/types';
+import type { ID, EpmProject, EpmUser } from '@/types';
 
 interface ProjectHealthCardProps {
-  project: NexusProject;
-  users: Map<ID, NexusUser>;
+  project: EpmProject;
+  users: Map<ID, EpmUser>;
   className?: string;
 }
 
@@ -93,7 +93,7 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
 }
 
 /** Compact row variant used in dense lists such as the portfolio sidebar. */
-function ProjectRow({ project, className }: { project: NexusProject; className?: string }) {
+function ProjectRow({ project, className }: { project: EpmProject; className?: string }) {
   return (
     <Link
       to={`/projects/${project.id}`}

@@ -8,7 +8,7 @@ import {
   DeliveryTrendChart,
   StatusDistributionChart,
   HorizontalBarChart,
-} from '@/components/charts/NexusCharts';
+} from '@/components/charts/EpmCharts';
 import { useDeliveryTrends, useStatusDistribution } from '@/hooks/useReports';
 import { useTasks } from '@/hooks/useTasks';
 import { useUsers } from '@/hooks/useUsers';

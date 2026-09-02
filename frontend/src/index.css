@@ -6,7 +6,7 @@
 
 @layer base {
   :root {
-    /* ---- Nexus light theme ------------------------------------------- */
+    /* ---- EPM light theme ------------------------------------------- */
     --background: 217 43% 97%;          /* #F7F9FC */
     --foreground: 220 43% 11%;          /* #101828 */
 
@@ -63,7 +63,7 @@
   }
 
   .dark {
-    /* ---- Nexus dark theme -------------------------------------------- */
+    /* ---- EPM dark theme -------------------------------------------- */
     --background: 220 45% 7%;           /* #0B1220 */
     --foreground: 210 20% 98%;          /* #F9FAFB */
 
@@ -141,34 +141,34 @@
 }
 
 @layer components {
-  .nexus-card {
+  .epm-card {
     @apply rounded-xl border border-border bg-surface shadow-sm;
   }
 
-  .nexus-scroll {
+  .epm-scroll {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
   }
-  .nexus-scroll::-webkit-scrollbar {
+  .epm-scroll::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
-  .nexus-scroll::-webkit-scrollbar-track {
+  .epm-scroll::-webkit-scrollbar-track {
     background: transparent;
   }
-  .nexus-scroll::-webkit-scrollbar-thumb {
+  .epm-scroll::-webkit-scrollbar-thumb {
     @apply rounded-full bg-border;
   }
-  .nexus-scroll::-webkit-scrollbar-thumb:hover {
+  .epm-scroll::-webkit-scrollbar-thumb:hover {
     @apply bg-muted-foreground/40;
   }
 
   /* Section eyebrow used above dashboard blocks */
-  .nexus-eyebrow {
+  .epm-eyebrow {
     @apply text-2xs font-semibold uppercase tracking-[0.09em] text-muted-foreground;
   }
 
-  .nexus-mono {
+  .epm-mono {
     @apply font-mono text-2xs tracking-tight;
   }
 }

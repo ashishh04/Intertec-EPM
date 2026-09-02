@@ -19,7 +19,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TaskListSkeleton, TaskRow } from '@/components/tasks/TaskRow';
 import { SprintSummary, SprintSummarySkeleton } from '@/components/dashboard/SprintSummary';
-import { DeliveryTrendChart } from '@/components/charts/NexusCharts';
+import { DeliveryTrendChart } from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
@@ -32,7 +32,7 @@ import { useDeliveryTrends } from '@/hooks/useReports';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { formatLongDate, greetingForHour, pluralize } from '@/lib/utils';
-import type { ID, NexusProject, TaskFilters } from '@/types';
+import type { ID, EpmProject, TaskFilters } from '@/types';
 
 const WORK_TABS: { value: NonNullable<TaskFilters['bucket']>; label: string }[] = [
   // "All" means all open work — completed items have their own tab.
@@ -79,7 +79,7 @@ export default function DashboardPage() {
   });
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -102,7 +102,7 @@ export default function DashboardPage() {
         actions={
           <>
             <div className="hidden text-right sm:block">
-              <p className="nexus-eyebrow">Today</p>
+              <p className="epm-eyebrow">Today</p>
               <p className="font-mono text-xs font-medium text-foreground">
                 {formatLongDate(new Date())}
               </p>

@@ -1,7 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { projectService } from '@/services';
-import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
-import type { ID, NexusProject } from '@/types';
+import { queryKeys } from '@/lib/queryKeys';
+import type { ID } from '@/types';
 
 export function useProjects(params?: { search?: string; status?: string[] }) {
   return useQuery({
@@ -29,15 +29,3 @@ export function useProjectMilestones(id?: ID) {
   });
 }
 
-export function useUpdateProject() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, patch }: { id: ID; patch: Partial<NexusProject> }) =>
-      projectService.updateProject(id, patch),
-    onSuccess: () => {
-      invalidationGroups.projectWrite.forEach((key) =>
-        queryClient.invalidateQueries({ queryKey: key }),
-      );
-    },
-  });
-}

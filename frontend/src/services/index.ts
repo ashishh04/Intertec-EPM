@@ -2,12 +2,11 @@
  * Service facade.
  *
  * Components and hooks import from here and never construct a repository or
- * touch `fetch` themselves. Flipping `VITE_DATA_SOURCE` from `mock` to `api` is
- * the entire migration to a live Nexus backend.
+ * touch `fetch` themselves. Every domain is served by the EPM backend, which is
+ * the only source of data in the app.
  */
 
-import { env } from '@/config/env';
-import type { NexusRepositories } from './repositories';
+import type { EpmRepositories } from './repositories';
 
 import { ApiProjectRepository } from './api/projects';
 import { ApiTaskRepository } from './api/tasks';
@@ -19,34 +18,14 @@ import { ApiReportRepository } from './api/reports';
 import { ApiNotificationRepository } from './api/notifications';
 import { ApiDocumentRepository } from './api/documents';
 import { ApiIntegrationRepository } from './api/integration';
-
+import { ApiCatalogRepository } from './api/catalog';
 import {
-  MockDashboardRepository,
-  MockDocumentRepository,
-  MockIntegrationRepository,
-  MockNotificationRepository,
-  MockProjectRepository,
-  MockReportRepository,
-  MockSprintRepository,
-  MockTaskRepository,
-  MockTeamRepository,
-  MockUserRepository,
-} from './mock';
+  ApiFormRepository,
+  ApiProjectWriteRepository,
+  ApiWorkPackageRepository,
+} from './api/forms';
 
-const mockRepositories: NexusRepositories = {
-  projects: new MockProjectRepository(),
-  tasks: new MockTaskRepository(),
-  users: new MockUserRepository(),
-  teams: new MockTeamRepository(),
-  sprints: new MockSprintRepository(),
-  dashboard: new MockDashboardRepository(),
-  reports: new MockReportRepository(),
-  notifications: new MockNotificationRepository(),
-  documents: new MockDocumentRepository(),
-  integration: new MockIntegrationRepository(),
-};
-
-const apiRepositories: NexusRepositories = {
+const repositories: EpmRepositories = {
   projects: new ApiProjectRepository(),
   tasks: new ApiTaskRepository(),
   users: new ApiUserRepository(),
@@ -59,9 +38,6 @@ const apiRepositories: NexusRepositories = {
   integration: new ApiIntegrationRepository(),
 };
 
-const repositories: NexusRepositories =
-  env.dataSource === 'api' ? apiRepositories : mockRepositories;
-
 export const projectService = repositories.projects;
 export const taskService = repositories.tasks;
 export const userService = repositories.users;
@@ -73,4 +49,14 @@ export const notificationService = repositories.notifications;
 export const documentService = repositories.documents;
 export const integrationService = repositories.integration;
 
-export type { NexusRepositories } from './repositories';
+/**
+ * Reference data and schema live outside the domain-model contract: they carry
+ * OpenProject's real ids and field definitions rather than EPM's normalized
+ * view, which is exactly what write paths and pickers need.
+ */
+export const catalogService = new ApiCatalogRepository();
+export const formService = new ApiFormRepository();
+export const workPackageService = new ApiWorkPackageRepository();
+export const projectWriteService = new ApiProjectWriteRepository();
+
+export type { EpmRepositories } from './repositories';

@@ -16,11 +16,5 @@ export function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-/** Tailwind `lg` breakpoint — the point where the persistent sidebar appears. */
-export const useIsDesktop = () => useMediaQuery('(min-width: 1024px)');
-
-/** Tailwind `md` breakpoint — below this the app switches to bottom navigation. */
-export const useIsMobile = () => useMediaQuery('(max-width: 767px)');
-
 export const usePrefersReducedMotion = () =>
   useMediaQuery('(prefers-reduced-motion: reduce)');

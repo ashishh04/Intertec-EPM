@@ -1,10 +1,10 @@
 import { env } from '@/config/env';
 
 /**
- * Thin HTTP client for the Nexus backend (BFF).
+ * Thin HTTP client for the EPM backend (BFF).
  *
  * The frontend never talks to OpenProject directly and never holds an
- * OpenProject token. Authentication is a session cookie issued by the Nexus
+ * OpenProject token. Authentication is a session cookie issued by the EPM
  * backend, which is what `credentials: 'include'` carries.
  */
 
@@ -91,7 +91,17 @@ export class ApiClient {
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
 
-      if (!response.ok) throw await parseError(response);
+      if (!response.ok) {
+        const failure = await parseError(response);
+        // An expired or revoked session is not an error the UI can act on —
+        // send the user to sign in again rather than rendering a broken page.
+        // /auth/session is exempt: AuthProvider asks it precisely to find out.
+        if (failure.status === 401 && !path.startsWith('/auth/')) {
+          const target = `${window.location.origin}/login`;
+          if (window.location.href !== target) window.location.assign(target);
+        }
+        throw failure;
+      }
       if (response.status === 204) return undefined as T;
 
       return (await response.json()) as T;
@@ -101,7 +111,7 @@ export class ApiClient {
         throw new ApiError('The request timed out.', 408, 'TIMEOUT');
       }
       throw new ApiError(
-        'Unable to reach the Nexus backend. Check your connection and try again.',
+        'Unable to reach the EPM backend. Check your connection and try again.',
         0,
         'NETWORK',
       );

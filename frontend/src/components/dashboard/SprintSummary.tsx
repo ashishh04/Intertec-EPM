@@ -5,12 +5,12 @@ import { Button } from '@/components/ui/button';
 import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SprintStateBadge } from '@/components/common/StatusBadge';
-import { BurndownChart } from '@/components/charts/NexusCharts';
+import { BurndownChart } from '@/components/charts/EpmCharts';
 import { daysFromToday, formatShortDate } from '@/lib/utils';
-import type { NexusSprint } from '@/types';
+import type { EpmSprint } from '@/types';
 
 /** Compact sprint panel used on the dashboard and inside project pages. */
-export function SprintSummary({ sprint, className }: { sprint: NexusSprint; className?: string }) {
+export function SprintSummary({ sprint, className }: { sprint: EpmSprint; className?: string }) {
   const progress = Math.round((sprint.completedPoints / Math.max(1, sprint.committedPoints)) * 100);
   const remaining = sprint.committedPoints - sprint.completedPoints;
   const daysLeft = daysFromToday(sprint.endDate) ?? 0;
@@ -42,7 +42,7 @@ export function SprintSummary({ sprint, className }: { sprint: NexusSprint; clas
 
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between">
-            <span className="nexus-eyebrow">Sprint progress</span>
+            <span className="epm-eyebrow">Sprint progress</span>
             <span className="font-mono text-sm font-semibold tabular-nums">{progress}%</span>
           </div>
           <ProgressBar value={progress} tone="primary" label={`${sprint.name} progress`} />
@@ -55,19 +55,19 @@ export function SprintSummary({ sprint, className }: { sprint: NexusSprint; clas
 
         <dl className="grid grid-cols-3 gap-2 border-y border-border py-3 text-center">
           <div>
-            <dt className="nexus-eyebrow">Committed</dt>
+            <dt className="epm-eyebrow">Committed</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
               {sprint.committedPoints}
             </dd>
           </div>
           <div>
-            <dt className="nexus-eyebrow">Completed</dt>
+            <dt className="epm-eyebrow">Completed</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-success">
               {sprint.completedPoints}
             </dd>
           </div>
           <div>
-            <dt className="nexus-eyebrow">Remaining</dt>
+            <dt className="epm-eyebrow">Remaining</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">{remaining}</dd>
           </div>
         </dl>

@@ -5,7 +5,7 @@ import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Pagination } from '@/components/common/Pagination';
 import { SprintStateBadge } from '@/components/common/StatusBadge';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
-import { VelocityChart } from '@/components/charts/NexusCharts';
+import { VelocityChart } from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
@@ -87,19 +87,19 @@ export default function SprintsPage() {
 
                     <dl className="flex gap-6 text-right">
                       <div>
-                        <dt className="nexus-eyebrow">Committed</dt>
+                        <dt className="epm-eyebrow">Committed</dt>
                         <dd className="font-mono text-sm font-semibold tabular-nums">
                           {sprint.committedPoints}
                         </dd>
                       </div>
                       <div>
-                        <dt className="nexus-eyebrow">Completed</dt>
+                        <dt className="epm-eyebrow">Completed</dt>
                         <dd className="font-mono text-sm font-semibold tabular-nums text-success">
                           {sprint.completedPoints}
                         </dd>
                       </div>
                       <div>
-                        <dt className="nexus-eyebrow">Delivered</dt>
+                        <dt className="epm-eyebrow">Delivered</dt>
                         <dd className="font-mono text-sm font-semibold tabular-nums">{progress}%</dd>
                       </div>
                     </dl>

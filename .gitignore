@@ -1,0 +1,30 @@
+# Secrets — the OpenProject API key lives here and must never be committed.
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# Frontend env files are non-secret (VITE_* is bundled into the client) and stay tracked.
+!frontend/.env
+!frontend/.env.example
+
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+.DS_Store
+*.log
+npm-debug.log*
+.idea/
+.vscode/
+
+# Output of `npm run probe` — instance configuration, not secret but not useful in git.
+backend/openproject-profile.json

@@ -4,11 +4,11 @@ import { ACTIVITY_ACTION_LABEL, ACTIVITY_ACTION_TONE, TONE_FILL } from '@/lib/do
 import { UserAvatar } from './UserAvatar';
 import { EmptyState } from './EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { ActivityEntry, ID, NexusUser } from '@/types';
+import type { ActivityEntry, ID, EpmUser } from '@/types';
 
 interface ActivityTimelineProps {
   entries: ActivityEntry[];
-  users: Map<ID, NexusUser>;
+  users: Map<ID, EpmUser>;
   /** Caps the rendered list without changing the query. */
   limit?: number;
   className?: string;

@@ -8,10 +8,10 @@ import type { IntegrationStatus } from '@/types';
  */
 export class ApiIntegrationRepository implements IntegrationRepository {
   getStatus(): Promise<IntegrationStatus> {
-    return apiClient.get<IntegrationStatus>('/integrations/openproject');
+    return apiClient.get<IntegrationStatus>('/integrations/status');
   }
 
   triggerSync(): Promise<IntegrationStatus> {
-    return apiClient.post<IntegrationStatus>('/integrations/openproject/sync');
+    return apiClient.post<IntegrationStatus>('/integrations/status/sync');
   }
 }

@@ -53,8 +53,8 @@ export default function ProjectTeamTab() {
               size="sm"
               variant="secondary"
               onClick={() =>
-                toast('Inviting members is not enabled in the demo', {
-                  description: 'Memberships are managed through the Nexus backend.',
+                toast('Inviting members is not implemented yet', {
+                  description: 'Memberships are managed through the EPM backend.',
                 })
               }
             >
@@ -83,7 +83,7 @@ export default function ProjectTeamTab() {
                   size="icon-sm"
                   aria-label={`Email ${member!.name}`}
                   onClick={() =>
-                    toast('Messaging is not enabled in the demo', {
+                    toast('Messaging is not implemented yet', {
                       description: `A connected workspace opens a thread with ${member!.name}.`,
                     })
                   }

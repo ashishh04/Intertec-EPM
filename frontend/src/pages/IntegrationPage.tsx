@@ -24,7 +24,7 @@ import type { ConnectionState } from '@/types';
  * Administrative view of the OpenProject connection.
  *
  * Health only — credentials, tokens and connection secrets are held by the
- * Nexus backend and are never returned to the browser.
+ * EPM backend and are never returned to the browser.
  */
 export default function IntegrationPage() {
   const { can } = useAuth();
@@ -38,7 +38,7 @@ export default function IntegrationPage() {
     <div className="space-y-5">
       <PageHeader
         eyebrow="Administration"
-        title="OpenProject Integration"
+        title="Delivery System Integration"
         description="Connection health, synchronisation state and webhook delivery."
         actions={
           <Button
@@ -107,7 +107,7 @@ export default function IntegrationPage() {
                   detail="Change events subscribed"
                 />
                 <div>
-                  <p className="nexus-eyebrow">Last sync</p>
+                  <p className="epm-eyebrow">Last sync</p>
                   <p className="mt-1 font-mono text-sm font-semibold">
                     {formatRelative(status.lastSyncAt)}
                   </p>
@@ -123,25 +123,21 @@ export default function IntegrationPage() {
               <CardHeader className="border-b border-border">
                 <CardTitle>Instance</CardTitle>
                 <CardDescription>
-                  The self-hosted OpenProject deployment behind this workspace.
+                  The delivery system behind this workspace.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-4">
                 <dl className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <dt className="nexus-eyebrow">Instance URL</dt>
-                    <dd className="mt-1 font-mono text-xs">{status.instanceUrl}</dd>
-                  </div>
-                  <div>
-                    <dt className="nexus-eyebrow">API version</dt>
+                    <dt className="epm-eyebrow">API version</dt>
                     <dd className="mt-1 font-mono text-xs">{status.apiVersion}</dd>
                   </div>
                   <div>
-                    <dt className="nexus-eyebrow">Authentication</dt>
+                    <dt className="epm-eyebrow">Authentication</dt>
                     <dd className="mt-1 text-xs">OAuth client credentials, held server-side</dd>
                   </div>
                   <div>
-                    <dt className="nexus-eyebrow">Access token</dt>
+                    <dt className="epm-eyebrow">Access token</dt>
                     <dd className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Lock className="h-3 w-3" aria-hidden />
                       Never exposed to the frontend
@@ -152,9 +148,9 @@ export default function IntegrationPage() {
                 <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/60 p-3">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
                   <p className="text-2xs text-muted-foreground">
-                    The browser never calls OpenProject directly. Every request goes through the
-                    Nexus backend, which owns authentication, authorisation, rate limiting, response
-                    transformation and audit logging.
+                    The browser never calls the delivery system directly. Every request goes
+                    through the EPM backend, which owns authentication, authorisation, rate
+                    limiting, response transformation and audit logging.
                   </p>
                 </div>
               </CardContent>
@@ -221,7 +217,7 @@ function StatusTile({
 
   return (
     <div>
-      <p className="nexus-eyebrow">{label}</p>
+      <p className="epm-eyebrow">{label}</p>
       <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold">
         <span
           className={cn(

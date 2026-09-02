@@ -1,21 +1,21 @@
-# NEXUS — Intertec Systems
+# EPM — Intertec Systems
 
 **Unified Project & Delivery Platform.** A custom frontend that sits above a self-hosted
 OpenProject instance and presents only the workflows Intertec Systems delivery teams need.
 
 ```
-                    NEXUS
+                    EPM
               Custom Frontend        ← this repository
                      │
                      ▼
-              Nexus Backend / BFF
+              EPM Backend / BFF
                      │
                      ▼
           Self-Hosted OpenProject
 ```
 
 The frontend never talks to OpenProject directly, never holds an OpenProject token, and knows
-nothing about OpenProject's HAL payloads or database schema. It speaks only to the Nexus backend,
+nothing about OpenProject's HAL payloads or database schema. It speaks only to the EPM backend,
 which owns authentication, authorization, API credentials, transformation, pagination, caching,
 webhooks, audit logging and rate limiting.
 
@@ -40,30 +40,15 @@ npm run dev               # http://localhost:5173
 
 | Variable            | Default                     | Meaning                                                    |
 | ------------------- | --------------------------- | ---------------------------------------------------------- |
-| `VITE_API_BASE_URL` | `http://localhost:8000/api` | Base URL of the **Nexus backend** — never an OpenProject URL |
-| `VITE_DATA_SOURCE`  | `mock`                      | `mock` uses bundled demo data, `api` calls the backend      |
-| `VITE_APP_ENV`      | `demo`                      | Drives the environment badge in the header                  |
+| `VITE_API_BASE_URL` | `http://localhost:8000/api` | Base URL of the **EPM backend** — never an OpenProject URL |
+| `VITE_APP_ENV`      | `development`               | Drives the environment badge in the header                  |
 
 ---
 
-## Switching from demo data to the live backend
+## Backend contract
 
-There is exactly one switch. Every domain has one interface with two implementations, and the UI
-only ever sees the interface:
-
-```
-ProjectRepository            (src/services/repositories.ts)
-   ├── MockProjectRepository (src/services/mock/)
-   └── ApiProjectRepository  (src/services/api/)
-```
-
-```bash
-VITE_DATA_SOURCE=api
-VITE_API_BASE_URL=https://nexus-api.internal/api
-```
-
-No page or component changes are required. Deleting `src/mocks/` removes all demo data in one
-place — nothing outside `src/services/mock/` imports from it.
+Every domain has one interface in [`src/services/repositories.ts`](src/services/repositories.ts),
+implemented by an `Api*Repository` against the EPM backend. The UI only ever sees the interface.
 
 ### Endpoints the backend must provide
 
@@ -82,10 +67,10 @@ Each `Api*Repository` in [`src/services/api/`](src/services/api/) is the contrac
 | Reports       | `GET /reports/{delivery-trends,status-distribution,executive-insights,time-summary}` |
 | Notifications | `GET /notifications`, `PATCH /notifications/read`, `PATCH /notifications/read-all` |
 | Documents     | `GET /documents`, `POST /documents`                                           |
-| Integration   | `GET /integrations/openproject`, `POST /integrations/openproject/sync`        |
+| Integration   | `GET /integrations/status`, `POST /integrations/status/sync`                  |
 
-Responses must match the **normalized Nexus models** in [`src/types/index.ts`](src/types/index.ts)
-(`NexusProject`, `NexusTask`, `NexusSprint`, …). The backend adapter is responsible for mapping
+Responses must match the **normalized EPM models** in [`src/types/index.ts`](src/types/index.ts)
+(`EpmProject`, `EpmTask`, `EpmSprint`, …). The backend adapter is responsible for mapping
 OpenProject projects, work packages, principals, groups, memberships, versions, statuses,
 priorities, relations, time entries and custom fields onto those shapes. Filtering, sorting and
 pagination are server-side concerns — the frontend sends them as query parameters and never loads a
@@ -110,17 +95,15 @@ src/
   hooks/         TanStack Query hooks — the only thing that calls a service
   services/
     repositories.ts   interfaces
-    api/              ApiClient + Api*Repository (live backend)
-    mock/             Mock*Repository + in-memory store
-    index.ts          picks an implementation from VITE_DATA_SOURCE
-  types/         normalized Nexus domain models
-  mocks/         the entire demo dataset, isolated
+    api/              ApiClient + Api*Repository
+    index.ts          service facade
+  types/         normalized EPM domain models
   lib/           utils, domain metadata (the status system), query keys
   providers/     Theme, Auth, UI (sidebar, palette, drawers)
   config/        env, navigation
 ```
 
-**The data path is one-way:** `Component → Hook → Service → Nexus API`. Components never call
+**The data path is one-way:** `Component → Hook → Service → EPM API`. Components never call
 `fetch`, never construct a repository and never reference `/api/v3/`.
 
 ### The status system
@@ -178,7 +161,7 @@ has to map an incoming event (`task.changed`, `project.updated`, `sprint.changed
 ## Security posture
 
 - The frontend holds **no** OpenProject tokens, credentials or secrets, and cannot reach OpenProject.
-- Sessions are issued by the Nexus backend; `ApiClient` sends `credentials: 'include'` and nothing else.
+- Sessions are issued by the EPM backend; `ApiClient` sends `credentials: 'include'` and nothing else.
 - Only a non-sensitive "a session exists" marker is kept in `sessionStorage` so a refresh does not
   bounce the user to the login screen. No credentials are stored in `localStorage`.
 - The `Permission` model (`view | create | edit | delete | admin`) drives whether UI actions are
@@ -187,25 +170,22 @@ has to map an incoming event (`task.changed`, `project.updated`, `sprint.changed
 
 ---
 
-## Demo data
+## Not yet implemented
 
-`VITE_DATA_SOURCE=mock` serves a fictional dataset: 9 projects, ~90 work packages, 14 people, 6
-teams and 3 sprints, generated deterministically and dated relative to today so it never looks
-stale. All names, projects and email addresses are invented; no real employee data is used, and
-avatars are generated initials rather than photographs.
+Several of these are intentional product decisions rather than oversights. Where a feature is
+absent, the UI says so through a toast instead of faking success.
 
-Derived figures are computed from the dataset rather than hard-coded, so the numbers agree across
-screens — sprint committed/completed points come from the work packages actually in the sprint, and
-project task counters come from the project's work packages.
+| Area | Status |
+| --- | --- |
+| **Authentication** | Stub — `signIn()` sets a `sessionStorage` marker; no real IdP. `AuthProvider` is the single seam to replace. |
+| **Permissions** | Hardcoded to full delivery rights in `AuthProvider`. Needs `GET /me` to carry the caller's OpenProject permissions. |
+| **"Ask EPM"** | Entry point renders; no AI responses are faked. |
+| **Real-time** | Not implemented. Invalidation groups in `src/lib/queryKeys.ts` are ready for it. |
+| **Write actions** | Project creation, sprint start/complete, time logging, member invite, messaging, document preview and inline task editing are toast stubs (13 sites — grep `not implemented yet`). |
+| **Document upload** | No real file transfer; needs a backend endpoint and storage. |
+| **Tests** | No unit or integration suite. Verification is typecheck, build, and a Playwright smoke pass over every route. |
 
-The header shows a **Demo** badge whenever `VITE_APP_ENV` is not `production`, so demo data can
-never be mistaken for production records.
-
-Actions that a real backend would perform (creating a project, starting a sprint, exporting a
-report, uploading a file to storage) are not silently inert — they explain themselves through a
-toast. Everything that can work against the in-memory store does work: creating tasks, dragging
-board cards, bulk status/priority/assignee changes, deletion with confirmation, commenting, and
-marking notifications read all mutate state and refresh the affected views.
+When you implement one of these, replace the toast — don't leave both.
 
 ---
 

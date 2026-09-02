@@ -1,10 +1,10 @@
 import { apiClient } from './client';
 import type { NotificationRepository } from '../repositories';
-import type { ID, NexusNotification } from '@/types';
+import type { ID, EpmNotification } from '@/types';
 
 export class ApiNotificationRepository implements NotificationRepository {
-  getNotifications(): Promise<NexusNotification[]> {
-    return apiClient.get<NexusNotification[]>('/notifications');
+  getNotifications(): Promise<EpmNotification[]> {
+    return apiClient.get<EpmNotification[]>('/notifications');
   }
 
   async markRead(ids: ID[]): Promise<void> {

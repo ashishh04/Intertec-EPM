@@ -12,7 +12,7 @@ import {
   Sun,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
-import { NexusLogo } from '@/components/common/NexusLogo';
+import { EpmLogo } from '@/components/common/EpmLogo';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +55,7 @@ export default function SettingsPage() {
       <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
         {/* Section navigation */}
         <nav aria-label="Settings sections" className="lg:sticky lg:top-20 lg:self-start">
-          <ul className="nexus-scroll flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
+          <ul className="epm-scroll flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
             {SETTINGS_SECTIONS.map((item) => (
               <li key={item.id} className="shrink-0">
                 <button
@@ -71,7 +71,7 @@ export default function SettingsPage() {
                   )}
                 >
                   {item.label}
-                  {item.openProject ? (
+                  {item.managedUpstream ? (
                     <Server className="ml-auto h-3 w-3 shrink-0 opacity-60" aria-hidden />
                   ) : null}
                 </button>
@@ -81,20 +81,20 @@ export default function SettingsPage() {
 
           <p className="mt-3 hidden items-start gap-1.5 px-2.5 text-2xs text-muted-foreground lg:flex">
             <Server className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-            Managed by OpenProject
+            Managed centrally
           </p>
         </nav>
 
         <div className="min-w-0 space-y-4">
-          {active.openProject ? (
+          {active.managedUpstream ? (
             <div className="flex items-start gap-2.5 rounded-lg border border-warning/25 bg-warning-soft p-3">
               <Server className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
               <div>
                 <p className="text-xs font-medium text-foreground">
-                  These settings are owned by OpenProject
+                  These settings are managed centrally
                 </p>
                 <p className="mt-0.5 text-2xs text-muted-foreground">
-                  {APP_NAME} reads them through the Nexus backend and shows them here for context.
+                  {APP_NAME} reads them through the EPM backend and shows them here for context.
                   Changes are made in the upstream system by an administrator.
                 </p>
               </div>
@@ -150,7 +150,7 @@ export default function SettingsPage() {
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle>Appearance</CardTitle>
-                <CardDescription>How Nexus looks on this device.</CardDescription>
+                <CardDescription>How EPM looks on this device.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5 pt-4">
                 <fieldset className="space-y-2">
@@ -205,7 +205,7 @@ export default function SettingsPage() {
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle>Notifications</CardTitle>
-                <CardDescription>What Nexus tells you about, and where.</CardDescription>
+                <CardDescription>What EPM tells you about, and where.</CardDescription>
               </CardHeader>
               <CardContent className="divide-y divide-border pt-0">
                 <ToggleRow id="notify-mentions" label="Mentions" hint="When someone mentions you in a comment." defaultChecked />
@@ -225,7 +225,7 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4 pt-4">
                 <div className="flex items-center gap-3 rounded-lg border border-border p-3">
-                  <NexusLogo variant="full" showDescriptor />
+                  <EpmLogo variant="full" showDescriptor />
                   <Badge tone="highlight" size="sm" className="ml-auto capitalize">
                     {env.appEnv}
                   </Badge>
@@ -287,13 +287,13 @@ export default function SettingsPage() {
                       <span className="text-xs">{item}</span>
                       <Badge tone="neutral" size="sm">
                         <Lock className="h-2.5 w-2.5" aria-hidden />
-                        OpenProject
+                        Managed
                       </Badge>
                     </li>
                   ))}
                 </ul>
                 <p className="text-2xs text-muted-foreground">
-                  An administrator manages these in the upstream system. Nexus reflects the values
+                  An administrator manages these in the upstream system. EPM reflects the values
                   after the next synchronisation.
                 </p>
               </CardContent>
@@ -304,7 +304,7 @@ export default function SettingsPage() {
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle>Integrations</CardTitle>
-                <CardDescription>Systems Nexus reads from and writes to.</CardDescription>
+                <CardDescription>Systems EPM reads from and writes to.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-4">
                 <div className="flex items-center gap-3 rounded-lg border border-border p-3">
@@ -315,7 +315,7 @@ export default function SettingsPage() {
                     <Server className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium">OpenProject</p>
+                    <p className="text-xs font-medium">Delivery system</p>
                     <p className="text-2xs text-muted-foreground">
                       Projects, work packages, members and time entries
                     </p>
@@ -363,7 +363,7 @@ export default function SettingsPage() {
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
                   <p className="text-2xs text-muted-foreground">
                     Authentication, authorisation and API credentials are handled entirely by the
-                    Nexus backend. No tokens or secrets are ever stored in the browser.
+                    EPM backend. No tokens or secrets are ever stored in the browser.
                   </p>
                 </div>
 
@@ -388,24 +388,14 @@ export default function SettingsPage() {
             <Card>
               <CardHeader className="border-b border-border">
                 <CardTitle>API</CardTitle>
-                <CardDescription>How Nexus talks to its backend.</CardDescription>
+                <CardDescription>How EPM talks to its backend.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 pt-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="api-base">Nexus API base URL</Label>
+                  <Label htmlFor="api-base">EPM API base URL</Label>
                   <Input id="api-base" readOnly value={env.apiBaseUrl} className="font-mono text-2xs" />
                   <FieldHint>
-                    Configured per environment. The frontend never receives an OpenProject URL or token.
-                  </FieldHint>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="api-source">Data source</Label>
-                  <Input id="api-source" readOnly value={env.dataSource} className="font-mono text-2xs" />
-                  <FieldHint>
-                    {env.dataSource === 'mock'
-                      ? 'Serving bundled demo data. Set VITE_DATA_SOURCE=api to use the live backend.'
-                      : 'Serving live data from the Nexus backend.'}
+                    Configured per environment. The frontend never receives an upstream URL or token.
                   </FieldHint>
                 </div>
 

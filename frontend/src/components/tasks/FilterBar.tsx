@@ -26,9 +26,9 @@ import {
 import { cn } from '@/lib/utils';
 import type {
   ID,
-  NexusProject,
-  NexusSprint,
-  NexusUser,
+  EpmProject,
+  EpmSprint,
+  EpmUser,
   TaskFilters,
   TaskPriority,
   TaskStatus,
@@ -37,9 +37,9 @@ import type {
 export interface FilterBarProps {
   filters: TaskFilters;
   onChange: (filters: TaskFilters) => void;
-  projects?: NexusProject[];
-  users?: NexusUser[];
-  sprints?: NexusSprint[];
+  projects?: EpmProject[];
+  users?: EpmUser[];
+  sprints?: EpmSprint[];
   /** Hide selectors that are implied by the surrounding page. */
   hide?: ('project' | 'assignee' | 'sprint')[];
   searchPlaceholder?: string;

@@ -91,7 +91,7 @@ export default function NotificationsPage() {
         }
       />
 
-      <div className="nexus-scroll overflow-x-auto">
+      <div className="epm-scroll overflow-x-auto">
         <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)}>
           <TabsList variant="underline" className="min-w-max">
             {FILTERS.map((item) => {

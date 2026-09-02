@@ -102,11 +102,11 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
         <defs>
-          <linearGradient id="nexus-completed" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="epm-completed" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={TONE_VAR.primary} stopOpacity={0.28} />
             <stop offset="100%" stopColor={TONE_VAR.primary} stopOpacity={0.02} />
           </linearGradient>
-          <linearGradient id="nexus-created" x1="0" y1="0" x2="0" y2="1">
+          <linearGradient id="epm-created" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={TONE_VAR.accent} stopOpacity={0.22} />
             <stop offset="100%" stopColor={TONE_VAR.accent} stopOpacity={0.02} />
           </linearGradient>
@@ -127,7 +127,7 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
           name="Completed"
           stroke={TONE_VAR.primary}
           strokeWidth={2}
-          fill="url(#nexus-completed)"
+          fill="url(#epm-completed)"
         />
         <Area
           type="monotone"
@@ -135,7 +135,7 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
           name="Created"
           stroke={TONE_VAR.accent}
           strokeWidth={2}
-          fill="url(#nexus-created)"
+          fill="url(#epm-created)"
         />
       </AreaChart>
     </ResponsiveContainer>

@@ -31,7 +31,6 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const ENV_LABEL: Record<string, { label: string; className: string }> = {
-  demo: { label: 'Demo', className: 'bg-highlight-soft text-highlight border-highlight/25' },
   development: { label: 'Development', className: 'bg-warning-soft text-warning border-warning/25' },
   staging: { label: 'Staging', className: 'bg-warning-soft text-warning border-warning/25' },
   production: { label: '', className: '' },
@@ -93,7 +92,7 @@ export function TopHeader() {
         <Badge
           size="sm"
           className={cn('hidden sm:inline-flex', environment.className)}
-          title="This environment uses demo data, not production records"
+          title="Non-production environment"
         >
           {environment.label}
         </Badge>
@@ -116,8 +115,8 @@ export function TopHeader() {
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() =>
-              toast('Project creation is not enabled in the demo', {
-                description: 'New projects are provisioned through the Nexus backend.',
+              toast('Project creation is not implemented yet', {
+                description: 'New projects are provisioned through the EPM backend.',
               })
             }
           >
@@ -126,7 +125,7 @@ export function TopHeader() {
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() =>
-              toast('Sprint planning is not enabled in the demo', {
+              toast('Sprint planning is not implemented yet', {
                 description: 'Sprints are created from the Agile workspace in a live workspace.',
               })
             }
@@ -137,8 +136,8 @@ export function TopHeader() {
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={() =>
-              toast('Time logging is not enabled in the demo', {
-                description: 'Time entries sync from OpenProject in a live workspace.',
+              toast('Time logging is not implemented yet', {
+                description: 'Time entries sync from the delivery system in a live workspace.',
               })
             }
           >
@@ -166,7 +165,7 @@ export function TopHeader() {
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={() =>
-              toast('Documentation is not bundled with the demo', {
+              toast('Documentation is not implemented yet', {
                 description: 'The delivery handbook lives in the Documents workspace.',
               })
             }

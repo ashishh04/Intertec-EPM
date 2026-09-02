@@ -101,17 +101,17 @@ export const PROJECT_TABS = [
   { label: 'Reports', segment: 'reports' },
 ] as const;
 
-/** Settings categories. `openProject` marks settings owned by the upstream system. */
+/** Settings categories. `managedUpstream` marks settings owned by the delivery system. */
 export const SETTINGS_SECTIONS = [
-  { id: 'profile', label: 'Profile', openProject: false },
-  { id: 'appearance', label: 'Appearance', openProject: false },
-  { id: 'notifications', label: 'Notifications', openProject: false },
-  { id: 'workspace', label: 'Workspace', openProject: false },
-  { id: 'projects', label: 'Projects', openProject: true },
-  { id: 'teams', label: 'Teams', openProject: true },
-  { id: 'integrations', label: 'Integrations', openProject: false },
-  { id: 'security', label: 'Security', openProject: true },
-  { id: 'api', label: 'API', openProject: true },
+  { id: 'profile', label: 'Profile', managedUpstream: false },
+  { id: 'appearance', label: 'Appearance', managedUpstream: false },
+  { id: 'notifications', label: 'Notifications', managedUpstream: false },
+  { id: 'workspace', label: 'Workspace', managedUpstream: false },
+  { id: 'projects', label: 'Projects', managedUpstream: true },
+  { id: 'teams', label: 'Teams', managedUpstream: true },
+  { id: 'integrations', label: 'Integrations', managedUpstream: false },
+  { id: 'security', label: 'Security', managedUpstream: true },
+  { id: 'api', label: 'API', managedUpstream: true },
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];

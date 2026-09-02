@@ -10,7 +10,7 @@ import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
 import { pluralize } from '@/lib/utils';
-import type { ID, NexusProject, TaskFilters, UpdateTaskInput } from '@/types';
+import type { ID, EpmProject, TaskFilters, UpdateTaskInput } from '@/types';
 
 interface TaskWorkspaceProps {
   /** Locks the workspace to one project and hides the project selector. */
@@ -47,7 +47,7 @@ export function TaskWorkspace({ projectId, initialFilters, className }: TaskWork
   const deleteTasks = useDeleteTasks();
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -114,7 +114,7 @@ export function TaskWorkspace({ projectId, initialFilters, className }: TaskWork
           onBulkUpdate={handleBulkUpdate}
           onBulkDelete={handleBulkDelete}
           onExport={() =>
-            toast('Export runs on the Nexus backend', {
+            toast('Export runs on the EPM backend', {
               description: 'Connected workspaces generate a CSV from the current filter set.',
             })
           }

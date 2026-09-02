@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useParams } from 'react-router-dom';
 import { Ellipsis, Pencil, Plus, Share2, Star, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -16,13 +17,14 @@ import {
 import { PROJECT_TABS } from '@/config/navigation';
 import { useProject } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
-import { useUI } from '@/providers/UIProvider';
+import { ProjectDialog } from '@/components/common/ProjectDialog';
+import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const prototypeAction = (label: string) =>
-  toast(`${label} is not enabled in the demo`, {
-    description: 'This action will call the Nexus backend in a connected workspace.',
+  toast(`${label} is not implemented yet`, {
+    description: 'This action will call the EPM backend in a connected workspace.',
   });
 
 /**
@@ -31,9 +33,10 @@ const prototypeAction = (label: string) =>
  */
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
+  const [editOpen, setEditOpen] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
   const { data: project, isLoading, isError, refetch } = useProject(projectId);
   const users = useUserMap();
-  const { openTaskDrawer } = useUI();
 
   if (isError) {
     return (
@@ -79,16 +82,16 @@ export default function ProjectDetailPage() {
             <div className="hidden items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 sm:flex">
               <UserAvatar user={owner} size="sm" />
               <div className="text-left">
-                <p className="nexus-eyebrow">Owner</p>
+                <p className="epm-eyebrow">Owner</p>
                 <p className="text-2xs font-medium">{owner?.name ?? 'Unassigned'}</p>
               </div>
             </div>
 
-            <Button variant="secondary" size="sm" onClick={() => prototypeAction('Editing a project')}>
+            <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
               <Pencil className="h-3.5 w-3.5" />
               Edit
             </Button>
-            <Button size="sm" onClick={() => openTaskDrawer({ projectId: project.id })}>
+            <Button size="sm" onClick={() => setNewTaskOpen(true)}>
               <Plus className="h-4 w-4" />
               Add Task
             </Button>
@@ -128,7 +131,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Project navigation */}
-      <nav aria-label="Project sections" className="nexus-scroll -mx-1 overflow-x-auto">
+      <nav aria-label="Project sections" className="epm-scroll -mx-1 overflow-x-auto">
         <ul className="flex min-w-max items-center gap-4 border-b border-border px-1">
           {PROJECT_TABS.map((tab) => (
             <li key={tab.segment || 'overview'}>
@@ -153,6 +156,13 @@ export default function ProjectDetailPage() {
       </nav>
 
       <Outlet />
+
+      <ProjectDialog open={editOpen} onOpenChange={setEditOpen} projectId={project.id} />
+      <WorkPackageDialog
+        open={newTaskOpen}
+        onOpenChange={setNewTaskOpen}
+        projectId={project.id}
+      />
     </div>
   );
 }

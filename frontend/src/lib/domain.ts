@@ -53,8 +53,6 @@ export const TASK_STATUS_ORDER: TaskStatus[] = [
 
 export const ALL_TASK_STATUSES: TaskStatus[] = [...TASK_STATUS_ORDER, 'blocked'];
 
-export const OPEN_TASK_STATUSES: TaskStatus[] = ['backlog', 'todo', 'in_progress', 'review', 'blocked'];
-
 /* -------------------------------------------------------------------------- */
 /* Priority                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -225,10 +223,3 @@ export const TONE_VAR: Record<Tone, string> = {
   highlight: 'hsl(var(--highlight))',
 };
 
-export function statusColorVar(status: TaskStatus): string {
-  return TONE_VAR[TASK_STATUS_META[status].tone];
-}
-
-export function projectStatusColorVar(status: ProjectStatus): string {
-  return TONE_VAR[PROJECT_STATUS_META[status].tone];
-}

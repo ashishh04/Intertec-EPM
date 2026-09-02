@@ -36,7 +36,7 @@ import { Pagination } from '@/components/common/Pagination';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ALL_TASK_PRIORITIES, ALL_TASK_STATUSES, TASK_PRIORITY_META, TASK_STATUS_META } from '@/lib/domain';
 import { cn, describeDueDate, formatHours, pluralize } from '@/lib/utils';
-import type { ID, NexusProject, NexusTask, NexusUser, TaskFilters, UpdateTaskInput } from '@/types';
+import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, UpdateTaskInput } from '@/types';
 
 type ColumnKey =
   | 'key'
@@ -79,9 +79,9 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
 ];
 
 export interface TaskTableProps {
-  tasks: NexusTask[];
-  projects: Map<ID, NexusProject>;
-  users: Map<ID, NexusUser>;
+  tasks: EpmTask[];
+  projects: Map<ID, EpmProject>;
+  users: Map<ID, EpmUser>;
   total: number;
   page: number;
   pageSize: number;

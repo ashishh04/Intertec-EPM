@@ -103,16 +103,6 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
-export function formatCompact(value: number): string {
-  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(
-    value,
-  );
-}
-
-export function formatPercent(value: number, fractionDigits = 0): string {
-  return `${value.toFixed(fractionDigits)}%`;
-}
-
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -132,15 +122,6 @@ export function formatBytes(bytes: number): string {
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const size = bytes / Math.pow(1024, exponent);
   return `${size.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
-}
-
-export function initialsOf(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
 }
 
 export function truncate(value: string, max: number): string {
@@ -176,26 +157,6 @@ export function groupBy<T, K extends string | number>(
   );
 }
 
-export function uniqueBy<T, K>(items: T[], keyFn: (item: T) => K): T[] {
-  const seen = new Set<K>();
-  return items.filter((item) => {
-    const key = keyFn(item);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-/** Stable pseudo-random generator so mock data stays identical between reloads. */
-export function seededRandom(seed: number): () => number {
-  let state = seed % 2147483647;
-  if (state <= 0) state += 2147483646;
-  return () => {
-    state = (state * 16807) % 2147483647;
-    return (state - 1) / 2147483646;
-  };
 }

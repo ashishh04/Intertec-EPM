@@ -21,7 +21,7 @@ import { useUI } from '@/providers/UIProvider';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
 import { pluralize } from '@/lib/utils';
-import type { ID, NexusProject, NexusTask, NexusUser, TaskFilters, TaskStatus } from '@/types';
+import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, TaskStatus } from '@/types';
 import { toast } from 'sonner';
 
 type ViewMode = 'list' | 'board';
@@ -66,7 +66,7 @@ export default function MyWorkPage() {
   const updateTask = useUpdateTask();
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -76,7 +76,7 @@ export default function MyWorkPage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const buckets: Record<string, NexusTask[]> = {
+    const buckets: Record<string, EpmTask[]> = {
       overdue: [],
       today: [],
       upcoming: [],
@@ -233,9 +233,9 @@ function WorkSection({
 }: {
   title: string;
   hint: string;
-  tasks: NexusTask[];
-  projects: Map<ID, NexusProject>;
-  users: Map<ID, NexusUser>;
+  tasks: EpmTask[];
+  projects: Map<ID, EpmProject>;
+  users: Map<ID, EpmUser>;
   resetKey: string;
 }) {
   const paged = usePagination(tasks, { pageSize: 8, resetKey });

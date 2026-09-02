@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FolderKanban, LayoutGrid, List, Plus, Search } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
+import { ProjectDialog } from '@/components/common/ProjectDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Pagination } from '@/components/common/Pagination';
@@ -35,7 +36,6 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
 import { ALL_PROJECT_STATUSES, PROJECT_STATUS_META } from '@/lib/domain';
 import { formatShortDate } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { ProjectStatus } from '@/types';
 
 const ALL = '__all__';
@@ -43,6 +43,7 @@ const ALL = '__all__';
 /** Portfolio index: every project the user can see, as cards or a dense table. */
 export default function ProjectsPage() {
   const [view, setView] = useState<'grid' | 'table'>('grid');
+  const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>(ALL);
   const [portfolio, setPortfolio] = useState<string>(ALL);
@@ -88,13 +89,7 @@ export default function ProjectsPage() {
         title="Projects"
         description="Delivery portfolio across every active engagement."
         actions={
-          <Button
-            onClick={() =>
-              toast('Project creation is not enabled in the demo', {
-                description: 'New projects are provisioned through the Nexus backend.',
-              })
-            }
-          >
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" />
             New Project
           </Button>
@@ -333,6 +328,8 @@ export default function ProjectsPage() {
           </Card>
         )}
       </QueryBoundary>
+
+      <ProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

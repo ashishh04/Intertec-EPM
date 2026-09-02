@@ -1,28 +1,28 @@
 import { apiClient } from './client';
 import type { ProjectRepository } from '../repositories';
-import type { ID, Milestone, NexusProject } from '@/types';
+import type { ID, Milestone, EpmProject } from '@/types';
 
 /**
- * Projects arrive from the Nexus backend already normalized. The backend owns
+ * Projects arrive from the EPM backend already normalized. The backend owns
  * the OpenProject call, its HAL parsing and its pagination.
  */
 export class ApiProjectRepository implements ProjectRepository {
-  getProjects(params: { search?: string; status?: string[] } = {}): Promise<NexusProject[]> {
-    return apiClient.get<NexusProject[]>('/projects', {
+  getProjects(params: { search?: string; status?: string[] } = {}): Promise<EpmProject[]> {
+    return apiClient.get<EpmProject[]>('/projects', {
       search: params.search,
       status: params.status,
     });
   }
 
-  getProject(id: ID): Promise<NexusProject> {
-    return apiClient.get<NexusProject>(`/projects/${id}`);
+  getProject(id: ID): Promise<EpmProject> {
+    return apiClient.get<EpmProject>(`/projects/${id}`);
   }
 
   getMilestones(projectId: ID): Promise<Milestone[]> {
     return apiClient.get<Milestone[]>(`/projects/${projectId}/milestones`);
   }
 
-  updateProject(id: ID, patch: Partial<NexusProject>): Promise<NexusProject> {
-    return apiClient.patch<NexusProject>(`/projects/${id}`, patch);
+  updateProject(id: ID, patch: Partial<EpmProject>): Promise<EpmProject> {
+    return apiClient.patch<EpmProject>(`/projects/${id}`, patch);
   }
 }

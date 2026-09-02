@@ -63,7 +63,7 @@ function MetricCard({
         )}
       >
         <div className="flex items-start justify-between gap-3">
-          <span className="nexus-eyebrow">{label}</span>
+          <span className="epm-eyebrow">{label}</span>
           <span
             className={cn(
               'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border',

@@ -22,7 +22,7 @@ function PageHeader({ title, description, eyebrow, meta, actions, className }: P
       className={cn('flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between', className)}
     >
       <div className="min-w-0 space-y-1">
-        {eyebrow ? <div className="nexus-eyebrow">{eyebrow}</div> : null}
+        {eyebrow ? <div className="epm-eyebrow">{eyebrow}</div> : null}
         <div className="flex flex-wrap items-center gap-2.5">
           <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
           {meta}

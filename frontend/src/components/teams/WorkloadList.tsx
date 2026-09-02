@@ -4,7 +4,7 @@ import { usePagination } from '@/hooks/usePagination';
 import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserAvatar } from '@/components/common/UserAvatar';
-import type { ID, NexusUser, TeamMemberWorkload } from '@/types';
+import type { ID, EpmUser, TeamMemberWorkload } from '@/types';
 
 /** Allocation above this reads as over-committed. */
 const OVER_ALLOCATED = 90;
@@ -26,7 +26,7 @@ function labelFor(allocation: number) {
 
 interface WorkloadListProps {
   workloads: TeamMemberWorkload[];
-  users: Map<ID, NexusUser>;
+  users: Map<ID, EpmUser>;
   /** Rows per page. The paginator hides itself when everything fits. */
   pageSize?: number;
   className?: string;
@@ -87,13 +87,13 @@ export function WorkloadList({ workloads, users, pageSize = 10, className }: Wor
 
             <dl className="hidden shrink-0 gap-4 text-right sm:flex">
               <div>
-                <dt className="nexus-eyebrow">Assigned</dt>
+                <dt className="epm-eyebrow">Assigned</dt>
                 <dd className="font-mono text-xs tabular-nums">
                   {workload.assignedTasks} {pluralize(workload.assignedTasks, 'task')}
                 </dd>
               </div>
               <div>
-                <dt className="nexus-eyebrow">Logged</dt>
+                <dt className="epm-eyebrow">Logged</dt>
                 <dd className="font-mono text-xs tabular-nums">
                   {formatHours(workload.hoursLogged)} / {formatHours(workload.hoursCapacity)}
                 </dd>

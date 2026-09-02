@@ -1,0 +1,158 @@
+// EPM BFF — EPM-owned state.
+//
+// OpenProject remains the system of record for projects, work packages, people
+// and versions. Nothing here duplicates that. This database holds only what the
+// EPM contract requires and OpenProject has no home for:
+//
+//   1. Attributes OpenProject cannot store (department, portfolio, capacity).
+//   2. History OpenProject does not expose (metric trends, burndown series) —
+//      the API can tell you today's overdue count, never last week's.
+//   3. EPM's own concerns (sessions, sync bookkeeping, document metadata).
+//
+// Every row keys off the OpenProject id as a string, matching the EPM `ID`
+// type, so a record here is always an overlay on an upstream object.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Per-user attributes with no OpenProject column.
+model UserProfile {
+  openProjectId String   @id
+  department    String?
+  /// Weekly capacity in hours, backing TeamMemberWorkload.hoursCapacity.
+  hoursCapacity Float    @default(40)
+  timezone      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("user_profiles")
+}
+
+/// Per-project attributes, plus the inputs to computed health.
+model ProjectProfile {
+  openProjectId  String   @id
+  /// EpmProject.portfolio — "Platform", "Cloud", "Customer".
+  portfolio      String?
+  budgetTotal    Float?
+  budgetUsed     Float?
+  /// Set to pin a health dimension that the computed rules get wrong.
+  healthOverride Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("project_profiles")
+}
+
+/// Teams map to OpenProject groups; these are the fields groups lack.
+model TeamProfile {
+  openProjectId String   @id
+  slug          String   @unique
+  description   String?
+  /// OpenProject group membership has no notion of a lead.
+  leadId        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("team_profiles")
+}
+
+/// Sprints are OpenProject versions plus a goal and a committed-points baseline.
+model SprintProfile {
+  openProjectId   String   @id
+  goal            String?
+  /// Points committed at sprint start. Recomputing from today's scope would
+  /// silently absorb mid-sprint scope changes and flatten the burndown.
+  committedPoints Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("sprint_profiles")
+}
+
+/// One row per sprint per day — the series behind EpmSprint.burndown.
+model BurndownSample {
+  id              String   @id @default(cuid())
+  sprintId        String
+  /// Date only; one sample per sprint per day.
+  sampledOn       DateTime @db.Date
+  remainingPoints Float
+  completedPoints Float
+  createdAt       DateTime @default(now())
+
+  @@unique([sprintId, sampledOn])
+  @@index([sprintId])
+  @@map("burndown_samples")
+}
+
+/// Daily counters behind DashboardMetrics.trends and ExecutiveInsights.
+/// MetricTrend is a change against the previous period, which requires history.
+model MetricSnapshot {
+  id          String   @id @default(cuid())
+  /// Null for instance-wide metrics, otherwise the OpenProject user id.
+  scopeUserId String?
+  sampledOn   DateTime @db.Date
+  metric      String
+  value       Float
+  createdAt   DateTime @default(now())
+
+  @@unique([scopeUserId, sampledOn, metric])
+  @@index([metric, sampledOn])
+  @@map("metric_snapshots")
+}
+
+/// Metadata for the document library. Files live in OpenProject; kind and
+/// share state are EPM concerns.
+model DocumentMeta {
+  openProjectId String   @id
+  kind          String
+  shared        Boolean  @default(false)
+  projectId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("document_meta")
+}
+
+/// Backs IntegrationStatus.lastSyncAt and the per-resource counts.
+model SyncRun {
+  id          String    @id @default(cuid())
+  resource    String
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  recordCount Int?
+  ok          Boolean   @default(false)
+  error       String?
+
+  @@index([resource, startedAt])
+  @@map("sync_runs")
+}
+
+/// Server-side sessions. The browser only ever holds an opaque HTTP-only
+/// cookie; no OpenProject credential is ever issued to a client.
+model Session {
+  id            String   @id
+  openProjectId String
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  lastSeenAt    DateTime @default(now())
+  userAgent     String?
+
+  /// OAuth2 tokens for this user, encrypted at rest with SESSION_SECRET.
+  /// The browser never receives either one — it holds only the session id.
+  accessToken     String?
+  refreshToken    String?
+  /// When the access token expires and the refresh token must be used.
+  tokenExpiresAt  DateTime?
+
+  @@index([openProjectId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+

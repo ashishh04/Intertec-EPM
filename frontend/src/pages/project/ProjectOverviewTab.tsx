@@ -58,34 +58,34 @@ export default function ProjectOverviewTab() {
 
             <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
-                <dt className="nexus-eyebrow">Owner</dt>
+                <dt className="epm-eyebrow">Owner</dt>
                 <dd className="mt-1 flex items-center gap-2">
                   <UserAvatar user={owner} size="sm" />
                   <span className="text-xs font-medium">{owner?.name ?? 'Unassigned'}</span>
                 </dd>
               </div>
               <div>
-                <dt className="nexus-eyebrow">Start date</dt>
+                <dt className="epm-eyebrow">Start date</dt>
                 <dd className="mt-1 font-mono text-xs">{formatLongDate(project.startDate)}</dd>
               </div>
               <div>
-                <dt className="nexus-eyebrow">Target date</dt>
+                <dt className="epm-eyebrow">Target date</dt>
                 <dd className="mt-1 font-mono text-xs">{formatLongDate(project.dueDate)}</dd>
               </div>
               <div>
-                <dt className="nexus-eyebrow">Status</dt>
+                <dt className="epm-eyebrow">Status</dt>
                 <dd className="mt-1 text-xs font-medium">
                   {PROJECT_STATUS_META[project.status].label}
                 </dd>
               </div>
               <div>
-                <dt className="nexus-eyebrow">Priority</dt>
+                <dt className="epm-eyebrow">Priority</dt>
                 <dd className="mt-1">
                   <PriorityBadge priority={project.priority} />
                 </dd>
               </div>
               <div>
-                <dt className="nexus-eyebrow">Open risks</dt>
+                <dt className="epm-eyebrow">Open risks</dt>
                 <dd className="mt-1 flex items-center gap-1.5 text-xs font-medium">
                   <ShieldAlert
                     className={cn(
@@ -109,14 +109,14 @@ export default function ProjectOverviewTab() {
           <CardContent className="space-y-4 pt-4">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="nexus-eyebrow">Completion</p>
+                <p className="epm-eyebrow">Completion</p>
                 <p className="mt-0.5 font-mono text-3xl font-semibold tabular-nums">
                   {project.progress}
                   <span className="text-lg text-muted-foreground">%</span>
                 </p>
               </div>
               <div className="text-right">
-                <p className="nexus-eyebrow">Work packages</p>
+                <p className="epm-eyebrow">Work packages</p>
                 <p className="mt-0.5 font-mono text-sm font-medium tabular-nums">
                   {project.completedTaskCount} / {project.taskCount} complete
                 </p>
@@ -278,7 +278,7 @@ function SummaryStat({
         <Icon className="h-3.5 w-3.5" />
       </span>
       <div className="min-w-0">
-        <p className="nexus-eyebrow">{label}</p>
+        <p className="epm-eyebrow">{label}</p>
         <p className="mt-0.5 truncate text-xs font-medium">{value}</p>
         {sub ? <p className="text-2xs text-muted-foreground">{sub}</p> : null}
       </div>

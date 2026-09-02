@@ -172,12 +172,12 @@ export function TaskDrawer() {
         <SheetHeader>
           <SheetTitle>Create task</SheetTitle>
           <SheetDescription>
-            New work packages sync to OpenProject through the Nexus backend.
+            New work packages are created through the EPM backend.
           </SheetDescription>
         </SheetHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="nexus-scroll flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div className="epm-scroll flex-1 space-y-4 overflow-y-auto px-5 py-4">
             <div className="space-y-1.5">
               <Label htmlFor="task-subject" required>
                 Title

@@ -15,7 +15,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
 import { pluralize } from '@/lib/utils';
-import type { ID, NexusProject } from '@/types';
+import type { ID, EpmProject } from '@/types';
 
 /** Directory of delivery teams and their current load. */
 export default function TeamsPage() {
@@ -26,7 +26,7 @@ export default function TeamsPage() {
   const paged = usePagination(teamsQuery.data ?? [], { pageSize: 9 });
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -69,7 +69,7 @@ export default function TeamsPage() {
             const members = team.memberIds.map((id) => users.get(id));
             const teamProjects = team.projectIds
               .map((id) => projectsById.get(id))
-              .filter(Boolean) as NexusProject[];
+              .filter(Boolean) as EpmProject[];
 
             return (
               <motion.div
@@ -94,7 +94,7 @@ export default function TeamsPage() {
                   <div className="flex items-center gap-2 rounded-lg bg-muted/70 px-2.5 py-2">
                     <UserAvatar user={lead} size="sm" />
                     <div className="min-w-0">
-                      <p className="nexus-eyebrow">Team lead</p>
+                      <p className="epm-eyebrow">Team lead</p>
                       <p className="truncate text-2xs font-medium">{lead?.name ?? 'Unassigned'}</p>
                     </div>
                     <AvatarGroup users={members} max={3} size="xs" className="ml-auto" />

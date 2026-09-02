@@ -10,7 +10,7 @@ interface ThemeContextValue {
   toggleTheme: () => void;
 }
 
-const STORAGE_KEY = 'nexus.theme';
+const STORAGE_KEY = 'epm.theme';
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function readStoredTheme(): ThemeSetting {

@@ -14,7 +14,7 @@ interface ErrorStateProps {
 /** Polished failure state. Never leave the user looking at a blank region. */
 function ErrorState({
   title = 'Something went wrong',
-  description = 'We could not load this content. Try again, and if the problem continues contact the Nexus platform team.',
+  description = 'We could not load this content. Try again, and if the problem continues contact the EPM platform team.',
   onRetry,
   className,
   size = 'default',
@@ -66,8 +66,8 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // A real deployment forwards this to the Nexus observability pipeline.
-    console.error('Nexus render error', error, info.componentStack);
+    // A real deployment forwards this to the EPM observability pipeline.
+    console.error('EPM render error', error, info.componentStack);
   }
 
   render() {

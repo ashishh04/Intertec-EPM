@@ -275,7 +275,7 @@ function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
 
       {allDay.length > 0 ? (
         <div className="space-y-1 border-b border-border bg-surface-sunken/50 p-3">
-          <p className="nexus-eyebrow mb-1.5">All day</p>
+          <p className="epm-eyebrow mb-1.5">All day</p>
           {allDay.map((event) => (
             <EventChip key={event.id} event={event} />
           ))}

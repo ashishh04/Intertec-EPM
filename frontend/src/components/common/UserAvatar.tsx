@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage, type AvatarSize } from '@/components/ui/avatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import type { NexusUser, UserStatus } from '@/types';
+import type { EpmUser, UserStatus } from '@/types';
 
 const STATUS_RING: Record<UserStatus, string> = {
   online: 'bg-success',
@@ -16,13 +16,13 @@ const STATUS_LABEL: Record<UserStatus, string> = {
 };
 
 interface UserAvatarProps {
-  user?: Pick<NexusUser, 'name' | 'initials' | 'accent' | 'avatarUrl' | 'status'>;
+  user?: Pick<EpmUser, 'name' | 'initials' | 'accent' | 'avatarUrl' | 'status'>;
   size?: AvatarSize;
   showStatus?: boolean;
   className?: string;
 }
 
-/** Initials-based avatar. No photographs are used anywhere in the demo data. */
+/** Initials-based avatar, used whenever a user has no avatar image. */
 function UserAvatar({ user, size = 'default', showStatus = false, className }: UserAvatarProps) {
   const label = user ? user.name : 'Unassigned';
 
@@ -66,7 +66,7 @@ function UserAvatarWithTooltip({ user, ...props }: UserAvatarProps) {
 }
 
 interface AvatarGroupProps {
-  users: (NexusUser | undefined)[];
+  users: (EpmUser | undefined)[];
   max?: number;
   size?: AvatarSize;
   className?: string;
@@ -88,7 +88,7 @@ const OVERFLOW_SIZE: Record<AvatarSize, string> = {
  * a deeper stack would clip the glyphs of every avatar but the last.
  */
 function AvatarGroup({ users, max = 4, size = 'sm', className }: AvatarGroupProps) {
-  const known = users.filter(Boolean) as NexusUser[];
+  const known = users.filter(Boolean) as EpmUser[];
   const visible = known.slice(0, max);
   const overflow = known.length - visible.length;
 

@@ -1,7 +1,7 @@
 import { Toaster as SonnerToaster, toast } from 'sonner';
 import { useTheme } from '@/providers/ThemeProvider';
 
-/** App-wide toast surface, themed with the Nexus tokens. */
+/** App-wide toast surface, themed with the EPM tokens. */
 function Toaster() {
   const { resolvedTheme } = useTheme();
 

@@ -21,7 +21,7 @@ import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
 import { CheckCircle2, FolderKanban } from 'lucide-react';
-import type { NexusProject } from '@/types';
+import type { EpmProject } from '@/types';
 
 /** Team workspace: people, projects, workload and recent activity. */
 export default function TeamDetailPage() {
@@ -33,7 +33,7 @@ export default function TeamDetailPage() {
   const users = useUserMap();
 
   const teamProjects = useMemo(() => {
-    if (!team) return [] as NexusProject[];
+    if (!team) return [] as EpmProject[];
     return (projectsQuery.data ?? []).filter((project) => team.projectIds.includes(project.id));
   }, [team, projectsQuery.data]);
 
@@ -89,7 +89,7 @@ export default function TeamDetailPage() {
           <div className="flex items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5">
             <UserAvatar user={lead} size="sm" showStatus />
             <div className="text-left">
-              <p className="nexus-eyebrow">Team lead</p>
+              <p className="epm-eyebrow">Team lead</p>
               <p className="text-2xs font-medium">{lead?.name ?? 'Unassigned'}</p>
             </div>
           </div>

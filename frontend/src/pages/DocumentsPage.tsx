@@ -23,7 +23,7 @@ import { useDocuments, useUploadDocument } from '@/hooks/useDocuments';
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
-import type { ID, NexusProject } from '@/types';
+import type { ID, EpmProject } from '@/types';
 
 const ALL = '__all__';
 
@@ -42,7 +42,7 @@ export default function DocumentsPage() {
   const users = useUserMap();
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -59,7 +59,7 @@ export default function DocumentsPage() {
   }, [documents]);
 
   const openPreview = (name: string) =>
-    toast('Preview is not available in the demo', { description: name });
+    toast('Preview is not implemented yet', { description: name });
 
   const renderGrid = (items: typeof documents, emptyTitle: string) => (
     <QueryBoundary

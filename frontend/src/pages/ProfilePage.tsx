@@ -20,7 +20,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { toast } from 'sonner';
-import type { ID, NexusProject } from '@/types';
+import type { ID, EpmProject } from '@/types';
 
 const PREFERENCES = [
   { id: 'digest', label: 'Daily delivery digest', hint: 'A morning summary of what needs attention.' },
@@ -38,7 +38,7 @@ export default function ProfilePage() {
   const users = useUserMap();
 
   const projectsById = useMemo(
-    () => new Map<ID, NexusProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
     [projectsQuery.data],
   );
 
@@ -164,26 +164,26 @@ export default function ProfilePage() {
             <CardContent className="space-y-4 pt-4">
               <dl className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <dt className="nexus-eyebrow">Timezone</dt>
+                  <dt className="epm-eyebrow">Timezone</dt>
                   <dd className="mt-1 text-xs">{user.timezone}</dd>
                 </div>
                 <div>
-                  <dt className="nexus-eyebrow">Department</dt>
+                  <dt className="epm-eyebrow">Department</dt>
                   <dd className="mt-1 text-xs">{user.department}</dd>
                 </div>
                 <div>
-                  <dt className="nexus-eyebrow">Role</dt>
+                  <dt className="epm-eyebrow">Role</dt>
                   <dd className="mt-1 text-xs">{user.role}</dd>
                 </div>
                 <div>
-                  <dt className="nexus-eyebrow">Account status</dt>
+                  <dt className="epm-eyebrow">Account status</dt>
                   <dd className="mt-1 text-xs capitalize">{user.status}</dd>
                 </div>
               </dl>
 
               <p className="rounded-lg border border-border bg-muted/60 p-3 text-2xs text-muted-foreground">
                 Identity details are managed by your organisation directory and synchronised into
-                Nexus. Contact the IT service desk to change your name, role or department.
+                EPM. Contact the IT service desk to change your name, role or department.
               </p>
             </CardContent>
           </Card>

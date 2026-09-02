@@ -18,7 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { DOCUMENT_KIND_META, TONE_SOFT } from '@/lib/domain';
 import { cn, formatBytes, formatRelative, truncate } from '@/lib/utils';
-import type { DocumentKind, ID, NexusDocument, NexusProject, NexusUser } from '@/types';
+import type { DocumentKind, ID, EpmDocument, EpmProject, EpmUser } from '@/types';
 
 const KIND_ICON: Record<DocumentKind, typeof FileText> = {
   pdf: FileText,
@@ -31,10 +31,10 @@ const KIND_ICON: Record<DocumentKind, typeof FileText> = {
 };
 
 interface DocumentGridProps {
-  documents: NexusDocument[];
-  users: Map<ID, NexusUser>;
-  projects?: Map<ID, NexusProject>;
-  onOpen?: (document: NexusDocument) => void;
+  documents: EpmDocument[];
+  users: Map<ID, EpmUser>;
+  projects?: Map<ID, EpmProject>;
+  onOpen?: (document: EpmDocument) => void;
   className?: string;
 }
 
@@ -135,7 +135,7 @@ export function DocumentGrid({ documents, users, projects, onOpen, className }: 
   );
 }
 
-/** Upload affordance. The demo records the file locally without transferring it. */
+/** Upload affordance. Records the file locally without transferring it. */
 export function DocumentUpload({
   onUpload,
   pending = false,
@@ -163,7 +163,7 @@ export function DocumentUpload({
       <div>
         <p className="text-xs font-medium">Upload a document</p>
         <p className="mt-0.5 text-2xs text-muted-foreground">
-          Files are stored by the Nexus backend and linked to the project.
+          Files are stored by the EPM backend and linked to the project.
         </p>
       </div>
 

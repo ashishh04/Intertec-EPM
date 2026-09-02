@@ -33,7 +33,7 @@ export default function NotFoundPage() {
         </Button>
         <Button variant="secondary" onClick={() => setCommandPaletteOpen(true)}>
           <Search className="h-4 w-4" />
-          Search Nexus
+          Search EPM
         </Button>
       </div>
     </Card>

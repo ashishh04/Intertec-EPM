@@ -31,7 +31,7 @@ const UIContext = createContext<UIContextValue | null>(null);
 
 export function UIProvider({ children }: { children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsedState] = useLocalStorage(
-    'nexus.sidebar.collapsed',
+    'epm.sidebar.collapsed',
     false,
   );
   const [mobileNavOpen, setMobileNavOpen] = useState(false);

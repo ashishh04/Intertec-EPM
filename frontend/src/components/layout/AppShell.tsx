@@ -44,13 +44,13 @@ export function AppShell() {
 
   // Scroll back to the top on navigation so long pages do not start mid-content.
   useEffect(() => {
-    document.getElementById('nexus-main')?.scrollTo({ top: 0 });
+    document.getElementById('epm-main')?.scrollTo({ top: 0 });
   }, [location.pathname]);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
       <a
-        href="#nexus-main"
+        href="#epm-main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-xs focus:font-medium focus:text-primary-foreground"
       >
         Skip to main content
@@ -66,9 +66,9 @@ export function AppShell() {
         <TopHeader />
 
         <main
-          id="nexus-main"
+          id="epm-main"
           tabIndex={-1}
-          className="nexus-scroll flex-1 overflow-y-auto pb-20 focus-visible:outline-none md:pb-0"
+          className="epm-scroll flex-1 overflow-y-auto pb-20 focus-visible:outline-none md:pb-0"
         >
           <ErrorBoundary fallbackTitle="This page could not be displayed">
             <AnimatePresence mode="wait" initial={false}>
