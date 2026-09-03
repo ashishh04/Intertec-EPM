@@ -1716,6 +1716,7 @@ async function main() {
 
   // Created below; removed in the cleanup step, which the API cannot do.
   const departmentIds: string[] = [];
+  const teamIds: string[] = [];
 
   // --- Departments ---------------------------------------------------------
   //
@@ -1747,7 +1748,7 @@ async function main() {
   // The permission is EPM's own: no OpenProject capability implies it, so it is
   // granted from EPM's grants and bootstrap configuration instead.
   const adminPermissions = (await (await call('/me', { cookie: admin })).json()) as {
-    permissions?: { departments?: { manage?: boolean } };
+    permissions?: { departments?: { manage?: boolean }; teams?: { manage?: boolean } };
   };
   const restrictedPermissions = (await (
     await call('/me', { cookie: restricted })
@@ -1986,6 +1987,305 @@ async function main() {
     'active,code,createdAt,description,id,manager,name,updatedAt',
   );
 
+  // --- Teams ---------------------------------------------------------------
+  //
+  // EPM-owned, like departments. These reuse the department created above, so
+  // the department-lifecycle cases have something real to act on, and both are
+  // removed in the cleanup step — teams first, because the foreign key is
+  // RESTRICT.
+  console.log('\nTeams');
+
+  interface TestTeam {
+    id: string;
+    name: string;
+    code: string;
+    description?: string;
+    department?: { id: string; name: string; active: boolean };
+    lead?: { id: string; name: string };
+    active: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }
+
+  const teamName = `EPM Test Team ${stamp}`;
+  const teamCode = `TMT-${stamp}`.slice(0, 16);
+
+  const teams = async (cookie: string, query = '') =>
+    (await (await call(`/teams${query}`, { cookie })).json()) as TestTeam[];
+
+  check(
+    'the manage permission is surfaced to the client',
+    adminPermissions.permissions?.teams?.manage,
+    true,
+  );
+  check(
+    'a caller without a grant does not hold it',
+    restrictedPermissions.permissions?.teams?.manage,
+    false,
+  );
+
+  check('anonymous cannot list teams', await status('/teams'), 401);
+  check(
+    'anonymous cannot create one',
+    await status('/teams', { method: 'POST', body: { name: 'x', code: 'XX' } }),
+    401,
+  );
+
+  check('a permitted caller can list teams', await status('/teams', { cookie: admin }), 200);
+  check(
+    'a caller without the manage grant can still read them',
+    await status('/teams', { cookie: restricted }),
+    200,
+  );
+  check(
+    'a caller without the grant cannot create one',
+    await status('/teams', { method: 'POST', cookie: restricted, body: { name: teamName, code: teamCode } }),
+    403,
+  );
+
+  const invalidTeams: [string, Record<string, unknown>][] = [
+    ['a team needs a name', { code: 'AA' }],
+    ['a team needs a code', { name: 'Nameless' }],
+    ['a blank name is refused', { name: '   ', code: 'AA' }],
+    ['a code shorter than two characters is refused', { name: 'Short', code: 'A' }],
+    ['a code longer than sixteen characters is refused', { name: 'Long', code: 'A'.repeat(17) }],
+    ['a code with punctuation is refused', { name: 'Punct', code: 'A_B!' }],
+    ['a non-string name is refused', { name: 42, code: 'AA' }],
+    ['an over-long name is refused', { name: 'n'.repeat(121), code: 'AA' }],
+    ['an unknown department is refused', { name: 'Ghost', code: 'GT1', departmentId: 'no-such-department' }],
+    ['a lead who is not a visible user is refused', { name: 'Ghost', code: 'GT2', leadId: '99999999' }],
+  ];
+
+  for (const [label, body] of invalidTeams) {
+    check(label, await status('/teams', { method: 'POST', cookie: admin, body }), 400);
+  }
+
+  const teamCreateResponse = await call('/teams', {
+    method: 'POST',
+    cookie: admin,
+    // Lower case deliberately: codes are normalised before storing.
+    body: {
+      name: teamName,
+      code: teamCode.toLowerCase(),
+      description: '  Delivers the platform.  ',
+      departmentId: deptId,
+      leadId: adminId,
+    },
+  });
+  check('a permitted caller can create a team', teamCreateResponse.status, 201);
+
+  const createdTeam = (await teamCreateResponse.json()) as TestTeam;
+  const teamId = createdTeam.id;
+  teamIds.push(teamId);
+
+  check('the name is returned as given', createdTeam.name, teamName);
+  check('the code is normalised to upper case', createdTeam.code, teamCode);
+  check('the description is trimmed', createdTeam.description, 'Delivers the platform.');
+  check('a new team is active', createdTeam.active, true);
+  check('the department is named, not just referenced', createdTeam.department?.id, deptId);
+  check('the department reports its own lifecycle', createdTeam.department?.active, true);
+  check('the lead keeps its OpenProject id', createdTeam.lead?.id, adminId);
+  check('the lead is named', (createdTeam.lead?.name.length ?? 0) > 0, true);
+  check('the team id is not an upstream url', teamId.includes('/'), false);
+  check(
+    'no upstream reference is exposed on a team',
+    Object.keys(createdTeam).sort().join(),
+    'active,code,createdAt,department,description,id,lead,name,updatedAt',
+  );
+
+  check(
+    'a duplicate code is refused',
+    await status('/teams', { method: 'POST', cookie: admin, body: { name: `${teamName} II`, code: teamCode } }),
+    400,
+  );
+  // The database enforces this too, through a functional index on LOWER(name).
+  check(
+    'a name differing only by case is refused',
+    await status('/teams', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: teamName.toUpperCase(), code: `X${teamCode}`.slice(0, 16) },
+    }),
+    400,
+  );
+
+  // A team may exist without a department: nullable by design, not an oversight.
+  const looseResponse = await call('/teams', {
+    method: 'POST',
+    cookie: admin,
+    body: { name: `${teamName} Loose`, code: `L${teamCode}`.slice(0, 16) },
+  });
+  check('a team can be created without a department', looseResponse.status, 201);
+  const looseTeam = (await looseResponse.json()) as TestTeam;
+  teamIds.push(looseTeam.id);
+  check('it reports no department', looseTeam.department, undefined);
+  check('it reports no lead', looseTeam.lead, undefined);
+
+  check('a team can be read back', await status(`/teams/${teamId}`, { cookie: admin }), 200);
+  check(
+    'it appears in the list',
+    (await teams(admin)).some((t) => t.id === teamId),
+    true,
+  );
+
+  // --- filtering ---
+  const inDepartment = await teams(admin, `?departmentId=${deptId}`);
+  check('filtering by department returns its teams', inDepartment.some((t) => t.id === teamId), true);
+  check(
+    'filtering by department excludes teams outside it',
+    inDepartment.some((t) => t.id === looseTeam.id),
+    false,
+  );
+  check(
+    'filtering by an unknown department returns nothing',
+    (await teams(admin, '?departmentId=no-such-department')).length,
+    0,
+  );
+
+  // --- update ---
+  const teamUpdate = await call(`/teams/${teamId}`, {
+    method: 'PATCH',
+    cookie: admin,
+    body: { description: 'Delivers the platform and its tooling.' },
+  });
+  check('a permitted caller can update a team', teamUpdate.status, 200);
+
+  const afterTeamUpdate = (await teamUpdate.json()) as TestTeam;
+  check('the change is applied', afterTeamUpdate.description, 'Delivers the platform and its tooling.');
+  check('an omitted field is left alone', afterTeamUpdate.name, teamName);
+  check('an omitted department is left alone', afterTeamUpdate.department?.id, deptId);
+
+  check(
+    'an update with no fields is refused',
+    await status(`/teams/${teamId}`, { method: 'PATCH', cookie: admin, body: {} }),
+    400,
+  );
+  check(
+    'a caller without the grant cannot update one',
+    await status(`/teams/${teamId}`, { method: 'PATCH', cookie: restricted, body: { name: 'Hijacked' } }),
+    403,
+  );
+  check(
+    'the team is unchanged after the refused update',
+    ((await (await call(`/teams/${teamId}`, { cookie: admin })).json()) as TestTeam).name,
+    teamName,
+  );
+
+  // A team can move between departments, and out of one entirely.
+  const moved = (await (
+    await call(`/teams/${looseTeam.id}`, { method: 'PATCH', cookie: admin, body: { departmentId: deptId } })
+  ).json()) as TestTeam;
+  check('a team can be moved into a department', moved.department?.id, deptId);
+
+  const removed = (await (
+    await call(`/teams/${looseTeam.id}`, { method: 'PATCH', cookie: admin, body: { departmentId: '' } })
+  ).json()) as TestTeam;
+  check('a team can be moved out of a department', removed.department, undefined);
+
+  // --- department lifecycle interaction ---
+  // Archiving a department is a visibility decision, not a structural one: the
+  // teams inside it are left exactly as they were, so restoring is symmetrical.
+  check(
+    'a department holding active teams can still be archived',
+    await status(`/departments/${deptId}/archive`, { method: 'PATCH', cookie: admin }),
+    200,
+  );
+
+  const strandedTeam = (await (await call(`/teams/${teamId}`, { cookie: admin })).json()) as TestTeam;
+  check('its team is still readable', strandedTeam.id, teamId);
+  check('the team was not archived along with it', strandedTeam.active, true);
+  check('the team keeps its association', strandedTeam.department?.id, deptId);
+  // The UI has to be able to say the department is archived rather than show a
+  // name that looks current.
+  check('the department is reported as archived', strandedTeam.department?.active, false);
+  check(
+    'the team is still listed',
+    (await teams(admin)).some((t) => t.id === teamId),
+    true,
+  );
+  check(
+    'the team can still be edited',
+    await status(`/teams/${teamId}`, { method: 'PATCH', cookie: admin, body: { description: 'Still editable.' } }),
+    200,
+  );
+
+  // Retaining an existing association is not the same as forming a new one.
+  check(
+    'a new team cannot be created in an archived department',
+    await status('/teams', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `${teamName} Blocked`, code: `B${teamCode}`.slice(0, 16), departmentId: deptId },
+    }),
+    400,
+  );
+  check(
+    'a team cannot be moved into an archived department',
+    await status(`/teams/${looseTeam.id}`, { method: 'PATCH', cookie: admin, body: { departmentId: deptId } }),
+    400,
+  );
+
+  check(
+    'the department can be restored',
+    await status(`/departments/${deptId}/restore`, { method: 'PATCH', cookie: admin }),
+    200,
+  );
+  const afterRestore = (await (await call(`/teams/${teamId}`, { cookie: admin })).json()) as TestTeam;
+  check('the association survived the round trip', afterRestore.department?.id, deptId);
+  check('the department is active again', afterRestore.department?.active, true);
+  check('the team was not changed by the restore', afterRestore.active, true);
+
+  // --- team lifecycle ---
+  check(
+    'a caller without the grant cannot archive one',
+    await status(`/teams/${teamId}/archive`, { method: 'PATCH', cookie: restricted }),
+    403,
+  );
+
+  const archivedTeam = await call(`/teams/${teamId}/archive`, { method: 'PATCH', cookie: admin });
+  check('a permitted caller can archive a team', archivedTeam.status, 200);
+  check('it is reported inactive', ((await archivedTeam.json()) as TestTeam).active, false);
+  check(
+    'an archived team is out of the default list',
+    (await teams(admin)).some((t) => t.id === teamId),
+    false,
+  );
+  check(
+    'it is still there when inactive ones are asked for',
+    (await teams(admin, '?includeInactive=true')).some((t) => t.id === teamId),
+    true,
+  );
+  check('it can still be read directly', await status(`/teams/${teamId}`, { cookie: admin }), 200);
+  check(
+    'archiving a team leaves its department alone',
+    ((await (await call(`/departments/${deptId}`, { cookie: admin })).json()) as { active: boolean }).active,
+    true,
+  );
+
+  const restoredTeam = await call(`/teams/${teamId}/restore`, { method: 'PATCH', cookie: admin });
+  check('an archived team can be restored', ((await restoredTeam.json()) as TestTeam).active, true);
+
+  check(
+    'there is no route for deleting a team',
+    await status(`/teams/${teamId}`, { method: 'DELETE', cookie: admin }),
+    404,
+  );
+  check('an unknown team is not found', await status('/teams/no-such-id', { cookie: admin }), 404);
+  check(
+    'an unknown team cannot be updated',
+    await status('/teams/no-such-id', { method: 'PATCH', cookie: admin, body: { name: 'X' } }),
+    404,
+  );
+  check(
+    'an unknown team cannot be archived',
+    await status('/teams/no-such-id/archive', { method: 'PATCH', cookie: admin }),
+    404,
+  );
+
+  // The workload endpoint shares the /teams prefix but is about people. It must
+  // not be captured by the :id route, and must survive teams changing shape.
+  check('the workload endpoint still answers', await status('/teams/workloads', { cookie: admin }), 200);
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -2007,13 +2307,23 @@ async function main() {
   // Departments have no delete route by design, so the rows these tests
   // created are removed through the database rather than left behind. The
   // one place the suite reaches past the API, and only to undo its own writes.
-  if (departmentIds.length) {
+  if (departmentIds.length || teamIds.length) {
     const { prisma } = await import('../db/prisma.js');
-    const { count } = await prisma.department
+
+    // Teams first: the foreign key is RESTRICT, so a department holding teams
+    // cannot be removed until they are.
+    const removedTeams = await prisma.team
+      .deleteMany({ where: { id: { in: teamIds } } })
+      .catch(() => ({ count: 0 }));
+    const removedDepartments = await prisma.department
       .deleteMany({ where: { id: { in: departmentIds } } })
       .catch(() => ({ count: 0 }));
+
     await prisma.$disconnect().catch(() => undefined);
-    console.log(`  (removed ${count} test department${count === 1 ? '' : 's'})`);
+    console.log(
+      `  (removed ${removedTeams.count} test team${removedTeams.count === 1 ? '' : 's'}` +
+        ` and ${removedDepartments.count} test department${removedDepartments.count === 1 ? '' : 's'})`,
+    )
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

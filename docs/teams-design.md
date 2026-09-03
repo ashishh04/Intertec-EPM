@@ -215,6 +215,75 @@ which were rendering zeroes.
 Employee Mapping will add membership as its own table, `(teamId, employeeId)`, not as a
 column here. Nothing in this schema anticipates it beyond leaving the id stable.
 
+## Test results
+
+73 cases in `npm run test:authz`. Suite total **373 passed, 0 failed** — the 300 that
+existed before are unchanged.
+
+Coverage: the permission on `/me` for both identities; anonymous refused; read allowed
+without the grant; create/update/archive refused without it; ten validation cases; code
+normalisation; duplicate code and case-variant name; a team created with no department;
+department filtering including the exclusion case; partial update leaving omitted fields
+alone; moving a team into and out of a department; the full department-archive
+interaction; the team archive/restore round trip; absence of a delete route; three
+unknown-id cases; and that `/teams/workloads` still answers rather than being captured by
+the `:id` route.
+
+Database constraints verified directly against Postgres:
+
+```
+teams_pkey                UNIQUE btree (id)
+teams_code_key            UNIQUE btree (code)
+teams_name_lower_key      UNIQUE btree (lower(name))
+teams_departmentId_idx    btree ("departmentId")
+teams_active_idx          btree (active)
+teams_departmentId_fkey   ON DELETE RESTRICT  ON UPDATE CASCADE
+
+active         NOT NULL DEFAULT true
+departmentId   nullable
+
+duplicate code                                -> P2002, target ["code"]
+name differing only by case                   -> P2002, target ["lower(name)"]
+upper-case name variant                       -> P2002, target ["lower(name)"]
+a department that does not exist              -> P2003, teams_departmentId_fkey
+deleting a department that still holds a team -> P2003, teams_departmentId_fkey
+```
+
+The last line is the RESTRICT rule doing its job: a department cannot be removed out from
+under its teams even by direct database access.
+
+Driven end to end in a real browser for both identities: create, list, edit including
+reassigning the department, archive, reveal via the archived toggle, restore, and
+client-side validation — all passing, with the create button absent for the caller
+without the grant. Every route clean of console errors across `/dashboard`,
+`/departments`, `/teams`, `/reports`, `/tasks` and `/projects`. Only `localhost:8000` and
+Google Fonts contacted. Bundle audit: zero occurrences of `openproject`,
+`localhost:8080`, `Bearer`, `Authorization`, `access_token`, `refresh_token`, `api/v3`,
+`apikey`, `EPM_ADMIN`.
+
+## Test data
+
+None left behind. `teams=0  departments=0  grants=0`. The suite removes what it creates,
+teams before departments because of the RESTRICT foreign key; because neither entity has a
+delete route by design, that step goes through the database, which is the only place the
+suite reaches past the API.
+
 ## Known limitations
 
-Recorded after implementation; see the section at the end of this file.
+1. **No membership.** A team has no people in it. That is Employee Mapping, and
+   `TeamDetailPage` says so rather than showing an empty list.
+2. **No projects, capacity or health** on a team, for the same reason — each is its own
+   feature. `ReportsPage` lost a "sprint progress by team" chart and the member/capacity
+   columns that went with it; they plotted zeroes sourced from group membership that never
+   existed on this instance.
+3. **`leadId` has no referential integrity.** A user deleted in OpenProject leaves a
+   dangling id, reported as `Unknown user` rather than failing the read. Same trade as
+   `Department.managerId`.
+4. **A team can be stranded in an archived department.** By design — the archive rule
+   retains associations — but nothing prompts an operator to move it. It stays editable,
+   and the API reports `department.active: false` so the UI can flag it.
+5. **No grant-assignment API.** `teams:manage` is granted from `epm_permission_grants` or
+   the `EPM_ADMIN_USER_IDS` bootstrap until the Roles feature exists.
+6. **`/teams/workloads` accepts a `teamId` and ignores it.** Membership does not exist, so
+   there is nothing to scope by. Validated and discarded rather than silently returning an
+   empty list for a call that looks like it should work.
