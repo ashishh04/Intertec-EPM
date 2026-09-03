@@ -194,6 +194,79 @@ infrastructure in the application, and the requirement is explicit that Notifica
 not become the Realtime feature. The existing hook has a 20-second `staleTime`, so React
 Query refetches on focus and navigation; that is the refresh model, unchanged.
 
+## Test results
+
+34 cases in `npm run test:authz`. Suite total **735 passed, 0 failed** — the 701 that
+existed before are unchanged.
+
+The domain functions are called directly, so each trigger rule is asserted without having
+to arrange the world state that would produce it. Every rule that says *do not notify* is
+tested as well as every rule that says *do*: unchanged health, a project with no owner,
+unchanged capacity, a repeated failure on the same day, and re-evaluating the same live
+projects twice all produce **zero**.
+
+Deduplication is asserted by return value — `notifyHealthChange` returns how many rows were
+actually new, so "the same state again creates nothing" is a hard 0 rather than an absence
+of visible change. The capacity key is tested in both directions: the same change twice is
+one event, and moving back is a new one.
+
+The severity and wording rules are checked too — a degradation is `critical`, an improvement
+is `info` however far it moved, an override says so in the body, and a failure body contains
+no stack trace and no URL.
+
+Recipient isolation is tested **both ways**: another caller sees none of the rows, and
+cannot mark one read — the row is re-read from the database afterwards and asserted still
+unread, rather than trusting a status code. The owner then can. An unknown id is a no-op
+rather than an error.
+
+Browser sweep clean on eight routes for both identities, with the header bell and panel
+present for each. Only `localhost:8000` contacted; bundle audit zero on all nine patterns.
+
+### Two test-isolation problems the run surfaced
+
+Both were mine, and both are the feature working correctly:
+
+1. The capacity assertions used a real employee id, and earlier sections drive real capacity
+   mutations through the API — which now produce these same notifications. `40 → 30` had
+   already happened, so the dedup correctly suppressed it and my assertion failed. Fixed by
+   using a synthetic id no other section touches.
+2. Cleanup initially ran before the other restores. Restoring capacity is itself a mutation,
+   so it notified, and the cleanup left its own trail. It now runs **last**.
+
+## Test data
+
+`notifications=0` — the table ends empty, as it began. Cleanup removes everything the run
+caused, bounded by when the run started, because the side effects of other sections cannot
+all be enumerated ahead of time. Anything created before the run is somebody's real
+notification and is left alone.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **No system recipient.** A snapshot failure goes to whoever holds `analytics:manage`. If
+   nobody does, the failure is logged — as it already was — and no notification is created.
+   Inventing a recipient would be worse than none.
+2. **A project with no owner is never notified about.** OpenProject's `responsible` link is
+   the only project-to-person relationship that exists, and guessing at another would mean
+   building the hierarchy this task is told not to build.
+3. **Calculated health transitions are only detected when a capture runs.** With the
+   scheduler off, or on a day it fails, a project can move from healthy to critical and back
+   without anyone being told. The notification follows the snapshot, not the work package.
+4. **`lastNotifiedHealth` advances even when nobody is told.** A project with no owner
+   records where it got to, so assigning an owner later does not fire a notification about a
+   transition that happened before they arrived. That is deliberate, but it does mean the
+   first thing a new owner hears about is the *next* change.
+5. **No preferences and no subscriptions.** Recipients are derived from existing
+   relationships; nobody can opt out, mute a project, or ask to be told about something they
+   are not related to.
+6. **No realtime.** The list refreshes on focus and navigation through React Query's
+   20-second `staleTime`. There is no WebSocket or SSE infrastructure and none was added.
+7. **No retention.** Notifications accumulate and nothing prunes them, read or not.
+8. **Read state is per source.** EPM read state lives in EPM and OpenProject's lives
+   upstream. Marking all read touches both, but a failure in one leaves the other marked —
+   there is no transaction across the two systems, and there cannot be.
+
+## Future enhancements
+
+Per-user preferences, muting, retention, and realtime delivery. Each is additive: the model
+already carries a recipient, a severity and a dedupe key, which is what any of them would
+need to build on.

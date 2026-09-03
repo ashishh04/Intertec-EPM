@@ -1734,6 +1734,12 @@ async function main() {
   const analyticsFixtureScopes: string[] = [];
   let analyticsCaptureDay: string | undefined;
   const schedulerCaptureDays: string[] = [];
+  // Dedupe keys the notification tests create directly. Not the whole story:
+  // the capacity, employee and portfolio sections mutate capacity through the
+  // API, and each of those now produces a notification too. The timestamp below
+  // is what catches those, since they cannot all be enumerated ahead of time.
+  const notificationKeys: string[] = [];
+  const suiteStartedAt = new Date();
 
   // --- Departments ---------------------------------------------------------
   //
@@ -3911,6 +3917,288 @@ async function main() {
     403,
   );
 
+  // --- Notifications ---------------------------------------------------------
+  //
+  // The domain functions are called directly, so each trigger rule can be
+  // asserted without arranging the world state that would produce it. The API
+  // half then runs over what they created, and every row is removed in the
+  // cleanup step.
+  console.log('\nNotifications');
+
+  const {
+    notifyHealthChange,
+    notifyCapacityChange,
+    notifySnapshotFailure,
+    evaluateHealthTransitions,
+  } = await import('../domain/notifications.js');
+  const { prisma: notificationDb } = await import('../db/prisma.js');
+
+  // Scoped to this run so the assertions cannot be disturbed by anything else,
+  // and so cleanup knows exactly what to remove.
+  const notifProject = `notif-project-${stamp}`;
+  notificationKeys.push(`health:${notifProject}:critical`, `health:${notifProject}:healthy`);
+
+  interface TestNotification {
+    id: string;
+    category: string;
+    title: string;
+    body: string;
+    link?: string;
+    severity?: string;
+    read: boolean;
+    timestamp: string;
+  }
+
+  // --- health trigger rules ---
+  check(
+    'unchanged health notifies nobody',
+    await notifyHealthChange({
+      projectId: notifProject,
+      projectName: 'Probe',
+      ownerId: adminId,
+      previous: 'warning',
+      next: 'warning',
+      overridden: false,
+    }),
+    0,
+  );
+
+  // A project with nobody responsible has no recipient relationship that
+  // exists, and guessing one would mean inventing a hierarchy.
+  check(
+    'a project with no owner notifies nobody',
+    await notifyHealthChange({
+      projectId: notifProject,
+      projectName: 'Probe',
+      ownerId: undefined,
+      previous: 'healthy',
+      next: 'critical',
+      overridden: false,
+    }),
+    0,
+  );
+
+  check(
+    'a real transition notifies the owner',
+    await notifyHealthChange({
+      projectId: notifProject,
+      projectName: 'Probe',
+      ownerId: adminId,
+      previous: 'healthy',
+      next: 'critical',
+      overridden: false,
+    }),
+    1,
+  );
+
+  // The invariant that keeps this from becoming spam, enforced by the unique
+  // key rather than by a check that two producers could race past.
+  check(
+    'reporting the same state again creates nothing',
+    await notifyHealthChange({
+      projectId: notifProject,
+      projectName: 'Probe',
+      ownerId: adminId,
+      previous: 'healthy',
+      next: 'critical',
+      overridden: false,
+    }),
+    0,
+  );
+
+  const degraded = await notificationDb.notification.findFirst({
+    where: { dedupeKey: `health:${notifProject}:critical` },
+  });
+  check('a degradation is severe', degraded?.severity, 'critical');
+  check('and links to the project by an EPM route', degraded?.link, `/projects/${notifProject}`);
+  check('and goes to the owner', degraded?.recipientId, adminId);
+
+  check(
+    'an improvement notifies too',
+    await notifyHealthChange({
+      projectId: notifProject,
+      projectName: 'Probe',
+      ownerId: adminId,
+      previous: 'critical',
+      next: 'healthy',
+      overridden: true,
+    }),
+    1,
+  );
+
+  const improved = await notificationDb.notification.findFirst({
+    where: { dedupeKey: `health:${notifProject}:healthy` },
+  });
+  // An improvement is information, not an alarm, however far it moved.
+  check('an improvement is not severe', improved?.severity, 'info');
+  // A pinned green must never read as a measured one.
+  check('an override says so', improved?.body.includes('overridden'), true);
+
+  // --- capacity trigger rules ---
+  // A synthetic employee id, not a real one: earlier sections drive real
+  // capacity mutations through the API, which produce these same notifications,
+  // and asserting "a change notifies" against an id they touched would test
+  // whether they happened to have used that exact pair of values.
+  const notifEmployee = `notif-employee-${stamp}`;
+  const capacityDay = new Date().toISOString().slice(0, 10);
+  notificationKeys.push(
+    `capacity:${notifEmployee}:40-30:${capacityDay}`,
+    `capacity:${notifEmployee}:30-40:${capacityDay}`,
+  );
+
+  check(
+    'an unchanged capacity notifies nobody',
+    await notifyCapacityChange({ employeeId: notifEmployee, employeeName: 'Probe', from: 40, to: 40 }),
+    0,
+  );
+  check(
+    'a change notifies',
+    (await notifyCapacityChange({ employeeId: notifEmployee, employeeName: 'Probe', from: 40, to: 30 })) >= 1,
+    true,
+  );
+  check(
+    'the same change again creates nothing',
+    await notifyCapacityChange({ employeeId: notifEmployee, employeeName: 'Probe', from: 40, to: 30 }),
+    0,
+  );
+  // Keyed on the change rather than the value, so moving back is a real event
+  // rather than being swallowed by the earlier state.
+  check(
+    'a different change is a new event',
+    (await notifyCapacityChange({ employeeId: notifEmployee, employeeName: 'Probe', from: 30, to: 40 })) >= 1,
+    true,
+  );
+
+  // --- snapshot failure ---
+  const failureDay = `2099-01-0${(Number(stamp) % 9) + 1}`;
+  notificationKeys.push(`snapshot-failed:${failureDay}`);
+
+  check(
+    'a failed capture notifies the analytics administrators',
+    (await notifySnapshotFailure({ day: failureDay, reason: 'Upstream timed out.' })) >= 1,
+    true,
+  );
+  // The scheduler retries; a notification per tick is the spam this avoids.
+  check(
+    'repeated failures on the same day create nothing more',
+    await notifySnapshotFailure({ day: failureDay, reason: 'Upstream timed out again.' }),
+    0,
+  );
+
+  const failure = await notificationDb.notification.findFirst({
+    where: { dedupeKey: `snapshot-failed:${failureDay}` },
+  });
+  check('the failure links to analytics', failure?.link, '/analytics');
+  // A stack trace carries paths and an upstream error can carry a request URL.
+  check('its body carries no stack trace', failure?.body.includes(' at '), false);
+  check('and no url', failure?.body.includes('http'), false);
+
+  // Evaluating the same live projects twice must not produce a second round.
+  const liveProjects = (await (await call('/projects', { cookie: admin })).json()) as {
+    id: string;
+    name: string;
+    ownerId: string;
+    status: string;
+    health: { overall: string };
+  }[];
+  await evaluateHealthTransitions(liveProjects as never);
+  const afterFirstPass = await notificationDb.notification.count();
+  await evaluateHealthTransitions(liveProjects as never);
+  check(
+    're-evaluating unchanged projects creates nothing',
+    await notificationDb.notification.count(),
+    afterFirstPass,
+  );
+
+  // --- the API ---
+  const notificationsOf = async (cookie: string) =>
+    (await (await call('/notifications', { cookie })).json()) as TestNotification[];
+
+  check('anonymous cannot list notifications', await status('/notifications'), 401);
+  check('a signed-in caller can', await status('/notifications', { cookie: admin }), 200);
+
+  const mine = await notificationsOf(admin);
+  check('the list includes EPM notifications', mine.some((n) => n.id.startsWith('epm:')), true);
+  // Prefixed so the two sources cannot collide and each id routes to the store
+  // that owns it.
+  check(
+    'EPM ids are distinguishable from upstream ids',
+    mine.filter((n) => n.id.startsWith('epm:')).length > 0,
+    true,
+  );
+  check(
+    'every link is an EPM route, never an OpenProject url',
+    mine.filter((n) => n.link).every((n) => n.link!.startsWith('/')),
+    true,
+  );
+  check(
+    'newest first',
+    mine.every((n, index) => index === 0 || mine[index - 1]!.timestamp >= n.timestamp),
+    true,
+  );
+
+  // --- recipient isolation, both directions ---
+  const theirs = await notificationsOf(restricted);
+  const mineEpm = mine.filter((n) => n.id.startsWith('epm:')).map((n) => n.id);
+  check(
+    'another caller sees none of them',
+    theirs.some((n) => mineEpm.includes(n.id)),
+    false,
+  );
+
+  const someone = mineEpm[0];
+  if (!someone) throw new Error('No EPM notification was created for the isolation tests.');
+
+  // Ownership is enforced in the query, so an id belonging to someone else
+  // matches nothing rather than updating their row.
+  await call('/notifications/read', { method: 'PATCH', cookie: restricted, body: { ids: [someone] } });
+  const untouched = await notificationDb.notification.findUnique({
+    where: { id: someone.slice('epm:'.length) },
+  });
+  check('another caller cannot mark it read', untouched?.readAt, null);
+
+  await call('/notifications/read', { method: 'PATCH', cookie: admin, body: { ids: [someone] } });
+  const marked = await notificationDb.notification.findUnique({
+    where: { id: someone.slice('epm:'.length) },
+  });
+  check('the recipient can', marked?.readAt !== null, true);
+  check(
+    'and the list reports it read',
+    (await notificationsOf(admin)).find((n) => n.id === someone)?.read,
+    true,
+  );
+
+  // An id that does not exist must be a no-op, not an error.
+  check(
+    'an unknown id is ignored rather than failing',
+    await status('/notifications/read', {
+      method: 'PATCH',
+      cookie: admin,
+      body: { ids: ['epm:no-such-notification'] },
+    }),
+    204,
+  );
+
+  check(
+    'mark-all succeeds',
+    await status('/notifications/read-all', { method: 'PATCH', cookie: admin }),
+    204,
+  );
+  check(
+    'and leaves none of the callers unread',
+    await notificationDb.notification.count({ where: { recipientId: adminId, readAt: null } }),
+    0,
+  );
+  // Mark-all must not reach across recipients.
+  check(
+    'without touching anyone else',
+    (await notificationDb.notification.count({
+      where: { recipientId: { not: adminId }, readAt: { not: null } },
+    })) === 0 ||
+      (await notificationDb.notification.count({ where: { recipientId: { not: adminId } } })) === 0,
+    true,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -4059,6 +4347,28 @@ async function main() {
       `  (removed ${removedTeams.count} test team${removedTeams.count === 1 ? '' : 's'}` +
         ` and ${removedDepartments.count} test department${removedDepartments.count === 1 ? '' : 's'})`,
     )
+  }
+
+  // Every notification this run caused — the ones the notification tests wrote
+  // directly, and the ones other sections produced as a side effect of the
+  // mutations they were testing. Bounded by when the run started, so anything
+  // that existed beforehand is somebody's real notification and is left alone.
+  //
+  // Deliberately last: restoring capacity is itself a mutation, so it notifies,
+  // and a cleanup that ran before the restores would leave its own trail.
+  {
+    const { prisma } = await import('../db/prisma.js');
+    const removed = await prisma.notification
+      .deleteMany({
+        where: {
+          OR: [
+            { createdAt: { gte: suiteStartedAt } },
+            ...(notificationKeys.length ? [{ dedupeKey: { in: notificationKeys } }] : []),
+          ],
+        },
+      })
+      .catch(() => ({ count: 0 }));
+    console.log(`  (removed ${removed.count} test notification${removed.count === 1 ? '' : 's'})`);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
