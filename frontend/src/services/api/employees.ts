@@ -18,6 +18,7 @@ export interface EpmEmployee {
   /** `active` is present so the UI can flag an assignment into an archived unit. */
   department?: { id: ID; name: string; active: boolean };
   team?: { id: ID; name: string; active: boolean };
+  /** Hours available per week. Always a number; 40 when nothing has been set. */
   hoursCapacity: number;
 }
 
@@ -53,6 +54,14 @@ export class ApiEmployeeRepository {
 
   setMapping(id: ID, input: MappingInput): Promise<EpmEmployee> {
     return apiClient.patch<EpmEmployee>(`/employees/${id}/mapping`, input);
+  }
+
+  /**
+   * Weekly capacity. Separate from the mapping call, because that one writes
+   * department and team as a unit and a capacity edit must not restate them.
+   */
+  setCapacity(id: ID, hoursCapacity: number): Promise<EpmEmployee> {
+    return apiClient.patch<EpmEmployee>(`/employees/${id}/capacity`, { hoursCapacity });
   }
 
   /** People mapped to a team. Membership is EPM's, never an OpenProject group. */

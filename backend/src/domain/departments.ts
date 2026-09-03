@@ -2,6 +2,7 @@ import type { Department } from '@prisma/client';
 
 import { EpmError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
+import { rollups, type Rollup } from './employees.js';
 import { prisma } from '../db/prisma.js';
 
 /**
@@ -25,6 +26,13 @@ export interface EpmDepartment {
    * join against the directory itself; the name is never stored, only looked up.
    */
   manager?: { id: string; name: string };
+  /**
+   * People mapped to this department, and their weekly hours summed. Counted
+   * from `departmentId` directly rather than by summing teams, so someone with
+   * a department and no team is included and an archived team changes nothing.
+   */
+  memberCount: number;
+  capacityHours: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -114,7 +122,11 @@ async function managerNames(signal: AbortSignal): Promise<Map<string, string>> {
   return new Map(users.map((user) => [user.id, user.name]));
 }
 
-function toEpmDepartment(row: Department, names: Map<string, string>): EpmDepartment {
+function toEpmDepartment(
+  row: Department,
+  names: Map<string, string>,
+  counts: Map<string, Rollup>,
+): EpmDepartment {
   return {
     id: row.id,
     name: row.name,
@@ -125,6 +137,10 @@ function toEpmDepartment(row: Department, names: Map<string, string>): EpmDepart
         // nothing. Reported as unresolved rather than failing the whole read.
         { id: row.managerId, name: names.get(row.managerId) ?? 'Unknown user' }
       : undefined,
+    memberCount: counts.get(row.id)?.memberCount ?? 0,
+    // Zero rather than absent: an empty department has no capacity, which is an
+    // answer rather than a missing value.
+    capacityHours: counts.get(row.id)?.capacityHours ?? 0,
     active: row.active,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -178,22 +194,23 @@ export async function listDepartments(
   options: { includeInactive?: boolean },
   signal: AbortSignal,
 ): Promise<EpmDepartment[]> {
-  const [rows, names] = await Promise.all([
+  const [rows, names, counts] = await Promise.all([
     prisma.department.findMany({
       where: options.includeInactive ? {} : { active: true },
       orderBy: { name: 'asc' },
     }),
     managerNames(signal),
+    rollups(signal).then((r) => r.byDepartment),
   ]);
 
-  return rows.map((row) => toEpmDepartment(row, names));
+  return rows.map((row) => toEpmDepartment(row, names, counts));
 }
 
 export async function getDepartment(id: string, signal: AbortSignal): Promise<EpmDepartment> {
   const row = await prisma.department.findUnique({ where: { id } });
   if (!row) throw EpmError.notFound('That department');
 
-  return toEpmDepartment(row, await managerNames(signal));
+  return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
 
 export async function createDepartment(
@@ -213,7 +230,7 @@ export async function createDepartment(
     .create({ data: { name, code, description, managerId } })
     .catch(asConflict);
 
-  return toEpmDepartment(row, await managerNames(signal));
+  return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
 
 export async function updateDepartment(
@@ -244,7 +261,7 @@ export async function updateDepartment(
 
   const row = await prisma.department.update({ where: { id }, data }).catch(asConflict);
 
-  return toEpmDepartment(row, await managerNames(signal));
+  return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
 
 /**
@@ -264,5 +281,5 @@ export async function setDepartmentActive(
 
   const row = await prisma.department.update({ where: { id }, data: { active } });
 
-  return toEpmDepartment(row, await managerNames(signal));
+  return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }

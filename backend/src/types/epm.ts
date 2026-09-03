@@ -48,10 +48,17 @@ export interface EpmUser {
 
 export interface TeamMemberWorkload {
   userId: ID;
-  /** 0-100 percentage of the weekly capacity that is allocated. */
-  allocation: number;
+  /**
+   * Hours logged this week as a percentage of weekly capacity.
+   *
+   * Not clamped: over 100 means overallocated, which is the single most useful
+   * thing this figure can say. `null` when capacity is zero — there is nothing
+   * to divide by, and reporting 0 would read as "nothing logged".
+   */
+  allocation: number | null;
   assignedTasks: number;
   completedThisSprint: number;
+  /** Hours logged in the current week, matching the capacity period. */
   hoursLogged: number;
   hoursCapacity: number;
 }

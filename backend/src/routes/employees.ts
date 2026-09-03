@@ -5,7 +5,9 @@ import { requestSignal } from '../lib/request-signal.js';
 import {
   getEmployee,
   listEmployees,
+  setCapacity,
   setMapping,
+  type CapacityInput,
   type MappingInput,
 } from '../domain/employees.js';
 
@@ -55,6 +57,24 @@ export const employeeRoutes: FastifyPluginAsync = async (app) => {
       await guard.require(request, 'employees:manage');
 
       return setMapping(request.params.id, request.body ?? {}, requestSignal(request));
+    },
+  );
+
+  /**
+   * Sets weekly capacity.
+   *
+   * Separate from the mapping route rather than folded into it: mapping writes
+   * department and team as a unit so the pair can be validated against each
+   * other, and a capacity edit that had to restate them would clear a person's
+   * placement if a client sent only capacity. Different attribute, different
+   * write semantics, same permission — capacity is set by whoever does staffing.
+   */
+  app.patch<{ Params: { id: string }; Body: CapacityInput }>(
+    '/employees/:id/capacity',
+    async (request) => {
+      await guard.require(request, 'employees:manage');
+
+      return setCapacity(request.params.id, request.body ?? {}, requestSignal(request));
     },
   );
 };

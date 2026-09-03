@@ -391,13 +391,15 @@ export default function ReportsPage() {
                       <TableHead>Code</TableHead>
                       <TableHead>Department</TableHead>
                       <TableHead>Lead</TableHead>
+                      <TableHead className="text-right">Members</TableHead>
+                      <TableHead className="text-right">Capacity</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {/* Member counts, capacity and sprint progress were removed
-                        with the OpenProject-group reading of teams: they were
-                        always zero, and each belongs to a feature that has not
-                        been built. What EPM owns is shown instead. */}
+                    {/* Members and capacity are back, but from EPM's employee
+                        mapping rather than the OpenProject-group reading that
+                        made them permanently zero. Sprint progress stays out —
+                        it has no source yet. */}
                     {(teamsQuery.data ?? []).map((team) => (
                       <TableRow key={team.id}>
                         <TableCell className="font-medium">{team.name}</TableCell>
@@ -406,6 +408,12 @@ export default function ReportsPage() {
                           {team.department?.name ?? '—'}
                         </TableCell>
                         <TableCell className="text-2xs">{team.lead?.name ?? '—'}</TableCell>
+                        <TableCell className="text-right font-mono text-2xs tabular-nums">
+                          {team.memberCount}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-2xs tabular-nums">
+                          {team.capacityHours} h/wk
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

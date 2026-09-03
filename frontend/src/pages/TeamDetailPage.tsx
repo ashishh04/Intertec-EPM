@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useSetTeamActive, useTeam } from '@/hooks/useTeams';
+import { useSetTeamActive, useTeam, useTeamWorkloads } from '@/hooks/useTeams';
 import { useTeamMembers } from '@/hooks/useEmployees';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
@@ -33,10 +33,20 @@ export default function TeamDetailPage() {
 
   const team = useTeam(teamId);
   const members = useTeamMembers(teamId);
+  const workloads = useTeamWorkloads(teamId);
   const setActive = useSetTeamActive();
   const users = useUserMap();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  const loggedThisWeek =
+    Math.round((workloads.data ?? []).reduce((total, w) => total + w.hoursLogged, 0) * 100) / 100;
+
+  // Undefined rather than zero when there is no capacity to divide by — the
+  // same rule the per-person figure uses.
+  const capacityHours = team.data?.capacityHours ?? 0;
+  const utilization =
+    capacityHours > 0 ? Math.round((loggedThisWeek / capacityHours) * 100) : null;
 
   const toggleActive = () => {
     if (!team.data) return;
@@ -104,6 +114,37 @@ export default function TeamDetailPage() {
               ) : null
             }
           />
+
+          {/* Capacity is EPM's own: members' weekly hours summed. Logged hours
+              come from OpenProject time entries for the current week, which is
+              the same period, so the ratio between them means something. */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Card className="p-4">
+              <p className="epm-eyebrow">Members</p>
+              <p className="mt-1 font-mono text-lg tabular-nums">{team.data.memberCount}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="epm-eyebrow">Capacity</p>
+              <p className="mt-1 font-mono text-lg tabular-nums">
+                {team.data.capacityHours}
+                <span className="ml-1 text-xs text-muted-foreground">h/wk</span>
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="epm-eyebrow">Logged this week</p>
+              <p className="mt-1 font-mono text-lg tabular-nums">
+                {loggedThisWeek}
+                <span className="ml-1 text-xs text-muted-foreground">
+                  h{utilization === null ? '' : ` · ${utilization}%`}
+                </span>
+              </p>
+              {utilization === null ? (
+                <p className="mt-0.5 text-2xs text-muted-foreground">
+                  No capacity set, so utilisation is undefined.
+                </p>
+              ) : null}
+            </Card>
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search, UserRound, Users } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { CapacityDialog } from '@/components/employees/CapacityDialog';
 import { MappingDialog } from '@/components/employees/MappingDialog';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
@@ -62,10 +63,16 @@ export default function EmployeesPage() {
 
   const [editing, setEditing] = useState<EpmEmployee>();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [capacityOpen, setCapacityOpen] = useState(false);
 
   const openEdit = (employee: EpmEmployee) => {
     setEditing(employee);
     setDialogOpen(true);
+  };
+
+  const openCapacity = (employee: EpmEmployee) => {
+    setEditing(employee);
+    setCapacityOpen(true);
   };
 
   const items = employees.data ?? [];
@@ -155,7 +162,8 @@ export default function EmployeesPage() {
                   <TableHead>Person</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Team</TableHead>
-                  {mayManage ? <TableHead className="w-24" /> : null}
+                  <TableHead className="text-right">Capacity</TableHead>
+                  {mayManage ? <TableHead className="w-40" /> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -209,16 +217,31 @@ export default function EmployeesPage() {
                       )}
                     </TableCell>
 
+                    <TableCell className="text-right font-mono text-2xs tabular-nums">
+                      {employee.hoursCapacity} h
+                      <span className="text-muted-foreground">/wk</span>
+                    </TableCell>
+
                     {mayManage ? (
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          aria-label={`Assign ${employee.name}`}
-                          onClick={() => openEdit(employee)}
-                        >
-                          Assign
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Assign ${employee.name}`}
+                            onClick={() => openEdit(employee)}
+                          >
+                            Assign
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            aria-label={`Set capacity for ${employee.name}`}
+                            onClick={() => openCapacity(employee)}
+                          >
+                            Capacity
+                          </Button>
+                        </div>
                       </TableCell>
                     ) : null}
                   </TableRow>
@@ -230,6 +253,7 @@ export default function EmployeesPage() {
       </QueryBoundary>
 
       <MappingDialog open={dialogOpen} onOpenChange={setDialogOpen} employee={editing} />
+      <CapacityDialog open={capacityOpen} onOpenChange={setCapacityOpen} employee={editing} />
     </div>
   );
 }

@@ -37,6 +37,15 @@ export interface MappingInput {
   teamId?: unknown;
 }
 
+export interface CapacityInput {
+  hoursCapacity?: unknown;
+}
+
+/** Hours in a week. A physical bound on capacity, not a policy one. */
+const CAPACITY_MAX = 168;
+/** Applied to anyone with no profile row, and the schema's own default. */
+export const CAPACITY_DEFAULT = 40;
+
 export interface EmployeeFilters {
   departmentId?: string;
   teamId?: string;
@@ -73,7 +82,7 @@ function toEpmEmployee(user: EpmUser, profile: ProfileWithRefs | undefined): Epm
       : undefined,
     // The schema default, applied here too so an unmapped person reports the
     // same capacity the workload endpoint would assume for them.
-    hoursCapacity: profile?.hoursCapacity ?? 40,
+    hoursCapacity: profile?.hoursCapacity ?? CAPACITY_DEFAULT,
   };
 }
 
@@ -227,6 +236,58 @@ export async function setMapping(
   return toEpmEmployee(user, profile);
 }
 
+/**
+ * Validates a weekly capacity.
+ *
+ * Zero is allowed and meaningful — someone who contributes no hours is still a
+ * member — so the lower bound is not "greater than zero". Decimals are allowed
+ * because 37.5 is a real contract. There is no null: the column is NOT NULL, so
+ * every person has a number, and an unmapped one reports the default.
+ */
+function validateCapacity(value: unknown): number {
+  if (value === undefined || value === null) {
+    throw EpmError.badRequest('An hoursCapacity value is required.');
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw EpmError.badRequest('Capacity must be a number of hours.');
+  }
+  if (value < 0) throw EpmError.badRequest('Capacity cannot be negative.');
+  if (value > CAPACITY_MAX) {
+    throw EpmError.badRequest(`Capacity cannot exceed ${CAPACITY_MAX} hours a week.`);
+  }
+
+  // Quarter-hour resolution. Anything finer is noise in a weekly figure, and
+  // storing it would show up as 37.500000001 somewhere later.
+  return Math.round(value * 4) / 4;
+}
+
+/** Sets a person's weekly capacity. Independent of their org placement. */
+export async function setCapacity(
+  id: string,
+  input: CapacityInput,
+  signal: AbortSignal,
+): Promise<EpmEmployee> {
+  const users = await getUsers(signal);
+  const user = users.find((candidate) => candidate.id === id);
+  if (!user) throw EpmError.notFound('That employee');
+
+  const hoursCapacity = validateCapacity(input.hoursCapacity);
+
+  const profile = await prisma.userProfile.upsert({
+    where: { openProjectId: id },
+    create: { openProjectId: id, hoursCapacity },
+    update: { hoursCapacity },
+    include: { departmentRef: true, team: true },
+  });
+
+  // The directory does not carry capacity, so it does not need invalidating —
+  // but it is cached per user id and a create here adds a row that other reads
+  // join against, so it is dropped for consistency with the mapping write.
+  referenceCache.invalidate('users');
+
+  return toEpmEmployee(user, profile);
+}
+
 /** People mapped to a team, for the team detail view. */
 export async function listTeamMembers(teamId: string, signal: AbortSignal): Promise<EpmEmployee[]> {
   const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true } });
@@ -244,17 +305,59 @@ export async function memberIdsOfTeam(teamId: string): Promise<string[]> {
   return rows.map((row) => row.openProjectId);
 }
 
-/** Member counts per team, for the team list. */
-export async function memberCounts(): Promise<Map<string, number>> {
-  const grouped = await prisma.userProfile.groupBy({
-    by: ['teamId'],
-    where: { teamId: { not: null } },
-    _count: { _all: true },
-  });
+export interface Rollup {
+  memberCount: number;
+  capacityHours: number;
+}
 
-  return new Map(
-    grouped
-      .filter((row): row is typeof row & { teamId: string } => row.teamId !== null)
-      .map((row) => [row.teamId, row._count._all]),
-  );
+/**
+ * Member counts and capacity totals, per team and per department.
+ *
+ * Aggregated over people who are actually in the directory. A profile row left
+ * behind by an upstream deletion is not a person: counting one would inflate
+ * both figures invisibly, and would make the count disagree with the member
+ * list rendered from the same data.
+ *
+ * Someone with zero capacity is counted as a member contributing nothing, which
+ * is a different fact from not being a member at all. Archived teams and
+ * departments still aggregate — archiving is a visibility decision, and their
+ * people have not gone anywhere. Department totals come from `departmentId`
+ * directly rather than by summing teams, so a person with a department and no
+ * team is still counted, and an archived team does not change them.
+ */
+export async function rollups(signal: AbortSignal): Promise<{
+  byTeam: Map<string, Rollup>;
+  byDepartment: Map<string, Rollup>;
+}> {
+  const [users, profiles] = await Promise.all([
+    getUsers(signal).catch(() => []),
+    prisma.userProfile.findMany({
+      select: { openProjectId: true, teamId: true, departmentId: true, hoursCapacity: true },
+    }),
+  ]);
+
+  const directory = new Set(users.map((user) => user.id));
+  const byTeam = new Map<string, Rollup>();
+  const byDepartment = new Map<string, Rollup>();
+
+  const add = (into: Map<string, Rollup>, key: string, hours: number) => {
+    const current = into.get(key) ?? { memberCount: 0, capacityHours: 0 };
+    current.memberCount += 1;
+    current.capacityHours += hours;
+    into.set(key, current);
+  };
+
+  for (const profile of profiles) {
+    if (!directory.has(profile.openProjectId)) continue;
+
+    if (profile.teamId) add(byTeam, profile.teamId, profile.hoursCapacity);
+    if (profile.departmentId) add(byDepartment, profile.departmentId, profile.hoursCapacity);
+  }
+
+  // Float addition leaves 37.5 + 37.5 + 0.1 looking like 75.10000000000001.
+  for (const rollup of [...byTeam.values(), ...byDepartment.values()]) {
+    rollup.capacityHours = Math.round(rollup.capacityHours * 100) / 100;
+  }
+
+  return { byTeam, byDepartment };
 }

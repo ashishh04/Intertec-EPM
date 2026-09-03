@@ -29,6 +29,8 @@ export interface EpmTeam {
    * before.
    */
   memberCount: number;
+  /** Members' weekly hours summed. Zero for an empty team, never absent. */
+  capacityHours: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

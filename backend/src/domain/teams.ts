@@ -2,7 +2,7 @@ import type { Department, Team } from '@prisma/client';
 
 import { EpmError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
-import { memberCounts } from './employees.js';
+import { rollups, type Rollup } from './employees.js';
 import { prisma } from '../db/prisma.js';
 
 /**
@@ -31,11 +31,12 @@ export interface EpmTeam {
   /** The lead, resolved for display. Only the id is stored. */
   lead?: { id: string; name: string };
   /**
-   * How many people are mapped to this team. Counted from EPM's employee
-   * mapping — never from OpenProject group membership, which is what teams
-   * were read from before.
+   * How many people are mapped to this team, and their weekly hours summed.
+   * Both come from EPM's employee mapping — never from OpenProject group
+   * membership, which is what teams were read from before.
    */
   memberCount: number;
+  capacityHours: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -152,7 +153,7 @@ async function leadNames(signal: AbortSignal): Promise<Map<string, string>> {
 function toEpmTeam(
   row: TeamWithDepartment,
   names: Map<string, string>,
-  counts: Map<string, number>,
+  counts: Map<string, Rollup>,
 ): EpmTeam {
   return {
     id: row.id,
@@ -167,7 +168,10 @@ function toEpmTeam(
         // as unresolved rather than failing the read.
         { id: row.leadId, name: names.get(row.leadId) ?? 'Unknown user' }
       : undefined,
-    memberCount: counts.get(row.id) ?? 0,
+    memberCount: counts.get(row.id)?.memberCount ?? 0,
+    // Zero rather than absent: an empty team has no capacity, which is an
+    // answer, not a missing value.
+    capacityHours: counts.get(row.id)?.capacityHours ?? 0,
     active: row.active,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -225,7 +229,7 @@ export async function listTeams(
       orderBy: { name: 'asc' },
     }),
     leadNames(signal),
-    memberCounts(),
+    rollups(signal).then((r) => r.byTeam),
   ]);
 
   return rows.map((row) => toEpmTeam(row, names, counts));
@@ -235,7 +239,7 @@ export async function getTeam(id: string, signal: AbortSignal): Promise<EpmTeam>
   const row = await prisma.team.findUnique({ where: { id }, include: { department: true } });
   if (!row) throw EpmError.notFound('That team');
 
-  return toEpmTeam(row, await leadNames(signal), await memberCounts());
+  return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
 
 export async function createTeam(input: TeamInput, signal: AbortSignal): Promise<EpmTeam> {
@@ -255,7 +259,7 @@ export async function createTeam(input: TeamInput, signal: AbortSignal): Promise
     })
     .catch(asConflict);
 
-  return toEpmTeam(row, await leadNames(signal), await memberCounts());
+  return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
 
 export async function updateTeam(
@@ -295,7 +299,7 @@ export async function updateTeam(
     .update({ where: { id }, data, include: { department: true } })
     .catch(asConflict);
 
-  return toEpmTeam(row, await leadNames(signal), await memberCounts());
+  return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
 
 /**
@@ -320,5 +324,5 @@ export async function setTeamActive(
     include: { department: true },
   });
 
-  return toEpmTeam(row, await leadNames(signal), await memberCounts());
+  return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }

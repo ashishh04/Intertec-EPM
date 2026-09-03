@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Archive, Building2, Pencil, Plus, RotateCcw } from 'lucide-react';
+import { Archive, Building2, Pencil, Plus, RotateCcw, Users } from 'lucide-react';
 
 import { DepartmentDialog } from '@/components/departments/DepartmentDialog';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -144,6 +144,13 @@ export default function DepartmentsPage() {
                       {department.description}
                     </p>
                   ) : null}
+                </div>
+
+                <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                  <Users className="h-3.5 w-3.5" aria-hidden />
+                  <span>
+                    {department.memberCount} · {department.capacityHours} h/wk
+                  </span>
                 </div>
 
                 {department.manager ? (

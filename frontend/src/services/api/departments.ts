@@ -18,6 +18,12 @@ export interface EpmDepartment {
   code: string;
   description?: string;
   manager?: { id: ID; name: string };
+  /**
+   * People mapped to this department and their weekly hours summed. Counted
+   * from the department directly, so someone with no team still counts.
+   */
+  memberCount: number;
+  capacityHours: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

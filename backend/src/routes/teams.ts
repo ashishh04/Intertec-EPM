@@ -7,7 +7,7 @@ import { linkId, openProject } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { listTeamMembers, memberIdsOfTeam } from '../domain/employees.js';
+import { CAPACITY_DEFAULT, listTeamMembers, memberIdsOfTeam } from '../domain/employees.js';
 import {
   createTeam,
   getTeam,
@@ -35,6 +35,26 @@ import type { TeamMemberWorkload } from '../types/epm.js';
  * calls it with no team at all. Its `teamId` filter now works, because employee
  * mapping supplies membership; before that there was nothing to scope by.
  */
+
+/**
+ * Monday to Sunday around today, as `[from, to]` dates.
+ *
+ * The window has to match the capacity period, or the ratio between them means
+ * nothing.
+ */
+function currentWeek(): [string, string] {
+  const today = new Date();
+  const day = today.getUTCDay();
+  // getUTCDay is 0 for Sunday, which belongs to the week that started six days
+  // earlier rather than to the one starting today.
+  const monday = new Date(today);
+  monday.setUTCDate(today.getUTCDate() - (day === 0 ? 6 : day - 1));
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  return [iso(monday), iso(sunday)];
+}
 
 export const teamRoutes: FastifyPluginAsync = async (app) => {
   /** Teams, optionally within one department. Inactive excluded unless asked for. */
@@ -73,9 +93,20 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
         })
       : everyone;
 
+    // Scoped to the current week, because capacity is weekly. Fetching every
+    // entry ever recorded and dividing that by a weekly figure is what this did
+    // before, which made a year of logged time read as permanent overload — and
+    // the clamp below used to hide it.
     const [timeEntries, profiles] = await Promise.all([
       openProject
-        .getAll<OpTimeEntry>('/time_entries', { pageSize: 100 }, { signal })
+        .getAll<OpTimeEntry>(
+          '/time_entries',
+          {
+            filters: [{ field: 'spent_on', operator: '<>d', values: currentWeek() }],
+            pageSize: 100,
+          },
+          { signal },
+        )
         .catch(() => ({ items: [] as OpTimeEntry[] })),
       optional(() => prisma.userProfile.findMany(), []),
     ]);
@@ -109,11 +140,15 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
     );
 
     return assigned.map(({ user, open }): TeamMemberWorkload => {
-      const capacity = capacityById.get(user.id) ?? 40;
+      const capacity = capacityById.get(user.id) ?? CAPACITY_DEFAULT;
       const logged = hoursByUser.get(user.id) ?? 0;
+
       return {
         userId: user.id,
-        allocation: capacity > 0 ? Math.min(100, Math.round((logged / capacity) * 100)) : 0,
+        // Null rather than a number when there is no capacity to divide by.
+        // Zero would read as "nothing logged", which is a different claim, and
+        // a percentage of nothing is not a percentage.
+        allocation: capacity > 0 ? Math.round((logged / capacity) * 100) : null,
         assignedTasks: open,
         // Requires sprints, which this instance has none of.
         completedThisSprint: 0,
