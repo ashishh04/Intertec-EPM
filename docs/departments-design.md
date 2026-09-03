@@ -239,6 +239,49 @@ nothing is altered, so no backfill and no downtime.
 
 A duplicate name or code is a 409, not a 500 from a constraint violation.
 
+## Test results
+
+53 cases in `npm run test:authz`, run against the live stack. Suite total **300 passed,
+0 failed** — the 247 that existed before are unchanged.
+
+Coverage: permission surfaced on `/me` for both identities; anonymous refused on read and
+write; read allowed without the grant; create/update/archive refused without it; ten
+validation cases; code normalisation; duplicate code, duplicate name and case-variant
+duplicates; partial update leaving omitted fields alone; clearing a manager; the archive
+and restore round trip with list visibility either side; absence of a delete route; three
+unknown-id cases; and a check that a department response carries no upstream reference.
+
+Database constraints were verified directly against Postgres rather than only through the
+API:
+
+```
+departments_code_key    UNIQUE btree (code)
+departments_name_key    UNIQUE btree (name)
+departments_active_idx  btree (active)
+epm_permission_grants_pkey  UNIQUE btree (openProjectId, permission)
+active  boolean NOT NULL DEFAULT true
+
+duplicate code            -> rejected, P2002
+duplicate name            -> rejected, P2002
+name differing by case    -> ACCEPTED at the database, rejected by the application
+```
+
+That last line is limitation 1 below, confirmed rather than assumed.
+
+The UI was driven end to end in a real browser for both identities: create, list, edit,
+archive, reveal via the archived toggle, and client-side validation feedback — all
+passing, with the create button absent for the caller without the grant. Every route
+clean of console errors, and the only origins contacted were `localhost:8000` and Google
+Fonts. Bundle audit: zero occurrences of `openproject`, `localhost:8080`, `Bearer`,
+`Authorization`, `access_token`, `refresh_token`, `api/v3`, `apikey` or `EPM_ADMIN`.
+
+## Test data
+
+None left behind. The suite records the ids it creates and removes them in its cleanup
+step; because there is deliberately no delete route, that one step goes through the
+database directly, which is the only place the suite reaches past the API. Departments
+and permission-grant rows both end at zero.
+
 ## Unresolved questions and limitations
 
 1. **Case-insensitive name uniqueness is application-level.** Two names differing only

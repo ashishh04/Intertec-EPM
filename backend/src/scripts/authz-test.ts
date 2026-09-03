@@ -1714,6 +1714,278 @@ async function main() {
     404,
   );
 
+  // Created below; removed in the cleanup step, which the API cannot do.
+  const departmentIds: string[] = [];
+
+  // --- Departments ---------------------------------------------------------
+  //
+  // The first EPM-owned domain: none of this reaches OpenProject except to
+  // resolve a manager's name. Rows created here are removed in the cleanup
+  // step, which the API itself cannot do — departments are archived, never
+  // deleted — so that one step goes through the database directly.
+  console.log('\nDepartments');
+
+  interface TestDepartment {
+    id: string;
+    name: string;
+    code: string;
+    description?: string;
+    manager?: { id: string; name: string };
+    active: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }
+
+  // Unique per run, so a previous run's leftovers cannot make these pass or fail.
+  const stamp = `${process.pid}${Date.now() % 100000}`;
+  const deptName = `EPM Test Department ${stamp}`;
+  const deptCode = `TST-${stamp}`.slice(0, 16);
+
+  const departments = async (cookie: string, query = '') =>
+    (await (await call(`/departments${query}`, { cookie })).json()) as TestDepartment[];
+
+  // The permission is EPM's own: no OpenProject capability implies it, so it is
+  // granted from EPM's grants and bootstrap configuration instead.
+  const adminPermissions = (await (await call('/me', { cookie: admin })).json()) as {
+    permissions?: { departments?: { manage?: boolean } };
+  };
+  const restrictedPermissions = (await (
+    await call('/me', { cookie: restricted })
+  ).json()) as typeof adminPermissions;
+
+  check(
+    'the manage permission is surfaced to the client',
+    adminPermissions.permissions?.departments?.manage,
+    true,
+  );
+  check(
+    'a caller without a grant does not hold it',
+    restrictedPermissions.permissions?.departments?.manage,
+    false,
+  );
+
+  check('anonymous cannot list departments', await status('/departments'), 401);
+  check(
+    'anonymous cannot create one',
+    await status('/departments', { method: 'POST', body: { name: 'x', code: 'XX' } }),
+    401,
+  );
+
+  // Reading is open to any signed-in caller: departments are reference data.
+  check('a permitted caller can list departments', await status('/departments', { cookie: admin }), 200);
+  check(
+    'a caller without the manage grant can still read them',
+    await status('/departments', { cookie: restricted }),
+    200,
+  );
+
+  check(
+    'a caller without the grant cannot create one',
+    await status('/departments', {
+      method: 'POST',
+      cookie: restricted,
+      body: { name: deptName, code: deptCode },
+    }),
+    403,
+  );
+
+  // --- validation, before anything is created ---
+  const invalidDepartments: [string, Record<string, unknown>][] = [
+    ['a department needs a name', { code: 'AA' }],
+    ['a department needs a code', { name: 'Nameless' }],
+    ['a blank name is refused', { name: '   ', code: 'AA' }],
+    ['a code shorter than two characters is refused', { name: 'Short', code: 'A' }],
+    ['a code longer than sixteen characters is refused', { name: 'Long', code: 'A'.repeat(17) }],
+    ['a code with spaces is refused', { name: 'Spaced', code: 'A B' }],
+    ['a code with punctuation is refused', { name: 'Punct', code: 'A_B!' }],
+    ['a non-string name is refused', { name: 42, code: 'AA' }],
+    ['an over-long name is refused', { name: 'n'.repeat(121), code: 'AA' }],
+    [
+      'a manager who is not a visible user is refused',
+      { name: 'Ghost', code: 'GH1', managerId: '99999999' },
+    ],
+  ];
+
+  for (const [label, body] of invalidDepartments) {
+    check(label, await status('/departments', { method: 'POST', cookie: admin, body }), 400);
+  }
+
+  const departmentCreateResponse = await call('/departments', {
+    method: 'POST',
+    cookie: admin,
+    // Lower case deliberately: codes are normalised before storing.
+    body: {
+      name: deptName,
+      code: deptCode.toLowerCase(),
+      description: '  Owns delivery.  ',
+      managerId: adminId,
+    },
+  });
+  check('a permitted caller can create a department', departmentCreateResponse.status, 201);
+
+  const createdDepartment = (await departmentCreateResponse.json()) as TestDepartment;
+  const deptId = createdDepartment.id;
+  departmentIds.push(deptId);
+
+  check('the name is returned as given', createdDepartment.name, deptName);
+  check('the code is normalised to upper case', createdDepartment.code, deptCode);
+  check('the description is trimmed', createdDepartment.description, 'Owns delivery.');
+  check('a new department is active', createdDepartment.active, true);
+  check(
+    'the manager is named, not just referenced',
+    createdDepartment.manager?.name !== undefined,
+    true,
+  );
+  check('the manager keeps its OpenProject id', createdDepartment.manager?.id, adminId);
+  check('it carries a creation time', typeof createdDepartment.createdAt, 'string');
+
+  check(
+    'a duplicate code is refused',
+    await status('/departments', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `${deptName} II`, code: deptCode },
+    }),
+    400,
+  );
+  // Postgres would accept these as distinct; the application rejects them.
+  check(
+    'a name differing only by case is refused',
+    await status('/departments', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: deptName.toUpperCase(), code: `X${deptCode}`.slice(0, 16) },
+    }),
+    400,
+  );
+  check(
+    'a code differing only by case is refused',
+    await status('/departments', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `${deptName} III`, code: deptCode.toLowerCase() },
+    }),
+    400,
+  );
+
+  check(
+    'a created department can be read back',
+    await status(`/departments/${deptId}`, { cookie: admin }),
+    200,
+  );
+  check(
+    'it appears in the list',
+    (await departments(admin)).some((d) => d.id === deptId),
+    true,
+  );
+  check(
+    'a caller without the grant sees it too',
+    (await departments(restricted)).some((d) => d.id === deptId),
+    true,
+  );
+
+  // --- update ---
+  const updatedResponse = await call(`/departments/${deptId}`, {
+    method: 'PATCH',
+    cookie: admin,
+    body: { description: 'Owns delivery and platform.' },
+  });
+  check('a permitted caller can update a department', updatedResponse.status, 200);
+
+  const afterUpdate = (await updatedResponse.json()) as TestDepartment;
+  check('the change is applied', afterUpdate.description, 'Owns delivery and platform.');
+  // A partial update must not blank the fields it did not mention.
+  check('an omitted field is left alone', afterUpdate.name, deptName);
+  check('an omitted manager is left alone', afterUpdate.manager?.id, adminId);
+
+  check(
+    'an update with no fields is refused',
+    await status(`/departments/${deptId}`, { method: 'PATCH', cookie: admin, body: {} }),
+    400,
+  );
+  check(
+    'an update cannot blank the name',
+    await status(`/departments/${deptId}`, { method: 'PATCH', cookie: admin, body: { name: '' } }),
+    400,
+  );
+  check(
+    'a caller without the grant cannot update one',
+    await status(`/departments/${deptId}`, {
+      method: 'PATCH',
+      cookie: restricted,
+      body: { name: 'Hijacked' },
+    }),
+    403,
+  );
+  check(
+    'the department is unchanged after the refused update',
+    ((await (await call(`/departments/${deptId}`, { cookie: admin })).json()) as TestDepartment).name,
+    deptName,
+  );
+
+  // Clearing the manager is a real edit, distinct from omitting it.
+  const cleared = (await (
+    await call(`/departments/${deptId}`, { method: 'PATCH', cookie: admin, body: { managerId: '' } })
+  ).json()) as TestDepartment;
+  check('the manager can be cleared', cleared.manager, undefined);
+
+  // --- lifecycle ---
+  check(
+    'a caller without the grant cannot archive one',
+    await status(`/departments/${deptId}/archive`, { method: 'PATCH', cookie: restricted }),
+    403,
+  );
+
+  const archived = await call(`/departments/${deptId}/archive`, { method: 'PATCH', cookie: admin });
+  check('a permitted caller can archive a department', archived.status, 200);
+  check('it is reported inactive', ((await archived.json()) as TestDepartment).active, false);
+  check(
+    'an archived department is out of the default list',
+    (await departments(admin)).some((d) => d.id === deptId),
+    false,
+  );
+  check(
+    'it is still there when inactive ones are asked for',
+    (await departments(admin, '?includeInactive=true')).some((d) => d.id === deptId),
+    true,
+  );
+  check('it can still be read directly', await status(`/departments/${deptId}`, { cookie: admin }), 200);
+
+  const restored = await call(`/departments/${deptId}/restore`, { method: 'PATCH', cookie: admin });
+  check(
+    'an archived department can be restored',
+    ((await restored.json()) as TestDepartment).active,
+    true,
+  );
+
+  // Deletion is deliberately absent: teams and employee mappings will reference
+  // departments, so removing one would orphan them.
+  check(
+    'there is no route for deleting a department',
+    await status(`/departments/${deptId}`, { method: 'DELETE', cookie: admin }),
+    404,
+  );
+
+  check('an unknown department is not found', await status('/departments/no-such-id', { cookie: admin }), 404);
+  check(
+    'an unknown department cannot be updated',
+    await status('/departments/no-such-id', { method: 'PATCH', cookie: admin, body: { name: 'X' } }),
+    404,
+  );
+  check(
+    'an unknown department cannot be archived',
+    await status('/departments/no-such-id/archive', { method: 'PATCH', cookie: admin }),
+    404,
+  );
+
+  // The id is EPM's own, and no OpenProject reference should ride along.
+  check('the department id is not an upstream url', deptId.includes('/'), false);
+  check(
+    'no upstream reference is exposed on a department',
+    Object.keys(createdDepartment).sort().join(),
+    'active,code,createdAt,description,id,manager,name,updatedAt',
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -1730,6 +2002,18 @@ async function main() {
       () => undefined,
     );
     console.log(`\n  (archived test project ${createdId})`);
+  }
+
+  // Departments have no delete route by design, so the rows these tests
+  // created are removed through the database rather than left behind. The
+  // one place the suite reaches past the API, and only to undo its own writes.
+  if (departmentIds.length) {
+    const { prisma } = await import('../db/prisma.js');
+    const { count } = await prisma.department
+      .deleteMany({ where: { id: { in: departmentIds } } })
+      .catch(() => ({ count: 0 }));
+    await prisma.$disconnect().catch(() => undefined);
+    console.log(`  (removed ${count} test department${count === 1 ? '' : 's'})`);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
