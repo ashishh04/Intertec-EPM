@@ -1722,6 +1722,10 @@ async function main() {
   // Capacity is real per-person data. Whatever these tests change is put
   // back in the cleanup step, so the database ends as it began.
   const originalCapacity = new Map<string, number>();
+  // A person's department and team are real organisational data. The mapping
+  // tests remap whoever they run as, so whatever was there is put back —
+  // including "they were mapped to nothing", which is a value too.
+  const originalMapping = new Map<string, { departmentId: string | null; teamId: string | null }>();
   // Health pins are real management state. Whatever these tests set is put
   // back, including "there was no pin", which is a value too.
   const originalHealthOverride = new Map<string, Record<string, string> | null>();
@@ -2354,6 +2358,17 @@ async function main() {
   const setMapping = (id: string, body: Record<string, unknown>, cookie = admin) =>
     call(`/employees/${id}/mapping`, { method: 'PATCH', cookie, body });
 
+  // Snapshot before anything is written. Without this the suite leaves whoever
+  // it runs as mapped to nothing, and the cleanup then deletes the emptied row
+  // outright — silently losing real organisational data.
+  for (const subject of [adminId, restrictedId]) {
+    const before = await employee(subject);
+    originalMapping.set(subject, {
+      departmentId: before.department?.id ?? null,
+      teamId: before.team?.id ?? null,
+    });
+  }
+
   check(
     'the manage permission is surfaced to the client',
     adminPermissions.permissions?.employees?.manage,
@@ -2395,7 +2410,22 @@ async function main() {
     ),
     true,
   );
-  check('an unmapped person reports the default capacity', directory[0]!.hoursCapacity, 40);
+  // "Unmapped" has to mean it, or this asserts the fixture rather than the
+  // rule: someone with a stored capacity correctly reports that value, and
+  // picking whoever came back first will eventually pick them.
+  {
+    const unmapped = directory.find((person) => !person.department && !person.team);
+    check(
+      'a person reports a usable weekly capacity',
+      typeof directory[0]!.hoursCapacity === 'number' && directory[0]!.hoursCapacity >= 0,
+      true,
+    );
+    if (unmapped) {
+      check('an unmapped person reports the default capacity', unmapped.hoursCapacity, 40);
+    } else {
+      console.log('  SKIP  an unmapped person reports the default capacity (everyone is mapped)');
+    }
+  }
 
   check('a known employee can be read', await status(`/employees/${adminId}`, { cookie: admin }), 200);
   check('an unknown employee is not found', await status('/employees/99999999', { cookie: admin }), 404);
@@ -2639,7 +2669,29 @@ async function main() {
   const setCapacity = (id: string, body: Record<string, unknown>, cookie = admin) =>
     call(`/employees/${id}/capacity`, { method: 'PATCH', cookie, body });
 
-  check('an unset capacity reports the documented default', originalCapacity.get(adminId), 40);
+  // Asserted against someone who genuinely has nothing stored, rather than
+  // assuming the person running the suite does. Hard-coding "the admin's
+  // capacity is 40" only holds on a pristine instance, and passes on a dirty
+  // one precisely because an earlier run left it at the default.
+  {
+    const { prisma } = await import('../db/prisma.js');
+    const stored = await prisma.userProfile
+      .findMany({
+        where: { openProjectId: { in: [adminId, restrictedId] } },
+        select: { openProjectId: true },
+      })
+      .catch(() => [] as { openProjectId: string }[]);
+
+    const unset = [adminId, restrictedId].find(
+      (id) => !stored.some((row) => row.openProjectId === id),
+    );
+
+    if (unset) {
+      check('an unset capacity reports the documented default', originalCapacity.get(unset), 40);
+    } else {
+      console.log('  SKIP  an unset capacity reports the documented default (both are set)');
+    }
+  }
 
   check(
     'anonymous cannot set capacity',
@@ -4582,6 +4634,21 @@ async function main() {
     console.log(`  (restored capacity for ${originalCapacity.size} employee(s))`);
   }
 
+  // Mappings back to what they were, through the API so the restore goes
+  // through the same validation the tests exercised. Before the test rows are
+  // removed, because a restore that points at one would fail afterwards — and
+  // before the empty-row sweep below, so a restored row is never seen as empty.
+  for (const [id, mapping] of originalMapping) {
+    await call(`/employees/${id}/mapping`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { departmentId: mapping.departmentId ?? '', teamId: mapping.teamId ?? '' },
+    }).catch(() => undefined);
+  }
+  if (originalMapping.size) {
+    console.log(`  (restored mapping for ${originalMapping.size} employee(s))`);
+  }
+
   if (departmentIds.length || teamIds.length) {
     const { prisma } = await import('../db/prisma.js');
     const { Prisma } = await import('@prisma/client');
@@ -4614,6 +4681,10 @@ async function main() {
     await prisma.userProfile
       .deleteMany({
         where: {
+          // Only people this suite actually touched. Without this the sweep is
+          // unscoped and will delete any profile that happens to look empty —
+          // which is how a real mapping gets destroyed by a test run.
+          openProjectId: { in: [...originalMapping.keys()] },
           departmentId: null,
           teamId: null,
           department: null,
