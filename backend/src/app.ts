@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 
 import { env, isProduction } from './config/env.js';
+import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot.js';
 import { disconnectPrisma } from './db/prisma.js';
 import { EpmError } from './lib/errors.js';
 import { registerAuth } from './auth/hook.js';
@@ -144,8 +145,20 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(registerRoutes, { prefix: env.API_PREFIX });
 
-  // Release the pool on shutdown; `app.close()` alone leaves it open.
+  // Periodic analytics capture. Off unless asked for: a scheduler that started
+  // itself would write to the metric table during every test run and every
+  // `npm run dev`.
+  const snapshots = createAnalyticsSnapshotScheduler({ log: app.log });
+  if (env.EPM_ANALYTICS_SNAPSHOT_ENABLED) {
+    snapshots.start();
+  } else {
+    app.log.info('Analytics snapshot scheduler disabled');
+  }
+
+  // Release the pool on shutdown; `app.close()` alone leaves it open. The timer
+  // goes with it, so a closed app leaves nothing running.
   app.addHook('onClose', async () => {
+    snapshots.stop();
     await disconnectPrisma();
   });
 

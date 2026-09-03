@@ -59,6 +59,27 @@ const schema = z.object({
   // no upstream capability implies. Configuration rather than a check against a
   // name: nothing in the source identifies a user, and leaving it unset simply
   // means nobody holds them until a grant row is written.
+  // Periodic analytics capture. Off by default: a scheduler that started
+  // itself would write to the metric table during every test run and every
+  // `npm run dev`, and the safe default for something whose job is writing
+  // history is not to.
+  EPM_ANALYTICS_SNAPSHOT_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value === 'true'),
+
+  // Floored at five minutes. A typo like 0 or -1 must fail startup rather than
+  // produce a scheduler that captures continuously.
+  EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(5, 'EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES must be at least 5.')
+      .max(60 * 24 * 7, 'EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES cannot exceed a week.')
+      .default(60 * 24),
+  ),
+
   EPM_ADMIN_USER_IDS: z
     .string()
     .default('')
@@ -116,5 +137,9 @@ export function describeEnv() {
     openProjectApiKey: '[redacted]',
     signIn: env.OPENPROJECT_OAUTH_CLIENT_ID ? 'configured' : 'not configured',
     database: env.DATABASE_URL.replace(/:\/\/[^@]*@/, '://[redacted]@'),
+    // Neither is a secret; both are useful when a snapshot is missing.
+    analyticsSnapshot: env.EPM_ANALYTICS_SNAPSHOT_ENABLED
+      ? `every ${env.EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES} minutes`
+      : 'disabled',
   };
 }

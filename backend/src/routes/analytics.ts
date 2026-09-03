@@ -6,7 +6,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { captureSnapshot, coverage, trends, type ScopeType } from '../domain/analytics.js';
 import { listPortfolios } from '../domain/portfolios.js';
-import { loadProjectsFor } from './projects.js';
+import { loadProjects } from './projects.js';
 
 /**
  * Analytics.
@@ -28,9 +28,17 @@ const trendQuery = z.object({
   days: z.coerce.number().int().positive().max(366).optional(),
 });
 
-/** Project facts for the portfolio rollups, from projects this caller can see. */
-async function portfoliosFor(request: Parameters<typeof requestSignal>[0]) {
-  const projects = await loadProjectsFor(request);
+/**
+ * Projects and their portfolio rollups.
+ *
+ * Signal-based rather than request-based so the scheduler can call it too — it
+ * has no request, only a timeout. Whose credential this travels on is decided
+ * by the async auth context: a route runs inside a signed-in user's, and the
+ * scheduler runs inside none, which is what makes the client fall back to the
+ * configured service key.
+ */
+export async function loadSnapshotInputs(signal: AbortSignal) {
+  const projects = await loadProjects(signal);
 
   const facts = projects
     .filter((project) => Boolean(project.portfolioId))
@@ -44,6 +52,23 @@ async function portfoliosFor(request: Parameters<typeof requestSignal>[0]) {
   // Archived portfolios included: archiving is a visibility decision, and their
   // projects are still real. The live rollups make the same assumption.
   return { projects, portfolios: await listPortfolios({ includeInactive: true }, facts) };
+}
+
+/**
+ * Captures one snapshot.
+ *
+ * The single entry point for both callers — the manual endpoint below and the
+ * scheduler. There is exactly one implementation of the calculation, and the
+ * scheduler reaches it by calling this rather than by making an HTTP request
+ * back into itself.
+ */
+export async function runSnapshot(signal: AbortSignal) {
+  const { projects, portfolios } = await loadSnapshotInputs(signal);
+  return captureSnapshot(projects, portfolios);
+}
+
+async function portfoliosFor(request: Parameters<typeof requestSignal>[0]) {
+  return loadSnapshotInputs(requestSignal(request));
 }
 
 export const analyticsRoutes: FastifyPluginAsync = async (app) => {
@@ -112,8 +137,8 @@ export const analyticsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/analytics/snapshots', async (request, reply) => {
     await guard.require(request, 'analytics:manage');
 
-    const { projects, portfolios } = await portfoliosFor(request);
-    const result = await captureSnapshot(projects, portfolios);
+    // The same function the scheduler calls.
+    const result = await runSnapshot(requestSignal(request));
 
     reply.code(201);
     return result;

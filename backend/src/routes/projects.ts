@@ -56,7 +56,7 @@ export async function loadProjectsFor(
   return loadProjects(requestSignal(request));
 }
 
-async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
+export async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
   const today = new Date().toISOString().slice(0, 10);
 
   const [projects, aggregates, members, overlays] = await Promise.all([
