@@ -143,7 +143,8 @@ export default function PortfoliosPage() {
                 </div>
 
                 <div className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-                  {portfolio.activeProjectCount} of{' '}
+                  {/* `pluralize` returns the word, not the count. */}
+                  {portfolio.activeProjectCount} of {portfolio.projectCount}{' '}
                   {pluralize(portfolio.projectCount, 'project')} active
                 </div>
 

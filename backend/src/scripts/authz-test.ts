@@ -1725,6 +1725,10 @@ async function main() {
   // Health pins are real management state. Whatever these tests set is put
   // back, including "there was no pin", which is a value too.
   const originalHealthOverride = new Map<string, Record<string, string> | null>();
+  const portfolioIds: string[] = [];
+  // A project's portfolio is real organisational state; whatever these tests
+  // set is put back, including "it was in none".
+  const originalProjectPortfolio = new Map<string, string | null>();
 
   // --- Departments ---------------------------------------------------------
   //
@@ -1763,6 +1767,7 @@ async function main() {
       teams?: { manage?: boolean };
       employees?: { manage?: boolean };
       health?: { manage?: boolean };
+      portfolios?: { manage?: boolean };
     };
   };
   const restrictedPermissions = (await (
@@ -3038,6 +3043,346 @@ async function main() {
   check('pinning a project critical raises the at-risk count', atRiskPinned > atRiskHealthy, true);
   check('pinning it healthy removes it from the count', atRiskHealthy <= atRiskBefore, true);
 
+  // --- Portfolios ------------------------------------------------------------
+  //
+  // EPM-owned, like departments and teams. The rollups read live project data,
+  // so these reuse the team and capacity fixtures above to make the derived
+  // team and capacity figures real rather than zero. Every association set here
+  // is captured and restored in the cleanup step.
+  console.log('\nPortfolios');
+
+  interface TestPortfolio {
+    id: string;
+    name: string;
+    code: string;
+    description?: string;
+    projectCount: number;
+    activeProjectCount: number;
+    health: { healthy: number; warning: number; critical: number };
+    memberCount: number;
+    capacityHours: number;
+    teams: { id: string; name: string }[];
+    active: boolean;
+  }
+
+  const portfolioName = `EPM Test Portfolio ${stamp}`;
+  const portfolioCode = `PF-${stamp}`.slice(0, 16);
+
+  const portfolios = async (cookie: string, query = '') =>
+    (await (await call(`/portfolios${query}`, { cookie })).json()) as TestPortfolio[];
+
+  const portfolio = async (id: string) =>
+    (await (await call(`/portfolios/${id}`, { cookie: admin })).json()) as TestPortfolio;
+
+  check(
+    'the manage permission is surfaced to the client',
+    adminPermissions.permissions?.portfolios?.manage,
+    true,
+  );
+  check(
+    'a caller without a grant does not hold it',
+    restrictedPermissions.permissions?.portfolios?.manage,
+    false,
+  );
+
+  check('anonymous cannot list portfolios', await status('/portfolios'), 401);
+  check(
+    'anonymous cannot create one',
+    await status('/portfolios', { method: 'POST', body: { name: 'x', code: 'XX' } }),
+    401,
+  );
+  check('a permitted caller can list portfolios', await status('/portfolios', { cookie: admin }), 200);
+  check(
+    'a caller without the manage grant can still read them',
+    await status('/portfolios', { cookie: restricted }),
+    200,
+  );
+  check(
+    'a caller without the grant cannot create one',
+    await status('/portfolios', {
+      method: 'POST',
+      cookie: restricted,
+      body: { name: portfolioName, code: portfolioCode },
+    }),
+    403,
+  );
+
+  const invalidPortfolios: [string, Record<string, unknown>][] = [
+    ['a portfolio needs a name', { code: 'AA' }],
+    ['a portfolio needs a code', { name: 'Nameless' }],
+    ['a blank name is refused', { name: '   ', code: 'AA' }],
+    ['a code shorter than two characters is refused', { name: 'Short', code: 'A' }],
+    ['a code longer than sixteen characters is refused', { name: 'Long', code: 'A'.repeat(17) }],
+    ['a code with punctuation is refused', { name: 'Punct', code: 'A_B!' }],
+    ['a non-string name is refused', { name: 42, code: 'AA' }],
+    ['an over-long name is refused', { name: 'n'.repeat(121), code: 'AA' }],
+  ];
+  for (const [label, body] of invalidPortfolios) {
+    check(label, await status('/portfolios', { method: 'POST', cookie: admin, body }), 400);
+  }
+
+  const portfolioResponse = await call('/portfolios', {
+    method: 'POST',
+    cookie: admin,
+    // Lower case deliberately: codes are normalised before storing.
+    body: {
+      name: portfolioName,
+      code: portfolioCode.toLowerCase(),
+      description: '  Customer-facing delivery.  ',
+    },
+  });
+  check('a permitted caller can create a portfolio', portfolioResponse.status, 201);
+
+  const createdPortfolio = (await portfolioResponse.json()) as TestPortfolio;
+  const portfolioId = createdPortfolio.id;
+  portfolioIds.push(portfolioId);
+
+  check('the name is returned as given', createdPortfolio.name, portfolioName);
+  check('the code is normalised to upper case', createdPortfolio.code, portfolioCode);
+  check('the description is trimmed', createdPortfolio.description, 'Customer-facing delivery.');
+  check('a new portfolio is active', createdPortfolio.active, true);
+  check('the portfolio id is not an upstream url', portfolioId.includes('/'), false);
+
+  // An empty portfolio reports zeroes, not absent fields — nothing in it is an
+  // answer rather than a missing value.
+  check('an empty portfolio counts no projects', createdPortfolio.projectCount, 0);
+  check('and none active', createdPortfolio.activeProjectCount, 0);
+  check('and no members', createdPortfolio.memberCount, 0);
+  check('and no capacity', createdPortfolio.capacityHours, 0);
+  check('and no teams', createdPortfolio.teams.length, 0);
+  check(
+    'and an all-zero health distribution',
+    JSON.stringify(createdPortfolio.health),
+    '{"healthy":0,"warning":0,"critical":0}',
+  );
+
+  check(
+    'a duplicate code is refused',
+    await status('/portfolios', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `${portfolioName} II`, code: portfolioCode },
+    }),
+    400,
+  );
+  // Postgres would accept these as distinct; the functional index rejects them.
+  check(
+    'a name differing only by case is refused',
+    await status('/portfolios', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: portfolioName.toUpperCase(), code: `X${portfolioCode}`.slice(0, 16) },
+    }),
+    400,
+  );
+
+  check('a portfolio can be read back', await status(`/portfolios/${portfolioId}`, { cookie: admin }), 200);
+  check('an unknown portfolio is not found', await status('/portfolios/no-such-id', { cookie: admin }), 404);
+  check(
+    'it appears in the list',
+    (await portfolios(admin)).some((p) => p.id === portfolioId),
+    true,
+  );
+
+  // --- update ---
+  const portfolioUpdate = await call(`/portfolios/${portfolioId}`, {
+    method: 'PATCH',
+    cookie: admin,
+    body: { description: 'Customer-facing delivery and support.' },
+  });
+  check('a permitted caller can update a portfolio', portfolioUpdate.status, 200);
+  const afterPortfolioUpdate = (await portfolioUpdate.json()) as TestPortfolio;
+  check('the change is applied', afterPortfolioUpdate.description, 'Customer-facing delivery and support.');
+  check('an omitted field is left alone', afterPortfolioUpdate.name, portfolioName);
+  check(
+    'an update with no fields is refused',
+    await status(`/portfolios/${portfolioId}`, { method: 'PATCH', cookie: admin, body: {} }),
+    400,
+  );
+  check(
+    'a caller without the grant cannot update one',
+    await status(`/portfolios/${portfolioId}`, {
+      method: 'PATCH',
+      cookie: restricted,
+      body: { name: 'Hijacked' },
+    }),
+    403,
+  );
+
+  // --- project association ---
+  const allProjects = (await (await call('/projects', { cookie: admin })).json()) as {
+    id: string;
+    portfolio: string;
+    portfolioId?: string;
+    memberIds: string[];
+    health: { overall: string };
+  }[];
+  // Prefer a project that actually has members: the derived team and capacity
+  // rollups below come from membership, and a project with nobody on it would
+  // make them vacuously zero and prove nothing.
+  const anyProject = allProjects.find((p) => p.memberIds.length > 0) ?? allProjects[0];
+  const associatedProjectId = anyProject?.id;
+  if (!associatedProjectId) throw new Error('No project available for the portfolio tests.');
+
+  // Snapshot before associating, so the cleanup can put it back.
+  originalProjectPortfolio.set(associatedProjectId, anyProject.portfolioId ?? null);
+
+  const setPortfolio = (body: Record<string, unknown>, cookie = admin) =>
+    call(`/projects/${associatedProjectId}/portfolio`, { method: 'PATCH', cookie, body });
+
+  check(
+    'anonymous cannot associate a project',
+    await status(`/projects/${associatedProjectId}/portfolio`, {
+      method: 'PATCH',
+      body: { portfolioId },
+    }),
+    401,
+  );
+  check('a caller without the grant cannot associate one', (await setPortfolio({ portfolioId }, restricted)).status, 403);
+  check('an unknown portfolio is refused', (await setPortfolio({ portfolioId: 'no-such-portfolio' })).status, 400);
+  check(
+    'an unknown project is not found',
+    await status('/projects/99999999/portfolio', { method: 'PATCH', cookie: admin, body: { portfolioId } }),
+    404,
+  );
+
+  const associated = await setPortfolio({ portfolioId });
+  check('a permitted caller can associate a project', associated.status, 200);
+  const associatedBody = (await associated.json()) as { portfolio: string; portfolioId?: string };
+  check('the project reports the portfolio name', associatedBody.portfolio, portfolioName);
+  check('and its id, so a picker can bind to it', associatedBody.portfolioId, portfolioId);
+
+  const withProject = await portfolio(portfolioId);
+  check('the portfolio counts the project', withProject.projectCount, 1);
+  // Health is the effective value already computed for the project — reused,
+  // never recalculated here.
+  check(
+    'its health distribution totals the project count',
+    withProject.health.healthy + withProject.health.warning + withProject.health.critical,
+    1,
+  );
+
+  const portfolioProjects = (await (
+    await call(`/portfolios/${portfolioId}/projects`, { cookie: admin })
+  ).json()) as { id: string }[];
+  check('its projects can be listed', portfolioProjects.some((p) => p.id === associatedProjectId), true);
+  check(
+    'projects of an unknown portfolio are not found',
+    await status('/portfolios/no-such-id/projects', { cookie: admin }),
+    404,
+  );
+
+  // Changing the association moves the project between portfolios.
+  const secondPortfolio = (await (
+    await call('/portfolios', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `${portfolioName} Two`, code: `${portfolioCode}2`.slice(0, 16) },
+    })
+  ).json()) as TestPortfolio;
+  portfolioIds.push(secondPortfolio.id);
+
+  await setPortfolio({ portfolioId: secondPortfolio.id });
+  check('the project moves to the new portfolio', (await portfolio(secondPortfolio.id)).projectCount, 1);
+  check('and leaves the old one', (await portfolio(portfolioId)).projectCount, 0);
+
+  // Clearing is expressed by sending nothing, not by a separate endpoint.
+  const clearedPortfolio = (await (await setPortfolio({})).json()) as { portfolioId?: string };
+  check('an empty body clears the association', clearedPortfolio.portfolioId, undefined);
+  check('and the portfolio no longer counts it', (await portfolio(secondPortfolio.id)).projectCount, 0);
+
+  // --- derived teams and capacity ---
+  // The project-to-team relationship is derived from membership, so mapping a
+  // project member to a team is what makes these figures appear.
+  // Map a member of that project to a team, so the derivation has something to
+  // find. Whoever is on it, not an assumed identity.
+  const projectMemberId = anyProject.memberIds[0] ?? adminId;
+  if (!originalCapacity.has(projectMemberId)) {
+    originalCapacity.set(projectMemberId, (await employee(projectMemberId)).hoursCapacity);
+  }
+  await setMapping(projectMemberId, { teamId });
+  await setCapacity(projectMemberId, { hoursCapacity: 30 });
+  await setPortfolio({ portfolioId });
+
+  const derivedRollup = await portfolio(portfolioId);
+  check('a portfolio counts the people on its projects', derivedRollup.memberCount >= 1, true);
+  check('their capacity is summed', derivedRollup.capacityHours >= 30, true);
+  check(
+    'and their teams are derived, not declared',
+    derivedRollup.teams.some((t) => t.id === teamId),
+    true,
+  );
+
+  // Someone on two projects in one portfolio must be counted once, or the
+  // capacity is quietly overstated.
+  const distinctBefore = derivedRollup.memberCount;
+  check('members are distinct across projects', distinctBefore <= 2, true);
+
+  await setCapacity(projectMemberId, { hoursCapacity: 40 });
+  await setMapping(projectMemberId, {});
+
+  // --- lifecycle ---
+  check(
+    'a caller without the grant cannot archive one',
+    await status(`/portfolios/${portfolioId}/archive`, { method: 'PATCH', cookie: restricted }),
+    403,
+  );
+
+  const archivedPortfolio = await call(`/portfolios/${portfolioId}/archive`, {
+    method: 'PATCH',
+    cookie: admin,
+  });
+  check('a permitted caller can archive a portfolio', archivedPortfolio.status, 200);
+  check('it is reported inactive', ((await archivedPortfolio.json()) as TestPortfolio).active, false);
+  check(
+    'an archived portfolio is out of the default list',
+    (await portfolios(admin)).some((p) => p.id === portfolioId),
+    false,
+  );
+  check(
+    'it is still there when inactive ones are asked for',
+    (await portfolios(admin, '?includeInactive=true')).some((p) => p.id === portfolioId),
+    true,
+  );
+
+  // Archiving is a visibility decision: the association it holds is untouched.
+  check(
+    'an existing association survives archiving',
+    ((await (await call(`/projects/${associatedProjectId}`, { cookie: admin })).json()) as {
+      portfolioId?: string;
+    }).portfolioId,
+    portfolioId,
+  );
+  check(
+    'no project can be moved into an archived portfolio',
+    (await setPortfolio({ portfolioId: portfolioId })).status,
+    400,
+  );
+  // But a project can always be moved out of one.
+  check('a project can still be moved out of it', (await setPortfolio({})).status, 200);
+
+  const restoredPortfolio = await call(`/portfolios/${portfolioId}/restore`, {
+    method: 'PATCH',
+    cookie: admin,
+  });
+  check('an archived portfolio can be restored', ((await restoredPortfolio.json()) as TestPortfolio).active, true);
+
+  check(
+    'there is no route for deleting a portfolio',
+    await status(`/portfolios/${portfolioId}`, { method: 'DELETE', cookie: admin }),
+    404,
+  );
+  check(
+    'an unknown portfolio cannot be updated',
+    await status('/portfolios/no-such-id', { method: 'PATCH', cookie: admin, body: { name: 'X' } }),
+    404,
+  );
+  check(
+    'an unknown portfolio cannot be archived',
+    await status('/portfolios/no-such-id/archive', { method: 'PATCH', cookie: admin }),
+    404,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -3059,6 +3404,19 @@ async function main() {
   // Departments have no delete route by design, so the rows these tests
   // created are removed through the database rather than left behind. The
   // one place the suite reaches past the API, and only to undo its own writes.
+  // Project portfolio associations first: the foreign key is RESTRICT, so a
+  // portfolio a project still points at cannot be removed until it is cleared.
+  for (const [id, portfolioId] of originalProjectPortfolio) {
+    await call(`/projects/${id}/portfolio`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { portfolioId: portfolioId ?? '' },
+    }).catch(() => undefined);
+  }
+  if (originalProjectPortfolio.size) {
+    console.log(`  (restored portfolio for ${originalProjectPortfolio.size} project(s))`);
+  }
+
   // Health pins first, through the API for the same reason.
   for (const [id, override] of originalHealthOverride) {
     await call(`/projects/${id}/health`, {
@@ -3129,6 +3487,11 @@ async function main() {
 
     // Teams next: the foreign key is RESTRICT, so a department holding teams
     // cannot be removed until they are.
+    const removedPortfolios = await prisma.portfolio
+      .deleteMany({ where: { id: { in: portfolioIds } } })
+      .catch(() => ({ count: 0 }));
+    void removedPortfolios;
+
     const removedTeams = await prisma.team
       .deleteMany({ where: { id: { in: teamIds } } })
       .catch(() => ({ count: 0 }));

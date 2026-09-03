@@ -213,6 +213,78 @@ approximated.
 - **Project overview** — the portfolio it belongs to, with a change control for authorised
   users. Projects are not created here; OpenProject owns that.
 
+## Test results
+
+68 cases in `npm run test:authz`. Suite total **613 passed, 0 failed** — the 545 that
+existed before are unchanged.
+
+Coverage: the permission on `/me` for both identities; anonymous and ungranted refused on
+every write; eight validation cases; code normalisation; duplicate code and case-variant
+name; an empty portfolio reporting zeroes rather than absent fields, including an all-zero
+health distribution; partial update leaving omitted fields alone; association with its four
+refusal cases; the project reporting both the portfolio name and its id; moving a project
+between portfolios, with the old one's count dropping; clearing by empty body; listing a
+portfolio's projects; and the full archive/restore cycle including that an existing
+association survives archiving, no project can be moved into an archived portfolio, and one
+can always be moved out.
+
+The derived rollups are tested against a project that **actually has members** — the first
+attempt used whichever project came back first, which was an archived test project with
+nobody on it, so the figures were vacuously zero and proved nothing. The test now picks a
+project with members and maps one of them to a team, so the derived team, member count and
+capacity are real.
+
+Driven in a browser for both identities: create, list, edit, archive, reveal, restore, and
+association from the project page with the rollup updating to match. The restricted identity
+saw the page and the archived toggle but **zero** create buttons, and the API refuses its
+writes with 403.
+
+Every route clean of console errors; only `localhost:8000` and Google Fonts contacted;
+bundle audit zero on all nine patterns.
+
+The sweep also caught a display bug: `pluralize` returns the word, not the count, so the
+list read *"0 of project active"*. Fixed to *"0 of 1 project active"*.
+
+## Test data
+
+Snapshotted and restored. The suite records each project's portfolio before associating
+anything and writes it back, including "it was in none". Associations are cleared before the
+portfolios they point at are removed, because the foreign key is `RESTRICT` and would
+otherwise refuse — that ordering is the constraint working.
+
+Final state: `portfolios=0  teams=0  departments=0  projectProfiles=0  userProfiles=0` —
+identical to the initial state.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **A project belongs to at most one portfolio.** No requirement asks for more, and
+   many-to-many is an additive join table if one arrives.
+2. **No portfolio hierarchy.** Portfolios do not nest.
+3. **Teams are derived, not declared.** They reflect who is a member of a portfolio's
+   projects — including anyone with a viewing role — so a portfolio cannot express "Platform
+   owns this" before a Platform member joins. Declaring ownership later is an additive
+   column, not a reshape.
+4. **No portfolio-level health verdict.** Only the distribution is exposed. Collapsing three
+   states into one needs a rule nobody has specified, and inventing one would be a second
+   health calculation.
+5. **No workload rollup.** It would need logged hours attributed per project, and the
+   allocation semantics are per person and weekly. Combining them at portfolio level needs a
+   rule that does not exist.
+6. **Capacity is availability, not demand.** A portfolio's capacity is the weekly hours of
+   the people on its projects. It says nothing about how much work those projects need,
+   because the demand side is still a task count — the same gap Health documented.
+7. **Someone on projects in two different portfolios is counted in both.** Deduplication is
+   within a portfolio, not across them; a person's hours are not divided between portfolios,
+   because nothing records how their time is split.
+8. **The legacy free-text portfolio column remains.** Empty here, kept for deployments that
+   may have populated it through the project patch route.
+9. **`budgetTotal` and `budgetUsed` are still unwritable.** Untouched by this work, as
+   financial management is out of scope.
+
+## Future analytics implications
+
+Portfolio counts and distributions are computed per request, so there is no history: *"how
+did this portfolio's health move last quarter"* has no answer. That needs the same
+snapshot-per-period approach Health identified, and the `MetricSnapshot` model already in the
+schema is the precedent. Trended portfolio health, capacity-versus-demand once estimates
+exist, and cross-portfolio comparison all belong to Analytics.
