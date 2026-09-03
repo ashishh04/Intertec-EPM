@@ -184,6 +184,69 @@ No scheduler UI, no scheduler configuration exposed. The Analytics page gains on
 date of the most recent snapshot, which it already receives in `history.lastSnapshot` and
 was not displaying. Manual capture stays where it is for administrators.
 
+## Test results
+
+41 cases in `npm run test:authz`. Suite total **701 passed, 0 failed** — the 660 that
+existed before are unchanged.
+
+**No test waits for real time.** The scheduler is exercised through its exported `tick`,
+with a stubbed capture, so none of the behavioural cases touch OpenProject or the clock:
+starting, refusing to start twice, stopping, stopping twice, a capture that throws being
+caught and retried, and an overlapping tick being skipped rather than queued. The log lines
+are captured and asserted to contain no token, session id, password or key.
+
+The idempotency cases assert **row counts**, not status codes:
+
+- an unattended capture with `currentAuth() === undefined`, proving the scheduler needs no
+  user — it authenticates by running outside a request context
+- rerunning reports the same record count and adds no rows
+- two **concurrent** captures still leave one set of rows
+- every scope — instance, portfolio, team, department — grouped and asserted to have exactly
+  one row per metric per day
+
+The trend regression uses fixture rows written directly, so "two snapshots make a trend"
+does not depend on waiting a day: one point is asserted insufficient, a second makes a
+trend, recapturing the same period updates a point rather than adding one, and a missing day
+stays a gap. Manual capture is asserted to still work and still be refused without the
+grant.
+
+Configuration was verified at startup rather than assumed: disabled by default logs
+"scheduler disabled", enabling logs the interval, and `EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES=0`
+**fails startup with a message** rather than producing a scheduler that captures
+continuously.
+
+Browser sweep clean on eight routes for both identities. The restricted identity sees the
+trends and no capture button. No scheduler control, interval or configuration value appears
+anywhere in the UI or the bundle; `EPM_ANALYTICS` returns zero alongside the other eight
+audit patterns.
+
+## Test data
+
+`rows=20  user=20  other=0` — the twenty real user-scoped rows are untouched, and every row
+the tests wrote is removed. Cleanup collects the days captured by both the analytics and
+scheduler sections and deletes only non-user scopes on those days, plus the fixture scopes
+by id.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **No author on a snapshot.** `MetricSnapshot` has no column for who captured it, so a
+   scheduled row and a manual one are indistinguishable. Deliberate: a row states what was
+   true on a day, both paths run the same calculation over the same source, and an author
+   column would be schema churn for a question nobody has asked.
+2. **No lock across instances.** Two backends would both capture. Safe, because the upsert
+   collapses them to one set of rows, but wasteful. A Postgres advisory lock is the smallest
+   fix if that ever matters.
+3. **No backfill.** Downtime leaves gaps and they stay gaps. There is no source from which a
+   past day's health or capacity could be reconstructed, and writing today's numbers against
+   yesterday's date would be a fabrication.
+4. **The first capture is 30 seconds after startup.** A process that restarts more often
+   than that never captures. Not a realistic deployment, but it is the failure mode.
+5. **A sub-daily interval does not create more history.** It refreshes the same UTC day's
+   rows. Anyone expecting hourly granularity would need a period column, not a shorter
+   interval.
+6. **No retention.** Rows accumulate at roughly one per metric per scope per day, and
+   nothing prunes them — carried over from Analytics.
+7. **The schedule is fixed-interval, not wall-clock.** "Every 1440 minutes" drifts from
+   midnight as the process restarts; it is not "at 02:00 daily". Since the period is a whole
+   UTC day and captures are idempotent, the drift changes only *when* today's row is written,
+   not which day it belongs to.

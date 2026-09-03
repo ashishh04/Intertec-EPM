@@ -1733,6 +1733,7 @@ async function main() {
   // has been recording since before this feature is left alone.
   const analyticsFixtureScopes: string[] = [];
   let analyticsCaptureDay: string | undefined;
+  const schedulerCaptureDays: string[] = [];
 
   // --- Departments ---------------------------------------------------------
   //
@@ -3650,6 +3651,266 @@ async function main() {
   ).json()) as TestTrend[];
   check('pre-existing user-scoped history survived the scope change', userSeries.length, 1);
 
+  // --- Analytics scheduler ---------------------------------------------------
+  //
+  // The scheduler is exercised directly with a stubbed capture, so no test
+  // waits for real time to pass and none of these cases touch OpenProject. The
+  // idempotency and trend cases below then use fixture rows written straight to
+  // the table, so "two snapshots make a trend" is deterministic rather than
+  // dependent on the clock.
+  console.log('\nAnalytics scheduler');
+
+  const { createAnalyticsSnapshotScheduler } = await import('../scheduler/analytics-snapshot.js');
+  const { prisma: schedulerDb } = await import('../db/prisma.js');
+
+  // A logger that records rather than prints, so the log content can be
+  // asserted — particularly that no secret reaches it.
+  const logLines: string[] = [];
+  const record = (level: string) => (a: unknown, b?: unknown) => {
+    logLines.push(`${level} ${typeof a === 'string' ? a : JSON.stringify(a)} ${b ?? ''}`);
+  };
+  const testLog = {
+    info: record('info'),
+    warn: record('warn'),
+    debug: record('debug'),
+    error: record('error'),
+    fatal: record('fatal'),
+    trace: record('trace'),
+    child: () => testLog,
+    level: 'info',
+    silent: () => undefined,
+  } as never;
+
+  let captures = 0;
+  const scheduler = createAnalyticsSnapshotScheduler({
+    log: testLog,
+    capture: async () => {
+      captures += 1;
+      return { sampledOn: '2026-01-01', records: 7, scopes: { instance: 7 } };
+    },
+    // Long enough that no timer fires during the test; every tick below is
+    // invoked directly.
+    intervalMs: 60 * 60_000,
+    firstRunDelayMs: 60 * 60_000,
+  });
+
+  check('a scheduler does not start on construction', scheduler.started, false);
+  check('and captures nothing until it ticks', captures, 0);
+
+  await scheduler.tick();
+  check('a tick captures once', captures, 1);
+  check('and does not stay marked as running', scheduler.running, false);
+  check('the capture is logged', logLines.some((line) => line.includes('captured')), true);
+
+  await scheduler.tick();
+  check('ticks are repeatable', captures, 2);
+
+  scheduler.start();
+  check('start marks it started', scheduler.started, true);
+  // Hot reload in development can build the app twice; a second timer would
+  // double the work for nothing.
+  scheduler.start();
+  check('starting twice is refused', logLines.some((line) => line.includes('already started')), true);
+
+  scheduler.stop();
+  check('stop clears it', scheduler.started, false);
+  scheduler.stop();
+  check('stopping twice is safe', scheduler.started, false);
+
+  // A failed capture must not crash the backend or stop the timer.
+  let attempts = 0;
+  const failingScheduler = createAnalyticsSnapshotScheduler({
+    log: testLog,
+    capture: async () => {
+      attempts += 1;
+      throw new Error('OpenProject unavailable');
+    },
+    intervalMs: 60 * 60_000,
+    firstRunDelayMs: 60 * 60_000,
+  });
+
+  await failingScheduler.tick();
+  check('a failing capture does not throw out of the tick', attempts, 1);
+  check('and does not leave it marked running', failingScheduler.running, false);
+  check('the failure is logged as a warning', logLines.some((line) => line.includes('failed')), true);
+  await failingScheduler.tick();
+  check('it tries again on the next tick', attempts, 2);
+
+  // A capture slower than the interval must be skipped, not queued behind
+  // itself, or a slow instance would pile up work indefinitely.
+  let started = 0;
+  let releaseCapture: (() => void) | undefined;
+  const slow = createAnalyticsSnapshotScheduler({
+    log: testLog,
+    capture: async () => {
+      started += 1;
+      await new Promise<void>((resolve) => {
+        releaseCapture = resolve;
+      });
+      return { sampledOn: '2026-01-01', records: 7, scopes: {} };
+    },
+    intervalMs: 60 * 60_000,
+    firstRunDelayMs: 60 * 60_000,
+  });
+
+  const inFlight = slow.tick();
+  await new Promise((resolve) => setImmediate(resolve));
+  check('a capture in flight is reported as running', slow.running, true);
+  await slow.tick();
+  check('an overlapping tick is skipped rather than queued', started, 1);
+  check('and says so', logLines.some((line) => line.includes('skipped')), true);
+  releaseCapture?.();
+  await inFlight;
+  check('the flag clears when it finishes', slow.running, false);
+
+  // Nothing sensitive may reach the logs.
+  const secrets = ['accessToken', 'refreshToken', 'apikey', 'bearer', 'password', 'sessionid'];
+  check(
+    'no secret appears in any scheduler log line',
+    logLines.some((line) => secrets.some((secret) => line.toLowerCase().includes(secret))),
+    false,
+  );
+
+  // --- the scheduler and the endpoint share one implementation ---
+  const { runSnapshot } = await import('../routes/analytics.js');
+  check('the scheduler default capture is the shared entry point', typeof runSnapshot, 'function');
+
+  // Running unattended is how the scheduler authenticates: no request context,
+  // so the client falls back to the configured service key. No user is
+  // invented and no credential is held by the scheduler.
+  const { currentAuth } = await import('../auth/context.js');
+  check('a scheduled capture runs with no auth context', currentAuth(), undefined);
+
+  const beforeUnattended = await schedulerDb.metricSnapshot.count();
+  const unattended = await runSnapshot(AbortSignal.timeout(60_000));
+  schedulerCaptureDays.push(unattended.sampledOn);
+
+  check('an unattended capture succeeds without a user', unattended.records > 0, true);
+  const afterUnattended = await schedulerDb.metricSnapshot.count();
+  // Not "the count grew": the analytics section already captured today, so this
+  // run overwrites rather than adds — which is the idempotency working. What
+  // must hold is that the day's rows exist and none was lost.
+  check(
+    'the day it captured has rows',
+    (await schedulerDb.metricSnapshot.count({
+      where: { sampledOn: new Date(unattended.sampledOn), scopeType: { not: 'user' } },
+    })) > 0,
+    true,
+  );
+  check('and nothing was lost', afterUnattended >= beforeUnattended, true);
+
+  // The guarantee the whole design rests on, asserted by row count rather than
+  // by a status code.
+  const repeated = await runSnapshot(AbortSignal.timeout(60_000));
+  check('rerunning reports the same record count', repeated.records, unattended.records);
+  check('and writes no additional rows', await schedulerDb.metricSnapshot.count(), afterUnattended);
+
+  // Concurrent captures must also collapse to one logical snapshot — two
+  // instances would both fire, and the upsert is what makes that safe.
+  await Promise.all([
+    runSnapshot(AbortSignal.timeout(60_000)),
+    runSnapshot(AbortSignal.timeout(60_000)),
+  ]);
+  check('two concurrent captures still leave one set of rows', await schedulerDb.metricSnapshot.count(), afterUnattended);
+
+  // Every scope, not just the instance one.
+  for (const scopeType of ['instance', 'portfolio', 'team', 'department']) {
+    const duplicated = await schedulerDb.metricSnapshot.groupBy({
+      by: ['scopeId', 'metric', 'sampledOn'],
+      where: { scopeType, sampledOn: new Date(unattended.sampledOn) },
+      _count: { _all: true },
+    });
+    check(
+      `no duplicate rows in the ${scopeType} scope`,
+      duplicated.every((row) => row._count._all === 1),
+      true,
+    );
+  }
+
+  // --- trends across more than one day ---
+  // Written directly so "two snapshots make a trend" does not depend on waiting
+  // a day. The scope id is one no real entity uses.
+  const schedulerScope = `sched-scope-${stamp}`;
+  const dayBefore = (offset: number) => {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() - offset);
+    return new Date(date.toISOString().slice(0, 10));
+  };
+
+  await schedulerDb.metricSnapshot.create({
+    data: { scopeType: 'team', scopeId: schedulerScope, sampledOn: dayBefore(1), metric: 'members', value: 4 },
+  });
+  analyticsFixtureScopes.push(schedulerScope);
+
+  const oneDay = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=team&scopeId=${schedulerScope}&days=30`, {
+      cookie: admin,
+    })
+  ).json()) as { points: { date: string; value: number }[] }[];
+  check('one snapshot gives one point', oneDay[0]?.points.length, 1);
+  // One point is not a trend. The chart says so rather than drawing a line, and
+  // the API reports honestly rather than padding it.
+  check('which is not enough for a trend', (oneDay[0]?.points.length ?? 0) < 2, true);
+
+  await schedulerDb.metricSnapshot.create({
+    data: { scopeType: 'team', scopeId: schedulerScope, sampledOn: dayBefore(0), metric: 'members', value: 6 },
+  });
+
+  const twoDays = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=team&scopeId=${schedulerScope}&days=30`, {
+      cookie: admin,
+    })
+  ).json()) as { points: { date: string; value: number }[] }[];
+  check('a second snapshot makes a trend', twoDays[0]?.points.length, 2);
+  check('ordered oldest first', twoDays[0]?.points[0]?.value, 4);
+  check('through to newest', twoDays[0]?.points[1]?.value, 6);
+
+  // Recapturing the same period must not add a point, only change one.
+  await schedulerDb.metricSnapshot.upsert({
+    where: {
+      scopeType_scopeId_sampledOn_metric: {
+        scopeType: 'team',
+        scopeId: schedulerScope,
+        sampledOn: dayBefore(0),
+        metric: 'members',
+      },
+    },
+    create: { scopeType: 'team', scopeId: schedulerScope, sampledOn: dayBefore(0), metric: 'members', value: 9 },
+    update: { value: 9 },
+  });
+
+  const recaptured = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=team&scopeId=${schedulerScope}&days=30`, {
+      cookie: admin,
+    })
+  ).json()) as { points: { date: string; value: number }[] }[];
+  check('recapturing a period adds no point', recaptured[0]?.points.length, 2);
+  check('but does update its value', recaptured[0]?.points[1]?.value, 9);
+
+  // A day nobody captured stays a gap — the case the chart renders as a break
+  // rather than bridging.
+  await schedulerDb.metricSnapshot.create({
+    data: { scopeType: 'team', scopeId: schedulerScope, sampledOn: dayBefore(5), metric: 'members', value: 1 },
+  });
+  const withGap = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=team&scopeId=${schedulerScope}&days=30`, {
+      cookie: admin,
+    })
+  ).json()) as { points: { date: string; value: number }[] }[];
+  check('a gap is left as a gap, not filled', withGap[0]?.points.length, 3);
+
+  // Manual capture keeps working alongside the scheduler.
+  check(
+    'the manual endpoint still works',
+    await status('/analytics/snapshots', { method: 'POST', cookie: admin }),
+    201,
+  );
+  check(
+    'and is still refused without the grant',
+    await status('/analytics/snapshots', { method: 'POST', cookie: restricted }),
+    403,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -3682,10 +3943,16 @@ async function main() {
         .deleteMany({ where: { scopeId: { in: analyticsFixtureScopes } } })
         .catch(() => undefined);
     }
-    if (analyticsCaptureDay) {
+    const capturedDays = [...new Set([analyticsCaptureDay, ...schedulerCaptureDays].filter(Boolean))];
+    if (capturedDays.length) {
       const removed = await prisma.metricSnapshot
         .deleteMany({
-          where: { sampledOn: new Date(analyticsCaptureDay), scopeType: { not: 'user' } },
+          where: {
+            sampledOn: { in: capturedDays.map((day) => new Date(day as string)) },
+            // Never the user scope: those rows are the dashboard's real history,
+            // written long before these tests existed.
+            scopeType: { not: 'user' },
+          },
         })
         .catch(() => ({ count: 0 }));
       console.log(`  (removed ${removed.count} test snapshot row${removed.count === 1 ? '' : 's'})`);

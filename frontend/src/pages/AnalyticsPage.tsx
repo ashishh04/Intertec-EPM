@@ -278,7 +278,10 @@ export default function AnalyticsPage() {
         title="Trends"
         description={
           hasHistory
-            ? `Recorded snapshots, ${history?.firstSnapshot} to ${history?.lastSnapshot}.`
+            ? // The last snapshot's date is what tells someone whether capture
+              // is actually running. Read from coverage the API already returns.
+              `Recorded snapshots, ${history?.firstSnapshot} to ${history?.lastSnapshot}` +
+              ` · last capture ${history?.lastSnapshot}`
             : 'Recorded snapshots. History begins at the first capture.'
         }
         actions={
