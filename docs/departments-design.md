@@ -120,11 +120,36 @@ with no reader is cost without benefit.
 
 ### Uniqueness
 
-`code` and `name` are both unique at the database level. Codes are normalized to
-uppercase before writing, so `ENG` and `eng` collide in Postgres as well as in the
-application. Names are compared case-insensitively **in the application only** — a
-case-insensitive uniqueness index would need raw SQL outside Prisma's schema and would
-show as drift on the next migration. That limitation is recorded below.
+`code` and `name` are both unique at the database level, case-insensitively.
+
+Codes are normalized to uppercase before writing, so `ENG` and `eng` collide on the
+ordinary unique index. Names keep the casing they were given, so they are protected by a
+functional index instead:
+
+```sql
+DROP INDEX "departments_name_key";
+CREATE UNIQUE INDEX "departments_name_lower_key" ON "departments" (LOWER("name"));
+```
+
+Prisma's schema language cannot express an index on an expression, so this is raw SQL in
+migration `20260903120000`. `@unique` was removed from `name` in `schema.prisma` at the
+same time — leaving it would have recreated the plain index the migration replaces, and
+uniqueness of `LOWER(name)` already implies uniqueness of `name`.
+
+Verified rather than assumed:
+
+- `prisma migrate diff --from-migrations --to-schema-datamodel` reports **an empty
+  migration**, so the expression index causes no drift; Prisma's diff engine leaves
+  alone what it cannot represent.
+- A fresh database replayed from migrations receives the index.
+- `prisma migrate status` is clean.
+- All four case variants are rejected by Postgres with `P2002`,
+  `meta.target = ["lower(name)"]`, which the existing error mapping already routes to
+  the "name already exists" message rather than the code one.
+
+The application-level check is kept as well. It runs first and produces the same message
+without a round trip to a constraint violation; the index is what makes it safe under
+concurrency.
 
 ## API contract
 
@@ -263,10 +288,11 @@ active  boolean NOT NULL DEFAULT true
 
 duplicate code            -> rejected, P2002
 duplicate name            -> rejected, P2002
-name differing by case    -> ACCEPTED at the database, rejected by the application
+name differing by case    -> rejected, P2002, target ["lower(name)"]
 ```
 
-That last line is limitation 1 below, confirmed rather than assumed.
+The last line was originally `ACCEPTED at the database, rejected by the application`.
+It is now enforced by the functional index described under *Uniqueness*.
 
 The UI was driven end to end in a real browser for both identities: create, list, edit,
 archive, reveal via the archived toggle, and client-side validation feedback — all
@@ -284,10 +310,9 @@ and permission-grant rows both end at zero.
 
 ## Unresolved questions and limitations
 
-1. **Case-insensitive name uniqueness is application-level.** Two names differing only
-   in case can race past the check under concurrent creates; the database would accept
-   both. A raw `CREATE UNIQUE INDEX ON departments (lower(name))` would close it but sits
-   outside Prisma's schema and reports as drift.
+1. ~~Case-insensitive name uniqueness is application-level.~~ **Resolved** in migration
+   `20260903120000` with a functional unique index on `LOWER(name)`. It reports no drift,
+   contrary to the concern recorded here originally. See *Uniqueness* above.
 2. **`UserProfile.department` is still free text** and unreconciled with this table.
 3. **No grant-assignment API.** Grants are bootstrapped from the environment and
    otherwise written directly to the database until Roles exists.

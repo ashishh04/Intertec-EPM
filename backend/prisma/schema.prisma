@@ -162,7 +162,11 @@ model Session {
 /// table owns its own identity rather than borrowing an upstream id.
 model Department {
   id          String   @id @default(cuid())
-  name        String   @unique
+  /// Unique regardless of case, enforced by a functional index on LOWER(name)
+  /// in migration 20260903120000. Prisma's schema cannot express an index on an
+  /// expression, so `@unique` is deliberately absent here — declaring it would
+  /// recreate the plain index that the migration replaces.
+  name        String
   code        String   @unique
   description String?
   /// OpenProject user id of the manager. Deliberately not a relation:
