@@ -61,6 +61,7 @@ export const PERMISSIONS = [
   'employees:manage',
   'health:manage',
   'portfolios:manage',
+  'analytics:manage',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -113,6 +114,11 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // to derive it from. Granted from EPM's own permission grants.
   'portfolios:manage':
     'Portfolio is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Reading analytics needs only a session. Capturing a snapshot writes the
+  // historical record, and a bad or partial run is not something an ordinary
+  // user should be able to cause — a real distinction, not an invented one.
+  'analytics:manage':
+    'Capturing metric snapshots is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

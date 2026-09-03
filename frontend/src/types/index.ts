@@ -96,6 +96,7 @@ export type Permission =
   | 'employees:manage'
   | 'health:manage'
   | 'portfolios:manage'
+  | 'analytics:manage'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';

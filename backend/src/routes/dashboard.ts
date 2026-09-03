@@ -58,7 +58,7 @@ async function trendFor(
     const cutoff = new Date();
     cutoff.setUTCDate(cutoff.getUTCDate() - 7);
     return prisma.metricSnapshot.findFirst({
-      where: { metric, scopeUserId, sampledOn: { lte: cutoff } },
+      where: { metric, scopeType: 'user', scopeId: scopeUserId ?? '', sampledOn: { lte: cutoff } },
       orderBy: { sampledOn: 'desc' },
     });
   }, null);
@@ -74,7 +74,12 @@ async function trendFor(
   };
 }
 
-/** Records today's values so tomorrow's trends have something to compare to. */
+/**
+ * Records today's values so tomorrow's trends have something to compare to.
+ *
+ * Scoped to the signed-in user, as it always was — these are their counts, not
+ * the instance's. Org-wide history comes from the analytics snapshot instead.
+ */
 async function recordSnapshots(values: Record<string, number>, scopeUserId: string) {
   const sampledOn = new Date(new Date().toISOString().slice(0, 10));
   await optional(
@@ -82,8 +87,15 @@ async function recordSnapshots(values: Record<string, number>, scopeUserId: stri
       prisma.$transaction(
         Object.entries(values).map(([metric, value]) =>
           prisma.metricSnapshot.upsert({
-            where: { scopeUserId_sampledOn_metric: { scopeUserId, sampledOn, metric } },
-            create: { scopeUserId, sampledOn, metric, value },
+            where: {
+              scopeType_scopeId_sampledOn_metric: {
+                scopeType: 'user',
+                scopeId: scopeUserId,
+                sampledOn,
+                metric,
+              },
+            },
+            create: { scopeType: 'user', scopeId: scopeUserId, sampledOn, metric, value },
             update: { value },
           }),
         ),

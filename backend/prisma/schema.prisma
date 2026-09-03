@@ -104,15 +104,29 @@ model BurndownSample {
 /// Daily counters behind DashboardMetrics.trends and ExecutiveInsights.
 /// MetricTrend is a change against the previous period, which requires history.
 model MetricSnapshot {
-  id          String   @id @default(cuid())
-  /// Null for instance-wide metrics, otherwise the OpenProject user id.
-  scopeUserId String?
-  sampledOn   DateTime @db.Date
-  metric      String
-  value       Float
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  /// What the row is about: instance, user, portfolio, team or department.
+  scopeType  String   @default("instance")
+  /// The id within that type; the empty string for `instance`, which has none.
+  ///
+  /// Not nullable, and that is load-bearing: Postgres treats NULLs as distinct
+  /// in a unique index, so a nullable scopeId would let the same instance-wide
+  /// metric be inserted again every run instead of being overwritten. The
+  /// sentinel is what makes the snapshot idempotent.
+  ///
+  /// Deliberately not a foreign key either: a snapshot records what was true
+  /// then, so a department deleted later must not take its own history with it,
+  /// and a RESTRICT reference would make deleting one impossible once measured.
+  scopeId    String   @default("")
+  sampledOn  DateTime @db.Date
+  metric     String
+  value      Float
+  createdAt  DateTime @default(now())
 
-  @@unique([scopeUserId, sampledOn, metric])
+  /// One row per scope per metric per day — what makes a rerun overwrite
+  /// rather than double-count.
+  @@unique([scopeType, scopeId, sampledOn, metric])
+  @@index([scopeType, scopeId, metric, sampledOn])
   @@index([metric, sampledOn])
   @@map("metric_snapshots")
 }
