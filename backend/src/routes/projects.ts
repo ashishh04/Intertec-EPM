@@ -13,6 +13,7 @@ import {
   toEpmProject,
 } from '../mapping/projects.js';
 import { prisma, optional } from '../db/prisma.js';
+import { setProjectPortfolio } from '../domain/portfolios.js';
 import { Prisma } from '@prisma/client';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
 import type { Milestone, EpmProject } from '../types/epm.js';
@@ -39,6 +40,20 @@ async function membersByProject(signal?: AbortSignal): Promise<Map<string, strin
     byProject.set(projectId, existing);
   }
   return byProject;
+}
+
+/**
+ * Every project this caller can see, already normalized.
+ *
+ * Exported so the portfolio rollups can reuse it rather than reading the
+ * association table directly — that way a portfolio can never report a project
+ * the caller is not allowed to know about, and a project removed upstream
+ * simply stops appearing.
+ */
+export async function loadProjectsFor(
+  request: Parameters<typeof requestSignal>[0],
+): Promise<EpmProject[]> {
+  return loadProjects(requestSignal(request));
 }
 
 async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
@@ -263,6 +278,35 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
       // Re-read through the normal path, so the response is the same shape
       // every other project read returns, with the pin already applied.
+      const projects = await loadProjects(requestSignal(request));
+      return projects.find((candidate) => candidate.id === id);
+    },
+  );
+
+
+  /**
+   * Associates a project with a portfolio, or clears it.
+   *
+   * Its own route rather than part of the overlay patch above, which is gated
+   * on `project:edit` — derived from OpenProject's `projects/update`. A
+   * portfolio is EPM's concept, so deciding which one a project belongs to is
+   * EPM's to grant. Sending null or omitting the id clears the association.
+   */
+  app.patch<{ Params: { id: string }; Body: { portfolioId?: unknown } }>(
+    '/projects/:id/portfolio',
+    async (request) => {
+      const { id } = request.params;
+
+      await guard.require(request, 'portfolios:manage');
+
+      // Confirms the project exists and that this caller can see it, so the
+      // route cannot be used to discover project ids.
+      await openProject.request<{ id: number }>(`/projects/${id}`, {
+        signal: requestSignal(request),
+      });
+
+      await setProjectPortfolio(id, request.body?.portfolioId);
+
       const projects = await loadProjects(requestSignal(request));
       return projects.find((candidate) => candidate.id === id);
     },

@@ -55,8 +55,13 @@ model UserProfile {
 /// Per-project attributes, plus the inputs to computed health.
 model ProjectProfile {
   openProjectId  String   @id
-  /// EpmProject.portfolio — "Platform", "Cloud", "Customer".
+  /// Legacy free text, superseded by `portfolioId`. Kept rather than dropped:
+  /// this database never held a value, but the project patch route accepts
+  /// arbitrary strings, so another deployment might. Reads fall back to it
+  /// until a project is linked. Never written from now on.
   portfolio      String?
+  portfolioId    String?
+  portfolioRef   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
   budgetTotal    Float?
   budgetUsed     Float?
   /// Set to pin a health dimension that the computed rules get wrong.
@@ -64,6 +69,7 @@ model ProjectProfile {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  @@index([portfolioId])
   @@map("project_profiles")
 }
 
@@ -239,4 +245,30 @@ model EpmPermissionGrant {
 
   @@id([openProjectId, permission])
   @@map("epm_permission_grants")
+}
+
+/// A named grouping of projects. EPM-owned: OpenProject has no concept of one,
+/// and nothing here copies a project — the association is a single nullable
+/// reference on the project's EPM profile.
+///
+/// A portfolio holds projects only. The teams working on a portfolio are
+/// derived from its projects' members rather than declared here, so they cannot
+/// drift from who is actually on the work.
+model Portfolio {
+  id          String   @id @default(cuid())
+  /// Unique regardless of case, enforced by a functional index on LOWER(name).
+  /// `@unique` is deliberately absent: Prisma cannot express an index on an
+  /// expression, and declaring it here would add a redundant plain index.
+  name        String
+  code        String   @unique
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  projects    ProjectProfile[]
+
+  /// The list route filters on this by default.
+  @@index([active])
+  @@map("portfolios")
 }

@@ -95,6 +95,7 @@ export type Permission =
   | 'departments:manage'
   | 'employees:manage'
   | 'health:manage'
+  | 'portfolios:manage'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -155,8 +156,13 @@ export interface EpmProject {
   taskCount: number;
   completedTaskCount: number;
   openRiskCount: number;
-  /** Portfolio grouping, e.g. "Platform", "Cloud", "Customer". */
+  /**
+   * The portfolio's name, resolved for display. Falls back to the legacy
+   * free-text column for a project that has not been linked yet.
+   */
   portfolio: string;
+  /** The linked portfolio, where there is one. Absent means unassigned. */
+  portfolioId?: ID;
   budgetUsed: number;
   budgetTotal: number;
   createdAt: ISODate;

@@ -60,6 +60,7 @@ export const PERMISSIONS = [
   'teams:manage',
   'employees:manage',
   'health:manage',
+  'portfolios:manage',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -107,6 +108,11 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // EPM's rules say about its delivery.
   'health:manage':
     'Project health is an EPM judgement; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Grouping projects into portfolios is a structural responsibility of its
+  // own, like departments and teams, and OpenProject has no portfolio concept
+  // to derive it from. Granted from EPM's own permission grants.
+  'portfolios:manage':
+    'Portfolio is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

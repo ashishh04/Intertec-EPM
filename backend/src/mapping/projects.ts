@@ -292,7 +292,11 @@ function deriveStatus(input: {
 /* -------------------------------------------------------------------------- */
 
 export interface ProjectOverlay {
+  /** Legacy free text, used only when a project has no linked portfolio. */
   portfolio?: string | null;
+  portfolioId?: string | null;
+  /** The linked portfolio, whose name supersedes the free text above. */
+  portfolioRef?: { name: string } | null;
   budgetTotal?: number | null;
   budgetUsed?: number | null;
   healthOverride?: unknown;
@@ -341,7 +345,11 @@ export function toEpmProject(
     taskCount: total,
     completedTaskCount: completed,
     openRiskCount: overdue,
-    portfolio: options.overlay?.portfolio ?? '',
+    // The link is authoritative. The free-text column is a fallback for a
+    // deployment that populated it before portfolios existed; this one never
+    // did. Neither is invented — an unassigned project reports nothing.
+    portfolio: options.overlay?.portfolioRef?.name ?? options.overlay?.portfolio ?? '',
+    portfolioId: options.overlay?.portfolioId ?? undefined,
     budgetUsed: options.overlay?.budgetUsed ?? 0,
     budgetTotal: options.overlay?.budgetTotal ?? 0,
     createdAt: project.createdAt,
@@ -350,7 +358,13 @@ export function toEpmProject(
 }
 
 export async function getProjectOverlays(): Promise<Map<string, ProjectOverlay>> {
-  const rows = await optional(() => prisma.projectProfile.findMany(), []);
+  const rows = await optional(
+    () =>
+      prisma.projectProfile.findMany({
+        include: { portfolioRef: { select: { name: true } } },
+      }),
+    [],
+  );
   return new Map(rows.map((row) => [row.openProjectId, row as ProjectOverlay]));
 }
 

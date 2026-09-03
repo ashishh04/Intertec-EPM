@@ -23,6 +23,7 @@ const GRANTABLE = new Set<Permission>([
   'teams:manage',
   'employees:manage',
   'health:manage',
+  'portfolios:manage',
 ]);
 
 export function isGrantable(permission: string): permission is Permission {
