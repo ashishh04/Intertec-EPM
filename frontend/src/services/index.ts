@@ -22,6 +22,7 @@ import { ApiCatalogRepository } from './api/catalog';
 import { ApiAttachmentRepository } from './api/attachments';
 import { ApiQueryRepository } from './api/queries';
 import { ApiCommentRepository } from './api/comments';
+import { ApiDepartmentRepository } from './api/departments';
 import { ApiRelationRepository, ApiWatcherRepository } from './api/collaboration';
 import {
   ApiFormRepository,
@@ -67,5 +68,8 @@ export const attachmentService = new ApiAttachmentRepository();
 export const watcherService = new ApiWatcherRepository();
 export const relationService = new ApiRelationRepository();
 export const commentService = new ApiCommentRepository();
+
+/** EPM-owned domains. Nothing behind these endpoints comes from OpenProject. */
+export const departmentService = new ApiDepartmentRepository();
 
 export type { EpmRepositories } from './repositories';

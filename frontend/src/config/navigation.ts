@@ -12,6 +12,7 @@ import {
   SquareKanban,
   Timer,
   Users,
+  Building2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -68,6 +69,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Collaboration',
     items: [
       { label: 'Teams', to: '/teams', icon: Users, matchNested: true },
+      { label: 'Departments', to: '/departments', icon: Building2 },
       { label: 'Documents', to: '/documents', icon: FileText },
     ],
   },
