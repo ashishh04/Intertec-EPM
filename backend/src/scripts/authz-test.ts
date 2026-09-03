@@ -4199,6 +4199,303 @@ async function main() {
     true,
   );
 
+  // --- Project membership ----------------------------------------------------
+  console.log('\nProject membership');
+
+  interface MemberRow {
+    membershipId: string;
+    userId: string;
+    roles: { id: string; name: string }[];
+    canManage: boolean;
+    createdAt: string;
+  }
+
+  const projectRoles = (await (await call('/project-roles', { cookie: admin })).json()) as {
+    id: string;
+    name: string;
+  }[];
+
+  // `unit=project` upstream, so global roles must not be offered — granting one
+  // on a project membership is not a thing OpenProject supports.
+  check('project roles are returned', projectRoles.length > 0, true);
+  check(
+    'only project roles are offered',
+    projectRoles.every((role) => !/global/i.test(role.name)),
+    true,
+  );
+  check(
+    'builtin non-assignable roles are excluded',
+    projectRoles.some((role) => role.name === 'Anonymous' || role.name === 'Non member'),
+    false,
+  );
+
+  const memberRoleId = projectRoles.find((role) => role.name === 'Member')?.id ?? projectRoles[0]!.id;
+  // Reader deliberately: the only other roles here are Member and Project
+  // admin, and promoting the test subject to Project admin would hand them the
+  // very permission the denial checks below are asserting they lack.
+  const otherRoleId =
+    projectRoles.find((role) => role.name === 'Reader')?.id ??
+    projectRoles.find((role) => role.id !== memberRoleId && !/admin/i.test(role.name))?.id ??
+    memberRoleId;
+
+  // A project the admin can manage and that still has somebody to add. Picking
+  // "whichever came back first" would land on an archived test project with an
+  // empty candidate list and make every assertion below vacuously true.
+  const memberProjects = (await (await call('/projects', { cookie: admin })).json()) as {
+    id: string;
+    name: string;
+    memberIds: string[];
+  }[];
+
+  let memberProjectId = '';
+  for (const candidateProject of memberProjects) {
+    // Both conditions matter. A project with candidates but no members is an
+    // archived test project, and every assertion about the existing list would
+    // pass vacuously against it.
+    if (candidateProject.memberIds.length === 0) continue;
+
+    const response = await call(`/projects/${candidateProject.id}/members/candidates`, {
+      cookie: admin,
+    });
+    if (!response.ok) continue;
+    const rows = (await response.json()) as { userId: string }[];
+    if (rows.length > 0) {
+      memberProjectId = candidateProject.id;
+      break;
+    }
+  }
+
+  if (!memberProjectId) {
+    throw new Error('No project with both existing members and an addable candidate was found.');
+  }
+
+  const listMembers = async (cookie: string) =>
+    (await (await call(`/projects/${memberProjectId}/members`, { cookie })).json()) as MemberRow[];
+
+  const listCandidates = async (cookie: string) =>
+    (await (
+      await call(`/projects/${memberProjectId}/members/candidates`, { cookie })
+    ).json()) as { userId: string; name: string }[];
+
+  const membersBefore = await listMembers(admin);
+  const candidatesBefore = await listCandidates(admin);
+  const memberTarget = candidatesBefore[0]!.userId;
+
+  check('a member carries its own membership id', typeof membersBefore[0]?.membershipId, 'string');
+  check(
+    'the membership id is not the user id',
+    membersBefore[0]!.membershipId !== membersBefore[0]!.userId,
+    true,
+  );
+  check('an existing member reports canManage for an admin', membersBefore[0]!.canManage, true);
+  check(
+    'candidates exclude people who are already members',
+    candidatesBefore.some((row) => membersBefore.some((m) => m.userId === row.userId)),
+    false,
+  );
+
+  // --- the restricted user ---
+  // Run before anything is added, so the subject is genuinely an outsider here.
+  // The membership targeted is the existing member's — someone else's — which
+  // is the case that matters: an id from the list must not be actionable.
+  const outsiderTarget = membersBefore[0]!.membershipId;
+
+  const restrictedMembers = await call(`/projects/${memberProjectId}/members`, {
+    cookie: restricted,
+  });
+  check('a restricted user may call the members list', restrictedMembers.status, 200);
+  check(
+    'a restricted user sees no memberships they cannot see upstream',
+    ((await restrictedMembers.json()) as MemberRow[]).length,
+    0,
+  );
+
+  check(
+    'a restricted user cannot enumerate candidates',
+    await status(`/projects/${memberProjectId}/members/candidates`, { cookie: restricted }),
+    403,
+  );
+  check(
+    'a restricted user cannot add a member',
+    await status(`/projects/${memberProjectId}/members`, {
+      method: 'POST',
+      cookie: restricted,
+      body: { userId: memberTarget, roleIds: [memberRoleId] },
+    }),
+    403,
+  );
+  check(
+    "a restricted user cannot change someone else's role",
+    await status(`/projects/${memberProjectId}/members/${outsiderTarget}`, {
+      method: 'PATCH',
+      cookie: restricted,
+      body: { roleIds: [memberRoleId] },
+    }),
+    403,
+  );
+  check(
+    'a restricted user cannot remove someone else',
+    await status(`/projects/${memberProjectId}/members/${outsiderTarget}`, {
+      method: 'DELETE',
+      cookie: restricted,
+    }),
+    403,
+  );
+
+  // Refused, and nothing changed — a status code alone would not prove that.
+  const afterRefused = await listMembers(admin);
+  check('the refused writes removed nobody', afterRefused.length, membersBefore.length);
+  check(
+    'the refused writes changed no role',
+    afterRefused.find((m) => m.membershipId === outsiderTarget)?.roles[0]?.id,
+    membersBefore[0]!.roles[0]?.id,
+  );
+
+  // --- validation ---
+  check(
+    'adding without a user is rejected',
+    await status(`/projects/${memberProjectId}/members`, {
+      method: 'POST',
+      cookie: admin,
+      body: { roleIds: [memberRoleId] },
+    }),
+    400,
+  );
+  check(
+    'adding with no role is rejected',
+    await status(`/projects/${memberProjectId}/members`, {
+      method: 'POST',
+      cookie: admin,
+      body: { userId: memberTarget, roleIds: [] },
+    }),
+    400,
+  );
+  check(
+    'a non-numeric role id is rejected',
+    await status(`/projects/${memberProjectId}/members`, {
+      method: 'POST',
+      cookie: admin,
+      body: { userId: memberTarget, roleIds: ['../../admin'] },
+    }),
+    400,
+  );
+
+  // --- adding ---
+  const addResponse = await call(`/projects/${memberProjectId}/members`, {
+    method: 'POST',
+    cookie: admin,
+    body: { userId: memberTarget, roleIds: [memberRoleId] },
+  });
+  check('adding a member succeeds', addResponse.status, 201);
+
+  const addedMember = (await addResponse.json()) as MemberRow;
+  const addedMembershipId = addedMember.membershipId;
+  check('the new member is the person asked for', addedMember.userId, memberTarget);
+  check('the new member holds the role asked for', addedMember.roles[0]?.id, memberRoleId);
+
+  const membersAfterAdd = await listMembers(admin);
+  check(
+    'the new member appears in the list',
+    membersAfterAdd.some((m) => m.membershipId === addedMembershipId),
+    true,
+  );
+  check('the list grew by exactly one', membersAfterAdd.length, membersBefore.length + 1);
+  check(
+    'the new member is no longer a candidate',
+    (await listCandidates(admin)).some((row) => row.userId === memberTarget),
+    false,
+  );
+
+  // The whole point of writing through: OpenProject is the system of record, so
+  // the project payload every other EPM surface reads must reflect it.
+  const projectAfterAdd = (await (
+    await call(`/projects/${memberProjectId}`, { cookie: admin })
+  ).json()) as { memberIds: string[] };
+  check(
+    'the change reflects in the project payload',
+    projectAfterAdd.memberIds.includes(memberTarget),
+    true,
+  );
+
+  // --- role change ---
+  const patchResponse = await call(
+    `/projects/${memberProjectId}/members/${addedMembershipId}`,
+    { method: 'PATCH', cookie: admin, body: { roleIds: [otherRoleId] } },
+  );
+  check('changing a role succeeds', patchResponse.status, 200);
+  check('the role actually changed', ((await patchResponse.json()) as MemberRow).roles[0]?.id, otherRoleId);
+
+  check(
+    'clearing every role is rejected',
+    await status(`/projects/${memberProjectId}/members/${addedMembershipId}`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { roleIds: [] },
+    }),
+    400,
+  );
+
+  // --- id manipulation across projects ---
+  // Holding member:manage on one project must not reach into another. Reported
+  // as missing rather than forbidden: whether it exists is not the caller's
+  // business.
+  const otherProjectId = memberProjects.find((p) => p.id !== memberProjectId)?.id;
+  if (otherProjectId) {
+    check(
+      'a membership cannot be patched through a different project',
+      await status(`/projects/${otherProjectId}/members/${addedMembershipId}`, {
+        method: 'PATCH',
+        cookie: admin,
+        body: { roleIds: [memberRoleId] },
+      }),
+      404,
+    );
+    check(
+      'a membership cannot be deleted through a different project',
+      await status(`/projects/${otherProjectId}/members/${addedMembershipId}`, {
+        method: 'DELETE',
+        cookie: admin,
+      }),
+      404,
+    );
+  }
+
+  check(
+    'an unknown membership id is not found',
+    await status(`/projects/${memberProjectId}/members/99999999`, {
+      method: 'DELETE',
+      cookie: admin,
+    }),
+    404,
+  );
+
+  // --- removal, which is also the cleanup ---
+  check(
+    'removing a member succeeds',
+    await status(`/projects/${memberProjectId}/members/${addedMembershipId}`, {
+      method: 'DELETE',
+      cookie: admin,
+    }),
+    204,
+  );
+
+  const membersAfterRemove = await listMembers(admin);
+  check('the member list is back to where it started', membersAfterRemove.length, membersBefore.length);
+  check(
+    'the removed person is a candidate again',
+    (await listCandidates(admin)).some((row) => row.userId === memberTarget),
+    true,
+  );
+
+  const projectAfterRemove = (await (
+    await call(`/projects/${memberProjectId}`, { cookie: admin })
+  ).json()) as { memberIds: string[] };
+  check(
+    'the removal reflects in the project payload',
+    projectAfterRemove.memberIds.includes(memberTarget),
+    false,
+  );
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
