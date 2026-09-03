@@ -18,6 +18,7 @@ import type {
   EpmDocument,
   EpmNotification,
   EpmProject,
+  HealthOverride,
   EpmSprint,
   EpmTask,
   EpmUser,
@@ -34,6 +35,8 @@ export interface ProjectRepository {
   getProject(id: ID): Promise<EpmProject>;
   getMilestones(projectId: ID): Promise<Milestone[]>;
   updateProject(id: ID, patch: Partial<EpmProject>): Promise<EpmProject>;
+  /** Pins health dimensions. EPM-owned, so its own endpoint and permission. */
+  setHealthOverride(id: ID, override: HealthOverride): Promise<EpmProject>;
 }
 
 export interface TaskRepository {

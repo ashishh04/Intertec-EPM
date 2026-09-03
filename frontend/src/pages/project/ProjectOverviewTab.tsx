@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { CalendarRange, CircleDollarSign, Flag, ShieldAlert, Target, Users } from 'lucide-react';
+import { CalendarRange, CircleDollarSign, Flag, Pencil, ShieldAlert, Target, Users } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { HealthOverrideDialog } from '@/components/projects/HealthOverrideDialog';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { HealthIndicator, PriorityBadge } from '@/components/common/StatusBadge';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
@@ -11,19 +14,18 @@ import { UserAvatar } from '@/components/common/UserAvatar';
 import { useProject, useProjectMilestones } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
-import { PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
+import { useAuth } from '@/providers/AuthProvider';
+import { HEALTH_META, PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
 import { cn, formatCurrency, formatLongDate, formatShortDate } from '@/lib/utils';
-import type { HealthLevel } from '@/types';
+import type { HealthDimension } from '@/types';
 
-const HEALTH_DIMENSIONS: { key: keyof ProjectHealthKeys; label: string; hint: string }[] = [
+const HEALTH_DIMENSIONS: { key: HealthDimension; label: string; hint: string }[] = [
   { key: 'scope', label: 'Scope', hint: 'Change requests and requirement stability' },
   { key: 'schedule', label: 'Schedule', hint: 'Progress against the committed plan' },
   { key: 'resources', label: 'Resources', hint: 'Staffing and skill coverage' },
   { key: 'budget', label: 'Budget', hint: 'Spend against the approved envelope' },
   { key: 'overall', label: 'Overall', hint: 'Aggregated delivery confidence' },
 ];
-
-type ProjectHealthKeys = { scope: HealthLevel; schedule: HealthLevel; resources: HealthLevel; budget: HealthLevel; overall: HealthLevel };
 
 /** Project summary: facts, progress, health, milestones and recent activity. */
 export default function ProjectOverviewTab() {
@@ -32,6 +34,12 @@ export default function ProjectOverviewTab() {
   const milestonesQuery = useProjectMilestones(projectId);
   const activityQuery = useActivity({ projectId, limit: 8 });
   const users = useUserMap();
+
+  // Declared with the other hooks: the guard below returns early, and a hook
+  // after it would run on some renders and not others.
+  const { can } = useAuth();
+  const [healthOpen, setHealthOpen] = useState(false);
+  const canOverrideHealth = can('health:manage');
 
   if (isLoading || !project) {
     return (
@@ -217,23 +225,57 @@ export default function ProjectOverviewTab() {
       {/* Right rail */}
       <div className="space-y-5">
         <Card>
-          <CardHeader className="border-b border-border">
+          <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
             <CardTitle>Project health</CardTitle>
+            {canOverrideHealth ? (
+              <Button size="sm" variant="ghost" className="h-8" onClick={() => setHealthOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+                Override
+              </Button>
+            ) : null}
           </CardHeader>
           <CardContent className="pt-4">
             <ul className="space-y-3">
-              {HEALTH_DIMENSIONS.map((dimension) => (
-                <li key={dimension.key} className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium">{dimension.label}</p>
-                    <p className="text-2xs text-muted-foreground">{dimension.hint}</p>
-                  </div>
-                  <HealthIndicator level={project.health[dimension.key]} className="shrink-0" />
-                </li>
-              ))}
+              {HEALTH_DIMENSIONS.map((dimension) => {
+                const pinned = project.healthOverride?.[dimension.key];
+
+                return (
+                  <li key={dimension.key} className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5 text-xs font-medium">
+                        {dimension.label}
+                        {pinned ? (
+                          <Badge tone="accent" className="text-2xs">
+                            Overridden
+                          </Badge>
+                        ) : null}
+                      </p>
+                      {/* The reason names the figures the rule used, so the
+                          value can be checked rather than taken on trust. */}
+                      <p className="text-2xs text-muted-foreground">
+                        {project.healthReasons?.[dimension.key] ?? dimension.hint}
+                      </p>
+                      {pinned ? (
+                        <p className="mt-0.5 text-2xs text-muted-foreground">
+                          Calculated: {HEALTH_META[project.healthCalculated[dimension.key]].label}
+                        </p>
+                      ) : null}
+                    </div>
+                    <HealthIndicator level={project.health[dimension.key]} className="shrink-0" />
+                  </li>
+                );
+              })}
             </ul>
           </CardContent>
         </Card>
+
+        {canOverrideHealth ? (
+          <HealthOverrideDialog
+            open={healthOpen}
+            onOpenChange={setHealthOpen}
+            project={project}
+          />
+        ) : null}
 
         <Card>
           <CardHeader className="border-b border-border">

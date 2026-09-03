@@ -12,6 +12,7 @@ import {
 import { PageHeader } from '@/components/common/PageHeader';
 import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
+import { Badge } from '@/components/ui/badge';
 import { HealthIndicator, ProjectStatusBadge } from '@/components/common/StatusBadge';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
@@ -57,7 +58,7 @@ import {
 import { PROJECT_STATUS_META } from '@/lib/domain';
 import { daysFromToday, formatHours, formatShortDate, toISODateOnly } from '@/lib/utils';
 import { subDays } from 'date-fns';
-import type { ID, ReportFilters } from '@/types';
+import type { HealthLevel, ID, ReportFilters } from '@/types';
 
 const ALL = '__all__';
 
@@ -291,8 +292,20 @@ export default function ReportsPage() {
         {/* Project status */}
         <TabsContent value="status" className="mt-4">
           <Card className="overflow-hidden">
-            <CardHeader className="border-b border-border py-3">
+            <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border py-3">
               <CardTitle>Project status</CardTitle>
+              {/* Counted from effective health, so a pinned project is counted
+                  where it was pinned rather than where the rules put it. */}
+              <div className="flex items-center gap-3 text-2xs text-muted-foreground">
+                {(['healthy', 'warning', 'critical'] as HealthLevel[]).map((level) => (
+                  <span key={level} className="flex items-center gap-1.5">
+                    <HealthIndicator level={level} />
+                    <span className="font-mono tabular-nums">
+                      {projects.filter((project) => project.health.overall === level).length}
+                    </span>
+                  </span>
+                ))}
+              </div>
             </CardHeader>
             <div className="overflow-x-auto">
               <Table>
@@ -315,7 +328,16 @@ export default function ReportsPage() {
                         <ProjectStatusBadge status={project.status} size="sm" />
                       </TableCell>
                       <TableCell>
-                        <HealthIndicator level={project.health.overall} />
+                        <span className="flex items-center gap-1.5">
+                          <HealthIndicator level={project.health.overall} />
+                          {/* Says so when the value is pinned rather than
+                              calculated, so a reader is not misled by it. */}
+                          {project.healthOverride ? (
+                            <Badge tone="accent" className="text-2xs">
+                              Overridden
+                            </Badge>
+                          ) : null}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
