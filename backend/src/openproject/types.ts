@@ -122,6 +122,12 @@ export interface OpMembership extends HalResource {
   updatedAt: string;
 }
 
+/** A role, as OpenProject defines it. `unit=project` filters to the assignable ones. */
+export interface OpRole extends HalResource {
+  id: number;
+  name: string;
+}
+
 export interface OpTimeEntry extends HalResource {
   id: number;
   comment?: Formattable;

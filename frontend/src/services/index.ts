@@ -23,6 +23,7 @@ import { ApiAttachmentRepository } from './api/attachments';
 import { ApiQueryRepository } from './api/queries';
 import { ApiCommentRepository } from './api/comments';
 import { ApiDepartmentRepository } from './api/departments';
+import { ApiMemberRepository } from './api/members';
 import { ApiEmployeeRepository } from './api/employees';
 import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiPortfolioRepository } from './api/portfolios';
@@ -71,6 +72,9 @@ export const attachmentService = new ApiAttachmentRepository();
 export const watcherService = new ApiWatcherRepository();
 export const relationService = new ApiRelationRepository();
 export const commentService = new ApiCommentRepository();
+
+/** Project membership. Writes through to OpenProject; EPM stores nothing. */
+export const memberService = new ApiMemberRepository();
 
 /** EPM-owned domains. Nothing behind these endpoints comes from OpenProject. */
 export const departmentService = new ApiDepartmentRepository();

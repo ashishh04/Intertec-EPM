@@ -18,6 +18,7 @@ import {
 import { PROJECT_TABS } from '@/config/navigation';
 import { useProject } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
+import { MemberDialog } from '@/components/projects/MemberDialog';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { projectWriteService } from '@/services';
@@ -64,6 +65,7 @@ export default function ProjectDetailPage() {
   };
   const [editOpen, setEditOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const { data: project, isLoading, isError, refetch } = useProject(projectId);
   const users = useUserMap();
 
@@ -133,7 +135,12 @@ export default function ProjectDetailPage() {
               <Plus className="h-4 w-4" />
               Add Task
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => prototypeAction('Inviting members')}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!canInProject(projectId, 'member:manage')}
+              onClick={() => setInviteOpen(true)}
+            >
               <UserPlus className="h-3.5 w-3.5" />
               Invite
             </Button>
@@ -205,6 +212,7 @@ export default function ProjectDetailPage() {
         onOpenChange={setNewTaskOpen}
         projectId={project.id}
       />
+      <MemberDialog open={inviteOpen} onOpenChange={setInviteOpen} projectId={project.id} />
     </div>
   );
 }

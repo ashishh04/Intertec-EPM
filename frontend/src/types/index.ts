@@ -179,6 +179,53 @@ export interface Milestone {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Project membership                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** A role assignable within a project. OpenProject owns the vocabulary. */
+export interface EpmRole {
+  id: ID;
+  name: string;
+}
+
+/**
+ * One person's membership of one project.
+ *
+ * `membershipId` is not the user's id — it identifies the association, and it
+ * is what a role change or a removal acts on. Keeping both means a caller never
+ * has to look one up from the other.
+ */
+export interface EpmProjectMember {
+  membershipId: ID;
+  userId: ID;
+  roles: EpmRole[];
+  /**
+   * Whether the caller may change or remove this membership.
+   *
+   * Unlike watchers, relations and comments, this is not read from an
+   * affordance: OpenProject publishes `update` on a membership but no `delete`,
+   * even where deleting is permitted. So it comes from the per-project
+   * `member:manage` capability, which is the only signal upstream actually
+   * offers. The backend re-checks it on every write regardless.
+   */
+  canManage: boolean;
+  createdAt: ISODate;
+}
+
+/**
+ * Someone who could be added to a project.
+ *
+ * OpenProject computes this set — people who are neither locked nor already a
+ * member — so EPM never has to subtract one list from another and get it wrong.
+ * Groups and placeholder users are excluded: adding those stays an OpenProject
+ * operation.
+ */
+export interface EpmMemberCandidate {
+  userId: ID;
+  name: string;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Work packages (tasks)                                                       */
 /* -------------------------------------------------------------------------- */
 
