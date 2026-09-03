@@ -14,7 +14,12 @@ import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
-import { DeliveryTrendChart, StatusDistributionChart, VelocityChart } from '@/components/charts/EpmCharts';
+import {
+  DeliveryTrendChart,
+  StatusDistributionChart,
+  TrendChart,
+  VelocityChart,
+} from '@/components/charts/EpmCharts';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -26,12 +31,50 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useExecutiveInsights, useDeliveryTrends, useStatusDistribution } from '@/hooks/useReports';
+import { useAnalyticsOverview, useCaptureSnapshot, useTrends } from '@/hooks/useAnalytics';
+import { useAuth } from '@/providers/AuthProvider';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import { HEALTH_MATRIX_LABEL, HEALTH_META, TONE_FILL, TONE_TEXT } from '@/lib/domain';
 import { cn } from '@/lib/utils';
 import type { HealthLevel } from '@/types';
 
 /** Executive view: portfolio health, delivery confidence and the risk matrix. */
+/**
+ * Labels which claim a figure is making.
+ *
+ * A number computed from today's data and a number read from a recorded
+ * snapshot are different assertions, and a reader who cannot tell them apart
+ * will trust the wrong one.
+ */
+function SourceBadge({ live }: { live: boolean }) {
+  return (
+    <Badge tone={live ? 'primary' : 'neutral'} className="text-2xs">
+      {live ? 'Live' : 'Snapshot history'}
+    </Badge>
+  );
+}
+
 export default function AnalyticsPage() {
+  const { can } = useAuth();
+  const mayCapture = can('analytics:manage');
+
+  const overviewQuery = useAnalyticsOverview();
+  const capture = useCaptureSnapshot();
+
+  const history = overviewQuery.data?.history;
+  const hasHistory = (history?.days ?? 0) > 0;
+
+  // Only asked for once there is something to ask about, so an empty database
+  // does not produce a request per chart on every visit.
+  const projectTrends = useTrends({ metrics: ['projects.active', 'projects.total'], days: 90 }, hasHistory);
+  const healthTrends = useTrends(
+    { metrics: ['health.healthy', 'health.warning', 'health.critical'], days: 90 },
+    hasHistory,
+  );
+  const capacityTrends = useTrends({ metrics: ['capacity.hours', 'employees.mapped'], days: 90 }, hasHistory);
+
   const insightsQuery = useExecutiveInsights();
   const trendsQuery = useDeliveryTrends();
   const distributionQuery = useStatusDistribution();
@@ -229,6 +272,86 @@ export default function AnalyticsPage() {
           <VelocityChart data={trendsQuery.data ?? []} />
         </ChartCard>
       )}
+
+      {/* Historical -------------------------------------------------------- */}
+      <SectionHeader
+        title="Trends"
+        description={
+          hasHistory
+            ? `Recorded snapshots, ${history?.firstSnapshot} to ${history?.lastSnapshot}.`
+            : 'Recorded snapshots. History begins at the first capture.'
+        }
+        actions={
+          <div className="flex items-center gap-3">
+            <SourceBadge live={false} />
+            {mayCapture ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                loading={capture.isPending}
+                onClick={() =>
+                  capture.mutate(undefined, {
+                    onSuccess: (result) =>
+                      toast.success(`Captured ${result.records} metrics for ${result.sampledOn}`),
+                    onError: (error) =>
+                      toast.error('Could not capture a snapshot', {
+                        description: error instanceof Error ? error.message : undefined,
+                      }),
+                  })
+                }
+              >
+                Capture snapshot
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          title="Projects over time"
+          description="Active and total, per snapshot"
+          height={240}
+        >
+          <TrendChart
+            trends={projectTrends.data ?? []}
+            unit="projects"
+            labels={{ 'projects.active': 'Active', 'projects.total': 'Total' }}
+            tones={['primary', 'neutral']}
+          />
+        </ChartCard>
+
+        <ChartCard
+          title="Health over time"
+          description="Active projects by effective health"
+          height={240}
+        >
+          <TrendChart
+            trends={healthTrends.data ?? []}
+            unit="projects"
+            labels={{
+              'health.healthy': 'Healthy',
+              'health.warning': 'Warning',
+              'health.critical': 'Critical',
+            }}
+            tones={['success', 'warning', 'danger']}
+          />
+        </ChartCard>
+
+        <ChartCard
+          title="Capacity over time"
+          description="Weekly hours of mapped people"
+          height={240}
+          className="lg:col-span-2"
+        >
+          <TrendChart
+            trends={capacityTrends.data ?? []}
+            unit="h/wk"
+            labels={{ 'capacity.hours': 'Capacity', 'employees.mapped': 'People mapped' }}
+            tones={['accent', 'neutral']}
+          />
+        </ChartCard>
+      </div>
     </div>
   );
 }

@@ -15,7 +15,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { TASK_STATUS_META, TONE_VAR } from '@/lib/domain';
+import { TrendingUp } from 'lucide-react';
+import { EmptyState } from '@/components/common/EmptyState';
+import { TASK_STATUS_META, TONE_VAR, type Tone } from '@/lib/domain';
 import type { BurndownPoint, DeliveryTrendPoint, StatusDistribution } from '@/types';
 
 /**
@@ -226,6 +228,95 @@ export function HorizontalBarChart({
         <Tooltip {...TOOLTIP_STYLE} />
         <Bar dataKey={valueKey} fill={TONE_VAR[tone]} radius={[0, 4, 4, 0]} maxBarSize={18} />
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Snapshot trends                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A recorded metric series over time.
+ *
+ * Draws only what was captured. Two rules make this different from a general
+ * line chart, and both exist so the picture cannot claim more than the data:
+ *
+ * Fewer than two points is not a trend — one dot joined to nothing implies a
+ * shape that was never measured — so it says so rather than drawing. And days
+ * nobody captured stay gaps: `connectNulls` is off, so the line breaks instead
+ * of bridging straight through a period with no snapshot.
+ */
+export function TrendChart({
+  trends,
+  unit,
+  labels,
+  tones = ['primary', 'success', 'warning', 'danger'],
+}: {
+  trends: { metric: string; points: { date: string; value: number }[] }[];
+  unit: string;
+  labels?: Record<string, string>;
+  tones?: Tone[];
+}) {
+  const longest = Math.max(0, ...trends.map((trend) => trend.points.length));
+
+  if (longest === 0) {
+    return (
+      <EmptyState
+        icon={TrendingUp}
+        size="inline"
+        title="No history yet"
+        description="Trends begin at the first snapshot."
+      />
+    );
+  }
+
+  if (longest < 2) {
+    return (
+      <EmptyState
+        icon={TrendingUp}
+        size="inline"
+        title="Only one snapshot so far"
+        description="A trend needs at least two days. The next capture starts the line."
+      />
+    );
+  }
+
+  // Merged on the date, so a metric missing on a day is absent from that row
+  // rather than being written as zero.
+  const dates = [...new Set(trends.flatMap((t) => t.points.map((p) => p.date)))].sort();
+  const rows = dates.map((date) => {
+    const row: Record<string, string | number> = { date };
+    for (const trend of trends) {
+      const point = trend.points.find((candidate) => candidate.date === date);
+      if (point) row[trend.metric] = point.value;
+    }
+    return row;
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+        <CartesianGrid {...GRID} />
+        <XAxis dataKey="date" {...AXIS} tickFormatter={(value: string) => value.slice(5)} />
+        <YAxis {...AXIS} allowDecimals={false} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(value: number, name: string) => [`${value} ${unit}`, name]}
+        />
+        {trends.map((trend, index) => (
+          <Line
+            key={trend.metric}
+            type="monotone"
+            dataKey={trend.metric}
+            name={labels?.[trend.metric] ?? trend.metric}
+            stroke={TONE_VAR[tones[index % tones.length] as Tone]}
+            strokeWidth={2}
+            dot={{ r: 2 }}
+            connectNulls={false}
+          />
+        ))}
+      </LineChart>
     </ResponsiveContainer>
   );
 }

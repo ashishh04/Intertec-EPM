@@ -24,6 +24,7 @@ import { ApiQueryRepository } from './api/queries';
 import { ApiCommentRepository } from './api/comments';
 import { ApiDepartmentRepository } from './api/departments';
 import { ApiEmployeeRepository } from './api/employees';
+import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiRelationRepository, ApiWatcherRepository } from './api/collaboration';
 import {
@@ -75,5 +76,6 @@ export const commentService = new ApiCommentRepository();
 export const departmentService = new ApiDepartmentRepository();
 export const employeeService = new ApiEmployeeRepository();
 export const portfolioService = new ApiPortfolioRepository();
+export const analyticsService = new ApiAnalyticsRepository();
 
 export type { EpmRepositories } from './repositories';
