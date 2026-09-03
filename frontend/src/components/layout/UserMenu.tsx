@@ -77,10 +77,10 @@ export function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           destructive
-          onSelect={() => {
-            signOut();
-            navigate('/login', { replace: true });
-          }}
+          // `signOut` redirects with a full page load, deliberately: it is the
+          // only way to guarantee no in-memory state survives the session. A
+          // client-side navigate() here as well only raced it to /login.
+          onSelect={() => signOut()}
         >
           <LogOut />
           Sign out

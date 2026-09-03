@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, CheckCheck } from 'lucide-react';
 import {
@@ -19,6 +20,10 @@ import { toast } from 'sonner';
 
 /** Header notification bell with an inline preview of the newest items. */
 export function NotificationPanel() {
+  // Controlled, because every route in here is a client-side navigation. The
+  // header outlives the route change, so nothing unmounts the popover and Radix
+  // never learns the user has left — it has to be closed explicitly.
+  const [open, setOpen] = useState(false);
   const { data: notifications, isLoading } = useNotifications();
   const users = useUserMap();
   const markRead = useMarkNotificationsRead();
@@ -28,7 +33,7 @@ export function NotificationPanel() {
   const unread = items.filter((notification) => !notification.read).length;
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -96,7 +101,9 @@ export function NotificationPanel() {
           ) : (
             <ul className="divide-y divide-border">
               {items.slice(0, 6).map((notification) => (
-                <li key={notification.id}>
+                // The whole row is a link; closing here covers it without
+                // reaching into NotificationItem's own handler.
+                <li key={notification.id} onClick={() => setOpen(false)}>
                   <NotificationItem
                     notification={notification}
                     users={users}
@@ -111,7 +118,9 @@ export function NotificationPanel() {
 
         <div className="border-t border-border p-2">
           <Button asChild variant="ghost" size="sm" className="w-full text-2xs">
-            <Link to="/notifications">View all notifications</Link>
+            <Link to="/notifications" onClick={() => setOpen(false)}>
+              View all notifications
+            </Link>
           </Button>
         </div>
       </PopoverContent>

@@ -1,4 +1,4 @@
-import { lazy } from 'react';
+import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuth } from '@/providers/AuthProvider';
@@ -42,6 +42,19 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const IntegrationPage = lazy(() => import('@/pages/IntegrationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 
+/**
+ * Boundary for the routes that render outside AppShell — in practice /login.
+ * AppShell has its own Suspense around its outlet, so every protected page was
+ * covered; the sign-in page was not, and a lazy component with no boundary
+ * above it takes the tree down to a blank page rather than a loading state.
+ *
+ * A plain background rather than a skeleton: the chunk is small and local, and
+ * outlining a form that is about to appear reads as breakage.
+ */
+function RouteFallback() {
+  return <div className="min-h-screen bg-background" />;
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
@@ -62,66 +75,68 @@ export function App() {
   const { isAuthenticated, isLoading } = useAuth();
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        // Same reason as RequireAuth: show nothing until the session is known,
-        // rather than flashing the sign-in form at someone already signed in.
-        element={
-          isLoading ? null : isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
-        }
-      />
+    <Suspense fallback={<RouteFallback />}>
+      <Routes>
+        <Route
+          path="/login"
+          // Same reason as RequireAuth: show nothing until the session is known,
+          // rather than flashing the sign-in form at someone already signed in.
+          element={
+            isLoading ? null : isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
+          }
+        />
 
-      <Route
-        element={
-          <RequireAuth>
-            <AppShell />
-          </RequireAuth>
-        }
-      >
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/my-work" element={<MyWorkPage />} />
+        <Route
+          element={
+            <RequireAuth>
+              <AppShell />
+            </RequireAuth>
+          }
+        >
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/my-work" element={<MyWorkPage />} />
 
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/projects/:projectId" element={<ProjectDetailPage />}>
-          <Route index element={<ProjectOverviewTab />} />
-          <Route path="tasks" element={<ProjectTasksTab />} />
-          <Route path="board" element={<ProjectBoardTab />} />
-          <Route path="sprint" element={<ProjectSprintTab />} />
-          <Route path="gantt" element={<ProjectGanttTab />} />
-          <Route path="team" element={<ProjectTeamTab />} />
-          <Route path="documents" element={<ProjectDocumentsTab />} />
-          <Route path="activity" element={<ProjectActivityTab />} />
-          <Route path="reports" element={<ProjectReportsTab />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:projectId" element={<ProjectDetailPage />}>
+            <Route index element={<ProjectOverviewTab />} />
+            <Route path="tasks" element={<ProjectTasksTab />} />
+            <Route path="board" element={<ProjectBoardTab />} />
+            <Route path="sprint" element={<ProjectSprintTab />} />
+            <Route path="gantt" element={<ProjectGanttTab />} />
+            <Route path="team" element={<ProjectTeamTab />} />
+            <Route path="documents" element={<ProjectDocumentsTab />} />
+            <Route path="activity" element={<ProjectActivityTab />} />
+            <Route path="reports" element={<ProjectReportsTab />} />
+          </Route>
+
+          <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
+
+          <Route path="/departments" element={<DepartmentsPage />} />
+          <Route path="/employees" element={<EmployeesPage />} />
+          <Route path="/portfolios" element={<PortfoliosPage />} />
+
+          <Route path="/teams" element={<TeamsPage />} />
+          <Route path="/teams/:teamId" element={<TeamDetailPage />} />
+
+          <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/agile" element={<AgilePage />} />
+          <Route path="/boards" element={<BoardsPage />} />
+          <Route path="/sprints" element={<SprintsPage />} />
+          <Route path="/gantt" element={<GanttPage />} />
+
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route path="/documents" element={<DocumentsPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/integration" element={<IntegrationPage />} />
+
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
-
-        <Route path="/tasks" element={<TasksPage />} />
-        <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
-
-        <Route path="/departments" element={<DepartmentsPage />} />
-        <Route path="/employees" element={<EmployeesPage />} />
-        <Route path="/portfolios" element={<PortfoliosPage />} />
-
-        <Route path="/teams" element={<TeamsPage />} />
-        <Route path="/teams/:teamId" element={<TeamDetailPage />} />
-
-        <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/agile" element={<AgilePage />} />
-        <Route path="/boards" element={<BoardsPage />} />
-        <Route path="/sprints" element={<SprintsPage />} />
-        <Route path="/gantt" element={<GanttPage />} />
-
-        <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/analytics" element={<AnalyticsPage />} />
-        <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/settings/integration" element={<IntegrationPage />} />
-
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }
