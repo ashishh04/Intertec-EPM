@@ -251,6 +251,88 @@ that is convenience — the backend rejects an invalid pair regardless of what t
 
 Write controls render on `can('employees:manage')`.
 
+## Test results
+
+60 cases in `npm run test:authz`. Suite total **433 passed, 0 failed** — the 373 that
+existed before are unchanged, apart from one deliberate update: the team-contract
+assertion now expects `memberCount`, which this work added.
+
+Coverage: the permission on `/me` for both identities; anonymous refused; read allowed
+without the grant; assignment refused without it; the directory including unmapped
+people; that ids are OpenProject's and no identity field is invented; the invariant in
+all four shapes (department alone, team alone deriving its department, a matching pair,
+and a contradictory pair refused); a team with no department; five validation cases;
+clearing by empty body and by empty string; all four filters and search; team membership
+and member counts; workload scoping; and the archived lifecycle for both a team and a
+department, including that a team whose department is archived cannot be joined either.
+
+Database constraints verified directly against Postgres:
+
+```
+user_profiles_pkey              PRIMARY KEY (openProjectId)
+user_profiles_departmentId_idx  btree ("departmentId")
+user_profiles_teamId_idx        btree ("teamId")
+user_profiles_departmentId_fkey ON DELETE RESTRICT  ON UPDATE CASCADE
+user_profiles_teamId_fkey       ON DELETE RESTRICT  ON UPDATE CASCADE
+hoursCapacity  NOT NULL DEFAULT 40
+department     still present (legacy, nullable)
+
+a department that does not exist            -> P2003
+a team that does not exist                  -> P2003
+a duplicate profile for the same person     -> P2002, target ["openProjectId"]
+deleting a team someone is mapped to        -> P2003
+deleting a department someone is mapped to  -> P2003
+```
+
+The legacy inventory was run as a script rather than asserted from memory:
+
+```
+user_profiles rows            0
+distinct values               0
+null / empty                  0
+exact matches to a department 0
+case-insensitive matches      0
+unmatched                     0
+differ only by case           0
+```
+
+Driven end to end in a browser for both identities. Selecting a team filled the
+department in, the mapping appeared in the table, the team filter narrowed to one row,
+search produced its empty state, the team list and detail page both showed the new
+member, and the profile page showed the department — which is the directory cache being
+invalidated by the write rather than waiting out its five minutes. The restricted
+identity saw the page and both filters but **zero** assign buttons. Every route clean of
+console errors; only `localhost:8000` and Google Fonts contacted. Bundle audit: zero
+occurrences of all nine patterns.
+
+## Test data
+
+None left behind: `teams=0  departments=0  profiles=0  grants=0`.
+
+The suite clears mappings before removing the departments and teams they point at,
+because both foreign keys are `RESTRICT` and would otherwise refuse — that ordering is
+the constraint working. It then deletes profile rows that hold nothing but defaults.
+Rows carrying capacity or timezone are **not** deleted: those are real per-person data
+that this suite did not create and has no business removing.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **One department and one team per person.** No secondments, no partial allocation, no
+   history of past assignments. Nothing in the current requirements reads any of those,
+   and each would be an additive table rather than a reshape of this one.
+2. **`UserProfile.department` free text remains.** Empty here, kept for deployments that
+   may have populated it. Reads prefer the mapping. It can be dropped once the inventory
+   script reports zero against every database that matters.
+3. **`hoursCapacity` is still unwritable.** It defaults to 40 and no API sets it. That is
+   Capacity's job; this feature only reads it.
+4. **A person can be stranded in an archived department or team.** By design — mappings
+   are retained — and the API reports `active: false` so the UI flags it, but nothing
+   prompts anyone to move them.
+5. **Search and filtering happen in the backend, not upstream.** The directory endpoint
+   offers no search, and it is fetched whole and cached regardless. At two users this is
+   right; at ten thousand it would need `/principals` filters.
+6. **The mapping has no referential integrity to OpenProject.** A person deleted upstream
+   leaves an orphan row that simply stops appearing, since the directory is the outer
+   set of the list.
+7. **No audit trail.** Who reassigned whom, and when, is not recorded beyond
+   `updatedAt`.

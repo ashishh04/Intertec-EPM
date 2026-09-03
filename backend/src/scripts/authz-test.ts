@@ -125,6 +125,7 @@ async function main() {
   const restrictedMe = (await (await call('/me', { cookie: restricted })).json()) as typeof adminMe;
 
   check('the two sessions are different identities', adminMe.id !== restrictedMe.id, true);
+  const restrictedId = restrictedMe.id;
   check('admin may create projects', adminMe.permissions.project?.create, true);
   check('restricted user may not create projects', restrictedMe.permissions.project?.create ?? false, false);
 
@@ -1748,7 +1749,11 @@ async function main() {
   // The permission is EPM's own: no OpenProject capability implies it, so it is
   // granted from EPM's grants and bootstrap configuration instead.
   const adminPermissions = (await (await call('/me', { cookie: admin })).json()) as {
-    permissions?: { departments?: { manage?: boolean }; teams?: { manage?: boolean } };
+    permissions?: {
+      departments?: { manage?: boolean };
+      teams?: { manage?: boolean };
+      employees?: { manage?: boolean };
+    };
   };
   const restrictedPermissions = (await (
     await call('/me', { cookie: restricted })
@@ -2002,6 +2007,7 @@ async function main() {
     description?: string;
     department?: { id: string; name: string; active: boolean };
     lead?: { id: string; name: string };
+    memberCount: number;
     active: boolean;
     createdAt: string;
     updatedAt: string;
@@ -2090,8 +2096,11 @@ async function main() {
   check(
     'no upstream reference is exposed on a team',
     Object.keys(createdTeam).sort().join(),
-    'active,code,createdAt,department,description,id,lead,name,updatedAt',
+    // memberCount joined this contract with employee mapping. It counts EPM
+    // mappings; no OpenProject group is consulted for it.
+    'active,code,createdAt,department,description,id,lead,memberCount,name,updatedAt',
   );
+  check('a new team has no members', createdTeam.memberCount, 0);
 
   check(
     'a duplicate code is refused',
@@ -2286,6 +2295,300 @@ async function main() {
   // not be captured by the :id route, and must survive teams changing shape.
   check('the workload endpoint still answers', await status('/teams/workloads', { cookie: admin }), 200);
 
+  // --- Employee mapping ------------------------------------------------------
+  //
+  // Reuses the department and teams created above, so the invariant and the
+  // archived-lifecycle cases act on real rows. Mappings are cleared in the
+  // cleanup step before those rows are removed, because the foreign keys are
+  // RESTRICT and would otherwise refuse.
+  console.log('\nEmployee mapping');
+
+  interface TestEmployee {
+    id: string;
+    name: string;
+    email?: string;
+    department?: { id: string; name: string; active: boolean };
+    team?: { id: string; name: string; active: boolean };
+    hoursCapacity: number;
+  }
+
+  const employees = async (cookie: string, query = '') =>
+    (await (await call(`/employees${query}`, { cookie })).json()) as TestEmployee[];
+
+  const employee = async (id: string) =>
+    (await (await call(`/employees/${id}`, { cookie: admin })).json()) as TestEmployee;
+
+  const setMapping = (id: string, body: Record<string, unknown>, cookie = admin) =>
+    call(`/employees/${id}/mapping`, { method: 'PATCH', cookie, body });
+
+  check(
+    'the manage permission is surfaced to the client',
+    adminPermissions.permissions?.employees?.manage,
+    true,
+  );
+  check(
+    'a caller without a grant does not hold it',
+    restrictedPermissions.permissions?.employees?.manage,
+    false,
+  );
+
+  check('anonymous cannot list employees', await status('/employees'), 401);
+  check(
+    'anonymous cannot assign a mapping',
+    await status(`/employees/${adminId}/mapping`, { method: 'PATCH', body: {} }),
+    401,
+  );
+
+  check('a permitted caller can list employees', await status('/employees', { cookie: admin }), 200);
+  check(
+    'a caller without the manage grant can still read them',
+    await status('/employees', { cookie: restricted }),
+    200,
+  );
+
+  const directory = await employees(admin);
+  check('the directory is returned', directory.length > 0, true);
+  // People with no mapping must appear: they are exactly who needs assigning.
+  check('everyone appears, mapped or not', directory.some((e) => e.id === adminId), true);
+  check(
+    'an employee id is an OpenProject user id, not one EPM minted',
+    directory.every((e) => /^\d+$/.test(e.id)),
+    true,
+  );
+  check(
+    'no EPM-owned identity fields are invented',
+    Object.keys(directory[0]!).every((key) =>
+      ['id', 'name', 'email', 'avatarUrl', 'department', 'team', 'hoursCapacity'].includes(key),
+    ),
+    true,
+  );
+  check('an unmapped person reports the default capacity', directory[0]!.hoursCapacity, 40);
+
+  check('a known employee can be read', await status(`/employees/${adminId}`, { cookie: admin }), 200);
+  check('an unknown employee is not found', await status('/employees/99999999', { cookie: admin }), 404);
+
+  check(
+    'a caller without the grant cannot assign',
+    (await setMapping(adminId, { departmentId: deptId }, restricted)).status,
+    403,
+  );
+
+  // --- the invariant ---
+  // A team belongs to at most one department, so a person cannot be in one
+  // department by way of a team that belongs to another.
+  const secondDepartment = (await (
+    await call('/departments', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `${deptName} Two`, code: `${deptCode}2`.slice(0, 16) },
+    })
+  ).json()) as { id: string };
+  departmentIds.push(secondDepartment.id);
+
+  check(
+    'a department alone can be assigned',
+    (await setMapping(adminId, { departmentId: deptId })).status,
+    200,
+  );
+  check('it is reported back', (await employee(adminId)).department?.id, deptId);
+
+  // The team fixes the department, so it is taken from the team rather than the
+  // request and the two cannot drift apart.
+  const derived = await setMapping(adminId, { teamId });
+  check('a team alone can be assigned', derived.status, 200);
+  const derivedEmployee = (await derived.json()) as TestEmployee;
+  check('the team is recorded', derivedEmployee.team?.id, teamId);
+  check('the department is derived from the team', derivedEmployee.department?.id, deptId);
+
+  check(
+    'a matching department and team are accepted',
+    (await setMapping(adminId, { departmentId: deptId, teamId })).status,
+    200,
+  );
+  // Rejected rather than silently overruled: a caller who states both is told
+  // they disagree.
+  check(
+    'a contradictory department and team are refused',
+    (await setMapping(adminId, { departmentId: secondDepartment.id, teamId })).status,
+    400,
+  );
+  check(
+    'the mapping is unchanged after the refused assignment',
+    (await employee(adminId)).department?.id,
+    deptId,
+  );
+
+  // A team with no department constrains nothing.
+  const looseTeamId = looseTeam.id;
+  check(
+    'a team with no department can be assigned',
+    (await setMapping(restrictedId, { teamId: looseTeamId })).status,
+    200,
+  );
+  const looseMapping = await employee(restrictedId);
+  check('the team is recorded', looseMapping.team?.id, looseTeamId);
+  check('it implies no department', looseMapping.department, undefined);
+  check(
+    'a department can be set alongside it',
+    ((await (await setMapping(restrictedId, { departmentId: secondDepartment.id, teamId: looseTeamId })).json()) as TestEmployee)
+      .department?.id,
+    secondDepartment.id,
+  );
+
+  // --- validation ---
+  const invalidMappings: [string, Record<string, unknown>][] = [
+    ['an unknown department is refused', { departmentId: 'no-such-department' }],
+    ['an unknown team is refused', { teamId: 'no-such-team' }],
+    ['a non-string department is refused', { departmentId: 42 }],
+    ['a non-string team is refused', { teamId: { id: 'x' } }],
+  ];
+  for (const [label, body] of invalidMappings) {
+    check(label, (await setMapping(adminId, body)).status, 400);
+  }
+  check(
+    'an unknown employee cannot be assigned',
+    (await setMapping('99999999', { departmentId: deptId })).status,
+    404,
+  );
+
+  // --- clearing ---
+  const clearedMapping = (await (await setMapping(adminId, {})).json()) as TestEmployee;
+  check('an empty body clears the mapping', clearedMapping.department, undefined);
+  check('it clears the team too', clearedMapping.team, undefined);
+  check(
+    'an empty string clears as well',
+    ((await (await setMapping(restrictedId, { departmentId: '', teamId: '' })).json()) as TestEmployee).team,
+    undefined,
+  );
+
+  // --- filters ---
+  await setMapping(adminId, { teamId });
+  check(
+    'employees can be filtered by department',
+    (await employees(admin, `?departmentId=${deptId}`)).some((e) => e.id === adminId),
+    true,
+  );
+  check(
+    'the filter excludes people outside it',
+    (await employees(admin, `?departmentId=${secondDepartment.id}`)).some((e) => e.id === adminId),
+    false,
+  );
+  check(
+    'employees can be filtered by team',
+    (await employees(admin, `?teamId=${teamId}`)).map((e) => e.id).join(),
+    adminId,
+  );
+  check(
+    'unmapped people can be listed',
+    (await employees(admin, '?unmapped=true')).some((e) => e.id === adminId),
+    false,
+  );
+  check(
+    'people can be searched by name',
+    (await employees(admin, '?q=restricted')).every((e) => e.name.toLowerCase().includes('restricted')),
+    true,
+  );
+  check('a search matching nobody returns nothing', (await employees(admin, '?q=zzzznobody')).length, 0);
+
+  // --- team membership ---
+  const members = (await (await call(`/teams/${teamId}/members`, { cookie: admin })).json()) as TestEmployee[];
+  check('a team reports its members', members.some((m) => m.id === adminId), true);
+  check('it excludes people on other teams', members.some((m) => m.id === restrictedId), false);
+  check(
+    'members of an unknown team are not found',
+    await status('/teams/no-such-id/members', { cookie: admin }),
+    404,
+  );
+
+  const withCounts = (await (await call('/teams', { cookie: admin })).json()) as { id: string; memberCount: number }[];
+  check('a team carries a member count', withCounts.find((t) => t.id === teamId)?.memberCount, 1);
+  check(
+    'a team with nobody counts zero',
+    withCounts.find((t) => t.id === looseTeamId)?.memberCount,
+    0,
+  );
+
+  // --- workload scoping ---
+  // Scoping changes only which people are measured; each person's numbers are
+  // computed the same way regardless, so this needs no capacity work.
+  const allWorkloads = (await (await call('/teams/workloads', { cookie: admin })).json()) as { userId: string }[];
+  const scoped = (await (
+    await call(`/teams/workloads?teamId=${teamId}`, { cookie: admin })
+  ).json()) as { userId: string }[];
+
+  check('unscoped workloads cover the directory', allWorkloads.length > 1, true);
+  check('scoping to a team narrows them', scoped.length, 1);
+  check('it returns that team member', scoped[0]?.userId, adminId);
+  check(
+    'it excludes people on other teams',
+    scoped.some((w) => w.userId === restrictedId),
+    false,
+  );
+  check(
+    'a team with nobody yields no workloads',
+    ((await (await call(`/teams/workloads?teamId=${looseTeamId}`, { cookie: admin })).json()) as unknown[]).length,
+    0,
+  );
+
+  // --- archived lifecycle ---
+  // Mappings that already point at an archived unit are left alone; archiving
+  // stays a visibility decision, as it is for departments and teams.
+  await call(`/teams/${teamId}/archive`, { method: 'PATCH', cookie: admin });
+  const afterTeamArchive = await employee(adminId);
+  check('an existing mapping survives its team being archived', afterTeamArchive.team?.id, teamId);
+  check('the team is reported as archived', afterTeamArchive.team?.active, false);
+  check(
+    'nobody new can be assigned to an archived team',
+    (await setMapping(restrictedId, { teamId })).status,
+    400,
+  );
+  check(
+    'someone can still be moved out of an archived team',
+    (await setMapping(adminId, {})).status,
+    200,
+  );
+  await call(`/teams/${teamId}/restore`, { method: 'PATCH', cookie: admin });
+
+  await setMapping(adminId, { departmentId: deptId });
+  await call(`/departments/${deptId}/archive`, { method: 'PATCH', cookie: admin });
+  const afterDeptArchive = await employee(adminId);
+  check(
+    'an existing mapping survives its department being archived',
+    afterDeptArchive.department?.id,
+    deptId,
+  );
+  check('the department is reported as archived', afterDeptArchive.department?.active, false);
+  check(
+    'nobody new can be assigned to an archived department',
+    (await setMapping(restrictedId, { departmentId: deptId })).status,
+    400,
+  );
+  // The team is still active, but its department is not, so joining it would be
+  // an assignment into an archived department by another route.
+  check(
+    'nor to a team whose department is archived',
+    (await setMapping(restrictedId, { teamId })).status,
+    400,
+  );
+  await call(`/departments/${deptId}/restore`, { method: 'PATCH', cookie: admin });
+
+  // --- the directory reflects the mapping ---
+  // The directory is cached for five minutes and carries the department name,
+  // so a write has to invalidate it or the old name would persist.
+  await setMapping(adminId, { departmentId: deptId });
+  const directoryUsers = (await (await call('/users', { cookie: admin })).json()) as {
+    id: string;
+    department: string;
+  }[];
+  check(
+    'the directory shows the mapped department without waiting for the cache',
+    directoryUsers.find((u) => u.id === adminId)?.department,
+    deptName,
+  );
+
+  await setMapping(adminId, {});
+  await setMapping(restrictedId, {});
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -2310,7 +2613,22 @@ async function main() {
   if (departmentIds.length || teamIds.length) {
     const { prisma } = await import('../db/prisma.js');
 
-    // Teams first: the foreign key is RESTRICT, so a department holding teams
+    // Mappings first: user_profiles reference both with RESTRICT, so a team or
+    // department someone is mapped to cannot be removed until that is clearedMapping.
+    // The profile rows themselves are left, since they also carry capacity and
+    // timezone and are not this suite's to delete — but the tests create them,
+    // so any row with no other content is removed.
+    await prisma.userProfile
+      .updateMany({
+        where: { OR: [{ teamId: { in: teamIds } }, { departmentId: { in: departmentIds } }] },
+        data: { departmentId: null, teamId: null },
+      })
+      .catch(() => undefined);
+    await prisma.userProfile
+      .deleteMany({ where: { departmentId: null, teamId: null, department: null, timezone: null } })
+      .catch(() => undefined);
+
+    // Teams next: the foreign key is RESTRICT, so a department holding teams
     // cannot be removed until they are.
     const removedTeams = await prisma.team
       .deleteMany({ where: { id: { in: teamIds } } })
