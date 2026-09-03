@@ -222,6 +222,70 @@ request. Everything else comes from the EPM database.
 - **Null**: never stored. A metric that cannot be calculated is not recorded, rather than
   recorded as zero.
 
+## Test results
+
+47 cases in `npm run test:authz`. Suite total **660 passed, 0 failed** — the 613 that
+existed before are unchanged.
+
+The suite has two halves, deliberately. Capture runs against the live instance, because
+capturing is the thing under test. Trend queries run against **fixtures written directly to
+the table under a scope id no real entity uses**, so the assertions about ordering, gaps,
+windows and scope isolation are deterministic rather than depending on whatever the instance
+happens to hold that day.
+
+Idempotency is asserted the only way that means anything — by counting rows. Capture twice,
+assert the row count is unchanged and the reported record count identical. Instance-scope
+rows are then grouped and asserted to be exactly one per metric per day, which is the case
+that would have silently duplicated had `scopeId` stayed nullable.
+
+Also asserted: reading is open to a caller without the grant while capturing is refused;
+analytics is scoped to what the caller can see; an unrecorded metric returns an empty series
+rather than an invented one; **a missing day stays missing** rather than being interpolated;
+a narrower window returns fewer points; one scope's points never appear under another scope
+or another scope type; a captured value equals the live figure it came from; **no allocation
+or workload metric is ever recorded**; and the pre-existing user-scoped history still reads
+back through the new endpoint, which is what the scope migration had to protect.
+
+Driven in a browser for both identities: the trends section, its "Snapshot history" label,
+three charts, the honest empty state, and capture. The restricted identity saw everything
+except the capture button, and the API refuses its writes with 403. Every route clean of
+console errors; only `localhost:8000` and Google Fonts contacted; bundle audit zero on all
+nine patterns.
+
+## Test data
+
+The suite records the fixture scopes and the day it captured, and removes exactly those.
+**Only non-user scopes are touched**: the twenty user-scoped rows are the dashboard's real
+history, written long before these tests existed and not theirs to delete.
+
+Final state: `rows=20  user=20  other=0` — identical to before.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **No workload or allocation history.** Two independent reasons, either sufficient: the
+   `value` column cannot hold the null allocation uses for zero capacity, and a daily sample
+   of a weekly running total would sawtooth. Fixing it properly needs a weekly snapshot
+   period alongside the daily one.
+2. **History only starts when someone captures it.** There is no scheduler, by choice — the
+   project has none and adding one for a daily write is more machinery than the problem
+   needs. Until `POST /analytics/snapshots` is called on a schedule, the record has gaps.
+3. **A snapshot reflects the caller who took it.** Capture measures the projects that caller
+   can see. On this instance that is everything for an administrator, but a restricted
+   capturer would record a smaller instance than actually exists.
+4. **No per-project history.** Snapshots are scoped to the instance, a portfolio, a team, a
+   department or a user — not a single project. One row per project per day would grow with
+   the project count, and nothing has asked for it.
+5. **Health history is a distribution, not a per-project trace.** "How many projects were
+   critical" is answerable; "when did this project turn critical" is not.
+6. **Gaps are not distinguishable from zeroes at the API.** A missing day is simply absent
+   from `points`, which is correct — but a client that summed points without looking at the
+   dates would treat a gap as no data rather than as unknown.
+7. **No retention policy.** Snapshots accumulate at roughly one row per metric per scope per
+   day and nothing prunes them.
+
+## Future enhancements
+
+Per-project history, a weekly snapshot period that would make allocation recordable, a
+retention or rollup policy for old rows, and comparison views across portfolios or teams.
+All of them are additive: the scope is already typed, so a new scope type or period is a new
+value rather than a schema change.

@@ -1729,6 +1729,10 @@ async function main() {
   // A project's portfolio is real organisational state; whatever these tests
   // set is put back, including "it was in none".
   const originalProjectPortfolio = new Map<string, string | null>();
+  // Snapshot rows these tests write. The user-scoped history the dashboard
+  // has been recording since before this feature is left alone.
+  const analyticsFixtureScopes: string[] = [];
+  let analyticsCaptureDay: string | undefined;
 
   // --- Departments ---------------------------------------------------------
   //
@@ -1768,6 +1772,7 @@ async function main() {
       employees?: { manage?: boolean };
       health?: { manage?: boolean };
       portfolios?: { manage?: boolean };
+      analytics?: { manage?: boolean };
     };
   };
   const restrictedPermissions = (await (
@@ -3383,6 +3388,268 @@ async function main() {
     404,
   );
 
+  // --- Analytics -------------------------------------------------------------
+  //
+  // Two halves. The snapshot half runs against the live instance, because
+  // capture is the thing being tested. The trend half uses fixtures written
+  // straight to the table under a scope id no real entity has, so the series
+  // are deterministic rather than depending on whatever the instance happens to
+  // hold. Every row created either way is removed in the cleanup step.
+  console.log('\nAnalytics');
+
+  interface TestTrend {
+    metric: string;
+    scopeType: string;
+    scopeId?: string;
+    points: { date: string; value: number }[];
+  }
+
+  interface TestOverview {
+    current: {
+      projectsTotal: number;
+      projectsActive: number;
+      health: { healthy: number; warning: number; critical: number };
+      portfolios: number;
+      capacityHours: number;
+    };
+    history: { days: number; firstSnapshot?: string; lastSnapshot?: string; records: number };
+  }
+
+  check(
+    'the manage permission is surfaced to the client',
+    adminPermissions.permissions?.analytics?.manage,
+    true,
+  );
+  check(
+    'a caller without a grant does not hold it',
+    restrictedPermissions.permissions?.analytics?.manage,
+    false,
+  );
+
+  check('anonymous cannot read the overview', await status('/analytics/overview'), 401);
+  check('anonymous cannot read trends', await status('/analytics/trends?metrics=projects.total'), 401);
+  check(
+    'anonymous cannot capture a snapshot',
+    await status('/analytics/snapshots', { method: 'POST' }),
+    401,
+  );
+
+  // Reading is open; capturing is not. That is the whole authorization model.
+  check('a permitted caller can read the overview', await status('/analytics/overview', { cookie: admin }), 200);
+  check(
+    'a caller without the grant can read it too',
+    await status('/analytics/overview', { cookie: restricted }),
+    200,
+  );
+  check(
+    'but cannot capture a snapshot',
+    await status('/analytics/snapshots', { method: 'POST', cookie: restricted }),
+    403,
+  );
+
+  const overview = (await (await call('/analytics/overview', { cookie: admin })).json()) as TestOverview;
+  check('the overview reports current state', typeof overview.current.projectsTotal, 'number');
+  check('and how much history exists', typeof overview.history.days, 'number');
+  check('and how many records back it', typeof overview.history.records, 'number');
+  // The two are separate claims. A client that could not tell them apart would
+  // present a computed number as a recorded one.
+  check(
+    'current and history are separate fields',
+    'current' in overview && 'history' in overview,
+    true,
+  );
+
+  // A caller only ever sees analytics over projects they can see.
+  const restrictedOverview = (await (
+    await call('/analytics/overview', { cookie: restricted })
+  ).json()) as TestOverview;
+  check(
+    'analytics is scoped to what the caller can see',
+    restrictedOverview.current.projectsTotal <= overview.current.projectsTotal,
+    true,
+  );
+
+  // --- trend query validation ---
+  check('a trend needs a metric', await status('/analytics/trends', { cookie: admin }), 400);
+  check(
+    'an empty metric list is refused',
+    await status('/analytics/trends?metrics=', { cookie: admin }),
+    400,
+  );
+  check(
+    'an unknown scope type is refused',
+    await status('/analytics/trends?metrics=projects.total&scopeType=nope', { cookie: admin }),
+    400,
+  );
+  check(
+    'more than ten metrics at once is refused',
+    await status(`/analytics/trends?metrics=${Array.from({ length: 11 }, (_, i) => `m${i}`).join(',')}`, {
+      cookie: admin,
+    }),
+    400,
+  );
+  check(
+    'a negative day range is refused',
+    await status('/analytics/trends?metrics=projects.total&days=-1', { cookie: admin }),
+    400,
+  );
+
+  // An unrecorded metric returns an empty series, not a fabricated one.
+  const unknownTrend = (await (
+    await call('/analytics/trends?metrics=nothing.recorded', { cookie: admin })
+  ).json()) as TestTrend[];
+  check('an unrecorded metric returns a series', unknownTrend.length, 1);
+  check('with no points rather than invented ones', unknownTrend[0]?.points.length, 0);
+
+  // --- snapshot capture ---
+  const { prisma: analyticsDb } = await import('../db/prisma.js');
+  const beforeCapture = await analyticsDb.metricSnapshot.count();
+
+  const captured = await call('/analytics/snapshots', { method: 'POST', cookie: admin });
+  check('a permitted caller can capture a snapshot', captured.status, 201);
+
+  const capture = (await captured.json()) as {
+    sampledOn: string;
+    records: number;
+    scopes: { instance: number; portfolio: number; team: number; department: number };
+  };
+  analyticsCaptureDay = capture.sampledOn;
+  check('it reports the day it captured', /^\d{4}-\d{2}-\d{2}$/.test(capture.sampledOn), true);
+  check('and how many records it wrote', capture.records > 0, true);
+  check('and breaks them down by scope', typeof capture.scopes.instance, 'number');
+  check('instance metrics are always captured', capture.scopes.instance > 0, true);
+
+  const afterFirst = await analyticsDb.metricSnapshot.count();
+  check('rows were actually written', afterFirst > beforeCapture, true);
+
+  // The point of the whole design: rerunning must overwrite, not append.
+  const again = await call('/analytics/snapshots', { method: 'POST', cookie: admin });
+  check('it can be run again the same day', again.status, 201);
+  const secondCapture = (await again.json()) as typeof capture;
+  check('reporting the same day', secondCapture.sampledOn, capture.sampledOn);
+  check('and the same record count', secondCapture.records, capture.records);
+
+  const afterSecond = await analyticsDb.metricSnapshot.count();
+  check('rerunning does not double-count', afterSecond, afterFirst);
+
+  // Instance rows carry no scope id. Postgres treats NULLs as distinct in a
+  // unique index, so this is the case that would have silently duplicated had
+  // the column stayed nullable.
+  const instanceRows = await analyticsDb.metricSnapshot.groupBy({
+    by: ['metric'],
+    where: { scopeType: 'instance', sampledOn: new Date(capture.sampledOn) },
+    _count: { _all: true },
+  });
+  check(
+    'every instance metric has exactly one row for the day',
+    instanceRows.every((row) => row._count._all === 1),
+    true,
+  );
+  check('the instance scope is recorded, not skipped', instanceRows.length > 0, true);
+
+  // Captured values must match what the live overview reports for the same day.
+  const afterCaptureOverview = (await (
+    await call('/analytics/overview', { cookie: admin })
+  ).json()) as TestOverview;
+  const capturedProjects = await analyticsDb.metricSnapshot.findFirst({
+    where: { scopeType: 'instance', scopeId: '', metric: 'projects.total', sampledOn: new Date(capture.sampledOn) },
+  });
+  check(
+    'a captured value matches the live figure it came from',
+    capturedProjects?.value,
+    afterCaptureOverview.current.projectsTotal,
+  );
+  check('the history now covers at least one day', afterCaptureOverview.history.days >= 1, true);
+
+  // Workload and allocation are deliberately never captured: the value column
+  // cannot hold the null allocation uses for zero capacity, and turning it into
+  // a zero would read as "nothing logged".
+  const forbidden = await analyticsDb.metricSnapshot.findMany({
+    where: { metric: { in: ['allocation', 'workload', 'allocation.pct', 'workload.hours'] } },
+  });
+  check('no allocation or workload metric is ever recorded', forbidden.length, 0);
+
+  // --- deterministic trend fixtures ---
+  // Written directly, under a scope no real entity uses, so these assertions do
+  // not depend on what the instance happens to contain.
+  const fixtureScope = `test-scope-${stamp}`;
+  const day = (offset: number) => {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() - offset);
+    return new Date(date.toISOString().slice(0, 10));
+  };
+
+  await analyticsDb.metricSnapshot.createMany({
+    data: [
+      { scopeType: 'team', scopeId: fixtureScope, sampledOn: day(4), metric: 'members', value: 2 },
+      { scopeType: 'team', scopeId: fixtureScope, sampledOn: day(3), metric: 'members', value: 3 },
+      // Day 2 deliberately missing, so a gap can be asserted to stay a gap.
+      { scopeType: 'team', scopeId: fixtureScope, sampledOn: day(1), metric: 'members', value: 5 },
+      { scopeType: 'team', scopeId: fixtureScope, sampledOn: day(1), metric: 'capacity.hours', value: 80 },
+    ],
+  });
+  analyticsFixtureScopes.push(fixtureScope);
+
+  const series = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=team&scopeId=${fixtureScope}&days=30`, {
+      cookie: admin,
+    })
+  ).json()) as TestTrend[];
+
+  check('a fixture series is returned', series.length, 1);
+  check('with one point per recorded day', series[0]?.points.length, 3);
+  // Three points from four days: the missing day is left out rather than filled
+  // in. A day nobody captured is not a day with a value.
+  check('a missing day stays missing rather than being interpolated', series[0]?.points.length, 3);
+  check('points are ordered oldest first', series[0]?.points[0]?.value, 2);
+  check('through to newest', series[0]?.points[2]?.value, 5);
+  check('each point carries its date', /^\d{4}-\d{2}-\d{2}$/.test(series[0]?.points[0]?.date ?? ''), true);
+
+  const twoMetrics = (await (
+    await call(
+      `/analytics/trends?metrics=members,capacity.hours&scopeType=team&scopeId=${fixtureScope}&days=30`,
+      { cookie: admin },
+    )
+  ).json()) as TestTrend[];
+  check('several metrics come back together', twoMetrics.length, 2);
+  check(
+    'each with only its own points',
+    twoMetrics.find((t) => t.metric === 'capacity.hours')?.points.length,
+    1,
+  );
+
+  // The day window is honoured rather than ignored.
+  const narrow = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=team&scopeId=${fixtureScope}&days=2`, {
+      cookie: admin,
+    })
+  ).json()) as TestTrend[];
+  check('a shorter window returns fewer points', (narrow[0]?.points.length ?? 0) < 3, true);
+
+  // Scopes do not leak into one another.
+  const otherScope = (await (
+    await call('/analytics/trends?metrics=members&scopeType=team&scopeId=no-such-team&days=30', {
+      cookie: admin,
+    })
+  ).json()) as TestTrend[];
+  check('another scope sees none of those points', otherScope[0]?.points.length, 0);
+
+  const wrongType = (await (
+    await call(`/analytics/trends?metrics=members&scopeType=department&scopeId=${fixtureScope}&days=30`, {
+      cookie: admin,
+    })
+  ).json()) as TestTrend[];
+  check('the same id under another scope type is separate', wrongType[0]?.points.length, 0);
+
+  // The user-scoped history the dashboard has always written is still readable
+  // through the same endpoint, which is what the scope migration had to protect.
+  const userSeries = (await (
+    await call(`/analytics/trends?metrics=myTasks&scopeType=user&scopeId=${adminId}&days=365`, {
+      cookie: admin,
+    })
+  ).json()) as TestTrend[];
+  check('pre-existing user-scoped history survived the scope change', userSeries.length, 1);
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -3404,6 +3671,27 @@ async function main() {
   // Departments have no delete route by design, so the rows these tests
   // created are removed through the database rather than left behind. The
   // one place the suite reaches past the API, and only to undo its own writes.
+  // Analytics fixtures and the snapshot this run captured. Only non-user scopes
+  // are touched: the user-scoped rows are the dashboard's real history, written
+  // long before these tests existed and not theirs to remove.
+  {
+    const { prisma } = await import('../db/prisma.js');
+
+    if (analyticsFixtureScopes.length) {
+      await prisma.metricSnapshot
+        .deleteMany({ where: { scopeId: { in: analyticsFixtureScopes } } })
+        .catch(() => undefined);
+    }
+    if (analyticsCaptureDay) {
+      const removed = await prisma.metricSnapshot
+        .deleteMany({
+          where: { sampledOn: new Date(analyticsCaptureDay), scopeType: { not: 'user' } },
+        })
+        .catch(() => ({ count: 0 }));
+      console.log(`  (removed ${removed.count} test snapshot row${removed.count === 1 ? '' : 's'})`);
+    }
+  }
+
   // Project portfolio associations first: the foreign key is RESTRICT, so a
   // portfolio a project still points at cannot be removed until it is cleared.
   for (const [id, portfolioId] of originalProjectPortfolio) {
