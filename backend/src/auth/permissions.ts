@@ -81,7 +81,12 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   'time:log': 'No time_entries action exists in the capabilities vocabulary.',
   'document:upload': 'No documents action exists in the capabilities vocabulary.',
   'groups:manage': 'No groups action exists in the capabilities vocabulary.',
-  'departments:manage': 'Department is EPM-owned metadata; no upstream equivalent.',
+  // Still unmapped from OpenProject, and deliberately so — nothing upstream
+  // implies it. It is granted from EPM's own `epm_permission_grants` instead,
+  // which is where a permission belongs when EPM owns the domain. See
+  // `auth/grants.ts`.
+  'departments:manage':
+    'Department is EPM-owned metadata; no upstream equivalent. Granted from EPM permission grants instead.',
   'teams:manage': 'Teams map to OpenProject groups, which expose no capability.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',

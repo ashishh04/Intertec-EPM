@@ -156,3 +156,43 @@ model Session {
   @@map("sessions")
 }
 
+
+/// An EPM-owned organisational unit. Unlike every model above, this is not an
+/// overlay on an OpenProject record — departments exist only in EPM, so this
+/// table owns its own identity rather than borrowing an upstream id.
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  /// OpenProject user id of the manager. Deliberately not a relation:
+  /// OpenProject owns users, and a foreign key would mean copying them here.
+  /// Display names resolve through the cached user directory at read time.
+  managerId   String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// The list route filters on this by default.
+  @@index([active])
+  @@map("departments")
+}
+
+/// Permissions EPM owns, which OpenProject has no concept of.
+///
+/// `departments:manage` is the first: it is listed in UNMAPPED precisely because
+/// no upstream capability implies it. OpenProject remains the only source for
+/// everything it does know about; this table is consulted only for permissions
+/// it cannot answer, and is merged into the global permission set.
+model EpmPermissionGrant {
+  /// The OpenProject user id the grant belongs to.
+  openProjectId String
+  /// A value from the EPM `Permission` union, validated before writing.
+  permission    String
+  grantedAt     DateTime @default(now())
+  /// Who granted it, where that is known. Null for environment bootstrap.
+  grantedBy     String?
+
+  @@id([openProjectId, permission])
+  @@map("epm_permission_grants")
+}

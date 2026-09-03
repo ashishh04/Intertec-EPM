@@ -58,7 +58,12 @@ export async function require(
 
 function describe(permission: Permission): string {
   const [group, action] = permission.split(':');
-  return `${action?.replace('_', ' ')} ${group === 'task' ? 'work packages' : `${group}s`}`;
+  if (group === 'task') return `${action?.replace('_', ' ')} work packages`;
+
+  // Several groups are already plural — `departments`, `users`, `teams` — and
+  // appending another `s` produced "manage departmentss".
+  const subject = group?.endsWith('s') ? group : `${group}s`;
+  return `${action?.replace('_', ' ')} ${subject}`;
 }
 
 /**

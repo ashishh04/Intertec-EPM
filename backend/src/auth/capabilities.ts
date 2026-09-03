@@ -1,4 +1,5 @@
 import { openProject } from '../openproject/client.js';
+import { applyEpmGrants } from './grants.js';
 import {
   emptyPermissions,
   grantFromAction,
@@ -60,6 +61,10 @@ export async function loadPermissions(
 ): Promise<EffectivePermissions> {
   const global = emptyPermissions();
   const byProject = new Map<string, PermissionSet>();
+
+  // EPM-owned permissions first, so they survive an upstream failure: they do
+  // not depend on OpenProject and should not be lost when it is unreachable.
+  await applyEpmGrants(userId, global);
 
   let items: OpCapability[] = [];
   try {

@@ -54,6 +54,20 @@ const schema = z.object({
   OPENPROJECT_OAUTH_CLIENT_SECRET: z.string().optional(),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required.'),
+
+  // OpenProject user ids that hold EPM-owned administrative permissions, which
+  // no upstream capability implies. Configuration rather than a check against a
+  // name: nothing in the source identifies a user, and leaving it unset simply
+  // means nobody holds them until a grant row is written.
+  EPM_ADMIN_USER_IDS: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
 });
 
 export type Env = z.infer<typeof schema>;
