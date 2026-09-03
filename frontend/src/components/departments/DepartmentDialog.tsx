@@ -56,6 +56,9 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
   const [problem, setProblem] = useState<string>();
 
   // Reset each time it opens, so a cancelled edit does not leak into the next.
+  // Keyed on the id, not the object: the record is a fresh object on every
+  // refetch, and depending on it reset the form under the user mid-edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     setName(department?.name ?? '');
@@ -63,7 +66,7 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
     setDescription(department?.description ?? '');
     setManagerId(department?.manager?.id ?? NO_MANAGER);
     setProblem(undefined);
-  }, [open, department]);
+  }, [open, department?.id]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();

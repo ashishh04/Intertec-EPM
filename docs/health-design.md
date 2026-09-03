@@ -206,6 +206,84 @@ Recorded as a future requirement, dependent on Portfolio.
 
 Write controls render on `can('health:manage')`; the backend refuses regardless.
 
+## Test results
+
+64 cases in `npm run test:authz`. Suite total **545 passed, 0 failed** — the 481 that
+existed before are unchanged.
+
+The calculation is a pure function, so its boundaries are tested directly rather than
+through a project whose numbers cannot be arranged. **Both sides of every threshold** are
+asserted — 9/10 and 24/25 on schedule, 14/15 and 34/35 on resources, 41/40 and 16/15 open
+on scope — rather than only comfortable mid-range values. Plus: the past-due escalation and
+its 5%-open counter-case; a future due date not escalating; the three headline conditions;
+overall being the worst dimension rather than an average; and an empty project reporting
+healthy *with a reason that says why*, so it does not read as a clean bill of health.
+
+Determinism is asserted directly: the same inputs 50 times produce byte-identical output. A
+sweep over every `(total, completed, overdue)` combination up to 20 confirms no input
+produces a level outside the three — no `NaN`, no `Infinity`, no empty string.
+
+Override resolution covers undefined, empty, one pinned dimension, all four pinned moving
+overall, and overall pinned alone leaving the dimensions showing the truth. Reading a
+stored value covers `null`, `{}`, an array, a string, an unknown dimension and an unknown
+level — the last two dropped rather than thrown on, so a malformed row cannot take a
+project page down.
+
+Through the API: anonymous 401, ungranted 403 with the value verified unchanged after,
+three validation refusals, an unknown project 404, and the set/change/clear cycle with the
+calculated value confirmed still visible beneath the pin. The dashboard at-risk count is
+asserted to move **in both directions** with the pin, so a summary cannot contradict the
+project page it summarises.
+
+Driven in a browser for both identities: the health card, reasons, the override dialog
+showing calculated values, setting, changing and clearing a pin, the "Overridden" marker on
+both the project page and Reports. The restricted identity saw health and reasons but
+**zero** override buttons. Every route clean of console errors; only `localhost:8000` and
+Google Fonts contacted; bundle audit zero on all nine patterns.
+
+### A bug the sweep caught
+
+The dialog's reset effect depended on the whole `project` object. React Query hands back a
+fresh object on every refetch, so a background refetch mid-edit reset the form and
+discarded what the user had chosen — the first override save in the sweep landed empty
+because of it. Fixed to depend on `project.id`. The same pattern was present in the four
+sibling dialogs written for departments, teams, employee mapping and capacity, and all four
+were fixed too.
+
+## Test data
+
+Snapshotted and restored. The suite records each project's override before pinning
+anything and writes it back through the API afterwards, including "there was no pin", which
+is a value too. Pinning upserts a project profile, so rows left holding nothing are removed
+as well — a row carrying portfolio or budget is somebody's data and is left alone.
+
+Final state: `project_profiles=0  teams=0  departments=0  user_profiles=0` — identical to
+the initial state.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **Budget is always healthy.** `budgetTotal` and `budgetUsed` exist on the profile but
+   nothing writes them, so a computed budget dimension would describe data that does not
+   exist. It is the clearest candidate for an override until a real figure arrives.
+2. **Capacity and allocation are not inputs**, for the reason given above: hours cannot be
+   compared to a task count without an invented constant, and there is no project→team
+   relationship. Revisit when estimates or Portfolio exist.
+3. **No project due date.** `toEpmProject` passes `dueDate: undefined`, so the past-due
+   escalation in `scope` can never fire in practice. The rule is implemented and tested;
+   its input is not yet mapped from OpenProject.
+4. **No team or department health.** No requirement asks for it and there is no
+   relationship to aggregate through. Depends on Portfolio.
+5. **No health history or trend.** Health is computed per request. "Was this project amber
+   last month" has no answer — that is Analytics.
+6. **No audit of who pinned what.** The override records the value, not the author or the
+   time beyond `updatedAt`, and no reason can be attached to a pin.
+7. **Thresholds are not configurable.** Named constants in the backend, deliberately — a
+   configuration subsystem for five numbers nobody has asked to change would be cost
+   without a reader.
+
+## Future analytics requirements
+
+Trended health, health-change history, per-dimension distributions over time, and
+"projects that moved to critical this week" all need health stored per period rather than
+computed per request. That is a snapshot table and a scheduled write — the `MetricSnapshot`
+model already in the schema is the obvious precedent — and belongs to Analytics, not here.

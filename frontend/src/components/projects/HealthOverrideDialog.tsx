@@ -56,13 +56,17 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string>();
 
+  // Keyed on the project's id, not the object. `project` is a fresh object on
+  // every refetch, and depending on it meant a background refetch reset the
+  // form under the user and discarded whatever they had just chosen.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     const current: Record<string, string> = {};
     for (const { key } of DIMENSIONS) current[key] = project.healthOverride?.[key] ?? CALCULATED;
     setDraft(current);
     setProblem(undefined);
-  }, [open, project]);
+  }, [open, project.id]);
 
   const save = () => {
     setProblem(undefined);

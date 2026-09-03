@@ -40,11 +40,14 @@ export function CapacityDialog({ open, onOpenChange, employee }: CapacityDialogP
   const [hours, setHours] = useState('');
   const [problem, setProblem] = useState<string>();
 
+  // Keyed on the id, not the object: the record is a fresh object on every
+  // refetch, and depending on it reset the form under the user mid-edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     setHours(String(employee?.hoursCapacity ?? ''));
     setProblem(undefined);
-  }, [open, employee]);
+  }, [open, employee?.id]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();

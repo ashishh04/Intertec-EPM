@@ -61,6 +61,9 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
   const [problem, setProblem] = useState<string>();
 
   // Reset each time it opens, so a cancelled edit does not leak into the next.
+  // Keyed on the id, not the object: the record is a fresh object on every
+  // refetch, and depending on it reset the form under the user mid-edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     setName(team?.name ?? '');
@@ -69,7 +72,7 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
     setDepartmentId(team?.department?.id ?? defaultDepartmentId ?? NONE);
     setLeadId(team?.lead?.id ?? NONE);
     setProblem(undefined);
-  }, [open, team, defaultDepartmentId]);
+  }, [open, team?.id, defaultDepartmentId]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();

@@ -1,3 +1,4 @@
+import type { ProjectHealth } from '../types/epm.js';
 /**
  * Authorization tests, exercised over HTTP.
  *
@@ -1721,6 +1722,9 @@ async function main() {
   // Capacity is real per-person data. Whatever these tests change is put
   // back in the cleanup step, so the database ends as it began.
   const originalCapacity = new Map<string, number>();
+  // Health pins are real management state. Whatever these tests set is put
+  // back, including "there was no pin", which is a value too.
+  const originalHealthOverride = new Map<string, Record<string, string> | null>();
 
   // --- Departments ---------------------------------------------------------
   //
@@ -1758,6 +1762,7 @@ async function main() {
       departments?: { manage?: boolean };
       teams?: { manage?: boolean };
       employees?: { manage?: boolean };
+      health?: { manage?: boolean };
     };
   };
   const restrictedPermissions = (await (
@@ -2799,6 +2804,240 @@ async function main() {
 
   await setMapping(restrictedId, {});
 
+  // --- Health ----------------------------------------------------------------
+  //
+  // The calculation is a pure function, so its boundaries are exercised
+  // directly rather than through a project whose numbers cannot be arranged.
+  // The override path goes through the API, and any pin these tests set is
+  // captured and restored in the cleanup step.
+  console.log('\nHealth');
+
+  const {
+    computeHealth,
+    effectiveHealth,
+    parseHealthOverride,
+    HEALTH_THRESHOLDS,
+  } = await import('../mapping/projects.js');
+
+  const today = '2026-09-03';
+  const at = (
+    total: number,
+    completed: number,
+    overdue: number,
+    dueDate?: string,
+  ): ProjectHealth => computeHealth({ total, completed, overdue, dueDate, today }).health;
+
+  // --- boundaries, on both sides of every threshold ---
+  const t = HEALTH_THRESHOLDS;
+  check('thresholds are named, not inline', typeof t.scheduleWarning, 'number');
+
+  // Schedule turns on the share of work already overdue: 10% and 25%.
+  check('schedule is healthy just below its warning', at(100, 0, 9).schedule, 'healthy');
+  check('schedule warns exactly at its threshold', at(100, 0, 10).schedule, 'warning');
+  check('schedule stays warning just below critical', at(100, 0, 24).schedule, 'warning');
+  check('schedule is critical exactly at its threshold', at(100, 0, 25).schedule, 'critical');
+
+  // Resources reads the same ratio at 15% and 35%.
+  check('resources is healthy just below its warning', at(100, 0, 14).resources, 'healthy');
+  check('resources warns exactly at its threshold', at(100, 0, 15).resources, 'warning');
+  check('resources stays warning just below critical', at(100, 0, 34).resources, 'warning');
+  check('resources is critical exactly at its threshold', at(100, 0, 35).resources, 'critical');
+
+  // Scope reads the share still open: 60% and 85%.
+  check('scope is healthy just below its warning', at(100, 41, 0).scope, 'healthy');
+  check('scope warns exactly at its threshold', at(100, 40, 0).scope, 'warning');
+  check('scope stays warning just below critical', at(100, 16, 0).scope, 'warning');
+  check('scope is critical exactly at its threshold', at(100, 15, 0).scope, 'critical');
+
+  // Past the due date, any meaningful amount of open work is critical.
+  check('a past due date with 20% open is critical', at(100, 80, 0, '2026-01-01').scope, 'critical');
+  check('a past due date with 5% open is not', at(100, 95, 0, '2026-01-01').scope, 'healthy');
+  check('a future due date does not escalate', at(100, 80, 0, '2027-01-01').scope, 'healthy');
+
+  // --- the three headline conditions ---
+  check('a healthy project reports healthy overall', at(100, 90, 0).overall, 'healthy');
+  check('a warning condition reports warning overall', at(100, 90, 12).overall, 'warning');
+  check('a critical condition reports critical overall', at(100, 90, 40).overall, 'critical');
+  check('overall is the worst dimension, not an average', at(100, 90, 40).schedule, 'critical');
+
+  // --- missing and degenerate data ---
+  // A project with no work packages is reported healthy rather than alarming,
+  // and its reason says so rather than implying a clean bill of health.
+  const empty = computeHealth({ total: 0, completed: 0, overdue: 0, today });
+  check('a project with no work packages is healthy', empty.health.overall, 'healthy');
+  check('and says why rather than implying a clean result', empty.reasons.overall.includes('no work packages'), true);
+  check('no overdue work is healthy on schedule', at(50, 25, 0).schedule, 'healthy');
+  check('all work overdue is critical', at(50, 0, 50).schedule, 'critical');
+  check('all work complete is healthy on scope', at(50, 50, 0).scope, 'healthy');
+
+  // Every dimension must be one of the three levels, whatever the inputs.
+  let invalidLevels = 0;
+  for (let total = 0; total <= 20; total += 1) {
+    for (let completed = 0; completed <= total; completed += 1) {
+      for (let overdue = 0; overdue <= total; overdue += 1) {
+        const health = at(total, completed, overdue);
+        for (const level of Object.values(health)) {
+          if (!['healthy', 'warning', 'critical'].includes(level)) invalidLevels += 1;
+        }
+      }
+    }
+  }
+  check('no input produces a level outside the three', invalidLevels, 0);
+
+  // --- determinism ---
+  const once = JSON.stringify(computeHealth({ total: 37, completed: 11, overdue: 9, dueDate: '2026-08-01', today }));
+  check(
+    'the same inputs give the same output every time',
+    Array.from({ length: 50 }, () =>
+      JSON.stringify(computeHealth({ total: 37, completed: 11, overdue: 9, dueDate: '2026-08-01', today })),
+    ).every((result) => result === once),
+    true,
+  );
+
+  // --- override resolution ---
+  const failing: ProjectHealth = at(100, 0, 50);
+  check('an undefined override changes nothing', effectiveHealth(failing, undefined).overall, 'critical');
+  check('an empty override changes nothing', effectiveHealth(failing, {}).overall, 'critical');
+  check('a pinned dimension is replaced', effectiveHealth(failing, { schedule: 'healthy' }).schedule, 'healthy');
+  check(
+    'other dimensions are untouched by it',
+    effectiveHealth(failing, { schedule: 'healthy' }).scope,
+    'critical',
+  );
+  // Overall follows the effective values, so pinning moves the headline.
+  check(
+    'pinning every dimension moves overall',
+    effectiveHealth(failing, {
+      scope: 'healthy',
+      schedule: 'healthy',
+      resources: 'healthy',
+      budget: 'healthy',
+    }).overall,
+    'healthy',
+  );
+  // And overall can be pinned on its own, which takes precedence.
+  check('overall can be pinned directly', effectiveHealth(failing, { overall: 'healthy' }).overall, 'healthy');
+  check(
+    'pinning overall leaves the dimensions showing the truth',
+    effectiveHealth(failing, { overall: 'healthy' }).schedule,
+    'critical',
+  );
+
+  // --- reading a stored override ---
+  check('a null column is no override', parseHealthOverride(null), undefined);
+  check('an empty object is no override', parseHealthOverride({}), undefined);
+  check('an array is not an override', parseHealthOverride(['healthy']), undefined);
+  check('a string is not an override', parseHealthOverride('healthy'), undefined);
+  check(
+    'a valid pin is read back',
+    JSON.stringify(parseHealthOverride({ schedule: 'critical' })),
+    '{"schedule":"critical"}',
+  );
+  // A malformed row must not take a project page down, so bad keys are dropped
+  // rather than thrown on. The write path rejects them, so this is defence.
+  check(
+    'an unknown dimension is dropped rather than thrown on',
+    JSON.stringify(parseHealthOverride({ nope: 'healthy', schedule: 'warning' })),
+    '{"schedule":"warning"}',
+  );
+  check(
+    'an unknown level is dropped too',
+    parseHealthOverride({ schedule: 'purple' }),
+    undefined,
+  );
+
+  // --- through the API ---
+  const healthProject = (await (await call('/projects', { cookie: admin })).json()) as {
+    id: string;
+    health: ProjectHealth;
+    healthCalculated: ProjectHealth;
+    healthOverride?: Record<string, string>;
+    healthReasons: Record<string, string>;
+  }[];
+
+  const projectId = healthProject[0]?.id;
+  if (!projectId) throw new Error('No project available for the health tests.');
+
+  // Snapshot before anything is pinned, so the cleanup can put it back.
+  originalHealthOverride.set(projectId, healthProject[0]?.healthOverride ?? null);
+
+  const readProject = async (cookie: string) =>
+    ((await (await call('/projects', { cookie })).json()) as typeof healthProject).find(
+      (p) => p.id === projectId,
+    );
+
+  const initial = await readProject(admin);
+  check('a project carries its effective health', typeof initial?.health.overall, 'string');
+  check('and the calculated value alongside it', typeof initial?.healthCalculated.overall, 'string');
+  check('and a reason per dimension', typeof initial?.healthReasons.schedule, 'string');
+
+  check(
+    'the manage permission is surfaced to the client',
+    adminPermissions.permissions?.health?.manage,
+    true,
+  );
+  check(
+    'a caller without a grant does not hold it',
+    restrictedPermissions.permissions?.health?.manage,
+    false,
+  );
+
+  const setHealth = (body: Record<string, unknown>, cookie = admin) =>
+    call(`/projects/${projectId}/health`, { method: 'PATCH', cookie, body });
+
+  check('anonymous cannot pin health', await status(`/projects/${projectId}/health`, { method: 'PATCH', body: { overall: 'critical' } }), 401);
+  check('a caller without the grant cannot pin health', (await setHealth({ overall: 'critical' }, restricted)).status, 403);
+  check(
+    'the health is unchanged after the refused write',
+    (await readProject(admin))?.healthOverride,
+    undefined,
+  );
+
+  check('an unknown dimension is refused', (await setHealth({ nope: 'healthy' })).status, 400);
+  check('an unknown level is refused', (await setHealth({ overall: 'purple' })).status, 400);
+  check('a non-string level is refused', (await setHealth({ overall: 3 })).status, 400);
+  check(
+    'an unknown project is not found',
+    (await setHealth({ overall: 'critical' }) && (await call('/projects/99999999/health', { method: 'PATCH', cookie: admin, body: { overall: 'critical' } })).status),
+    404,
+  );
+
+  const pinned = await setHealth({ schedule: 'critical' });
+  check('a permitted caller can pin a dimension', pinned.status, 200);
+  const pinnedBody = (await pinned.json()) as (typeof healthProject)[number];
+  check('the effective value takes the pin', pinnedBody.health.schedule, 'critical');
+  check('overall follows it', pinnedBody.health.overall, 'critical');
+  // The calculated value stays visible: a pin that hides the signal underneath
+  // it is a way to lose information rather than to manage it.
+  check('the calculated value is still reported', pinnedBody.healthCalculated.schedule, 'healthy');
+  check('the override is reported', JSON.stringify(pinnedBody.healthOverride), '{"schedule":"critical"}');
+
+  const changed = (await (await setHealth({ schedule: 'warning' })).json()) as (typeof healthProject)[number];
+  check('a pin can be changed', JSON.stringify(changed.healthOverride), '{"schedule":"warning"}');
+  check('and the effective value follows', changed.health.schedule, 'warning');
+
+  const clearedHealth = (await (await setHealth({})).json()) as (typeof healthProject)[number];
+  check('an empty body clears every pin', clearedHealth.healthOverride, undefined);
+  check('and health returns to calculated', clearedHealth.health.overall, clearedHealth.healthCalculated.overall);
+
+  // A summary must not contradict the project page it summarises.
+  const readAtRisk = async () =>
+    ((await (await call('/dashboard/metrics', { cookie: admin })).json()) as {
+      projectsAtRisk: number;
+    }).projectsAtRisk;
+
+  const atRiskBefore = await readAtRisk();
+  await setHealth({ overall: 'critical' });
+  const atRiskPinned = await readAtRisk();
+  await setHealth({ overall: 'healthy' });
+  const atRiskHealthy = await readAtRisk();
+  await setHealth({});
+
+  // The count has to move with the pin in both directions, or a summary could
+  // still be reporting what the rules said while the project page shows a pin.
+  check('pinning a project critical raises the at-risk count', atRiskPinned > atRiskHealthy, true);
+  check('pinning it healthy removes it from the count', atRiskHealthy <= atRiskBefore, true);
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -2820,6 +3059,18 @@ async function main() {
   // Departments have no delete route by design, so the rows these tests
   // created are removed through the database rather than left behind. The
   // one place the suite reaches past the API, and only to undo its own writes.
+  // Health pins first, through the API for the same reason.
+  for (const [id, override] of originalHealthOverride) {
+    await call(`/projects/${id}/health`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: override ?? {},
+    }).catch(() => undefined);
+  }
+  if (originalHealthOverride.size) {
+    console.log(`  (restored health overrides for ${originalHealthOverride.size} project(s))`);
+  }
+
   // Capacity first, and through the API, so the restore goes through the same
   // validation the tests exercised rather than around it.
   for (const [id, hours] of originalCapacity) {
@@ -2835,6 +3086,7 @@ async function main() {
 
   if (departmentIds.length || teamIds.length) {
     const { prisma } = await import('../db/prisma.js');
+    const { Prisma } = await import('@prisma/client');
 
     // Mappings first: user_profiles reference both with RESTRICT, so a team or
     // department someone is mapped to cannot be removed until that is clearedMapping.
@@ -2847,6 +3099,20 @@ async function main() {
         data: { departmentId: null, teamId: null },
       })
       .catch(() => undefined);
+    // Pinning health upserts a project profile, so clearing the pin leaves a row
+    // holding nothing. Removed, so the run ends with the table as it started.
+    // A row carrying portfolio or budget is somebody's data and is left alone.
+    await prisma.projectProfile
+      .deleteMany({
+        where: {
+          healthOverride: { equals: Prisma.DbNull },
+          portfolio: null,
+          budgetTotal: null,
+          budgetUsed: null,
+        },
+      })
+      .catch(() => undefined);
+
     await prisma.userProfile
       .deleteMany({
         where: {

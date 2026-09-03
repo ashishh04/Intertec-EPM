@@ -55,12 +55,15 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
   const [teamId, setTeamId] = useState(NONE);
   const [problem, setProblem] = useState<string>();
 
+  // Keyed on the id, not the object: the record is a fresh object on every
+  // refetch, and depending on it reset the form under the user mid-edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     setDepartmentId(employee?.department?.id ?? NONE);
     setTeamId(employee?.team?.id ?? NONE);
     setProblem(undefined);
-  }, [open, employee]);
+  }, [open, employee?.id]);
 
   const allTeams = teams.data ?? [];
 
