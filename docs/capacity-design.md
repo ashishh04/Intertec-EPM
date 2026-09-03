@@ -187,6 +187,71 @@ a misleading percentage.
   from the OpenProject-group reading of teams, which was always zero and was removed with
   it; this one is backed by real EPM data.
 
+## Data inventory
+
+Taken before anything was written, so nothing was overwritten and no value was invented:
+
+| measure | count |
+|---|---|
+| `user_profiles` rows | 0 |
+| null `hoursCapacity` | 0 |
+| zero `hoursCapacity` | 0 |
+| non-zero `hoursCapacity` | 0 |
+| negative or otherwise invalid | 0 |
+| OpenProject time entries | 0 |
+
+Every capacity in this database is the schema default. There was nothing to preserve and no
+default had to be established — 40 was already the column's default and already what the
+code assumed.
+
+## Test results
+
+45 cases in `npm run test:authz`. Suite total **481 passed, 0 failed** — the 433 that
+existed before are unchanged apart from three deliberate contract updates: the department
+and team key-set assertions now expect `memberCount` and `capacityHours`.
+
+Coverage: the default; anonymous and unauthorised writes refused with the value verified
+unchanged afterwards; six validation cases including both boundaries; zero accepted and
+stored as a value rather than as unset; 168 accepted; decimals kept and finer values
+rounded to the quarter hour; capacity leaving the mapping untouched; team and department
+rollups for one member, two members, a zero-capacity member and an unmapped one; member
+count agreeing with the member list; empty team and empty department reporting zero rather
+than nothing; archived teams and departments still aggregating; workload scoping; the
+allocation ratio; and the zero-capacity case reporting `null` with an explicit assertion
+that no allocation is ever `Infinity` or `NaN`.
+
+Driven in a browser for both identities. Admin set a capacity of 32, saw it propagate to
+the team list, the department list, the team detail panel (`MEMBERS 1 · CAPACITY 32 h/wk ·
+LOGGED THIS WEEK 0h · 0%`) and the Team Performance report. An out-of-range value is
+blocked before it reaches the server and the stored value is unchanged afterwards. The
+restricted identity saw the capacity column but **zero** capacity buttons, and the API
+refuses its writes with 403 regardless. Every route clean of console errors; only
+`localhost:8000` and Google Fonts contacted; bundle audit zero on all nine patterns.
+
+## Test data
+
+Capacity is real per-person data, so the suite captures every value it is about to change
+and writes it back through the API in its cleanup step. Final state:
+`teams=0  departments=0  profiles=0  grants=0` — identical to the initial state.
+
 ## Known limitations
 
-Recorded after implementation; see the end of this file.
+1. **The weekly time-entry filter is not empirically proven to exclude.** The `spent_on`
+   filter is verified as *accepted* — a bogus filter name is rejected with an error, so a
+   200 means the filter was honoured — and the week arithmetic is verified across Monday,
+   Sunday, and a year boundary. But the instance holds zero time entries and refuses to
+   let this token create one (`403` on `POST /time_entries`, time logging is not permitted
+   here), so no entry outside the window could be created to watch it be excluded.
+2. **No capacity history.** One current value per person. "What was their capacity last
+   quarter" has no answer, and a report needing one cannot be built without a new table.
+3. **No holidays, leave, calendars or per-day schedules.** A week is 40 hours or whatever
+   is set, uniformly, with no notion of someone being away.
+4. **`allocation` counts logged time, not committed work.** Someone assigned five tasks who
+   has logged nothing reads as 0% utilised. Making it forward-looking needs estimates on
+   work packages, which is a different data source.
+5. **Utilisation is not stored or trended.** It is computed per request, so there is no
+   history of it either.
+6. **`completedThisSprint` is still zero.** It needs sprints, which this instance has none
+   of. Untouched by this work.
+7. **Department capacity does not decompose by team.** It is a single sum over people; a
+   breakdown would be a new shape, not a new column.

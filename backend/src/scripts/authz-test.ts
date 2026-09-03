@@ -1718,6 +1718,9 @@ async function main() {
   // Created below; removed in the cleanup step, which the API cannot do.
   const departmentIds: string[] = [];
   const teamIds: string[] = [];
+  // Capacity is real per-person data. Whatever these tests change is put
+  // back in the cleanup step, so the database ends as it began.
+  const originalCapacity = new Map<string, number>();
 
   // --- Departments ---------------------------------------------------------
   //
@@ -1733,6 +1736,8 @@ async function main() {
     code: string;
     description?: string;
     manager?: { id: string; name: string };
+    memberCount: number;
+    capacityHours: number;
     active: boolean;
     createdAt: string;
     updatedAt: string;
@@ -1989,8 +1994,12 @@ async function main() {
   check(
     'no upstream reference is exposed on a department',
     Object.keys(createdDepartment).sort().join(),
-    'active,code,createdAt,description,id,manager,name,updatedAt',
+    // memberCount and capacityHours joined this contract with capacity. Both
+    // are sums over EPM's own mapping; nothing upstream is consulted for them.
+    'active,capacityHours,code,createdAt,description,id,manager,memberCount,name,updatedAt',
   );
+  check('a new department has no members', createdDepartment.memberCount, 0);
+  check('and no capacity', createdDepartment.capacityHours, 0);
 
   // --- Teams ---------------------------------------------------------------
   //
@@ -2008,6 +2017,7 @@ async function main() {
     department?: { id: string; name: string; active: boolean };
     lead?: { id: string; name: string };
     memberCount: number;
+    capacityHours: number;
     active: boolean;
     createdAt: string;
     updatedAt: string;
@@ -2098,9 +2108,10 @@ async function main() {
     Object.keys(createdTeam).sort().join(),
     // memberCount joined this contract with employee mapping. It counts EPM
     // mappings; no OpenProject group is consulted for it.
-    'active,code,createdAt,department,description,id,lead,memberCount,name,updatedAt',
+    'active,capacityHours,code,createdAt,department,description,id,lead,memberCount,name,updatedAt',
   );
   check('a new team has no members', createdTeam.memberCount, 0);
+  check('and no capacity', createdTeam.capacityHours, 0);
 
   check(
     'a duplicate code is refused',
@@ -2589,6 +2600,205 @@ async function main() {
   await setMapping(adminId, {});
   await setMapping(restrictedId, {});
 
+  // --- Capacity --------------------------------------------------------------
+  //
+  // Capacity is weekly hours on the employee record. These reuse the department
+  // and teams above so the rollups have something real to sum, and every value
+  // touched is captured first and put back in the cleanup step — capacity is
+  // real per-person data, not this suite's to leave changed.
+  console.log('\nCapacity');
+
+  const capacityOf = async (id: string) => (await employee(id)).hoursCapacity;
+
+  // Snapshot before anything is written.
+  originalCapacity.set(adminId, await capacityOf(adminId));
+  originalCapacity.set(restrictedId, await capacityOf(restrictedId));
+
+  const setCapacity = (id: string, body: Record<string, unknown>, cookie = admin) =>
+    call(`/employees/${id}/capacity`, { method: 'PATCH', cookie, body });
+
+  check('an unset capacity reports the documented default', originalCapacity.get(adminId), 40);
+
+  check(
+    'anonymous cannot set capacity',
+    await status(`/employees/${adminId}/capacity`, { method: 'PATCH', body: { hoursCapacity: 10 } }),
+    401,
+  );
+  check(
+    'a caller without the grant cannot set capacity',
+    (await setCapacity(adminId, { hoursCapacity: 10 }, restricted)).status,
+    403,
+  );
+  check(
+    'the capacity is unchanged after the refused write',
+    await capacityOf(adminId),
+    originalCapacity.get(adminId),
+  );
+
+  // --- validation, including the boundaries ---
+  const invalidCapacities: [string, Record<string, unknown>, number][] = [
+    ['a negative capacity is refused', { hoursCapacity: -1 }, 400],
+    ['a capacity above a week is refused', { hoursCapacity: 169 }, 400],
+    ['a text capacity is refused', { hoursCapacity: '40' }, 400],
+    ['a null capacity is refused', { hoursCapacity: null }, 400],
+    ['a missing capacity is refused', {}, 400],
+    ['a boolean capacity is refused', { hoursCapacity: true }, 400],
+  ];
+  for (const [label, body, expected] of invalidCapacities) {
+    check(label, (await setCapacity(adminId, body)).status, expected);
+  }
+
+  check(
+    'an unknown employee cannot have capacity set',
+    (await setCapacity('99999999', { hoursCapacity: 40 })).status,
+    404,
+  );
+
+  // Zero is a real value: this person contributes nothing but is still a member.
+  const zeroed = await setCapacity(adminId, { hoursCapacity: 0 });
+  check('zero is accepted', zeroed.status, 200);
+  check('zero is stored, not treated as unset', ((await zeroed.json()) as TestEmployee).hoursCapacity, 0);
+
+  // 168 is the number of hours in a week — the boundary is inclusive.
+  check(
+    'exactly a full week is accepted',
+    ((await (await setCapacity(adminId, { hoursCapacity: 168 })).json()) as TestEmployee).hoursCapacity,
+    168,
+  );
+
+  check(
+    'a decimal capacity is kept',
+    ((await (await setCapacity(adminId, { hoursCapacity: 37.5 })).json()) as TestEmployee).hoursCapacity,
+    37.5,
+  );
+  // Rounded to the quarter hour, so a weekly figure does not carry float noise.
+  check(
+    'a finer value rounds to the quarter hour',
+    ((await (await setCapacity(adminId, { hoursCapacity: 37.6 })).json()) as TestEmployee).hoursCapacity,
+    37.5,
+  );
+
+  check(
+    'the value is readable back from the employee list',
+    (await employees(admin)).find((e) => e.id === adminId)?.hoursCapacity,
+    37.5,
+  );
+
+  // Capacity must not disturb the mapping, which is why it has its own route.
+  await setMapping(adminId, { teamId });
+  await setCapacity(adminId, { hoursCapacity: 40 });
+  const afterCapacityWrite = await employee(adminId);
+  check('setting capacity leaves the team alone', afterCapacityWrite.team?.id, teamId);
+  check('and leaves the department alone', afterCapacityWrite.department?.id, deptId);
+
+  // --- rollups ---
+  const teamRollup = async (id: string) =>
+    (await (await call(`/teams/${id}`, { cookie: admin })).json()) as {
+      memberCount: number;
+      capacityHours: number;
+    };
+  const departmentRollup = async (id: string) =>
+    (await (await call(`/departments/${id}`, { cookie: admin })).json()) as {
+      memberCount: number;
+      capacityHours: number;
+    };
+
+  const oneMember = await teamRollup(teamId);
+  check('a team with one member counts one', oneMember.memberCount, 1);
+  check('and sums that member capacity', oneMember.capacityHours, 40);
+
+  await setMapping(restrictedId, { teamId });
+  await setCapacity(restrictedId, { hoursCapacity: 20 });
+  const twoMembers = await teamRollup(teamId);
+  check('a second member is counted', twoMembers.memberCount, 2);
+  check('capacity is the sum, not an average', twoMembers.capacityHours, 60);
+
+  // The department total comes from departmentId directly, so it does not
+  // depend on how people are split across teams.
+  const department = await departmentRollup(deptId);
+  check('the department counts the same people', department.memberCount, 2);
+  check('and sums the same hours', department.capacityHours, 60);
+
+  // Someone with no hours is still a member — that is a different fact from
+  // not being on the team.
+  await setCapacity(restrictedId, { hoursCapacity: 0 });
+  const withZero = await teamRollup(teamId);
+  check('a zero-capacity member is still counted', withZero.memberCount, 2);
+  check('but contributes nothing to the total', withZero.capacityHours, 40);
+
+  // An unmapped person belongs to nothing, so there is nowhere to add them.
+  await setMapping(restrictedId, {});
+  const afterUnmapping = await teamRollup(teamId);
+  check('unmapping removes someone from the count', afterUnmapping.memberCount, 1);
+  check('and from the total', afterUnmapping.capacityHours, 40);
+
+  check(
+    'the member count agrees with the member list',
+    ((await (await call(`/teams/${teamId}/members`, { cookie: admin })).json()) as TestEmployee[]).length,
+    afterUnmapping.memberCount,
+  );
+
+  // An empty team reports zero rather than nothing: zero capacity is an answer.
+  const emptyTeam = await teamRollup(looseTeam.id);
+  check('an empty team counts zero members', emptyTeam.memberCount, 0);
+  check('and reports zero capacity, not an absent field', emptyTeam.capacityHours, 0);
+
+  const emptyDepartment = await departmentRollup(secondDepartment.id);
+  check('an empty department reports zero capacity', emptyDepartment.capacityHours, 0);
+
+  // Archiving is a visibility decision; the people are still there.
+  await call(`/teams/${teamId}/archive`, { method: 'PATCH', cookie: admin });
+  const archivedTeamRollup = await teamRollup(teamId);
+  check('an archived team still counts its members', archivedTeamRollup.memberCount, 1);
+  check('and still sums their capacity', archivedTeamRollup.capacityHours, 40);
+  await call(`/teams/${teamId}/restore`, { method: 'PATCH', cookie: admin });
+
+  await call(`/departments/${deptId}/archive`, { method: 'PATCH', cookie: admin });
+  check('an archived department still aggregates', (await departmentRollup(deptId)).capacityHours, 40);
+  await call(`/departments/${deptId}/restore`, { method: 'PATCH', cookie: admin });
+
+  // --- workload and utilisation ---
+  interface TestWorkload {
+    userId: string;
+    allocation: number | null;
+    hoursLogged: number;
+    hoursCapacity: number;
+  }
+
+  const workloadsOf = async (query = '') =>
+    (await (await call(`/teams/workloads${query}`, { cookie: admin })).json()) as TestWorkload[];
+
+  const scopedWorkloads = await workloadsOf(`?teamId=${teamId}`);
+  check('workloads scope to the team', scopedWorkloads.length, 1);
+  check('the member carries their capacity', scopedWorkloads[0]?.hoursCapacity, 40);
+  check('logged hours are a number', typeof scopedWorkloads[0]?.hoursLogged, 'number');
+  // Logged hours come from the current week, matching the capacity period, so
+  // the ratio between them is meaningful rather than an all-time total over a
+  // weekly figure.
+  check(
+    'allocation is logged over capacity',
+    scopedWorkloads[0]?.allocation,
+    Math.round(((scopedWorkloads[0]?.hoursLogged ?? 0) / 40) * 100),
+  );
+
+  // The case that would otherwise be Infinity or a misleading zero.
+  await setMapping(restrictedId, { teamId });
+  await setCapacity(restrictedId, { hoursCapacity: 0 });
+  const withZeroCapacity = await workloadsOf(`?teamId=${teamId}`);
+  const zeroPerson = withZeroCapacity.find((w) => w.userId === restrictedId);
+  check('a zero-capacity person appears in workloads', Boolean(zeroPerson), true);
+  check('their capacity is reported as zero', zeroPerson?.hoursCapacity, 0);
+  check('and their allocation is null, not a number', zeroPerson?.allocation, null);
+  check(
+    'no allocation is ever Infinity or NaN',
+    withZeroCapacity.every((w) => w.allocation === null || Number.isFinite(w.allocation)),
+    true,
+  );
+
+  check('an empty team yields no workloads', (await workloadsOf(`?teamId=${looseTeam.id}`)).length, 0);
+
+  await setMapping(restrictedId, {});
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -2610,6 +2820,19 @@ async function main() {
   // Departments have no delete route by design, so the rows these tests
   // created are removed through the database rather than left behind. The
   // one place the suite reaches past the API, and only to undo its own writes.
+  // Capacity first, and through the API, so the restore goes through the same
+  // validation the tests exercised rather than around it.
+  for (const [id, hours] of originalCapacity) {
+    await call(`/employees/${id}/capacity`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { hoursCapacity: hours },
+    }).catch(() => undefined);
+  }
+  if (originalCapacity.size) {
+    console.log(`  (restored capacity for ${originalCapacity.size} employee(s))`);
+  }
+
   if (departmentIds.length || teamIds.length) {
     const { prisma } = await import('../db/prisma.js');
 
@@ -2625,7 +2848,17 @@ async function main() {
       })
       .catch(() => undefined);
     await prisma.userProfile
-      .deleteMany({ where: { departmentId: null, teamId: null, department: null, timezone: null } })
+      .deleteMany({
+        where: {
+          departmentId: null,
+          teamId: null,
+          department: null,
+          timezone: null,
+          // Only rows holding nothing but the default capacity. A row with a
+          // real value is somebody's data and is left alone.
+          hoursCapacity: 40,
+        },
+      })
       .catch(() => undefined);
 
     // Teams next: the foreign key is RESTRICT, so a department holding teams
