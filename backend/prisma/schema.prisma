@@ -21,16 +21,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Per-user attributes with no OpenProject column.
+/// Per-user attributes with no OpenProject column, and where a person sits in
+/// EPM's org structure.
+///
+/// This is the EPM-side employee record. It is keyed by the OpenProject user id
+/// rather than an id of its own, and that column is deliberately not a foreign
+/// key — the row it names lives in another system. A person with no mapping has
+/// no row here at all, so every read treats a missing profile as "unmapped"
+/// rather than as an error.
 model UserProfile {
   openProjectId String   @id
+  /// Legacy free text, superseded by `departmentId`. Kept rather than dropped:
+  /// this database never held a value, but another deployment might, and reads
+  /// fall back to it until that person is mapped. Never written from now on.
   department    String?
+  /// The department a person belongs to. When a team is assigned and that team
+  /// has a department, this is derived from it — see `domain/employees.ts`.
+  departmentId  String?
+  departmentRef Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  teamId        String?
+  team          Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// Weekly capacity in hours, backing TeamMemberWorkload.hoursCapacity.
   hoursCapacity Float    @default(40)
   timezone      String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([departmentId])
+  @@index([teamId])
   @@map("user_profiles")
 }
 
@@ -165,6 +183,7 @@ model Department {
   updatedAt   DateTime @updatedAt
 
   teams       Team[]
+  members     UserProfile[]
 
   /// The list route filters on this by default.
   @@index([active])
@@ -195,6 +214,8 @@ model Team {
   active       Boolean     @default(true)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
+
+  members      UserProfile[]
 
   @@index([departmentId])
   @@index([active])

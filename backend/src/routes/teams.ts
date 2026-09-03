@@ -7,6 +7,7 @@ import { linkId, openProject } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { requestSignal } from '../lib/request-signal.js';
+import { listTeamMembers, memberIdsOfTeam } from '../domain/employees.js';
 import {
   createTeam,
   getTeam,
@@ -30,9 +31,9 @@ import type { TeamMemberWorkload } from '../types/epm.js';
  * `teams:manage`, which OpenProject cannot grant because a team is not one of
  * its concepts; it comes from EPM's own grants. See `auth/grants.ts`.
  *
- * `/teams/workloads` is unchanged and deliberately kept. Despite the path it is
- * about people rather than teams — the project team tab calls it with no team —
- * and it does not touch anything above.
+ * `/teams/workloads` is about people rather than teams — the project team tab
+ * calls it with no team at all. Its `teamId` filter now works, because employee
+ * mapping supplies membership; before that there was nothing to scope by.
  */
 
 export const teamRoutes: FastifyPluginAsync = async (app) => {
@@ -57,12 +58,20 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get('/teams/workloads', async (request) => {
     const signal = requestSignal(request);
-    // Team membership belongs to Employee Mapping and does not exist yet, so
-    // there is nothing to scope by; the parameter is accepted and ignored
-    // rather than silently returning an empty list for a plausible-looking call.
-    z.object({ teamId: z.string().optional() }).parse(request.query);
+    const { teamId } = z.object({ teamId: z.string().optional() }).parse(request.query);
 
-    const users = await getUsers(signal);
+    const everyone = await getUsers(signal);
+
+    // Scoping changes only which people are measured. Each person's numbers are
+    // computed from their own work packages and time entries exactly as before,
+    // so nothing about a team enters the arithmetic. A team with no members
+    // yields an empty list, which is the honest answer.
+    const users = teamId
+      ? await memberIdsOfTeam(teamId).then((ids) => {
+          const members = new Set(ids);
+          return everyone.filter((user) => members.has(user.id));
+        })
+      : everyone;
 
     const [timeEntries, profiles] = await Promise.all([
       openProject
@@ -116,6 +125,16 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { id: string } }>('/teams/:id', async (request) => {
     return getTeam(request.params.id, requestSignal(request));
+  });
+
+  /**
+   * People mapped to a team.
+   *
+   * Membership comes from EPM's employee mapping — never from OpenProject
+   * groups, which is what teams used to be read from.
+   */
+  app.get<{ Params: { id: string } }>('/teams/:id/members', async (request) => {
+    return listTeamMembers(request.params.id, requestSignal(request));
   });
 
   app.post<{ Body: TeamInput }>('/teams', async (request, reply) => {

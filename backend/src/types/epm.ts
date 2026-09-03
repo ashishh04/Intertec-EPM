@@ -86,6 +86,7 @@ export type Permission =
   | 'users:manage'
   | 'groups:manage'
   | 'departments:manage'
+  | 'employees:manage'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';

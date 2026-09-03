@@ -58,6 +58,7 @@ export const PERMISSIONS = [
   'groups:manage',
   'departments:manage',
   'teams:manage',
+  'employees:manage',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -92,6 +93,13 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // but because a team is not an OpenProject concept. Granted from EPM's own
   // permission grants. See `auth/grants.ts`.
   'teams:manage': 'Team is EPM-owned metadata; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Assigning people into EPM's org structure is a different responsibility
+  // from designing it: staffing a team is not the same as being able to retire
+  // one, and requiring both would mean nobody could do the first without the
+  // second. OpenProject has no concept of an EPM department, so nothing
+  // upstream implies this either. Granted from EPM's own permission grants.
+  'employees:manage':
+    'Employee mapping is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

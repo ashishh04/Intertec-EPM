@@ -33,7 +33,10 @@ export function initialsFor(name: string): string {
 }
 
 interface UserOverlay {
+  /** Legacy free text. Only used when a person has no department mapping. */
   department?: string | null;
+  /** The mapped department's name, which supersedes the free text above. */
+  departmentRef?: { name: string } | null;
   timezone?: string | null;
 }
 
@@ -50,7 +53,10 @@ export function toEpmUser(
     // Principals do not expose email to a non-admin token.
     email: principal.email ?? '',
     role: options.role ?? '',
-    department: options.overlay?.department ?? '',
+    // The mapping is authoritative. The free-text column is a fallback for a
+    // deployment that populated it before employee mapping existed; this one
+    // never did. Neither is invented — an unmapped person reports nothing.
+    department: options.overlay?.departmentRef?.name ?? options.overlay?.department ?? '',
     avatarUrl: principal.avatar,
     // OpenProject has no presence concept. `status` is an account state, not
     // whether someone is online, so it is not reported as presence.
@@ -88,8 +94,13 @@ async function loadUsers(signal?: AbortSignal): Promise<EpmUser[]> {
   ]);
 
   const overlays = await optional(
-    () => prisma.userProfile.findMany(),
-    [] as { openProjectId: string; department: string | null; timezone: string | null }[],
+    () => prisma.userProfile.findMany({ include: { departmentRef: { select: { name: true } } } }),
+    [] as {
+      openProjectId: string;
+      department: string | null;
+      departmentRef: { name: string } | null;
+      timezone: string | null;
+    }[],
   );
   const overlayById = new Map(overlays.map((row) => [row.openProjectId, row]));
 
@@ -112,7 +123,11 @@ export async function getCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
   const me = await openProject.request<OpPrincipal>('/users/me', { signal });
 
   const overlay = await optional(
-    () => prisma.userProfile.findUnique({ where: { openProjectId: String(me.id) } }),
+    () =>
+      prisma.userProfile.findUnique({
+        where: { openProjectId: String(me.id) },
+        include: { departmentRef: { select: { name: true } } },
+      }),
     null,
   );
 
