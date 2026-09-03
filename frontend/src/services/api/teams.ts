@@ -23,6 +23,12 @@ export interface EpmTeam {
   /** `active` is present because a team outlives its department's archival. */
   department?: { id: ID; name: string; active: boolean };
   lead?: { id: ID; name: string };
+  /**
+   * People mapped to this team, counted from EPM's employee mapping — never
+   * from OpenProject group membership, which is what teams were read from
+   * before.
+   */
+  memberCount: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

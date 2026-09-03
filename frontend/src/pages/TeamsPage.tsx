@@ -181,6 +181,13 @@ export default function TeamsPage() {
                 </div>
 
                 <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                  <Users className="h-3.5 w-3.5" aria-hidden />
+                  {/* Counted from EPM's employee mapping, never from an
+                      OpenProject group. */}
+                  <span>{team.memberCount}</span>
+                </div>
+
+                <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
                   <Building2 className="h-3.5 w-3.5" aria-hidden />
                   {team.department ? (
                     <span>

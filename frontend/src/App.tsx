@@ -25,6 +25,7 @@ const TasksPage = lazy(() => import('@/pages/TasksPage'));
 const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
 const TeamsPage = lazy(() => import('@/pages/TeamsPage'));
 const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage'));
+const EmployeesPage = lazy(() => import('@/pages/EmployeesPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
 const AgilePage = lazy(() => import('@/pages/AgilePage'));
@@ -98,6 +99,7 @@ export function App() {
         <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
 
         <Route path="/departments" element={<DepartmentsPage />} />
+        <Route path="/employees" element={<EmployeesPage />} />
 
         <Route path="/teams" element={<TeamsPage />} />
         <Route path="/teams/:teamId" element={<TeamDetailPage />} />

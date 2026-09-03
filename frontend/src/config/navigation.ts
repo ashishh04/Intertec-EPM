@@ -13,6 +13,7 @@ import {
   Timer,
   Users,
   Building2,
+  UserRound,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -70,6 +71,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Teams', to: '/teams', icon: Users, matchNested: true },
       { label: 'Departments', to: '/departments', icon: Building2 },
+      { label: 'Employees', to: '/employees', icon: UserRound },
       { label: 'Documents', to: '/documents', icon: FileText },
     ],
   },

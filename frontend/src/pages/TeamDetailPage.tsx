@@ -12,17 +12,19 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSetTeamActive, useTeam } from '@/hooks/useTeams';
+import { useTeamMembers } from '@/hooks/useEmployees';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 
 /**
  * One team.
  *
- * Shows what EPM owns: identity, department, lead and lifecycle. The member,
- * project and capacity panels this page used to carry were derived from
- * OpenProject group membership — they rendered zeroes, because the instance has
- * no groups — and each belongs to a feature that has not been built:
- * membership to Employee Mapping, projects to Portfolio, capacity to Capacity.
+ * Shows what EPM owns: identity, department, lead, members and lifecycle.
+ *
+ * Membership comes from EPM's employee mapping. It is not the group-derived
+ * `memberIds` this page used to render, which was always empty because the
+ * instance defines no OpenProject groups. Projects and capacity remain absent —
+ * they belong to Portfolio and Capacity.
  */
 export default function TeamDetailPage() {
   const { teamId } = useParams();
@@ -30,6 +32,7 @@ export default function TeamDetailPage() {
   const mayManage = can('teams:manage');
 
   const team = useTeam(teamId);
+  const members = useTeamMembers(teamId);
   const setActive = useSetTeamActive();
   const users = useUserMap();
 
@@ -155,12 +158,37 @@ export default function TeamDetailPage() {
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
                 Members
+                {(members.data?.length ?? 0) > 0 ? (
+                  <span className="text-2xs font-normal text-muted-foreground">
+                    {members.data?.length}
+                  </span>
+                ) : null}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
-              <p className="text-xs text-muted-foreground">
-                Team membership is not modelled yet. It arrives with employee mapping.
-              </p>
+              {members.isLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-8 w-full" />
+                  <Skeleton className="h-8 w-full" />
+                </div>
+              ) : (members.data?.length ?? 0) === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Nobody is assigned to this team yet. People are assigned on the
+                  employees page.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {members.data?.map((member) => (
+                    <li key={member.id} className="flex items-center gap-2">
+                      <UserAvatar user={users.get(member.id)} size="xs" />
+                      <span className="text-xs">{member.name}</span>
+                      {member.email ? (
+                        <span className="text-2xs text-muted-foreground">{member.email}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </CardContent>
           </Card>
 
