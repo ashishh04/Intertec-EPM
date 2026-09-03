@@ -14,6 +14,7 @@ import {
   Users,
   Building2,
   UserRound,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -62,6 +63,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Insights',
     items: [
+      { label: 'Portfolios', to: '/portfolios', icon: Briefcase },
       { label: 'Reports', to: '/reports', icon: FileText },
       { label: 'Analytics', to: '/analytics', icon: BarChart3 },
     ],

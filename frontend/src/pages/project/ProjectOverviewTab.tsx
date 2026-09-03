@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HealthOverrideDialog } from '@/components/projects/HealthOverrideDialog';
+import { ProjectPortfolioCard } from '@/components/portfolios/ProjectPortfolioCard';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { HealthIndicator, PriorityBadge } from '@/components/common/StatusBadge';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
@@ -224,6 +225,8 @@ export default function ProjectOverviewTab() {
 
       {/* Right rail */}
       <div className="space-y-5">
+        <ProjectPortfolioCard project={project} />
+
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
             <CardTitle>Project health</CardTitle>
