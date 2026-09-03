@@ -14,6 +14,7 @@ import {
 } from '../mapping/projects.js';
 import { prisma, optional } from '../db/prisma.js';
 import { setProjectPortfolio } from '../domain/portfolios.js';
+import { notifyHealthChange } from '../domain/notifications.js';
 import { Prisma } from '@prisma/client';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
 import type { Milestone, EpmProject } from '../types/epm.js';
@@ -270,6 +271,11 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
       const stored = Object.keys(override).length > 0 ? override : Prisma.DbNull;
 
+      // What it was, before the pin lands. A transition needs both ends, and
+      // after the write the previous value is gone.
+      const projectsBefore = await loadProjects(requestSignal(request));
+      const before = projectsBefore.find((candidate) => candidate.id === id);
+
       await prisma.projectProfile.upsert({
         where: { openProjectId: id },
         create: { openProjectId: id, healthOverride: stored },
@@ -279,7 +285,26 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       // Re-read through the normal path, so the response is the same shape
       // every other project read returns, with the pin already applied.
       const projects = await loadProjects(requestSignal(request));
-      return projects.find((candidate) => candidate.id === id);
+      const after = projects.find((candidate) => candidate.id === id);
+
+      // Only when the effective state actually moved. Pinning a dimension that
+      // does not change the headline is not news to anyone.
+      if (after && before && before.health.overall !== after.health.overall) {
+        await notifyHealthChange({
+          projectId: id,
+          projectName: after.name,
+          ownerId: after.ownerId || undefined,
+          previous: before.health.overall,
+          next: after.health.overall,
+          overridden: Boolean(after.healthOverride),
+        }).catch((error: unknown) => {
+          // A notification that cannot be written must not fail the write the
+          // user actually asked for.
+          request.log.warn({ err: error }, 'Could not notify a health change');
+        });
+      }
+
+      return after;
     },
   );
 

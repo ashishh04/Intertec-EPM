@@ -273,12 +273,31 @@ export async function setCapacity(
 
   const hoursCapacity = validateCapacity(input.hoursCapacity);
 
+  // What it was. A person with no row is on the documented default, which is
+  // what the workload calculation would have assumed for them too.
+  const existing = await prisma.userProfile
+    .findUnique({ where: { openProjectId: id }, select: { hoursCapacity: true } })
+    .catch(() => null);
+  const previous = existing?.hoursCapacity ?? CAPACITY_DEFAULT;
+
   const profile = await prisma.userProfile.upsert({
     where: { openProjectId: id },
     create: { openProjectId: id, hoursCapacity },
     update: { hoursCapacity },
     include: { departmentRef: true, team: true },
   });
+
+  // Only on a real change. Values are already quarter-hour rounded, so there is
+  // no float noise to threshold against and a no-op write notifies nobody.
+  if (previous !== hoursCapacity) {
+    const { notifyCapacityChange } = await import('./notifications.js');
+    await notifyCapacityChange({
+      employeeId: id,
+      employeeName: user.name,
+      from: previous,
+      to: hoursCapacity,
+    }).catch(() => undefined);
+  }
 
   // The directory does not carry capacity, so it does not need invalidating —
   // but it is cached per user id and a create here adds a row that other reads

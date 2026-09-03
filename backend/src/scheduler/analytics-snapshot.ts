@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 
 import { env } from '../config/env.js';
+import { notifySnapshotFailure } from '../domain/notifications.js';
 import { runSnapshot } from '../routes/analytics.js';
 
 /**
@@ -94,6 +95,15 @@ export function createAnalyticsSnapshotScheduler(options: SchedulerOptions): Sna
         { err: error, durationMs: Date.now() - startedAt },
         'Analytics snapshot failed; the period will be left as a gap',
       );
+
+      // And tell whoever administers analytics, once for the day rather than
+      // once per retry. Only the message travels — a stack trace carries paths
+      // and an upstream error can carry a request URL.
+      const reason = error instanceof Error ? error.message : 'The capture did not complete.';
+      await notifySnapshotFailure({ day: new Date().toISOString().slice(0, 10), reason })
+        .catch((notifyError: unknown) => {
+          log.warn({ err: notifyError }, 'Could not notify the snapshot failure');
+        });
     } finally {
       running = false;
     }

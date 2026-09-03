@@ -23,10 +23,17 @@ interface NotificationItemProps {
 }
 
 function targetFor(notification: EpmNotification): string {
+  // EPM notifications carry an explicit route, because a team, an employee or
+  // the analytics page cannot be addressed by a task or project id. Always an
+  // EPM path — an OpenProject URL never reaches here.
+  if (notification.link) return notification.link;
   if (notification.taskId) return `/tasks/${notification.taskId}`;
   if (notification.projectId) return `/projects/${notification.projectId}`;
   return '/notifications';
 }
+
+/** Only EPM notifications carry a severity; OpenProject's have none to show. */
+const SEVERITY_TONE = { info: 'primary', warning: 'warning', critical: 'danger' } as const;
 
 /** One notification row, shared by the header panel and the full page. */
 export function NotificationItem({
@@ -60,7 +67,9 @@ export function NotificationItem({
           <span
             className={cn(
               'flex items-center justify-center rounded-full border',
-              TONE_SOFT[meta.tone],
+              // Severity wins where there is one: a critical health change and
+              // a routine system message should not look alike.
+              TONE_SOFT[notification.severity ? SEVERITY_TONE[notification.severity] : meta.tone],
               compact ? 'h-6 w-6' : 'h-8 w-8',
             )}
             aria-hidden

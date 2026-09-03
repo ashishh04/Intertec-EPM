@@ -359,6 +359,14 @@ export interface EpmNotification {
   taskKey?: string;
   taskId?: ID;
   projectId?: ID;
+  /**
+   * An EPM route to open, for notifications about things a task or project id
+   * cannot address — a team, an employee, the analytics page. Never an
+   * OpenProject URL.
+   */
+  link?: string;
+  /** Present on EPM-generated notifications; absent on OpenProject's. */
+  severity?: 'info' | 'warning' | 'critical';
   read: boolean;
   timestamp: ISODate;
 }

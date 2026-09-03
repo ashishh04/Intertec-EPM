@@ -66,6 +66,10 @@ model ProjectProfile {
   budgetUsed     Float?
   /// Set to pin a health dimension that the computed rules get wrong.
   healthOverride Json?
+  /// The effective overall health as of the last notification evaluation.
+  /// Without it a transition cannot be detected at all: health is computed per
+  /// request and nothing else remembers what it was.
+  lastNotifiedHealth String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -285,4 +289,35 @@ model Portfolio {
   /// The list route filters on this by default.
   @@index([active])
   @@map("portfolios")
+}
+
+/// A message for one person about something they should know and would not
+/// otherwise see.
+///
+/// EPM-owned, and additive rather than duplicate: OpenProject notifications are
+/// still read through from upstream and merged with these. Its notifications
+/// cannot hold EPM events — a health transition or a capacity change is not an
+/// OpenProject concept — so they needed a home, and this is it.
+model Notification {
+  id          String    @id @default(cuid())
+  /// The OpenProject user id this is for. Not a foreign key: OpenProject owns
+  /// users, as everywhere else in EPM.
+  recipientId String
+  /// From the existing NotificationCategory vocabulary. EPM events are `system`.
+  category    String
+  title       String
+  body        String
+  /// An EPM route to open. Never an OpenProject URL.
+  link        String?
+  severity    String    @default("info")
+  /// What happened, at the granularity where repeating it is not news. Unique
+  /// per recipient, so deduplication is a database guarantee rather than a
+  /// check that could race two writers.
+  dedupeKey   String
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([recipientId, dedupeKey])
+  @@index([recipientId, createdAt])
+  @@map("notifications")
 }
