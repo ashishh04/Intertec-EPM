@@ -49,19 +49,6 @@ model ProjectProfile {
   @@map("project_profiles")
 }
 
-/// Teams map to OpenProject groups; these are the fields groups lack.
-model TeamProfile {
-  openProjectId String   @id
-  slug          String   @unique
-  description   String?
-  /// OpenProject group membership has no notion of a lead.
-  leadId        String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@map("team_profiles")
-}
-
 /// Sprints are OpenProject versions plus a goal and a committed-points baseline.
 model SprintProfile {
   openProjectId   String   @id
@@ -177,9 +164,41 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  teams       Team[]
+
   /// The list route filters on this by default.
   @@index([active])
   @@map("departments")
+}
+
+/// An EPM-owned delivery team.
+///
+/// Replaces the earlier reading of OpenProject groups as teams: a group could
+/// not carry a department, a lifecycle or a code, and none existed on the
+/// instance anyway. Membership, projects and capacity are deliberately absent —
+/// each belongs to a later feature, and a column added now would be a guess at
+/// its shape.
+model Team {
+  id           String      @id @default(cuid())
+  /// Unique regardless of case, enforced by a functional index on LOWER(name).
+  /// `@unique` is deliberately absent: Prisma cannot express an index on an
+  /// expression, and declaring it here would add a redundant plain index.
+  name         String
+  code         String      @unique
+  description  String?
+  /// Nullable: a team may exist before the org chart does, or span departments.
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  /// OpenProject user id of the lead. Not a relation, for the same reason a
+  /// department's manager is not one — OpenProject owns users.
+  leadId       String?
+  active       Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([departmentId])
+  @@index([active])
+  @@map("teams")
 }
 
 /// Permissions EPM owns, which OpenProject has no concept of.

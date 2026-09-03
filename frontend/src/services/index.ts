@@ -34,7 +34,6 @@ const repositories: EpmRepositories = {
   projects: new ApiProjectRepository(),
   tasks: new ApiTaskRepository(),
   users: new ApiUserRepository(),
-  teams: new ApiTeamRepository(),
   sprints: new ApiSprintRepository(),
   dashboard: new ApiDashboardRepository(),
   reports: new ApiReportRepository(),
@@ -46,7 +45,8 @@ const repositories: EpmRepositories = {
 export const projectService = repositories.projects;
 export const taskService = repositories.tasks;
 export const userService = repositories.users;
-export const teamService = repositories.teams;
+/** EPM-owned, so outside the OpenProject-backed repository contract. */
+export const teamService = new ApiTeamRepository();
 export const sprintService = repositories.sprints;
 export const dashboardService = repositories.dashboard;
 export const reportService = repositories.reports;

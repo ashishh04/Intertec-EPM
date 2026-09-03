@@ -104,15 +104,6 @@ export default function ReportsPage() {
     [tasksQuery.data],
   );
 
-  const teamPerformance = useMemo(
-    () =>
-      (teamsQuery.data ?? []).map((team) => ({
-        label: team.name.split(' ')[0],
-        value: team.sprintProgress,
-      })),
-    [teamsQuery.data],
-  );
-
   const timeByUser = useMemo(
     () =>
       (timeQuery.data ?? [])
@@ -387,43 +378,34 @@ export default function ReportsPage() {
 
         {/* Team performance */}
         <TabsContent value="team" className="mt-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ChartCard title="Sprint progress by team" description="Percentage of committed work delivered">
-              <HorizontalBarChart data={teamPerformance} tone="accent" />
-            </ChartCard>
-
+          <div className="grid gap-4">
             <Card className="overflow-hidden">
               <CardHeader className="border-b border-border py-3">
-                <CardTitle>Team capacity</CardTitle>
+                <CardTitle>Teams</CardTitle>
               </CardHeader>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Team</TableHead>
-                      <TableHead>Members</TableHead>
-                      <TableHead>Capacity</TableHead>
-                      <TableHead>Sprint</TableHead>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Lead</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {/* Member counts, capacity and sprint progress were removed
+                        with the OpenProject-group reading of teams: they were
+                        always zero, and each belongs to a feature that has not
+                        been built. What EPM owns is shown instead. */}
                     {(teamsQuery.data ?? []).map((team) => (
                       <TableRow key={team.id}>
                         <TableCell className="font-medium">{team.name}</TableCell>
-                        <TableCell className="font-mono text-2xs">{team.memberIds.length}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <ProgressBar
-                              value={team.capacity}
-                              size="xs"
-                              tone={team.capacity > 90 ? 'danger' : team.capacity > 75 ? 'warning' : 'success'}
-                              label={`${team.name} capacity`}
-                              className="w-16"
-                            />
-                            <span className="font-mono text-2xs tabular-nums">{team.capacity}%</span>
-                          </div>
+                        <TableCell className="font-mono text-2xs">{team.code}</TableCell>
+                        <TableCell className="text-2xs">
+                          {team.department?.name ?? '—'}
                         </TableCell>
-                        <TableCell className="font-mono text-2xs">{team.sprintProgress}%</TableCell>
+                        <TableCell className="text-2xs">{team.lead?.name ?? '—'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

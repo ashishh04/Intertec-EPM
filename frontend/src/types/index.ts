@@ -46,19 +46,6 @@ export interface EpmUser {
   accent: AvatarAccent;
 }
 
-export interface EpmTeam {
-  id: ID;
-  name: string;
-  slug: string;
-  description: string;
-  leadId: ID;
-  memberIds: ID[];
-  projectIds: ID[];
-  /** 0-100 aggregate allocation of the team capacity. */
-  capacity: number;
-  sprintProgress: number;
-}
-
 export interface TeamMemberWorkload {
   userId: ID;
   /** 0-100 percentage of the weekly capacity that is allocated. */

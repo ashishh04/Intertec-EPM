@@ -1,87 +1,68 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
-import { EpmError } from '../lib/errors.js';
-import { requestSignal } from '../lib/request-signal.js';
-import { openProject, linkId } from '../openproject/client.js';
-import { optional, prisma } from '../db/prisma.js';
+import * as guard from '../auth/guard.js';
 import { getUsers } from '../mapping/users.js';
+import { linkId, openProject } from '../openproject/client.js';
+import { optional, prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
-import type { OpMembership, OpPrincipal, OpTimeEntry } from '../openproject/types.js';
-import type { EpmTeam, TeamMemberWorkload } from '../types/epm.js';
+import { requestSignal } from '../lib/request-signal.js';
+import {
+  createTeam,
+  getTeam,
+  listTeams,
+  setTeamActive,
+  updateTeam,
+  type TeamInput,
+} from '../domain/teams.js';
+import type { OpTimeEntry } from '../openproject/types.js';
+import type { TeamMemberWorkload } from '../types/epm.js';
 
 /**
- * Teams are OpenProject groups. This instance defines none, so `/teams` returns
- * an empty list — the UI's empty state is the correct thing to show, rather
- * than inventing a team structure that does not exist.
+ * Teams.
+ *
+ * EPM-owned. These were previously a reading of OpenProject groups — which
+ * could carry neither a department, a code, nor a lifecycle of their own, and
+ * of which this instance defined none, so the feature was permanently empty.
+ *
+ * Reading is open to any signed-in caller, as for departments: teams are
+ * organisational reference data that pickers elsewhere need. Writing requires
+ * `teams:manage`, which OpenProject cannot grant because a team is not one of
+ * its concepts; it comes from EPM's own grants. See `auth/grants.ts`.
+ *
+ * `/teams/workloads` is unchanged and deliberately kept. Despite the path it is
+ * about people rather than teams — the project team tab calls it with no team —
+ * and it does not touch anything above.
  */
 
-function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-}
-
-async function loadTeams(signal: AbortSignal): Promise<EpmTeam[]> {
-  const groups = await openProject
-    .getAll<OpPrincipal>('/groups', { pageSize: 100 }, { signal })
-    .catch(() => ({ items: [] as OpPrincipal[] }));
-
-  if (groups.items.length === 0) return [];
-
-  const [memberships, overlays] = await Promise.all([
-    openProject
-      .getAll<OpMembership>('/memberships', { pageSize: 100 }, { signal })
-      .catch(() => ({ items: [] as OpMembership[] })),
-    optional(() => prisma.teamProfile.findMany(), []),
-  ]);
-
-  const overlayById = new Map(overlays.map((row) => [row.openProjectId, row]));
-
-  const projectsByPrincipal = new Map<string, string[]>();
-  for (const membership of memberships.items) {
-    const principalId = linkId(membership._links, 'principal');
-    const projectId = linkId(membership._links, 'project');
-    if (!principalId || !projectId) continue;
-    const existing = projectsByPrincipal.get(principalId) ?? [];
-    if (!existing.includes(projectId)) existing.push(projectId);
-    projectsByPrincipal.set(principalId, existing);
-  }
-
-  return groups.items.map((group): EpmTeam => {
-    const id = String(group.id);
-    const overlay = overlayById.get(id);
-    const memberLinks = group._links?.members;
-    const memberIds = (Array.isArray(memberLinks) ? memberLinks : memberLinks ? [memberLinks] : [])
-      .map((link) => link.href?.split('/').pop())
-      .filter((value): value is string => Boolean(value));
-
-    return {
-      id,
-      name: group.name,
-      slug: overlay?.slug ?? slugify(group.name),
-      description: overlay?.description ?? '',
-      leadId: overlay?.leadId ?? '',
-      memberIds,
-      projectIds: [...new Set(memberIds.flatMap((member) => projectsByPrincipal.get(member) ?? []))],
-      // Capacity and sprint progress need a EPM-side capacity model and
-      // sprints; neither exists on this instance.
-      capacity: 0,
-      sprintProgress: 0,
-    };
-  });
-}
-
 export const teamRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/teams', async (request) => loadTeams(requestSignal(request)));
+  /** Teams, optionally within one department. Inactive excluded unless asked for. */
+  app.get<{ Querystring: { departmentId?: string; includeInactive?: string } }>(
+    '/teams',
+    async (request) => {
+      return listTeams(
+        {
+          includeInactive: request.query.includeInactive === 'true',
+          departmentId: request.query.departmentId || undefined,
+        },
+        requestSignal(request),
+      );
+    },
+  );
 
+  /**
+   * Workload per person.
+   *
+   * Registered before `/teams/:id` so the literal path is not captured as an id.
+   */
   app.get('/teams/workloads', async (request) => {
     const signal = requestSignal(request);
-    const { teamId } = z.object({ teamId: z.string().optional() }).parse(request.query);
+    // Team membership belongs to Employee Mapping and does not exist yet, so
+    // there is nothing to scope by; the parameter is accepted and ignored
+    // rather than silently returning an empty list for a plausible-looking call.
+    z.object({ teamId: z.string().optional() }).parse(request.query);
 
-    const [users, teams] = await Promise.all([getUsers(signal), loadTeams(signal)]);
-
-    const scoped = teamId
-      ? users.filter((user) => teams.find((team) => team.id === teamId)?.memberIds.includes(user.id))
-      : users;
+    const users = await getUsers(signal);
 
     const [timeEntries, profiles] = await Promise.all([
       openProject
@@ -100,7 +81,7 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const assigned = await Promise.all(
-      scoped.map(async (user) => {
+      users.map(async (user) => {
         const collection = await openProject
           .getCollection<unknown>(
             '/work_packages',
@@ -134,9 +115,34 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/teams/:id', async (request) => {
-    const teams = await loadTeams(requestSignal(request));
-    const team = teams.find((candidate) => candidate.id === request.params.id);
-    if (!team) throw EpmError.notFound('That team');
-    return team;
+    return getTeam(request.params.id, requestSignal(request));
+  });
+
+  app.post<{ Body: TeamInput }>('/teams', async (request, reply) => {
+    await guard.require(request, 'teams:manage');
+
+    const created = await createTeam(request.body ?? {}, requestSignal(request));
+
+    reply.code(201);
+    return created;
+  });
+
+  app.patch<{ Params: { id: string }; Body: TeamInput }>('/teams/:id', async (request) => {
+    await guard.require(request, 'teams:manage');
+
+    return updateTeam(request.params.id, request.body ?? {}, requestSignal(request));
+  });
+
+  /** Deactivate. Named for the convention departments and projects already use. */
+  app.patch<{ Params: { id: string } }>('/teams/:id/archive', async (request) => {
+    await guard.require(request, 'teams:manage');
+
+    return setTeamActive(request.params.id, false, requestSignal(request));
+  });
+
+  app.patch<{ Params: { id: string } }>('/teams/:id/restore', async (request) => {
+    await guard.require(request, 'teams:manage');
+
+    return setTeamActive(request.params.id, true, requestSignal(request));
   });
 };

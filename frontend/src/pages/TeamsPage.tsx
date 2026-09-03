@@ -1,169 +1,247 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { FolderKanban, Gauge, Users } from 'lucide-react';
+import { toast } from 'sonner';
+import { Archive, Building2, Pencil, Plus, RotateCcw, Users } from 'lucide-react';
+
+import { EmptyState } from '@/components/common/EmptyState';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
-import { Pagination } from '@/components/common/Pagination';
-import { EmptyState } from '@/components/common/EmptyState';
-import { AvatarGroup, UserAvatar } from '@/components/common/UserAvatar';
+import { TeamDialog } from '@/components/teams/TeamDialog';
+import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ProgressBar } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useTeams } from '@/hooks/useTeams';
-import { useProjects } from '@/hooks/useProjects';
+import { Switch } from '@/components/ui/switch';
+import { useDepartments } from '@/hooks/useDepartments';
+import { useSetTeamActive, useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
-import { usePagination } from '@/hooks/usePagination';
-import { pluralize } from '@/lib/utils';
-import type { ID, EpmProject } from '@/types';
+import { useAuth } from '@/providers/AuthProvider';
+import type { EpmTeam } from '@/services/api/teams';
 
-/** Directory of delivery teams and their current load. */
+/**
+ * The team directory.
+ *
+ * Backed entirely by EPM's own database. Teams used to be a reading of
+ * OpenProject groups, of which this instance defines none, so the page could
+ * only ever be empty.
+ *
+ * Everyone signed in can read; creating and changing needs `teams:manage`,
+ * which the backend checks on every write regardless of what is rendered here.
+ */
+
+const ALL = '__all__';
+
 export default function TeamsPage() {
-  const teamsQuery = useTeams();
-  const projectsQuery = useProjects();
+  const { can } = useAuth();
+  const mayManage = can('teams:manage');
+
+  const [showArchived, setShowArchived] = useState(false);
+  const [departmentId, setDepartmentId] = useState(ALL);
+
+  const teams = useTeams({
+    includeInactive: showArchived,
+    departmentId: departmentId === ALL ? undefined : departmentId,
+  });
+  const departments = useDepartments(true);
+  const setActive = useSetTeamActive();
   const users = useUserMap();
 
-  const paged = usePagination(teamsQuery.data ?? [], { pageSize: 9 });
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<EpmTeam>();
 
-  const projectsById = useMemo(
-    () => new Map<ID, EpmProject>((projectsQuery.data ?? []).map((project) => [project.id, project])),
-    [projectsQuery.data],
-  );
+  const openCreate = () => {
+    setEditing(undefined);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (team: EpmTeam) => {
+    setEditing(team);
+    setDialogOpen(true);
+  };
+
+  const toggleActive = (team: EpmTeam) => {
+    const active = !team.active;
+
+    setActive.mutate(
+      { id: team.id, active },
+      {
+        onSuccess: () => toast.success(active ? 'Team restored' : 'Team archived'),
+        onError: (error) =>
+          toast.error('That could not be changed', {
+            description: error instanceof Error ? error.message : undefined,
+          }),
+      },
+    );
+  };
+
+  const items = teams.data ?? [];
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Teams"
-        description="Delivery teams, their people and the projects they own."
+        description="Delivery teams defined in EPM."
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={departmentId} onValueChange={setDepartmentId}>
+              <SelectTrigger className="w-52" aria-label="Filter by department">
+                <SelectValue placeholder="All departments" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All departments</SelectItem>
+                {(departments.data ?? []).map((department) => (
+                  <SelectItem key={department.id} value={department.id}>
+                    {department.name}
+                    {department.active ? '' : ' (archived)'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch
+                checked={showArchived}
+                onCheckedChange={setShowArchived}
+                aria-label="Show archived teams"
+              />
+              Show archived
+            </label>
+
+            {mayManage ? (
+              <Button size="sm" onClick={openCreate}>
+                <Plus className="h-3.5 w-3.5" />
+                New team
+              </Button>
+            ) : null}
+          </div>
+        }
       />
 
       <QueryBoundary
-        isLoading={teamsQuery.isLoading}
-        isError={teamsQuery.isError}
-        error={teamsQuery.error}
-        onRetry={() => teamsQuery.refetch()}
+        isLoading={teams.isLoading}
+        isError={teams.isError}
+        onRetry={() => teams.refetch()}
         errorTitle="Unable to load teams"
         skeleton={
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {[0, 1, 2, 3, 4, 5].map((index) => (
-              <Skeleton key={index} className="h-52 rounded-xl" />
-            ))}
+          <div className="space-y-2">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
           </div>
         }
-        isEmpty={(teamsQuery.data?.length ?? 0) === 0}
+        isEmpty={items.length === 0}
         empty={
-          <Card>
-            <EmptyState icon={Users} title="No teams yet" description="Teams sync from the workspace directory." />
-          </Card>
+          <EmptyState
+            icon={Users}
+            title={departmentId === ALL ? 'No teams' : 'No teams in this department'}
+            description={
+              mayManage
+                ? 'Create a team to describe how delivery is organised.'
+                : 'No teams have been set up yet.'
+            }
+          />
         }
       >
-        <div className="space-y-4">
-        <motion.div
-          initial="hidden"
-          animate="show"
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
-          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-        >
-          {paged.items.map((team) => {
-            const lead = users.get(team.leadId);
-            const members = team.memberIds.map((id) => users.get(id));
-            const teamProjects = team.projectIds
-              .map((id) => projectsById.get(id))
-              .filter(Boolean) as EpmProject[];
+        <ul className="space-y-2">
+          {items.map((team) => (
+            <li key={team.id}>
+              <Card className="flex items-center gap-4 p-4">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                  <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
+                </div>
 
-            return (
-              <motion.div
-                key={team.id}
-                variants={{
-                  hidden: { opacity: 0, y: 8 },
-                  show: { opacity: 1, y: 0, transition: { duration: 0.26 } },
-                }}
-                whileHover={{ y: -2 }}
-              >
-                <Link
-                  to={`/teams/${team.id}`}
-                  className="flex h-full flex-col gap-3.5 rounded-xl border border-border bg-surface p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                >
-                  <div>
-                    <h2 className="text-sm font-semibold tracking-tight">{team.name}</h2>
-                    <p className="mt-1 line-clamp-2 text-2xs text-muted-foreground">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/teams/${team.id}`}
+                      className="truncate text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {team.name}
+                    </Link>
+                    <Badge className="font-mono text-2xs">{team.code}</Badge>
+                    {!team.active ? (
+                      <Badge tone="warning" className="text-2xs">
+                        Archived
+                      </Badge>
+                    ) : null}
+                  </div>
+                  {team.description ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       {team.description}
                     </p>
-                  </div>
+                  ) : null}
+                </div>
 
-                  <div className="flex items-center gap-2 rounded-lg bg-muted/70 px-2.5 py-2">
-                    <UserAvatar user={lead} size="sm" />
-                    <div className="min-w-0">
-                      <p className="epm-eyebrow">Team lead</p>
-                      <p className="truncate text-2xs font-medium">{lead?.name ?? 'Unassigned'}</p>
-                    </div>
-                    <AvatarGroup users={members} max={3} size="xs" className="ml-auto" />
-                  </div>
+                <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                  <Building2 className="h-3.5 w-3.5" aria-hidden />
+                  {team.department ? (
+                    <span>
+                      {team.department.name}
+                      {/* A team outlives its department's archival, so say so
+                          rather than showing a name that looks current. */}
+                      {team.department.active ? '' : ' (archived)'}
+                    </span>
+                  ) : (
+                    <span>No department</span>
+                  )}
+                </div>
 
-                  <dl className="grid grid-cols-3 gap-2 text-2xs">
-                    <div>
-                      <dt className="flex items-center gap-1 text-muted-foreground">
-                        <Users className="h-3 w-3" aria-hidden />
-                        Members
-                      </dt>
-                      <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
-                        {team.memberIds.length}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="flex items-center gap-1 text-muted-foreground">
-                        <FolderKanban className="h-3 w-3" aria-hidden />
-                        Projects
-                      </dt>
-                      <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
-                        {teamProjects.length}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="flex items-center gap-1 text-muted-foreground">
-                        <Gauge className="h-3 w-3" aria-hidden />
-                        Capacity
-                      </dt>
-                      <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
-                        {team.capacity}%
-                      </dd>
-                    </div>
-                  </dl>
-
-                  <div className="mt-auto space-y-1.5 border-t border-border pt-3">
-                    <div className="flex items-baseline justify-between">
-                      <span className="text-2xs text-muted-foreground">Sprint progress</span>
-                      <span className="font-mono text-2xs font-medium tabular-nums">
-                        {team.sprintProgress}%
-                      </span>
-                    </div>
-                    <ProgressBar
-                      value={team.sprintProgress}
-                      size="sm"
-                      tone={team.sprintProgress >= 70 ? 'success' : 'warning'}
-                      label={`${team.name} sprint progress`}
-                    />
-                    <p className="text-2xs text-muted-foreground">
-                      {teamProjects.length} active {pluralize(teamProjects.length, 'project')}
-                    </p>
+                {team.lead ? (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <UserAvatarWithTooltip user={users.get(team.lead.id)} size="xs" />
+                    <span className="hidden text-xs text-muted-foreground sm:inline">
+                      {team.lead.name}
+                    </span>
                   </div>
-                </Link>
-              </motion.div>
-            );
-          })}
-        </motion.div>
-        <Pagination
-          page={paged.page}
-          pageSize={paged.pageSize}
-          total={paged.total}
-          onPageChange={paged.setPage}
-          onPageSizeChange={paged.setPageSize}
-          pageSizeOptions={[9, 18, 36]}
-          itemLabel="team"
-          className="rounded-xl border border-border bg-surface"
-        />
-        </div>
+                ) : (
+                  <span className="hidden text-xs text-muted-foreground sm:inline">No lead</span>
+                )}
+
+                {mayManage ? (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label={`Edit ${team.name}`}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => openEdit(team)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+
+                    <button
+                      type="button"
+                      aria-label={team.active ? `Archive ${team.name}` : `Restore ${team.name}`}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => toggleActive(team)}
+                    >
+                      {team.active ? (
+                        <Archive className="h-3.5 w-3.5" aria-hidden />
+                      ) : (
+                        <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                ) : null}
+              </Card>
+            </li>
+          ))}
+        </ul>
       </QueryBoundary>
+
+      <TeamDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        team={editing}
+        defaultDepartmentId={departmentId === ALL ? undefined : departmentId}
+      />
     </div>
   );
 }

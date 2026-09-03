@@ -87,7 +87,11 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // `auth/grants.ts`.
   'departments:manage':
     'Department is EPM-owned metadata; no upstream equivalent. Granted from EPM permission grants instead.',
-  'teams:manage': 'Teams map to OpenProject groups, which expose no capability.',
+  // Teams were once a reading of OpenProject groups; they are now EPM-owned, so
+  // there is no upstream capability to map — not because groups expose none,
+  // but because a team is not an OpenProject concept. Granted from EPM's own
+  // permission grants. See `auth/grants.ts`.
+  'teams:manage': 'Team is EPM-owned metadata; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

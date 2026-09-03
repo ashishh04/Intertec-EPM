@@ -20,13 +20,11 @@ import type {
   EpmProject,
   EpmSprint,
   EpmTask,
-  EpmTeam,
   EpmUser,
   Paginated,
   ReportFilters,
   StatusDistribution,
   TaskFilters,
-  TeamMemberWorkload,
   TimeEntrySummary,
   UpdateTaskInput,
 } from '@/types';
@@ -51,12 +49,6 @@ export interface UserRepository {
   getCurrentUser(): Promise<EpmUser>;
   getUsers(): Promise<EpmUser[]>;
   getUser(id: ID): Promise<EpmUser>;
-}
-
-export interface TeamRepository {
-  getTeams(): Promise<EpmTeam[]>;
-  getTeam(id: ID): Promise<EpmTeam>;
-  getWorkloads(teamId?: ID): Promise<TeamMemberWorkload[]>;
 }
 
 export interface SprintRepository {
@@ -98,7 +90,6 @@ export interface EpmRepositories {
   projects: ProjectRepository;
   tasks: TaskRepository;
   users: UserRepository;
-  teams: TeamRepository;
   sprints: SprintRepository;
   dashboard: DashboardRepository;
   reports: ReportRepository;
