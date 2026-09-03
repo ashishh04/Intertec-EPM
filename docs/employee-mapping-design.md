@@ -172,8 +172,10 @@ EpmUser.department = mappedDepartment?.name ?? UserProfile.department ?? ''
 
 So an environment with legacy free text keeps displaying it until that person is mapped,
 at which point the authoritative value takes over. Nothing is lost and nothing is guessed.
-A verification script that inventories and classifies values ships with the work so the
-same check can be run against any other database before that column is ever removed.
+`src/scripts/department-inventory.ts` ships with the work: it inventories and classifies
+values — exact, then case-insensitive, then unmatched, flagging any that differ only by
+case — and reports without writing anything. Run it against any other database before that
+column is removed.
 
 ## Authorization
 
