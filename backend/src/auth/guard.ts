@@ -56,14 +56,24 @@ export async function require(
   }
 }
 
+/**
+ * Groups whose name is not simply pluralised.
+ *
+ * `task` reads better as the thing it maps to upstream, and `health` is a mass
+ * noun that the rule below would turn into "healths".
+ */
+const SUBJECTS: Record<string, string> = {
+  task: 'work packages',
+  health: 'project health',
+};
+
 function describe(permission: Permission): string {
-  const [group, action] = permission.split(':');
-  if (group === 'task') return `${action?.replace('_', ' ')} work packages`;
+  const [group = '', action = ''] = permission.split(':');
 
   // Several groups are already plural — `departments`, `users`, `teams` — and
   // appending another `s` produced "manage departmentss".
-  const subject = group?.endsWith('s') ? group : `${group}s`;
-  return `${action?.replace('_', ' ')} ${subject}`;
+  const subject = SUBJECTS[group] ?? (group.endsWith('s') ? group : `${group}s`);
+  return `${action.replace('_', ' ')} ${subject}`;
 }
 
 /**

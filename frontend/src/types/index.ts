@@ -94,6 +94,7 @@ export type Permission =
   | 'groups:manage'
   | 'departments:manage'
   | 'employees:manage'
+  | 'health:manage'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -108,6 +109,12 @@ export type PermissionMap = Record<string, Record<string, boolean>>;
 export type ProjectStatus = 'on_track' | 'at_risk' | 'delayed' | 'completed' | 'paused';
 
 export type HealthLevel = 'healthy' | 'warning' | 'critical';
+
+/** The four measured dimensions, plus the overall derived from them. */
+export type HealthDimension = 'scope' | 'schedule' | 'resources' | 'budget' | 'overall';
+
+/** A partial pin over the calculated values. Absent means "not overridden". */
+export type HealthOverride = Partial<Record<HealthDimension, HealthLevel>>;
 
 export interface ProjectHealth {
   scope: HealthLevel;
@@ -131,7 +138,20 @@ export interface EpmProject {
   startDate?: ISODate;
   dueDate?: ISODate;
   priority: TaskPriority;
+  /**
+   * Effective health: what the rules produced, with any overridden dimension
+   * replaced. This is the value to display — every existing consumer reads it.
+   */
   health: ProjectHealth;
+  /**
+   * What the rules produced, always, override or not. Kept visible so a pin
+   * never hides the signal underneath it from whoever is reading.
+   */
+  healthCalculated: ProjectHealth;
+  /** Present only where a dimension has been pinned. */
+  healthOverride?: HealthOverride;
+  /** One plain sentence per dimension naming the figures it came from. */
+  healthReasons: Record<HealthDimension, string>;
   taskCount: number;
   completedTaskCount: number;
   openRiskCount: number;

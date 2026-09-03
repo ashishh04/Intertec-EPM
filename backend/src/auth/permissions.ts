@@ -59,6 +59,7 @@ export const PERMISSIONS = [
   'departments:manage',
   'teams:manage',
   'employees:manage',
+  'health:manage',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -100,6 +101,12 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // upstream implies this either. Granted from EPM's own permission grants.
   'employees:manage':
     'Employee mapping is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Health is EPM's own management read on a project, so its authority is EPM's
+  // to grant. Deliberately not derived from `projects/update`: being able to
+  // edit a project upstream is not the same as being trusted to overrule what
+  // EPM's rules say about its delivery.
+  'health:manage':
+    'Project health is an EPM judgement; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

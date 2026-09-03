@@ -7,7 +7,12 @@ import { openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { getCurrentUser } from '../mapping/users.js';
-import { getProjectAggregates, computeHealth } from '../mapping/projects.js';
+import {
+  computeHealth,
+  effectiveHealth,
+  getProjectAggregates,
+  loadHealthOverrides,
+} from '../mapping/projects.js';
 import type { OpActivity, OpProject, OpWorkPackage } from '../openproject/types.js';
 import type {
   ActivityEntry,
@@ -134,15 +139,18 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       ]);
 
     const active = projects.items.filter((project) => project.active);
+    // Pins are honoured here too, so this count agrees with what the project
+    // pages show rather than contradicting them.
+    const overrides = await loadHealthOverrides();
     const atRisk = active.filter((project) => {
       const id = String(project.id);
-      const health = computeHealth({
+      const { health } = computeHealth({
         total: aggregates.total.get(id) ?? 0,
         completed: aggregates.completed.get(id) ?? 0,
         overdue: aggregates.overdue.get(id) ?? 0,
         today,
       });
-      return health.overall !== 'healthy';
+      return effectiveHealth(health, overrides.get(id)).overall !== 'healthy';
     }).length;
 
     await recordSnapshots(

@@ -8,8 +8,9 @@ import { PERMISSIONS, type Permission, type PermissionSet } from './permissions.
  * Everything OpenProject can answer is still answered by OpenProject. This
  * covers only the permissions it has no concept of — the ones already recorded
  * in `UNMAPPED` as having no upstream equivalent — `departments:manage`,
- * `teams:manage` and `employees:manage` — because none of a department, a team
- * or where a person sits in them is an OpenProject thing.
+ * `teams:manage`, `employees:manage` and `health:manage` — because none of a
+ * department, a team, where a person sits in them, or EPM's read on how a
+ * project is going is an OpenProject thing.
  *
  * That makes this a second source rather than a competing one: it is consulted
  * for questions upstream cannot be asked, and never to widen an answer upstream
@@ -21,6 +22,7 @@ const GRANTABLE = new Set<Permission>([
   'departments:manage',
   'teams:manage',
   'employees:manage',
+  'health:manage',
 ]);
 
 export function isGrantable(permission: string): permission is Permission {

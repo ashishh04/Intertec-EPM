@@ -5,8 +5,15 @@ import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, linkId } from '../openproject/client.js';
-import { getProjectAggregates, getProjectOverlays, toEpmProject } from '../mapping/projects.js';
+import {
+  HEALTH_DIMENSIONS,
+  HEALTH_LEVELS,
+  getProjectAggregates,
+  getProjectOverlays,
+  toEpmProject,
+} from '../mapping/projects.js';
 import { prisma, optional } from '../db/prisma.js';
+import { Prisma } from '@prisma/client';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
 import type { Milestone, EpmProject } from '../types/epm.js';
 
@@ -205,6 +212,62 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /** Archive rather than delete: OpenProject deletion is asynchronous and final. */
+
+  /**
+   * Pins one or more health dimensions.
+   *
+   * Its own route rather than part of the overlay patch above, which is gated
+   * on `project:edit` — derived from OpenProject's `projects/update`. Health is
+   * EPM's judgement, so its authority is EPM's to grant; sharing that handler
+   * would mean sharing that permission.
+   *
+   * The body is the whole override. An omitted or null dimension is cleared,
+   * and `{}` clears every pin, so there is no separate delete.
+   */
+  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
+    '/projects/:id/health',
+    async (request) => {
+      const { id } = request.params;
+
+      await guard.require(request, 'health:manage');
+
+      const body = request.body ?? {};
+      const override: Record<string, string> = {};
+
+      for (const [key, level] of Object.entries(body)) {
+        // Null and undefined clear that dimension rather than setting it.
+        if (level === null || level === undefined) continue;
+
+        if (!HEALTH_DIMENSIONS.includes(key as never)) {
+          throw EpmError.badRequest(`${key} is not a health dimension.`);
+        }
+        if (typeof level !== 'string' || !HEALTH_LEVELS.includes(level as never)) {
+          throw EpmError.badRequest(`${String(level)} is not a health level.`);
+        }
+        override[key] = level;
+      }
+
+      // Confirms the project exists and that this caller can see it, so the
+      // route cannot be used to discover project ids.
+      await openProject.request<{ id: number }>(`/projects/${id}`, {
+        signal: requestSignal(request),
+      });
+
+      const stored = Object.keys(override).length > 0 ? override : Prisma.DbNull;
+
+      await prisma.projectProfile.upsert({
+        where: { openProjectId: id },
+        create: { openProjectId: id, healthOverride: stored },
+        update: { healthOverride: stored },
+      });
+
+      // Re-read through the normal path, so the response is the same shape
+      // every other project read returns, with the pin already applied.
+      const projects = await loadProjects(requestSignal(request));
+      return projects.find((candidate) => candidate.id === id);
+    },
+  );
+
   app.patch<{ Params: { id: string } }>('/projects/:id/archive', async (request) => {
     await guard.require(request, 'project:archive', request.params.id);
 

@@ -5,7 +5,12 @@ import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache } from '../lib/cache.js';
 import { openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { getCatalog } from '../mapping/catalog.js';
-import { getProjectAggregates, computeHealth } from '../mapping/projects.js';
+import {
+  computeHealth,
+  effectiveHealth,
+  getProjectAggregates,
+  loadHealthOverrides,
+} from '../mapping/projects.js';
 import { durationToHours } from '../lib/duration.js';
 import type { HalCollection, OpProject, OpTimeEntry, OpWorkPackage } from '../openproject/types.js';
 import type {
@@ -185,14 +190,18 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
 
     const active = projects.items.filter((project) => project.active);
 
+    // Pins are honoured, so a report never disagrees with the project page it
+    // summarises.
+    const healthOverrides = await loadHealthOverrides();
     const matrix: PortfolioRow[] = active.map((project) => {
       const id = String(project.id);
-      const health = computeHealth({
+      const { health: calculated } = computeHealth({
         total: aggregates.total.get(id) ?? 0,
         completed: aggregates.completed.get(id) ?? 0,
         overdue: aggregates.overdue.get(id) ?? 0,
         today,
       });
+      const health = effectiveHealth(calculated, healthOverrides.get(id));
 
       return {
         projectId: id,
