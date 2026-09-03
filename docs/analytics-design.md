@@ -75,8 +75,8 @@ model MetricSnapshot {
   id         String   @id @default(cuid())
   /// What the row is about: instance, user, portfolio, team or department.
   scopeType  String   @default("instance")
-  /// The id within that type. Null only for `instance`.
-  scopeId    String?
+  /// The id within that type; the empty string for `instance`, which has none.
+  scopeId    String   @default("")
   sampledOn  DateTime @db.Date
   metric     String
   value      Float
@@ -92,6 +92,20 @@ model MetricSnapshot {
 `scopeUserId` becomes `scopeId`, and `scopeType` is added beside it. The migration renames
 rather than drops, so all 20 existing rows survive with `scopeType` set from whether the id
 was null. No second snapshot table is created.
+
+### Why `scopeId` is not nullable
+
+The obvious modelling — null for "no id" — is wrong here, and it took writing the upsert to
+notice. **Postgres treats NULLs as distinct in a unique index.** A nullable `scopeId` would
+mean `@@unique([scopeType, scopeId, sampledOn, metric])` did not constrain instance-wide
+rows at all: every capture would have inserted a second copy of the same metric for the same
+day rather than overwriting it, and the history would have silently double-counted — which
+is precisely the failure the idempotency requirement exists to prevent.
+
+The empty string stands for "no id" instead. It is a sentinel, and sentinels usually deserve
+suspicion, but here it is what makes the guarantee real rather than nominal. A second
+migration applies it; no existing row was affected, since every one already carried a user
+id. A test asserts one row per instance metric per day.
 
 The scope is **not** a foreign key. A snapshot records what was true then; a department
 deleted later must not take its own history with it, and `ON DELETE RESTRICT` would make
