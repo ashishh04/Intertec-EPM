@@ -58,8 +58,17 @@ export interface FormResult {
 }
 
 export class ApiFormRepository {
-  workPackageCreateForm(projectId: ID, payload?: Record<string, unknown>): Promise<FormResult> {
-    return apiClient.post<FormResult>('/forms/work-packages', { projectId, payload });
+  /**
+   * `typeId` is passed as an id rather than a link: the type decides which
+   * fields the schema has, so it is chosen before anything else, and building
+   * the link is the backend's job.
+   */
+  workPackageCreateForm(
+    projectId: ID,
+    payload?: Record<string, unknown>,
+    typeId?: ID,
+  ): Promise<FormResult> {
+    return apiClient.post<FormResult>('/forms/work-packages', { projectId, typeId, payload });
   }
 
   workPackageEditForm(id: ID, payload?: Record<string, unknown>): Promise<FormResult> {
@@ -101,9 +110,11 @@ export function writableFields(schema: FormResult['schema']): [string, SchemaFie
 
 /** Full-fidelity work package writes, bypassing the normalized task model. */
 export class ApiWorkPackageRepository {
-  create(projectId: ID, payload: Record<string, unknown>) {
+  /** `typeId` is linked by the backend; the browser never builds the URL. */
+  create(projectId: ID, payload: Record<string, unknown>, typeId?: ID) {
     return apiClient.post<{ id: ID; subject: string; lockVersion: number }>('/work-packages', {
       projectId,
+      typeId,
       payload,
     });
   }

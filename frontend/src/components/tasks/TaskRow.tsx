@@ -35,7 +35,7 @@ function TaskRow({ task, project, assignee, className }: TaskRowProps) {
         className,
       )}
     >
-      <PriorityBadge priority={task.priority} className="shrink-0" />
+      <PriorityBadge priority={task.priority} label={task.priorityRef.name} className="shrink-0" />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">

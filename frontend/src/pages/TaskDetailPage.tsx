@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { Ellipsis, Eye, Pencil, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -36,15 +35,8 @@ import { useProject } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useSprints } from '@/hooks/useSprints';
-import {
-  ALL_TASK_PRIORITIES,
-  TASK_PRIORITY_META,
-} from '@/lib/domain';
 import { formatDateTime, formatHours, formatLongDate, formatRelative } from '@/lib/utils';
-import type { TaskPriority } from '@/types';
-import { useStatuses } from '@/hooks/useCatalog';
-import { invalidationGroups } from '@/lib/queryKeys';
-import { workPackageService } from '@/services';
+import { usePriorities, useStatuses } from '@/hooks/useCatalog';
 import { TaskAttachments } from '@/components/tasks/TaskAttachments';
 import { TaskComments } from '@/components/tasks/TaskComments';
 import { TaskRelations } from '@/components/tasks/TaskRelations';
@@ -68,7 +60,7 @@ export default function TaskDetailPage() {
   // after them runs on some renders and not others.
   const { canInProject } = useAuth();
   const statuses = useStatuses();
-  const queryClient = useQueryClient();
+  const priorities = usePriorities();
 
   if (isError) {
     return (
@@ -123,7 +115,7 @@ export default function TaskDetailPage() {
         meta={
           <>
             <StatusBadge status={task.statusCategory} label={task.status.name} />
-            <TypeBadge type={task.type} />
+            <TypeBadge type={task.type} label={task.typeRef.name} />
           </>
         }
         actions={
@@ -303,21 +295,9 @@ export default function TaskDetailPage() {
                 */}
               <Select
                 value={task.status.id}
-                onValueChange={(statusId) => {
-                  workPackageService
-                    .update(task.id, { _links: { status: { href: `/api/v3/statuses/${statusId}` } } })
-                    .then(async () => {
-                      toast.success('Task updated');
-                      for (const key of invalidationGroups.taskWrite) {
-                        await queryClient.invalidateQueries({ queryKey: key });
-                      }
-                    })
-                    .catch((error: unknown) =>
-                      toast.error('Unable to save changes', {
-                        description: error instanceof Error ? error.message : undefined,
-                      }),
-                    );
-                }}
+                // The id, not a URL. The backend turns it into an upstream
+                // link — the browser has no business knowing that shape.
+                onValueChange={(statusId) => patch({ id: task.id, statusId })}
               >
                 <SelectTrigger className="h-8 text-xs" aria-label="Task status">
                   <SelectValue />
@@ -334,17 +314,24 @@ export default function TaskDetailPage() {
 
             <div className="space-y-1.5">
               <p className="epm-eyebrow">Priority</p>
+              {/*
+                * The instance's real priorities, for the same reason as status
+                * above. EPM's four categories are a grouping, not the list: an
+                * instance configured with Low/Normal/High/Immediate was being
+                * shown Low/Medium/High/Critical, which renames two of them and
+                * hides any fifth the administrator adds.
+                */}
               <Select
-                value={task.priority}
-                onValueChange={(value) => patch({ id: task.id, priority: value as TaskPriority })}
+                value={task.priorityRef.id}
+                onValueChange={(priorityId) => patch({ id: task.id, priorityId })}
               >
                 <SelectTrigger className="h-8 text-xs" aria-label="Task priority">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ALL_TASK_PRIORITIES.map((priority) => (
-                    <SelectItem key={priority} value={priority}>
-                      {TASK_PRIORITY_META[priority].label}
+                  {(priorities.data ?? []).map((priority) => (
+                    <SelectItem key={priority.id} value={priority.id}>
+                      {priority.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -389,11 +376,12 @@ export default function TaskDetailPage() {
               </PropertyRow>
 
               <PropertyRow label="Type">
-                <TypeBadge type={task.type} />
+                <TypeBadge type={task.type} label={task.typeRef.name} />
               </PropertyRow>
 
               <PropertyRow label="Priority">
-                <PriorityBadge priority={task.priority} />
+                {/* The instance's name, coloured by EPM's grouping of it. */}
+                <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
               </PropertyRow>
 
               <PropertyRow label="Start date">

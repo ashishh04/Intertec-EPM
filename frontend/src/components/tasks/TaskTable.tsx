@@ -500,7 +500,7 @@ export function TaskTable({
                         ) : column === 'project' ? (
                           <span className="text-muted-foreground">{project?.name ?? '—'}</span>
                         ) : column === 'type' ? (
-                          <TypeBadge type={task.type} />
+                          <TypeBadge type={task.type} label={task.typeRef.name} />
                         ) : column === 'status' ? (
                           <StatusBadge
                             status={task.statusCategory}
@@ -508,7 +508,7 @@ export function TaskTable({
                             size="sm"
                           />
                         ) : column === 'priority' ? (
-                          <PriorityBadge priority={task.priority} />
+                          <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
                         ) : column === 'assignee' ? (
                           <div className="flex items-center gap-1.5">
                             <UserAvatarWithTooltip user={assignee} size="xs" />

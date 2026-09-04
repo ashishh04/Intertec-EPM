@@ -27,10 +27,10 @@ interface OpWorkPackageWrite {
 
 export const workPackageRoutes: FastifyPluginAsync = async (app) => {
   /** Create from a raw OpenProject payload. */
-  app.post<{ Body: { projectId?: string; payload?: Record<string, unknown> } }>(
+  app.post<{ Body: { projectId?: string; typeId?: string; payload?: Record<string, unknown> } }>(
     '/work-packages',
     async (request, reply) => {
-      const { projectId, payload } = request.body ?? {};
+      const { projectId, typeId, payload } = request.body ?? {};
       if (!projectId) throw EpmError.badRequest('projectId is required.');
       if (!payload || typeof payload !== 'object') {
         throw EpmError.badRequest('payload is required.');
@@ -38,11 +38,20 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
 
       await guard.require(request, 'task:create', projectId);
 
+      // The type is chosen outside the schema form, because it decides which
+      // fields the schema has. Taken as an id and linked here so the browser
+      // never constructs an upstream URL.
+      const body: Record<string, unknown> = { ...payload };
+      if (typeId) {
+        if (!/^\d+$/.test(typeId)) throw EpmError.badRequest('That type is not valid.');
+        body._links = { ...(body._links as object), type: { href: `/api/v3/types/${typeId}` } };
+      }
+
       const created = await openProject.request<OpWorkPackageWrite>(
         `/projects/${projectId}/work_packages`,
         {
           method: 'POST',
-          body: payload,
+          body,
           // These projects have real people on them; creating work should not
           // email everyone watching while the UI is being exercised.
           query: { notify: 'false' },

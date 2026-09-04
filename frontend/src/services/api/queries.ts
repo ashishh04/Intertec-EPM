@@ -162,10 +162,19 @@ export class ApiQueryRepository {
     return apiClient.get<QueryResult>(`/queries/${id}`, { ...overrides });
   }
 
+  /**
+   * `view` describes the saved configuration in plain terms — column names, a
+   * grouping and filters. The backend turns those into upstream links, so the
+   * browser never builds one.
+   */
   create(input: {
     name: string;
     projectId?: ID;
-    payload?: Record<string, unknown>;
+    view?: {
+      columns?: string[];
+      groupBy?: string | null;
+      filters?: { id: string; operator: string; values: { id: string }[] }[];
+    };
   }): Promise<EpmQuery> {
     return apiClient.post<EpmQuery>('/queries', input);
   }

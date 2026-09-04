@@ -72,8 +72,7 @@ function useInvalidateQueries() {
 export function useCreateQuery() {
   const invalidate = useInvalidateQueries();
   return useMutation({
-    mutationFn: (input: { name: string; projectId?: ID; payload?: Record<string, unknown> }) =>
-      queryService.create(input),
+    mutationFn: (input: Parameters<typeof queryService.create>[0]) => queryService.create(input),
     onSuccess: invalidate,
   });
 }

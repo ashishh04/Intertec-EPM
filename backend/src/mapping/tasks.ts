@@ -44,7 +44,20 @@ export function toEpmTask(
     isClosed: statusEntry?.isClosed ?? false,
   };
   const statusCategory: TaskStatusCategory = statusEntry?.epm ?? 'todo';
+  const typeRef = {
+    id: typeId ?? '',
+    name: typeEntry?.name ?? linkTitle(links, 'type') ?? 'Unknown',
+  };
   const type: TaskType = typeEntry?.epm ?? 'task';
+
+  // Same treatment as status: the upstream priority is carried as-is, and the
+  // category is EPM's grouping of it. Without this the UI renamed real values —
+  // an instance's "Normal" was shown as "Medium" and "Immediate" as "Critical",
+  // and a priority the instance added was not offered at all.
+  const priorityRef = {
+    id: priorityId ?? '',
+    name: priorityEntry?.name ?? linkTitle(links, 'priority') ?? 'Unknown',
+  };
   const priority: TaskPriority = priorityEntry?.epm ?? 'medium';
 
   // Milestones carry a single `date`; everything else has start/due.
@@ -63,6 +76,8 @@ export function toEpmTask(
     type,
     status,
     statusCategory,
+    typeRef,
+    priorityRef,
     priority,
     projectId,
     assigneeId: linkId(links, 'assignee'),

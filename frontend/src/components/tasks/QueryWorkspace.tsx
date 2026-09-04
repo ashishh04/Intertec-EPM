@@ -231,23 +231,16 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       {
         name,
         projectId,
-        payload: {
-          // Columns are persisted as links, so the saved view reopens with the
-          // same configuration rather than falling back to the default set.
-          _links: {
-            columns: effectiveColumns.map((id) => ({ href: `/api/v3/queries/columns/${id}` })),
-            groupBy: effectiveGroupBy
-              ? { href: `/api/v3/queries/group_bys/${effectiveGroupBy}` }
-              : { href: null },
-          },
-          // OpenProject persists filters in HAL form, unlike the query-string
-          // shorthand used for ad-hoc runs.
+        // The view in plain terms: column names, a grouping and filters. The
+        // backend turns them into upstream links, so the shape of that API
+        // never reaches the browser.
+        view: {
+          columns: effectiveColumns,
+          groupBy: effectiveGroupBy || null,
           filters: appliedFilters.map((filter) => ({
-            _links: {
-              filter: { href: `/api/v3/queries/filters/${filter.id}` },
-              operator: { href: `/api/v3/queries/operators/${encodeURIComponent(filter.operator)}` },
-              values: filter.values.map((value) => ({ href: String(value.id) })),
-            },
+            id: filter.id,
+            operator: filter.operator,
+            values: filter.values.map((value) => ({ id: String(value.id) })),
           })),
         },
       },

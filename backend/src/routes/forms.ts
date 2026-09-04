@@ -76,21 +76,27 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
    * Types differ per project and the schema differs per type, so both are
    * required before the form means anything.
    */
-  app.post<{ Body: { projectId?: string; payload?: Record<string, unknown> } }>(
+  app.post<{ Body: { projectId?: string; typeId?: string; payload?: Record<string, unknown> } }>(
     '/forms/work-packages',
     async (request) => {
-      const { projectId, payload } = request.body ?? {};
+      const { projectId, typeId, payload } = request.body ?? {};
       if (!projectId) throw EpmError.badRequest('projectId is required.');
 
       // A create form describes an action; do not hand it to someone who
       // cannot perform it.
       await guard.require(request, 'task:create', projectId);
 
-      return requestForm(
-        `/projects/${projectId}/work_packages/form`,
-        payload ?? {},
-        requestSignal(request),
-      );
+      // The type is chosen before the schema loads, because it decides which
+      // fields exist. Taken as an id and linked here, so the client never has
+      // to build an upstream URL — the rest of the payload is schema values
+      // the server itself supplied.
+      const body = { ...(payload ?? {}) };
+      if (typeId) {
+        if (!/^\d+$/.test(typeId)) throw EpmError.badRequest('That type is not valid.');
+        body._links = { ...(body._links as object), type: { href: `/api/v3/types/${typeId}` } };
+      }
+
+      return requestForm(`/projects/${projectId}/work_packages/form`, body, requestSignal(request));
     },
   );
 

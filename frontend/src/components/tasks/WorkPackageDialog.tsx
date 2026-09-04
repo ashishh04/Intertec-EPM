@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -66,23 +66,19 @@ export function WorkPackageDialog({
   const typesQuery = useProjectTypes(isEdit ? undefined : projectId);
 
   // Type drives which fields exist, so it is chosen before the schema loads
-  // rather than rendered as one field among many.
-  const initialPayload = useMemo(
-    () => (typeId ? { _links: { type: { href: `/api/v3/types/${typeId}` } } } : {}),
-    [typeId],
-  );
-
+  // rather than rendered as one field among many. It travels as an id: the
+  // backend builds the link, so the shape of the upstream API stays out of the
+  // browser.
   const load = useCallback(
     (payload: Record<string, unknown>) =>
       isEdit
         ? formService.workPackageEditForm(workPackageId!, payload)
-        : formService.workPackageCreateForm(projectId!, { ...initialPayload, ...payload }),
-    [isEdit, workPackageId, projectId, initialPayload],
+        : formService.workPackageCreateForm(projectId!, payload, typeId || undefined),
+    [isEdit, workPackageId, projectId, typeId],
   );
 
   const form = useSchemaForm(load, {
     enabled: open && (isEdit || Boolean(projectId)),
-    initial: initialPayload,
   });
 
   const save = async () => {
@@ -96,7 +92,7 @@ export function WorkPackageDialog({
         await workPackageService.update(workPackageId!, payload);
         toast.success('Work package updated');
       } else {
-        await workPackageService.create(projectId!, payload);
+        await workPackageService.create(projectId!, payload, typeId || undefined);
         toast.success('Work package created');
       }
 

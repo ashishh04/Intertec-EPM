@@ -238,7 +238,7 @@ function KanbanCard({
         >
           {task.key}
         </Link>
-        <PriorityBadge priority={task.priority} />
+        <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
       </div>
 
       <p className="mt-1.5 line-clamp-3 text-xs font-medium leading-snug text-foreground">

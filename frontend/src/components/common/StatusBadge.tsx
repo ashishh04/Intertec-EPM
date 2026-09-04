@@ -80,21 +80,30 @@ export function ProjectStatusBadge({
  */
 export function PriorityBadge({
   priority,
+  label,
   variant = 'inline',
   className,
 }: {
+  /** EPM's grouping. Drives the tone and the number of bars, never the text. */
   priority: TaskPriority;
+  /**
+   * The instance's own name for it, where the caller has one. Falls back to
+   * EPM's label — which is a category name, and on many instances is not what
+   * the priority is actually called.
+   */
+  label?: string;
   variant?: 'inline' | 'badge';
   className?: string;
 }) {
   const meta = TASK_PRIORITY_META[priority];
   const bars = 4 - meta.rank;
+  const text = label ?? meta.label;
 
   if (variant === 'badge') {
     return (
       <Badge tone={meta.tone} size="sm" className={className}>
         {priority === 'critical' ? <ShieldAlert className="h-3 w-3" aria-hidden /> : null}
-        {meta.label}
+        {text}
       </Badge>
     );
   }
@@ -102,7 +111,7 @@ export function PriorityBadge({
   return (
     <span
       className={cn('inline-flex items-center gap-1.5', TONE_TEXT[meta.tone], className)}
-      title={`${meta.label} priority`}
+      title={`${text} priority`}
     >
       <span className="flex items-end gap-[2px]" aria-hidden>
         {[0, 1, 2, 3].map((index) => (
@@ -116,16 +125,30 @@ export function PriorityBadge({
           />
         ))}
       </span>
-      <span className="text-2xs font-medium">{meta.label}</span>
+      <span className="text-2xs font-medium">{text}</span>
     </span>
   );
 }
 
-export function TypeBadge({ type, className }: { type: TaskType; className?: string }) {
+export function TypeBadge({
+  type,
+  label,
+  className,
+}: {
+  /** EPM's grouping. Drives the tone, never the text. */
+  type: TaskType;
+  /**
+   * The instance's own name for it. Falls back to EPM's label, which is a
+   * category name — an instance's "User story" is categorised as "Feature",
+   * and showing the category instead renames the type.
+   */
+  label?: string;
+  className?: string;
+}) {
   const meta = TASK_TYPE_META[type];
   return (
     <Badge tone={meta.tone} size="sm" className={className}>
-      {meta.label}
+      {label ?? meta.label}
     </Badge>
   );
 }

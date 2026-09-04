@@ -303,6 +303,22 @@ function buildWorkPackageBody(
     const id = first(catalog.typeIdsByEpm.get(input.type as never));
     if (id) links.type = { href: `/api/v3/types/${id}` };
   }
+  // Native ids, where the caller holds the instance's own value rather than an
+  // EPM category. Preferred over the category above, which can only pick a
+  // representative id — and the reason the browser never has to know the shape
+  // of an upstream URL to set a status, a priority or a type.
+  const nativeLinks: [string, unknown, string][] = [
+    ['status', input.statusId, 'statuses'],
+    ['priority', input.priorityId, 'priorities'],
+    ['type', input.typeId, 'types'],
+  ];
+  for (const [key, value, collection] of nativeLinks) {
+    if (typeof value !== 'string' || value === '') continue;
+    // Numeric, because it goes straight into a URL.
+    if (!/^\d+$/.test(value)) throw EpmError.badRequest(`That ${key} is not valid.`);
+    links[key] = { href: `/api/v3/${collection}/${value}` };
+  }
+
   if (typeof input.assigneeId === 'string') {
     links.assignee = { href: `/api/v3/users/${input.assigneeId}` };
   }

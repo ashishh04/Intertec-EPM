@@ -272,6 +272,91 @@ async function queryCapabilities(
   }) as Promise<{ columns: QueryColumn[]; sortable: string[]; groupable: QueryColumn[] }>;
 }
 
+
+/**
+ * A saved view, described in EPM's terms.
+ *
+ * The browser sends column names, a grouping and filters; the HAL links are
+ * built here. That keeps the shape of the upstream API out of the bundle — the
+ * client used to construct `/api/v3/queries/columns/...` itself, which is the
+ * one thing the browser is never supposed to know.
+ */
+interface QueryView {
+  columns?: unknown;
+  groupBy?: unknown;
+  /** Sort criteria, upstream's `attribute-direction` form, e.g. `subject-desc`. */
+  sort?: unknown;
+  filters?: unknown;
+}
+
+/**
+ * Attribute names, so they are safe to put in a path segment.
+ *
+ * Hyphens are allowed because a sort criterion carries its direction that way.
+ * No slashes, dots or encoded characters — this is the whole reason the client
+ * no longer builds these URLs itself.
+ */
+const ATTRIBUTE = /^[A-Za-z0-9_-]+$/;
+
+function attribute(value: unknown, what: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!ATTRIBUTE.test(text)) throw EpmError.badRequest(`That ${what} is not valid.`);
+  return text;
+}
+
+function toQueryPayload(view: QueryView): Record<string, unknown> {
+  const columns = Array.isArray(view.columns) ? view.columns : [];
+  const filters = Array.isArray(view.filters) ? view.filters : [];
+
+  const groupBy =
+    view.groupBy === null || view.groupBy === undefined || view.groupBy === ''
+      ? { href: null }
+      : { href: `/api/v3/queries/group_bys/${attribute(view.groupBy, 'grouping')}` };
+
+  const sort = Array.isArray(view.sort) ? view.sort : [];
+
+  return {
+    _links: {
+      columns: columns.map((column) => ({
+        href: `/api/v3/queries/columns/${attribute(column, 'column')}`,
+      })),
+      groupBy,
+      ...(sort.length > 0
+        ? {
+            sortBy: sort.map((criterion) => ({
+              href: `/api/v3/queries/sort_bys/${attribute(criterion, 'sort')}`,
+            })),
+          }
+        : {}),
+    },
+    filters: filters.map((entry) => {
+      const filter = (entry ?? {}) as { id?: unknown; operator?: unknown; values?: unknown };
+      const operator = typeof filter.operator === 'string' ? filter.operator : '';
+      if (!operator) throw EpmError.badRequest('A filter needs an operator.');
+
+      return {
+        _links: {
+          filter: { href: `/api/v3/queries/filters/${attribute(filter.id, 'filter')}` },
+          // Operators are symbols such as `=`, `!` and `>t-`, so they are
+          // encoded rather than pattern-matched.
+          operator: { href: `/api/v3/queries/operators/${encodeURIComponent(operator)}` },
+          // Values are passed through, not built. They point at whatever the
+          // filter is about — a status, a person, a type — so there is no one
+          // collection to construct a link into. A client sends back the href
+          // the schema gave it, which is echoing server data rather than
+          // knowing the upstream URL shape.
+          values: (Array.isArray(filter.values) ? filter.values : []).map((value) => {
+            const entry = (value ?? {}) as { href?: unknown; id?: unknown };
+            const href = typeof entry.href === 'string' ? entry.href : String(entry.id ?? value);
+            if (href.includes('..')) throw EpmError.badRequest('That filter value is not valid.');
+            return { href };
+          }),
+        },
+      };
+    }),
+  };
+}
+
 export const queryRoutes: FastifyPluginAsync = async (app) => {
   /**
    * Filters available here, with their operators and value shapes.
@@ -380,19 +465,26 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
    * a query beyond `queries/create`, and it does not cover every case, so
    * asking the upstream is both simpler and more accurate than predicting it.
    */
-  app.post<{ Body: { name?: string; projectId?: string; payload?: Record<string, unknown> } }>(
+  app.post<{ Body: { name?: string; projectId?: string; view?: QueryView } }>(
     '/queries',
     async (request, reply) => {
-      const { name, projectId, payload } = request.body ?? {};
+      const { name, projectId, view } = request.body ?? {};
       if (!name?.trim()) throw EpmError.badRequest('A name is required.');
 
       if (projectId) await guard.require(request, 'task:view', projectId);
 
+      const payload = toQueryPayload(view ?? {});
+
       const body: Record<string, unknown> = {
-        ...(payload ?? {}),
+        ...payload,
         name: name.trim(),
         ...(projectId
-          ? { _links: { ...(payload?._links as object), project: { href: `/api/v3/projects/${projectId}` } } }
+          ? {
+              _links: {
+                ...(payload._links as object),
+                project: { href: `/api/v3/projects/${projectId}` },
+              },
+            }
           : {}),
       };
 

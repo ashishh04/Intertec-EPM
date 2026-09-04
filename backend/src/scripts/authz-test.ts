@@ -455,15 +455,17 @@ async function main() {
     body: {
       name: `UX Roundtrip ${Date.now()}`,
       projectId: project,
-      payload: {
-        _links: { columns: chosen.map((id) => ({ href: `/api/v3/queries/columns/${id}` })) },
+      // Plain names, not upstream links. The backend builds those, which is
+      // why the shape of that API no longer reaches the browser.
+      view: {
+        columns: chosen,
+        // Values are resource references the schema supplies, so they travel
+        // as given rather than being rebuilt from an id.
         filters: [
           {
-            _links: {
-              filter: { href: '/api/v3/queries/filters/status' },
-              operator: { href: '/api/v3/queries/operators/=' },
-              values: [{ href: '/api/v3/statuses/1' }, { href: '/api/v3/statuses/12' }],
-            },
+            id: 'status',
+            operator: '=',
+            values: [{ href: '/api/v3/statuses/1' }, { href: '/api/v3/statuses/12' }],
           },
         ],
       },
@@ -632,15 +634,7 @@ async function main() {
     body: {
       name: `Sort Roundtrip ${Date.now()}`,
       projectId: project,
-      payload: {
-        _links: {
-          sortBy: [{ href: '/api/v3/queries/sort_bys/subject-desc' }],
-          columns: [
-            { href: '/api/v3/queries/columns/id' },
-            { href: '/api/v3/queries/columns/subject' },
-          ],
-        },
-      },
+      view: { sort: ['subject-desc'], columns: ['id', 'subject'] },
     },
   });
   check('a view saves its sort', sortedView.status, 201);
@@ -816,16 +810,7 @@ async function main() {
     body: {
       name: `Group Roundtrip ${Date.now()}`,
       projectId: project,
-      payload: {
-        _links: {
-          groupBy: { href: '/api/v3/queries/group_bys/status' },
-          sortBy: [{ href: '/api/v3/queries/sort_bys/subject-desc' }],
-          columns: [
-            { href: '/api/v3/queries/columns/id' },
-            { href: '/api/v3/queries/columns/subject' },
-          ],
-        },
-      },
+      view: { groupBy: 'status', sort: ['subject-desc'], columns: ['id', 'subject'] },
     },
   });
   check('a view saves its grouping', groupedView.status, 201);
@@ -923,6 +908,86 @@ async function main() {
     ),
     true,
   );
+
+  // --- the same contract for priority ---
+  //
+  // Priority had the status problem and nobody had noticed: the UI offered
+  // EPM's four categories as if they were the instance's list, so an instance
+  // configured with Low/Normal/High/Immediate displayed Low/Medium/High/
+  // Critical. Two of those are renames of a real value, and a fifth priority
+  // would not have been offered at all.
+  {
+    const priorities = (await (
+      await call('/catalog/priorities', { cookie: admin })
+    ).json()) as { id: string; name: string }[];
+
+    const priorityById = new Map(priorities.map((priority) => [priority.id, priority]));
+    const sampled = withTasks.tasks as unknown as {
+      priority: string;
+      priorityRef: { id: string; name: string };
+    }[];
+
+    check('a task carries a native priority object', typeof sampled[0]?.priorityRef, 'object');
+    check('the native priority has an id', Boolean(sampled[0]?.priorityRef?.id), true);
+    check('the task still carries a category', typeof sampled[0]?.priority, 'string');
+
+    check(
+      'every native priority id exists in the instance catalogue',
+      sampled.every((task) => priorityById.has(task.priorityRef.id)),
+      true,
+    );
+    check(
+      'every native priority name matches the catalogue',
+      sampled.every(
+        (task) => priorityById.get(task.priorityRef.id)?.name === task.priorityRef.name,
+      ),
+      true,
+    );
+
+    // The assertion that would have caught the original bug. EPM's category
+    // labels are Critical/High/Medium/Low; if the instance calls a priority
+    // anything else, the real name must survive rather than being replaced.
+    const epmLabels = new Set(['critical', 'high', 'medium', 'low']);
+    const renamed = sampled.filter(
+      (task) =>
+        !epmLabels.has(task.priorityRef.name.toLowerCase()) &&
+        task.priorityRef.name.toLowerCase() === task.priority.toLowerCase(),
+    );
+    check('no task reports a category label in place of its real name', renamed.length, 0);
+
+    check(
+      'the instance priorities are served by the backend, not a fixed list',
+      priorities.length > 0 && priorities.every((priority) => Boolean(priority.id)),
+      true,
+    );
+  }
+
+  // --- and for type, which had the same fault ---
+  {
+    const types = (await (await call('/catalog/types', { cookie: admin })).json()) as {
+      id: string;
+      name: string;
+    }[];
+
+    const typeById = new Map(types.map((type) => [type.id, type]));
+    const sampled = withTasks.tasks as unknown as {
+      type: string;
+      typeRef: { id: string; name: string };
+    }[];
+
+    check('a task carries a native type object', typeof sampled[0]?.typeRef, 'object');
+    check(
+      'every native type id exists in the instance catalogue',
+      sampled.every((task) => typeById.has(task.typeRef.id)),
+      true,
+    );
+    check(
+      'every native type name matches the catalogue',
+      sampled.every((task) => typeById.get(task.typeRef.id)?.name === task.typeRef.name),
+      true,
+    );
+    check('the task still carries a category', typeof sampled[0]?.type, 'string');
+  }
 
   // The category is coarser than the status: that is the whole point of it.
   const distinctStatuses = new Set(withTasks.tasks.map((task) => task.status.name));

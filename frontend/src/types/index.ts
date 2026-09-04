@@ -305,8 +305,34 @@ export type TaskStatusCategory =
 export interface TaskStatusRef {
   id: ID;
   name: string;
-  /** OpenProject's own notion of "this status closes the work package". */
+  /** The upstream notion of "this status closes the work package". */
   isClosed: boolean;
+}
+
+/**
+ * The instance's own priority, exactly as configured there.
+ *
+ * Distinct from `TaskPriority`, which is EPM's four-way grouping used for tone,
+ * ranking and filters. The two are not the same list: an instance can define
+ * any number of priorities with any names, and collapsing them for display
+ * renames real values — showing "Medium" for a task whose priority is
+ * "Normal", or "Critical" for one that is "Immediate".
+ */
+export interface TaskPriorityRef {
+  id: ID;
+  name: string;
+}
+
+/**
+ * The instance's own work package type, exactly as configured there.
+ *
+ * Same relationship to `TaskType` as `TaskPriorityRef` has to `TaskPriority`:
+ * an instance defines its own types — User story, Epic, Phase — and EPM's
+ * handful of categories is a grouping of them, not a replacement for them.
+ */
+export interface TaskTypeRef {
+  id: ID;
+  name: string;
 }
 
 export type TaskPriority = 'critical' | 'high' | 'medium' | 'low';
@@ -319,11 +345,17 @@ export interface EpmTask {
   key: string;
   subject: string;
   description?: string;
+  /** EPM's coarse kind grouping. Presentation and analytics only. */
   type: TaskType;
-  /** What OpenProject calls this work package's status. Authoritative. */
+  /** What the instance calls this work package's type. Authoritative. */
+  typeRef: TaskTypeRef;
+  /** What the instance calls this work package's status. Authoritative. */
   status: TaskStatusRef;
   /** EPM's coarse progress grouping. Presentation and analytics only. */
   statusCategory: TaskStatusCategory;
+  /** What the instance calls this work package's priority. Authoritative. */
+  priorityRef: TaskPriorityRef;
+  /** EPM's coarse urgency grouping. Presentation, ranking and filters only. */
   priority: TaskPriority;
   projectId: ID;
   assigneeId?: ID;
@@ -366,7 +398,18 @@ export interface CreateTaskInput {
   labels?: string[];
 }
 
-export type UpdateTaskInput = Partial<CreateTaskInput> & { id: ID };
+/**
+ * `statusId`, `priorityId` and `typeId` are the instance's own ids and take
+ * precedence over the category fields above, which are lossy — a category can
+ * only resolve to a representative value. The backend turns an id into an
+ * upstream link, so the browser never constructs one.
+ */
+export type UpdateTaskInput = Partial<CreateTaskInput> & {
+  id: ID;
+  statusId?: ID;
+  priorityId?: ID;
+  typeId?: ID;
+};
 
 export interface TaskFilters {
   projectId?: ID;
