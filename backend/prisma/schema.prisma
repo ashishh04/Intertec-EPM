@@ -77,6 +77,13 @@ model ProjectProfile {
   /// The effective overall health as of the last notification evaluation.
   /// Without it a transition cannot be detected at all: health is computed per
   /// request and nothing else remembers what it was.
+  /// The person accountable for the project.
+  ///
+  /// EPM's own field. OpenProject has no project owner: its project schema has
+  /// no such attribute and the resource publishes no `responsible` link, so
+  /// every project read as "Unassigned" and there was nothing to assign. An
+  /// OpenProject user id, never a foreign key — people live upstream.
+  ownerId       String?
   lastNotifiedHealth String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt

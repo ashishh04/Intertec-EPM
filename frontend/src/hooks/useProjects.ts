@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { projectService } from '@/services';
+import { apiClient } from '@/services/api/client';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
 import type { HealthOverride, ID } from '@/types';
 
@@ -17,6 +18,28 @@ export function useProject(id?: ID) {
     queryFn: () => projectService.getProject(id!),
     enabled: Boolean(id),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Sets who is accountable for a project.
+ *
+ * EPM's own field, so this invalidates the project reads rather than anything
+ * upstream — and the dashboard, which counts projects by owner.
+ */
+export function useSetProjectOwner() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (vars: { id: ID; ownerId: string }) =>
+      apiClient.patch<{ id: ID; ownerId: string }>(`/projects/${vars.id}/owner`, {
+        ownerId: vars.ownerId,
+      }),
+    onSuccess: () => {
+      for (const key of invalidationGroups.projectWrite) {
+        void client.invalidateQueries({ queryKey: key });
+      }
+    },
   });
 }
 

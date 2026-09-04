@@ -7,6 +7,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HealthOverrideDialog } from '@/components/projects/HealthOverrideDialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useSetProjectOwner } from '@/hooks/useProjects';
+import { toast } from 'sonner';
 import { ProjectPortfolioCard } from '@/components/portfolios/ProjectPortfolioCard';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { HealthIndicator, PriorityBadge } from '@/components/common/StatusBadge';
@@ -19,6 +28,9 @@ import { useAuth } from '@/providers/AuthProvider';
 import { HEALTH_META, PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
 import { cn, formatCurrency, formatLongDate, formatShortDate } from '@/lib/utils';
 import type { HealthDimension } from '@/types';
+
+/** Sentinel: a select cannot hold an empty string as a value. */
+const NO_OWNER = '__none__';
 
 const HEALTH_DIMENSIONS: { key: HealthDimension; label: string; hint: string }[] = [
   { key: 'scope', label: 'Scope', hint: 'Change requests and requirement stability' },
@@ -38,8 +50,17 @@ export default function ProjectOverviewTab() {
 
   // Declared with the other hooks: the guard below returns early, and a hook
   // after it would run on some renders and not others.
-  const { can } = useAuth();
+  const { can, canInProject } = useAuth();
   const [healthOpen, setHealthOpen] = useState(false);
+  const setOwner = useSetProjectOwner();
+  const canEditProject = canInProject(project?.id, 'project:edit');
+
+  // Whoever is on the project. Owning a project you have no access to would be
+  // a title without the ability to act on it.
+  const memberOptions = (project?.memberIds ?? [])
+    .map((id) => users.get(id))
+    .filter((user): user is NonNullable<typeof user> => Boolean(user))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const canOverrideHealth = can('health:manage');
 
   if (isLoading || !project) {
@@ -70,7 +91,42 @@ export default function ProjectOverviewTab() {
                 <dt className="epm-eyebrow">Owner</dt>
                 <dd className="mt-1 flex items-center gap-2">
                   <UserAvatar user={owner} size="sm" />
-                  <span className="text-xs font-medium">{owner?.name ?? 'Unassigned'}</span>
+                  {/* Editable, and EPM's own: an OpenProject project has no
+                      owner attribute, so this read "Unassigned" for every
+                      project with nothing anywhere to change it. Health
+                      notifications go to whoever is set here. */}
+                  {canEditProject ? (
+                    <Select
+                      value={project.ownerId || NO_OWNER}
+                      onValueChange={(value) =>
+                        setOwner.mutate(
+                          { id: project.id, ownerId: value === NO_OWNER ? '' : value },
+                          {
+                            onSuccess: () => toast.success('Owner updated'),
+                            onError: (error) =>
+                              toast.error('That could not be saved', {
+                                description:
+                                  error instanceof Error ? error.message : undefined,
+                              }),
+                          },
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-7 w-full text-xs" aria-label="Project owner">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_OWNER}>Unassigned</SelectItem>
+                        {memberOptions.map((member) => (
+                          <SelectItem key={member.id} value={member.id}>
+                            {member.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <span className="text-xs font-medium">{owner?.name ?? 'Unassigned'}</span>
+                  )}
                 </dd>
               </div>
               <div>

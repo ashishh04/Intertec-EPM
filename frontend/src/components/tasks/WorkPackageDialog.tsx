@@ -114,7 +114,7 @@ export function WorkPackageDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit work package' : 'New work package'}</DialogTitle>
           <DialogDescription>
@@ -122,7 +122,9 @@ export function WorkPackageDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        {/* Scrolls, so the actions stay pinned however many fields the
+            instance has configured on this type. */}
+        <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 pr-2">
           {!isEdit ? (
             <>
               <div className="space-y-1.5">

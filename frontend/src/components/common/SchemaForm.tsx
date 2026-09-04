@@ -12,6 +12,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { writableFields, type SchemaField, type FormResult } from '@/services/api/forms';
+import { useAllowedValues } from '@/hooks/useCatalog';
+
+/** Sentinel for "no value", since a select cannot hold an empty string. */
+const NONE = '__none__';
 
 /**
  * Renders a form from an OpenProject schema.
@@ -54,15 +58,38 @@ interface AllowedValue {
   href: string;
 }
 
-/** OpenProject supplies allowed values embedded, or as a link to fetch. */
+/**
+ * The options a field offers, when the schema carries them.
+ *
+ * Three shapes, all of which appear on this instance:
+ *
+ * - **embedded** — the full resources. Their href is at `_links.self.href`,
+ *   *not* a top-level `href`. Reading the wrong one produced a bare id where a
+ *   link was required: saving a project status sent `on_track` and upstream
+ *   answered "a link like /api/v3/project_statuses/:id is expected".
+ * - **an array of links** — href and title directly.
+ * - **a single link to fetch** — handled by the caller, not here; `assignee`,
+ *   `responsible` and a project's `parent` are all this kind.
+ */
 function allowedValuesOf(field: SchemaField): AllowedValue[] | undefined {
   const embedded = field._embedded?.allowedValues;
   if (embedded?.length) {
     return embedded
       .map((value) => {
-        const id = value.id !== undefined ? String(value.id) : idFromHref(value.href);
-        const href = value.href ?? id;
-        return id && value.name && href ? { id, name: value.name, href } : undefined;
+        const record = value as unknown as {
+          id?: unknown;
+          name?: string;
+          value?: string;
+          href?: string;
+          _links?: { self?: { href?: string } };
+        };
+        const href = record._links?.self?.href ?? record.href;
+        const id = record.id !== undefined ? String(record.id) : idFromHref(href);
+        // A custom option labels itself `value`; everything else uses `name`.
+        // Requiring `name` dropped every option of a list custom field, which
+        // is why "EPM Test Severity" rendered as an empty dropdown.
+        const label = record.name ?? record.value;
+        return id && label && href ? { id, name: label, href } : undefined;
       })
       .filter((value): value is AllowedValue => Boolean(value));
   }
@@ -78,6 +105,79 @@ function allowedValuesOf(field: SchemaField): AllowedValue[] | undefined {
   }
 
   return undefined;
+}
+
+/** The href to fetch options from, where the schema offers one instead. */
+function allowedValuesHref(field: SchemaField): string | undefined {
+  const linked = field._links?.allowedValues as { href?: string } | undefined;
+  if (!linked || Array.isArray(linked)) return undefined;
+  return typeof linked.href === 'string' ? linked.href : undefined;
+}
+
+/** A resource value's own label, for showing what is set without a picker. */
+function titleOf(value: unknown): string | undefined {
+  if (value && typeof value === 'object') {
+    const record = value as { title?: string; name?: string };
+    return record.title ?? record.name;
+  }
+  return undefined;
+}
+
+/**
+ * A picker whose options the schema publishes as a link rather than inline.
+ *
+ * Fetched lazily and cached by href: a user list can be large, and several
+ * fields on one form point at the same collection.
+ */
+function FetchedSelect({
+  name,
+  field,
+  error,
+  href,
+  value,
+  onChange,
+}: {
+  name: string;
+  field: SchemaField;
+  error?: string;
+  href: string;
+  value: unknown;
+  onChange: (field: string, value: unknown) => void;
+}) {
+  const options = useAllowedValues(href);
+  const current = hrefOf(value) ?? '';
+  const list = options.data ?? [];
+
+  return (
+    <FieldRow name={name} field={field} error={error}>
+      <Select
+        value={current}
+        onValueChange={(next) => onChange(name, next === NONE ? null : { href: next })}
+        disabled={options.isLoading}
+      >
+        <SelectTrigger id={`schema-${name}`} aria-invalid={Boolean(error)}>
+          <SelectValue
+            placeholder={
+              options.isLoading ? 'Loading…' : `Select ${field.name.toLowerCase()}`
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {/* Clearing has to be possible: these fields are optional, and a
+              picker with no empty choice cannot be undone. */}
+          {field.required ? null : <SelectItem value={NONE}>None</SelectItem>}
+          {list.map((option) => (
+            <SelectItem key={option.href} value={option.href}>
+              {option.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {!options.isLoading && list.length === 0 ? (
+        <FieldHint>Nothing to choose from.</FieldHint>
+      ) : null}
+    </FieldRow>
+  );
 }
 
 function FieldRow({
@@ -150,9 +250,28 @@ export function SchemaForm({
         const raw = values[name] ?? links?.[name];
         const options = allowedValuesOf(field);
 
+        // Options the schema publishes as a link rather than inline. Fetched
+        // through the backend, which is why `assignee`, `responsible` and a
+        // project's `parent` are pickers now instead of text boxes showing
+        // "[object Object]".
+        const fetchHref = options ? undefined : allowedValuesHref(field);
+        if (fetchHref) {
+          return (
+            <FetchedSelect
+              key={name}
+              name={name}
+              field={field}
+              error={error}
+              href={fetchHref}
+              value={raw}
+              onChange={onChange}
+            />
+          );
+        }
+
         // Anything with an enumerated set renders as a select, whatever its
         // type — status, type, priority, version, category, user, custom option.
-        if (options) {
+        if (options?.length) {
           const current = idFromHref(hrefOf(raw)) ?? (raw == null ? '' : String(raw));
           return (
             <FieldRow key={name} name={name} field={field} error={error}>
@@ -256,7 +375,26 @@ export function SchemaForm({
               </FieldRow>
             );
 
-          default:
+          default: {
+            // A resource value is a link, and `String()` on one gives
+            // "[object Object]". Where the schema offered no way to pick — a
+            // work package parent, for instance — show what is set and say it
+            // is not editable here, rather than inviting an edit that would
+            // send nonsense.
+            if (raw !== null && typeof raw === 'object') {
+              return (
+                <FieldRow key={name} name={name} field={field} error={error}>
+                  <Input
+                    id={`schema-${name}`}
+                    readOnly
+                    value={titleOf(raw) ?? 'Set elsewhere'}
+                    className="text-muted-foreground"
+                  />
+                  <FieldHint>Not editable here.</FieldHint>
+                </FieldRow>
+              );
+            }
+
             return (
               <FieldRow key={name} name={name} field={field} error={error}>
                 <Input
@@ -267,6 +405,7 @@ export function SchemaForm({
                 />
               </FieldRow>
             );
+          }
         }
       })}
     </div>

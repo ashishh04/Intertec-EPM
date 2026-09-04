@@ -14,6 +14,7 @@ import {
 } from '../mapping/projects.js';
 import { prisma, optional } from '../db/prisma.js';
 import { setProjectPortfolio } from '../domain/portfolios.js';
+import { getUsers } from '../mapping/users.js';
 import { notifyHealthChange } from '../domain/notifications.js';
 import { Prisma } from '@prisma/client';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
@@ -346,6 +347,44 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     );
     return { id: String(updated.id), name: updated.name, active: updated.active };
   });
+
+  /**
+   * Sets who is accountable for a project, or clears it.
+   *
+   * EPM's own field. OpenProject has no project owner — no schema attribute and
+   * no `responsible` link — so this is stored here and the person is still an
+   * OpenProject user id, never a record EPM minted.
+   *
+   * Behind `project:edit` in that project: deciding who owns it is the same
+   * kind of decision as editing it, and it is not a portfolio-wide right.
+   */
+  app.patch<{ Params: { id: string }; Body: { ownerId?: unknown } }>(
+    '/projects/:id/owner',
+    async (request) => {
+      const { id } = request.params;
+      await guard.require(request, 'project:edit', id);
+
+      const raw = request.body?.ownerId;
+      const ownerId = raw === null || raw === undefined || raw === '' ? null : String(raw).trim();
+
+      if (ownerId !== null) {
+        // Must be somebody who exists, or the project reports an owner nobody
+        // can resolve and the health notifications go nowhere.
+        const users = await getUsers(requestSignal(request));
+        if (!users.some((user) => user.id === ownerId)) {
+          throw EpmError.badRequest('That person does not exist.');
+        }
+      }
+
+      await prisma.projectProfile.upsert({
+        where: { openProjectId: id },
+        create: { openProjectId: id, ownerId },
+        update: { ownerId },
+      });
+
+      return { id, ownerId: ownerId ?? '' };
+    },
+  );
 
   /**
    * Puts an archived project back.

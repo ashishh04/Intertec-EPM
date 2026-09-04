@@ -45,6 +45,18 @@ export class ApiCatalogRepository {
     return apiClient.get<CatalogValue[]>('/catalog/priorities');
   }
 
+  /**
+   * Resolves a schema field's `allowedValues` link.
+   *
+   * The href comes from the schema the backend served, so this echoes server
+   * data rather than constructing an upstream URL.
+   */
+  getAllowedValues(href: string): Promise<{ id: ID; name: string; href: string }[]> {
+    return apiClient.get<{ id: ID; name: string; href: string }[]>('/catalog/allowed-values', {
+      href,
+    });
+  }
+
   getRoles(): Promise<CatalogValue[]> {
     return apiClient.get<CatalogValue[]>('/catalog/roles');
   }

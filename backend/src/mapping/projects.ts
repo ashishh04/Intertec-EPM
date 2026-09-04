@@ -300,6 +300,8 @@ export interface ProjectOverlay {
   budgetTotal?: number | null;
   budgetUsed?: number | null;
   healthOverride?: unknown;
+  /** EPM's own owner. Upstream has no project owner field at all. */
+  ownerId?: string | null;
 }
 
 export function toEpmProject(
@@ -339,7 +341,10 @@ export function toEpmProject(
     description: project.description?.raw ?? undefined,
     status: deriveStatus({ active: project.active, total, completed, overdue, health }),
     progress: total > 0 ? Math.round((completed / total) * 100) : 0,
-    ownerId: linkId(project._links, 'responsible') ?? '',
+    // EPM's, not upstream's: an OpenProject project has no owner attribute and
+    // publishes no `responsible` link, so this read as empty for every project
+    // and there was no way to set it.
+    ownerId: options.overlay?.ownerId ?? '',
     memberIds: options.memberIds ?? [],
     startDate: undefined,
     dueDate,

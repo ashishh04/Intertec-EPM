@@ -72,7 +72,7 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit project' : 'New project'}</DialogTitle>
           <DialogDescription>
@@ -80,13 +80,17 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
           </DialogDescription>
         </DialogHeader>
 
-        <SchemaForm
-          form={form.form}
+        {/* Scrolls, so the actions stay pinned however many fields the
+            instance has configured. */}
+        <div className="epm-dialog-body epm-scroll -mr-1 pr-2">
+          <SchemaForm
+            form={form.form}
           values={form.draft}
           errors={form.errors}
           onChange={form.setValue}
-          isLoading={form.isLoading}
-        />
+            isLoading={form.isLoading}
+          />
+        </div>
 
         {form.error ? (
           <p role="alert" className="text-2xs font-medium text-danger">

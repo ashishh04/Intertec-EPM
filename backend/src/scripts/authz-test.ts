@@ -5035,7 +5035,19 @@ async function main() {
     });
     check('a project can be created for the lifecycle test', createdLifecycle.status, 201);
 
-    const lifecycleId = ((await createdLifecycle.json()) as { id: string }).id;
+    const lifecycleCreated = (await createdLifecycle.json()) as { id?: string; name?: string };
+    const lifecycleId = lifecycleCreated.id ?? '';
+
+    // Belt and braces before a section that deletes. A test that destroys a
+    // project must be certain it is destroying the one it just made, so it
+    // refuses to continue unless the id came back and the name matches what it
+    // asked for. Cheap, and the alternative is unrecoverable.
+    if (!lifecycleId || lifecycleCreated.name !== lifecycleName) {
+      throw new Error(
+        `Refusing to run the project lifecycle tests: created project did not come back as asked ` +
+          `(id=${lifecycleId || 'missing'}, name=${lifecycleCreated.name ?? 'missing'}).`,
+      );
+    }
 
     const readProjectRow = async (cookie: string) =>
       ((await (await call('/projects', { cookie })).json()) as {
@@ -5249,8 +5261,12 @@ async function main() {
         where: {
           healthOverride: { equals: Prisma.DbNull },
           portfolio: null,
+          portfolioId: null,
           budgetTotal: null,
           budgetUsed: null,
+          // A project owner is somebody's decision, not this suite's leftover.
+          // Without this the sweep removed a row holding nothing but an owner.
+          ownerId: null,
         },
       })
       .catch(() => undefined);

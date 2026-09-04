@@ -27,6 +27,21 @@ export function useTypes() {
   });
 }
 
+/**
+ * The options behind a schema field that publishes a link instead of a list.
+ *
+ * Keyed by that href and cached for the session: the same collection backs
+ * several fields, and it is reference data rather than anything that moves.
+ */
+export function useAllowedValues(href?: string) {
+  return useQuery({
+    queryKey: ['catalog', 'allowed-values', href ?? ''],
+    queryFn: () => catalogService.getAllowedValues(href!),
+    enabled: Boolean(href),
+    ...REFERENCE_DATA,
+  });
+}
+
 export function usePriorities() {
   return useQuery({
     queryKey: ['catalog', 'priorities'],

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, linkId } from '../openproject/client.js';
 import type { OpPriority, OpStatus, OpType } from '../openproject/types.js';
@@ -74,6 +75,43 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
         position: type.position,
       }))
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  });
+
+  /**
+   * Resolves a schema's `allowedValues` link.
+   *
+   * Some schema fields embed their options and some publish a link to fetch
+   * them — `assignee`, `responsible` and a project's `parent` are all the
+   * second kind. Without this the form had nothing to offer for those fields
+   * and fell back to a text box, which rendered the current value as
+   * `[object Object]`.
+   *
+   * The href is one the schema itself supplied, so the browser is echoing
+   * server data rather than knowing the shape of an upstream URL. It is still
+   * validated here: only an absolute `/api/v3/` path, no traversal, because a
+   * caller-supplied path reaching the upstream client is exactly the thing to
+   * be careful with.
+   */
+  app.get<{ Querystring: { href?: string } }>('/catalog/allowed-values', async (request) => {
+    const href = String(request.query.href ?? '');
+
+    if (!href.startsWith('/api/v3/') || href.includes('..')) {
+      throw EpmError.badRequest('That is not a value list this form can offer.');
+    }
+
+    const collection = await openProject.request<{
+      _embedded?: { elements?: { id?: unknown; name?: string; value?: string; _links?: { self?: { href?: string } } }[] };
+    }>(href.slice('/api/v3'.length), { signal: requestSignal(request) });
+
+    return (collection._embedded?.elements ?? [])
+      .map((element) => {
+        const selfHref = element._links?.self?.href;
+        const id = element.id !== undefined ? String(element.id) : undefined;
+        // A custom option calls its label `value`; everything else `name`.
+        const name = element.name ?? element.value;
+        return selfHref && name ? { id: id ?? selfHref, name, href: selfHref } : undefined;
+      })
+      .filter((value): value is { id: string; name: string; href: string } => Boolean(value));
   });
 
   app.get('/catalog/priorities', async (request) => {
