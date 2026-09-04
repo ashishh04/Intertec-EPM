@@ -4765,6 +4765,79 @@ async function main() {
       ).status,
       401,
     );
+
+    // --- the starting password is a handover credential, not theirs ---
+    //
+    // Upstream cannot express this: it has a `force_password_change` column but
+    // accepts and silently ignores the field on both create and update. So EPM
+    // holds them at its own door until they replace it.
+    const meBefore = (await (await call('/me', { cookie: theirSession })).json()) as {
+      mustChangePassword?: boolean;
+    };
+    check('a new person is asked to choose their own password', meBefore.mustChangePassword, true);
+
+    const adminMeGate = (await (await call('/me', { cookie: admin })).json()) as {
+      mustChangePassword?: boolean;
+    };
+    check('an existing person is not', adminMeGate.mustChangePassword, false);
+
+    check(
+      'anonymous cannot set a password',
+      await status('/me/password', { method: 'POST', body: { password: 'Wh4tever!2026' } }),
+      401,
+    );
+    check(
+      'an empty password is rejected',
+      await status('/me/password', { method: 'POST', cookie: theirSession, body: {} }),
+      400,
+    );
+    check(
+      "a password the instance's rules reject is refused",
+      (await status('/me/password', {
+        method: 'POST',
+        cookie: theirSession,
+        body: { password: 'abc' },
+      })) >= 400,
+      true,
+    );
+
+    const CHANGED_PASSWORD = 'Th31rOwn!Choice2026';
+    check(
+      'they can set their own password',
+      await status('/me/password', {
+        method: 'POST',
+        cookie: theirSession,
+        body: { password: CHANGED_PASSWORD },
+      }),
+      204,
+    );
+
+    const meAfter = (await (await call('/me', { cookie: theirSession })).json()) as {
+      mustChangePassword?: boolean;
+    };
+    check('and are no longer held at the door', meAfter.mustChangePassword, false);
+
+    check(
+      'the new password works',
+      (
+        await call('/auth/login', {
+          method: 'POST',
+          body: { username: accountLogin, password: CHANGED_PASSWORD },
+        })
+      ).status,
+      200,
+    );
+    // The change has to be real upstream, not just a flag flipped in EPM.
+    check(
+      "the administrator's starting password no longer works",
+      (
+        await call('/auth/login', {
+          method: 'POST',
+          body: { username: accountLogin, password: ACCOUNT_PASSWORD },
+        })
+      ).status,
+      401,
+    );
   }
 
   // The half OpenProject's own form cannot do.
@@ -4925,6 +4998,20 @@ async function main() {
     404,
   );
   check('the directory shrank by one', (await accountsOf(admin)).length, accountsBeforeDelete - 1);
+
+  // The bug this covers: upstream queues the deletion, so invalidating the
+  // cached directory the instant it answered refilled the cache with the person
+  // who was about to vanish — and they stayed on the Employees page for the
+  // whole five-minute lifetime of that cache. No waiting here on purpose: by
+  // the time the route answered, the list must already be right.
+  const employeesAfterDelete = (await (
+    await call('/employees', { cookie: admin })
+  ).json()) as { id: string }[];
+  check(
+    'a deleted person is gone from the employee list straight away',
+    employeesAfterDelete.some((employee) => employee.id === createdAccountId),
+    false,
+  );
 
   // The EPM row is keyed on a person who no longer exists, so it goes too.
   {

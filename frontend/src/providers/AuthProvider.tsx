@@ -26,6 +26,7 @@ interface SessionResponse {
 interface MeResponse extends EpmUser {
   permissions?: PermissionMap;
   projectPermissions?: Record<string, PermissionMap>;
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextValue {
@@ -44,8 +45,19 @@ interface AuthContextValue {
    * worth showing at all — never for enabling an action on a specific record.
    */
   canAnywhere: (permission: Permission) => boolean;
+  /**
+   * Whether this person still has the password an administrator handed them.
+   *
+   * Held at the door until they replace it: the starting password is a handover
+   * credential, not theirs. The upstream API has no way to require this — it
+   * accepts the field and ignores it — so EPM enforces it around its own
+   * session.
+   */
+  mustChangePassword: boolean;
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => void;
+  /** Sets the caller's own password and clears the gate. */
+  changePassword: (password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -83,6 +95,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [queryClient],
   );
 
+  const changePassword = useCallback(
+    async (password: string) => {
+      await apiClient.post('/me/password', { password });
+      // Refetched rather than assumed: the gate is cleared by the backend, and
+      // reading it back is what proves the change actually landed.
+      await queryClient.invalidateQueries({ queryKey: ['current-user'] });
+    },
+    [queryClient],
+  );
+
   const signOut = useCallback(() => {
     void apiClient
       .post('/auth/logout')
@@ -111,10 +133,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         lookup(global, permission) ||
         Object.values(byProject).some((map) => lookup(map, permission)),
 
+      mustChangePassword: me?.mustChangePassword ?? false,
+
       signIn,
       signOut,
+      changePassword,
     };
-  }, [user, me, hasSession, sessionQuery.isLoading, isUserLoading, signIn, signOut]);
+  }, [
+    user,
+    me,
+    hasSession,
+    sessionQuery.isLoading,
+    isUserLoading,
+    signIn,
+    signOut,
+    changePassword,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

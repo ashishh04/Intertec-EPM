@@ -78,6 +78,21 @@ export interface AccountAffordances {
  * screen uses and which carries no account state. Nothing here is stored by
  * EPM: accounts are OpenProject's, and this is a view of them.
  */
+/**
+ * The signed-in user, with what they may do and whether they are held at the
+ * door.
+ *
+ * `mustChangePassword` is EPM's own gate: an administrator who creates a person
+ * chooses their first password, and that is a handover credential rather than
+ * the person's own. The upstream API cannot express this — it has the column
+ * but ignores the field — so EPM enforces it around its own session.
+ */
+export interface EpmSession extends EpmUser {
+  permissions: Record<string, Record<string, boolean>>;
+  projectPermissions: Record<string, Record<string, Record<string, boolean>>>;
+  mustChangePassword: boolean;
+}
+
 export interface EpmAccount {
   id: ID;
   login: string;

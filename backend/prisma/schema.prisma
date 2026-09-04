@@ -43,6 +43,14 @@ model UserProfile {
   team          Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// Weekly capacity in hours, backing TeamMemberWorkload.hoursCapacity.
   hoursCapacity Float    @default(40)
+  /// Set when an administrator created this account with a starting password
+  /// they chose. Cleared the moment the person sets their own.
+  ///
+  /// EPM's own flag, because the upstream API cannot express one: it has a
+  /// `force_password_change` column, but both create and update accept the
+  /// field and silently ignore it — verified against 15.5.1. So the gate is
+  /// enforced here, where EPM owns the session.
+  mustChangePassword Boolean @default(false)
   timezone      String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

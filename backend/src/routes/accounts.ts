@@ -168,6 +168,20 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       // be mapped — so it is invalidated before the placement below.
       referenceCache.invalidate('users');
 
+      // The password was chosen by an administrator, so it is a handover
+      // credential and not this person's own. EPM makes them replace it before
+      // they can use anything: the upstream API has a `force_password_change`
+      // column but accepts and silently ignores the field on both create and
+      // update, so the gate has to live where EPM owns the session.
+      const { prisma } = await import('../db/prisma.js');
+      await prisma.userProfile
+        .upsert({
+          where: { openProjectId: id },
+          create: { openProjectId: id, mustChangePassword: true },
+          update: { mustChangePassword: true },
+        })
+        .catch(() => undefined);
+
       // The EPM half. Failing here must not leave the caller believing nothing
       // happened: the account exists either way, so the problem is reported
       // against the placement rather than the creation.
@@ -319,7 +333,29 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     const { prisma } = await import('../db/prisma.js');
     await prisma.userProfile.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
 
+    // Upstream queues the deletion and answers 202, so the account is still
+    // readable for a moment afterwards. Invalidating the cached directory
+    // immediately was worse than not invalidating at all: the next read
+    // refilled it with the person who was about to disappear, and they stayed
+    // on the Employees page for the whole five-minute lifetime of that cache.
+    //
+    // So wait for them to be gone, briefly and with a bound, and clear the
+    // cache after. In practice this takes about a second.
+    const deadline = Date.now() + 8_000;
+    let gone = false;
+
+    while (!gone && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const still = await openProject
+        .request<OpPrincipal>(`/users/${id}`, { signal: requestSignal(request) })
+        .catch(() => null);
+      gone = still === null;
+    }
+
     referenceCache.invalidate('users');
-    reply.code(204);
+
+    // 202 when it has not finished: the work was accepted and is still running,
+    // which is the truth rather than a 204 claiming it is done.
+    reply.code(gone ? 204 : 202);
   });
 };

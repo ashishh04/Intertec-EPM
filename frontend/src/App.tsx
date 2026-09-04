@@ -7,7 +7,9 @@ import { useAuth } from '@/providers/AuthProvider';
  * Routes are code-split so the initial bundle only carries the shell and the
  * dashboard path. Heavier surfaces (Gantt, analytics, board) load on demand.
  */
+const LandingPage = lazy(() => import('@/pages/LandingPage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const SetPasswordPage = lazy(() => import('@/pages/SetPasswordPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const MyWorkPage = lazy(() => import('@/pages/MyWorkPage'));
 const ProjectsPage = lazy(() => import('@/pages/ProjectsPage'));
@@ -56,7 +58,7 @@ function RouteFallback() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, mustChangePassword } = useAuth();
   const location = useLocation();
 
   // The session is confirmed with the backend, so it is not known on first
@@ -68,6 +70,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
+
+  // Held at the door. Rendered in place of the route rather than redirected to
+  // one, so there is no address to skip past and no destination to lose — the
+  // requested URL is still there once the password is set.
+  if (mustChangePassword) return <SetPasswordPage />;
+
   return <>{children}</>;
 }
 
@@ -77,6 +85,19 @@ export function App() {
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
+        <Route
+          path="/"
+          // The public entry point. Someone already signed in has no use for
+          // the pitch, so they go straight to their work.
+          element={
+            isLoading ? null : isAuthenticated ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <LandingPage />
+            )
+          }
+        />
+
         <Route
           path="/login"
           // Same reason as RequireAuth: show nothing until the session is known,
@@ -93,7 +114,6 @@ export function App() {
             </RequireAuth>
           }
         >
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/my-work" element={<MyWorkPage />} />
 
