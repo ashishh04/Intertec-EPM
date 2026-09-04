@@ -90,7 +90,15 @@ export function KanbanBoard({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className={cn('epm-scroll flex gap-3 overflow-x-auto pb-2', className)}>
+      {/* Bounded, so the columns scroll inside themselves rather than growing
+          the page. Without this a busy column pushes everything below the board
+          — including its own "show more" and the board's summary — off screen. */}
+      <div
+        className={cn(
+          'epm-scroll flex max-h-[calc(100dvh-19rem)] min-h-72 items-stretch gap-3 overflow-x-auto pb-2',
+          className,
+        )}
+      >
         {columns.map((status) => (
           <KanbanColumn
             key={status}
