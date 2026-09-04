@@ -228,6 +228,17 @@ export interface EpmProject {
   portfolioId?: ID;
   budgetUsed: number;
   budgetTotal: number;
+  /**
+   * What the caller may do to the project itself, read from the resource's own
+   * links rather than inferred. Deleting is published only where the instance
+   * and the caller both allow it, so a UI that offered it unconditionally would
+   * be offering something upstream refuses.
+   */
+  can: {
+    archive: boolean;
+    /** Permanent, and takes every work package in the project with it. */
+    remove: boolean;
+  };
   createdAt: ISODate;
   updatedAt: ISODate;
 }

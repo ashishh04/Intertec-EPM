@@ -1,7 +1,16 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { NavLink, Outlet, useParams } from 'react-router-dom';
-import { Ellipsis, Pencil, Plus, Share2, Star, UserPlus } from 'lucide-react';
+import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
+import {
+  Archive,
+  ArchiveRestore,
+  Ellipsis,
+  Pencil,
+  Plus,
+  Share2,
+  Trash2,
+  UserPlus,
+} from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ErrorState } from '@/components/common/ErrorState';
 import { ProjectStatusBadge } from '@/components/common/StatusBadge';
@@ -18,6 +27,14 @@ import {
 import { PROJECT_TABS } from '@/config/navigation';
 import { useProject } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { MemberDialog } from '@/components/projects/MemberDialog';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
 import { invalidationGroups } from '@/lib/queryKeys';
@@ -27,40 +44,52 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { toast } from 'sonner';
 
-const prototypeAction = (label: string) =>
-  toast(`${label} is not implemented yet`, {
-    description: 'This action will call the EPM backend in a connected workspace.',
-  });
-
 /**
  * Project workspace frame. The header and tab strip persist across every
  * project sub-route so context is never lost while navigating.
  */
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const { canInProject } = useAuth();
   const queryClient = useQueryClient();
 
   /**
-   * Archives rather than deletes: OpenProject deletion is asynchronous and
-   * irreversible, and archiving is what the action has always meant here.
+   * Archive, restore and delete.
+   *
+   * Confirmed through a dialog rather than `window.confirm`: the native one is
+   * inconsistent with every other confirmation here, and a browser that has
+   * been told to block further dialogs silently swallows it — which reads as
+   * the action being broken.
    */
-  const archiveProject = async () => {
-    if (!project) return;
-    if (!window.confirm(`Archive ${project.name}? It will no longer appear in the portfolio.`)) {
-      return;
-    }
+  const [pendingAction, setPendingAction] = useState<'archive' | 'restore' | 'delete'>();
+  const [working, setWorking] = useState(false);
+
+  const runAction = async () => {
+    if (!project || !pendingAction) return;
+    setWorking(true);
+
+    const verbs = {
+      archive: { run: () => projectWriteService.archive(project.id), done: 'Project archived' },
+      restore: { run: () => projectWriteService.restore(project.id), done: 'Project restored' },
+      delete: { run: () => projectWriteService.remove(project.id), done: 'Project deleted' },
+    } as const;
 
     try {
-      await projectWriteService.archive(project.id);
-      toast.success('Project archived');
+      await verbs[pendingAction].run();
+      toast.success(verbs[pendingAction].done);
       for (const key of invalidationGroups.projectWrite) {
         await queryClient.invalidateQueries({ queryKey: key });
       }
+      setPendingAction(undefined);
+      // A deleted project has no page left to be on.
+      if (pendingAction === 'delete') navigate('/projects');
     } catch (error) {
-      toast.error('Could not archive project', {
+      toast.error('That could not be done', {
         description: error instanceof Error ? error.message : undefined,
       });
+    } finally {
+      setWorking(false);
     }
   };
   const [editOpen, setEditOpen] = useState(false);
@@ -152,22 +181,40 @@ export default function ProjectDetailPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => prototypeAction('Following a project')}>
-                  <Star />
-                  Follow project
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => prototypeAction('Sharing a project')}>
+                {/* Sharing a project *is* giving someone access to it —
+                    upstream has no separate concept — so this opens the same
+                    dialog the Invite button does rather than pretending to be
+                    a different feature. */}
+                <DropdownMenuItem onSelect={() => setInviteOpen(true)}>
                   <Share2 />
-                  Share
+                  Share with someone
                 </DropdownMenuItem>
+
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => void archiveProject()}
-                  disabled={!canInProject(projectId, 'project:archive')}
-                  destructive
-                >
-                  Archive project
-                </DropdownMenuItem>
+
+                {project.status === 'paused' ? (
+                  <DropdownMenuItem onSelect={() => setPendingAction('restore')}>
+                    <ArchiveRestore />
+                    Restore project
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    onSelect={() => setPendingAction('archive')}
+                    disabled={!project.can.archive}
+                  >
+                    <Archive />
+                    Archive project
+                  </DropdownMenuItem>
+                )}
+
+                {/* Offered only where upstream published the affordance, which
+                    it withholds unless the caller may really do it. */}
+                {project.can.remove ? (
+                  <DropdownMenuItem destructive onSelect={() => setPendingAction('delete')}>
+                    <Trash2 />
+                    Delete project
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           </>
@@ -213,6 +260,46 @@ export default function ProjectDetailPage() {
         projectId={project.id}
       />
       <MemberDialog open={inviteOpen} onOpenChange={setInviteOpen} projectId={project.id} />
+
+      <Dialog
+        open={Boolean(pendingAction)}
+        onOpenChange={(open) => !open && setPendingAction(undefined)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingAction === 'delete'
+                ? `Delete ${project.name}?`
+                : pendingAction === 'restore'
+                  ? `Restore ${project.name}?`
+                  : `Archive ${project.name}?`}
+            </DialogTitle>
+            <DialogDescription>
+              {pendingAction === 'delete'
+                ? 'This removes the project permanently, along with every work package, comment and time entry in it. It cannot be undone. Archiving keeps all of that and can be reversed.'
+                : pendingAction === 'restore'
+                  ? 'It becomes active again and reappears in the project list.'
+                  : 'It stops appearing in the active project list and its work is put aside. You can restore it afterwards.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPendingAction(undefined)} disabled={working}>
+              Cancel
+            </Button>
+            <Button
+              variant={pendingAction === 'restore' ? 'default' : 'danger'}
+              onClick={() => void runAction()}
+              disabled={working}
+            >
+              {pendingAction === 'delete'
+                ? 'Delete permanently'
+                : pendingAction === 'restore'
+                  ? 'Restore'
+                  : 'Archive'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

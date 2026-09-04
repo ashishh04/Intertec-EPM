@@ -308,6 +308,13 @@ export function toEpmProject(
   options: { memberIds?: ID[]; overlay?: ProjectOverlay; today: string },
 ): EpmProject {
   const id = String(project.id);
+  // Archiving is a PATCH, so it rides on the update affordance; deletion has
+  // its own and is absent unless the caller may actually perform it.
+  const links = project._links;
+  const can = {
+    archive: Boolean(links && Object.hasOwn(links, 'updateImmediately')),
+    remove: Boolean(links && Object.hasOwn(links, 'delete')),
+  };
   const total = aggregates.total.get(id) ?? 0;
   const completed = aggregates.completed.get(id) ?? 0;
   const overdue = aggregates.overdue.get(id) ?? 0;
@@ -350,6 +357,7 @@ export function toEpmProject(
     // did. Neither is invented — an unassigned project reports nothing.
     portfolio: options.overlay?.portfolioRef?.name ?? options.overlay?.portfolio ?? '',
     portfolioId: options.overlay?.portfolioId ?? undefined,
+    can,
     budgetUsed: options.overlay?.budgetUsed ?? 0,
     budgetTotal: options.overlay?.budgetTotal ?? 0,
     createdAt: project.createdAt,

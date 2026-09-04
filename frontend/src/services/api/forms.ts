@@ -140,4 +140,14 @@ export class ApiProjectWriteRepository {
   archive(id: ID) {
     return apiClient.patch<{ id: ID; name: string; active: boolean }>(`/projects/${id}/archive`);
   }
+
+  /** Undoes an archive. Reversible, unlike `remove`. */
+  restore(id: ID) {
+    return apiClient.patch<{ id: ID; name: string; active: boolean }>(`/projects/${id}/restore`);
+  }
+
+  /** Permanent, and takes every work package in the project with it. */
+  remove(id: ID) {
+    return apiClient.delete<void>(`/projects/${id}`);
+  }
 }

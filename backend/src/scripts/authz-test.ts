@@ -5023,6 +5023,91 @@ async function main() {
     );
   }
 
+  // --- Project lifecycle ------------------------------------------------------
+  console.log('\nProject lifecycle');
+
+  {
+    const lifecycleName = `Lifecycle Test ${Date.now()}`;
+    const createdLifecycle = await call('/projects', {
+      method: 'POST',
+      cookie: admin,
+      body: { payload: { name: lifecycleName, identifier: `lifecycle-${Date.now()}` } },
+    });
+    check('a project can be created for the lifecycle test', createdLifecycle.status, 201);
+
+    const lifecycleId = ((await createdLifecycle.json()) as { id: string }).id;
+
+    const readProjectRow = async (cookie: string) =>
+      ((await (await call('/projects', { cookie })).json()) as {
+        id: string;
+        status: string;
+        can?: { archive: boolean; remove: boolean };
+      }[]).find((row) => row.id === lifecycleId);
+
+    const fresh = await readProjectRow(admin);
+    check('a project reports what may be done to it', typeof fresh?.can?.remove, 'boolean');
+    check('an active project can be archived', fresh?.can?.archive, true);
+
+    check(
+      'archiving succeeds',
+      (await call(`/projects/${lifecycleId}/archive`, { method: 'PATCH', cookie: admin })).status,
+      200,
+    );
+    check('the project reads as paused afterwards', (await readProjectRow(admin))?.status, 'paused');
+
+    // The bug this covers: `project:archive` comes from the per-project
+    // `projects/update` capability, and an archived project reports no
+    // capabilities at all — so archiving removed the permission needed to undo
+    // it, and restoring was impossible for everyone including an administrator.
+    check(
+      'an archived project can still be restored',
+      (await call(`/projects/${lifecycleId}/restore`, { method: 'PATCH', cookie: admin })).status,
+      200,
+    );
+    check('and is active again', (await readProjectRow(admin))?.status !== 'paused', true);
+
+    check(
+      'a restricted caller cannot archive it',
+      await status(`/projects/${lifecycleId}/archive`, { method: 'PATCH', cookie: restricted }),
+      403,
+    );
+    // Not found rather than forbidden, and deliberately so: restore and delete
+    // read the project with the caller's own token first, and someone who
+    // cannot see a project should not learn that it exists. Archiving answers
+    // 403 because its permission check runs before any upstream read.
+    check(
+      'nor restore it',
+      await status(`/projects/${lifecycleId}/restore`, { method: 'PATCH', cookie: restricted }),
+      404,
+    );
+    check(
+      'nor delete it',
+      await status(`/projects/${lifecycleId}`, { method: 'DELETE', cookie: restricted }),
+      404,
+    );
+    check('and none of that changed it', (await readProjectRow(admin))?.status !== 'paused', true);
+
+    check(
+      'a non-numeric project id is not found',
+      await status('/projects/not-a-number', { method: 'DELETE', cookie: admin }),
+      404,
+    );
+    check(
+      'an unknown project is not found',
+      await status('/projects/99999999', { method: 'DELETE', cookie: admin }),
+      404,
+    );
+
+    // Deletion is the section's own cleanup: the project created here is the
+    // project removed here, so nothing is left behind.
+    check(
+      'deleting succeeds',
+      await status(`/projects/${lifecycleId}`, { method: 'DELETE', cookie: admin }),
+      204,
+    );
+    check('the project is gone straight away', await readProjectRow(admin), undefined);
+  }
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);

@@ -347,6 +347,101 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     return { id: String(updated.id), name: updated.name, active: updated.active };
   });
 
+  /**
+   * Puts an archived project back.
+   *
+   * The counterpart archiving always needed: every other archivable thing in
+   * EPM — departments, teams, portfolios — can be restored, and a project that
+   * could only be archived was a one-way door with deletion as the only way out.
+   *
+   * Deliberately **not** guarded on `project:archive`. That permission comes
+   * from the per-project `projects/update` capability, and an archived project
+   * reports **no capabilities at all** — so the very act of archiving removed
+   * the permission needed to undo it. Restoring was impossible for everyone,
+   * including an instance administrator.
+   *
+   * The gate is the `delete` affordance instead: it is the only link upstream
+   * still publishes on an archived project, and it is a strictly stronger
+   * right. Anyone permitted to destroy the project permanently is certainly
+   * permitted to un-archive it.
+   */
+  app.patch<{ Params: { id: string } }>('/projects/:id/restore', async (request) => {
+    const { id } = request.params;
+
+    if (!/^\d+$/.test(id)) throw EpmError.notFound('That project');
+
+    const project = await openProject
+      .request<{ _links?: Record<string, unknown> }>(`/projects/${id}`, {
+        signal: requestSignal(request),
+      })
+      .catch(() => null);
+
+    if (!project) throw EpmError.notFound('That project');
+
+    if (!project._links || !Object.hasOwn(project._links, 'delete')) {
+      throw EpmError.forbidden('You do not have permission to restore this project.');
+    }
+
+    const updated = await openProject.request<{ id: number; name: string; active: boolean }>(
+      `/projects/${id}`,
+      { method: 'PATCH', body: { active: true }, signal: requestSignal(request) },
+    );
+    return { id: String(updated.id), name: updated.name, active: updated.active };
+  });
+
+  /**
+   * Deletes a project permanently.
+   *
+   * Gated on the `delete` affordance the project itself publishes, which is the
+   * only signal upstream offers — no capability reports it. Nothing about
+   * archiving implies it: archiving is reversible and deletion takes every work
+   * package, comment and time entry in the project with it.
+   *
+   * Upstream queues the work, so the project is briefly still readable. This
+   * waits for it to be gone before answering, because the alternative is a
+   * caller who refreshes and sees what they just deleted.
+   */
+  app.delete<{ Params: { id: string } }>('/projects/:id', async (request, reply) => {
+    const { id } = request.params;
+
+    if (!/^\d+$/.test(id)) throw EpmError.notFound('That project');
+
+    const project = await openProject
+      .request<{ id: number; _links?: Record<string, unknown> }>(`/projects/${id}`, {
+        signal: requestSignal(request),
+      })
+      .catch(() => null);
+
+    if (!project) throw EpmError.notFound('That project');
+
+    if (!project._links || !Object.hasOwn(project._links, 'delete')) {
+      throw EpmError.forbidden('You do not have permission to delete this project.');
+    }
+
+    await openProject.request<void>(`/projects/${id}`, {
+      method: 'DELETE',
+      signal: requestSignal(request),
+    });
+
+    // The EPM overlay is keyed on a project that will no longer exist. Its
+    // portfolio link, budget and health pin go with it.
+    await prisma.projectProfile.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
+
+    const deadline = Date.now() + 8_000;
+    let gone = false;
+
+    while (!gone && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const still = await openProject
+        .request<unknown>(`/projects/${id}`, { signal: requestSignal(request) })
+        .catch(() => null);
+      gone = still === null;
+    }
+
+    // 202 while it is still running, rather than a 204 that claims otherwise.
+    reply.code(gone ? 204 : 202);
+  });
+
 };
 async function milestoneTypeIds(signal: AbortSignal): Promise<string[]> {
   const { getCatalog } = await import('../mapping/catalog.js');
