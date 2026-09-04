@@ -1726,6 +1726,10 @@ async function main() {
   // tests remap whoever they run as, so whatever was there is put back —
   // including "they were mapped to nothing", which is a value too.
   const originalMapping = new Map<string, { departmentId: string | null; teamId: string | null }>();
+  // Memberships these tests grant. Registered as soon as one is created rather
+  // than removed only by the test that asserts removal — an abort in between
+  // would otherwise leave a real person holding real access to a real project.
+  const grantedMemberships: { projectId: string; membershipId: string }[] = [];
   // Health pins are real management state. Whatever these tests set is put
   // back, including "there was no pin", which is a value too.
   const originalHealthOverride = new Map<string, Record<string, string> | null>();
@@ -4442,6 +4446,7 @@ async function main() {
 
   const addedMember = (await addResponse.json()) as MemberRow;
   const addedMembershipId = addedMember.membershipId;
+  grantedMemberships.push({ projectId: memberProjectId, membershipId: addedMembershipId });
   check('the new member is the person asked for', addedMember.userId, memberTarget);
   check('the new member holds the role asked for', addedMember.roles[0]?.id, memberRoleId);
 
@@ -4548,6 +4553,276 @@ async function main() {
     false,
   );
 
+  // --- User accounts ---------------------------------------------------------
+  console.log('\nUser accounts');
+
+  interface AccountRow {
+    id: string;
+    login: string;
+    firstName: string;
+    lastName: string;
+    name: string;
+    email: string;
+    admin: boolean;
+    status: string;
+    language?: string;
+    createdAt: string;
+    can: { update: boolean; lock: boolean; unlock: boolean; remove: boolean };
+    placementProblems?: string[];
+  }
+
+  const accountsOf = async (cookie: string) =>
+    (await (await call('/accounts', { cookie })).json()) as AccountRow[];
+
+  check('anonymous cannot list accounts', await status('/accounts'), 401);
+  check('a restricted user cannot list accounts', await status('/accounts', { cookie: restricted }), 403);
+  check('an administrator can', await status('/accounts', { cookie: admin }), 200);
+
+  const accountDirectory = await accountsOf(admin);
+  check('the directory carries logins', typeof accountDirectory[0]?.login, 'string');
+  check(
+    'every account reports what may be done to it',
+    accountDirectory.every((row) => typeof row.can?.update === 'boolean'),
+    true,
+  );
+  // Upstream omits the delete affordance on the caller's own account, and the
+  // mapping must not invent one.
+  check(
+    'nobody is offered deletion of their own account',
+    accountDirectory.find((row) => row.id === adminId)?.can.remove,
+    false,
+  );
+  check(
+    'an active account offers deactivation',
+    accountDirectory.find((row) => row.id === restrictedId)?.can.lock,
+    true,
+  );
+  check(
+    'an active account does not offer reactivation',
+    accountDirectory.find((row) => row.id === restrictedId)?.can.unlock,
+    false,
+  );
+
+  // --- validation ---
+  const badAccounts: [string, Record<string, unknown>][] = [
+    ['an empty payload is rejected', {}],
+    ['a missing login is rejected', { firstName: 'A', lastName: 'B', email: 'a@b.co' }],
+    ['a missing email is rejected', { login: 'x', firstName: 'A', lastName: 'B' }],
+    ['a missing name is rejected', { login: 'x', email: 'a@b.co' }],
+    [
+      'an invalid email is rejected',
+      { login: 'x', firstName: 'A', lastName: 'B', email: 'not-an-email' },
+    ],
+    [
+      'whitespace is not a name',
+      { login: 'x', firstName: '   ', lastName: 'B', email: 'a@b.co' },
+    ],
+  ];
+  for (const [label, body] of badAccounts) {
+    check(label, await status('/accounts', { method: 'POST', cookie: admin, body }), 400);
+  }
+
+  // --- creating, with the organisational placement in the same call ---
+  const accountStamp = Date.now().toString().slice(-9);
+  const accountLogin = `epm.test.${accountStamp}`;
+
+  const createdAccountResponse = await call('/accounts', {
+    method: 'POST',
+    cookie: admin,
+    body: {
+      login: accountLogin,
+      firstName: 'EPM',
+      lastName: `Test ${accountStamp}`,
+      email: `epm.test.${accountStamp}@example.net`,
+      departmentId: deptId,
+      teamId,
+      hoursCapacity: 37.5,
+    },
+  });
+
+  check('creating a person succeeds', createdAccountResponse.status, 201);
+
+  const createdAccount = (await createdAccountResponse.json()) as AccountRow;
+  const createdAccountId = createdAccount.id;
+
+  check('the new person is invited rather than active', createdAccount.status, 'invited');
+  check('the login is what was asked for', createdAccount.login, accountLogin);
+  check('a new person is not an administrator by default', createdAccount.admin, false);
+  check('nothing failed during placement', createdAccount.placementProblems, undefined);
+  // An invited account has no lock affordance upstream, and the mapping must
+  // report that rather than offering an action that would 406.
+  check('an invited account cannot be deactivated', createdAccount.can.lock, false);
+
+  check(
+    'no password is echoed back',
+    JSON.stringify(createdAccount).toLowerCase().includes('password'),
+    false,
+  );
+
+  // The half OpenProject's own form cannot do.
+  const placed = (await (
+    await call(`/employees/${createdAccountId}`, { cookie: admin })
+  ).json()) as { department?: { id: string }; team?: { id: string }; hoursCapacity: number };
+
+  check('the new person was placed in the department', placed.department?.id, deptId);
+  check('and in the team', placed.team?.id, teamId);
+  check('and given the capacity asked for', placed.hoursCapacity, 37.5);
+
+  check(
+    'the same login cannot be used twice',
+    await status('/accounts', {
+      method: 'POST',
+      cookie: admin,
+      body: {
+        login: accountLogin,
+        firstName: 'Duplicate',
+        lastName: 'Login',
+        email: `dupe.${accountStamp}@example.net`,
+      },
+    }) >= 400,
+    true,
+  );
+
+  // --- editing ---
+  const patchedAccount = await call(`/accounts/${createdAccountId}`, {
+    method: 'PATCH',
+    cookie: admin,
+    body: { lastName: `Renamed ${accountStamp}` },
+  });
+  check('editing a person succeeds', patchedAccount.status, 200);
+  check(
+    'the change took effect',
+    ((await patchedAccount.json()) as AccountRow).lastName,
+    `Renamed ${accountStamp}`,
+  );
+
+  check(
+    'an empty edit is rejected',
+    await status(`/accounts/${createdAccountId}`, { method: 'PATCH', cookie: admin, body: {} }),
+    400,
+  );
+  check(
+    'blanking a required field is rejected',
+    await status(`/accounts/${createdAccountId}`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { firstName: '   ' },
+    }),
+    400,
+  );
+
+  // --- the lifecycle, which is lock rather than delete ---
+  check(
+    'an invited person cannot be deactivated',
+    await status(`/accounts/${createdAccountId}/lock`, { method: 'POST', cookie: admin }),
+    403,
+  );
+  check(
+    'someone who is not deactivated cannot be reactivated',
+    await status(`/accounts/${createdAccountId}/lock`, { method: 'DELETE', cookie: admin }),
+    403,
+  );
+
+  {
+    const locked = await call(`/accounts/${restrictedId}/lock`, { method: 'POST', cookie: admin });
+    check('deactivating an active person succeeds', locked.status, 200);
+
+    const lockedRow = (await locked.json()) as AccountRow;
+    check('they are reported as locked', lockedRow.status, 'locked');
+    check('and now offer reactivation', lockedRow.can.unlock, true);
+    check('and no longer offer deactivation', lockedRow.can.lock, false);
+
+    const unlocked = await call(`/accounts/${restrictedId}/lock`, {
+      method: 'DELETE',
+      cookie: admin,
+    });
+    check('reactivating succeeds', unlocked.status, 200);
+    check('they are active again', ((await unlocked.json()) as AccountRow).status, 'active');
+  }
+
+  // --- refusals ---
+  check(
+    'nobody may delete their own account',
+    await status(`/accounts/${adminId}`, { method: 'DELETE', cookie: admin }),
+    403,
+  );
+  check(
+    'a non-numeric id is not found',
+    await status('/accounts/not-a-number', { cookie: admin }),
+    404,
+  );
+  check(
+    'an unknown person is not found',
+    await status('/accounts/99999999', { cookie: admin }),
+    404,
+  );
+
+  const accountRefusals: [string, string, string][] = [
+    ['a restricted user cannot read one account', `/accounts/${adminId}`, 'GET'],
+    ['a restricted user cannot create a person', '/accounts', 'POST'],
+    ['a restricted user cannot edit a person', `/accounts/${createdAccountId}`, 'PATCH'],
+    ['a restricted user cannot deactivate anyone', `/accounts/${adminId}/lock`, 'POST'],
+    ['a restricted user cannot reactivate anyone', `/accounts/${adminId}/lock`, 'DELETE'],
+    ['a restricted user cannot delete anyone', `/accounts/${createdAccountId}`, 'DELETE'],
+  ];
+  for (const [label, path, method] of accountRefusals) {
+    check(
+      label,
+      await status(path, {
+        method,
+        cookie: restricted,
+        ...(method === 'POST' || method === 'PATCH'
+          ? { body: { login: 'nope', firstName: 'N', lastName: 'O', email: 'n@o.co', admin: true } }
+          : {}),
+      }),
+      403,
+    );
+  }
+
+  // Refused, and nothing changed — a status code alone would not prove it.
+  check(
+    'the refused writes left the account alone',
+    (await accountsOf(admin)).find((row) => row.id === createdAccountId)?.lastName,
+    `Renamed ${accountStamp}`,
+  );
+  check(
+    'and did not make anyone an administrator',
+    (await accountsOf(admin)).find((row) => row.id === restrictedId)?.admin,
+    false,
+  );
+
+  // --- deletion, which is also this section's cleanup ---
+  const accountsBeforeDelete = (await accountsOf(admin)).length;
+
+  check(
+    'deleting a person succeeds',
+    await status(`/accounts/${createdAccountId}`, { method: 'DELETE', cookie: admin }),
+    204,
+  );
+
+  // Upstream queues the work, so the account goes a moment later.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if ((await status(`/accounts/${createdAccountId}`, { cookie: admin })) === 404) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  check(
+    'the person is gone afterwards',
+    await status(`/accounts/${createdAccountId}`, { cookie: admin }),
+    404,
+  );
+  check('the directory shrank by one', (await accountsOf(admin)).length, accountsBeforeDelete - 1);
+
+  // The EPM row is keyed on a person who no longer exists, so it goes too.
+  {
+    const { prisma } = await import('../db/prisma.js');
+    check(
+      'their EPM placement was removed with them',
+      await prisma.userProfile.count({ where: { openProjectId: createdAccountId } }),
+      0,
+    );
+  }
+
   // --- Session lifecycle ---------------------------------------------------
   console.log('\nSession lifecycle');
   const throwaway = await signIn(RESTRICTED);
@@ -4619,6 +4894,23 @@ async function main() {
   }
   if (originalHealthOverride.size) {
     console.log(`  (restored health overrides for ${originalHealthOverride.size} project(s))`);
+  }
+
+  // Access first: anything still granted is revoked before the rest, because a
+  // membership left behind is the one leftover that changes what another person
+  // can do. Already-removed ones 404, which is the expected case.
+  {
+    let revoked = 0;
+    for (const granted of grantedMemberships) {
+      const response = await call(
+        `/projects/${granted.projectId}/members/${granted.membershipId}`,
+        { method: 'DELETE', cookie: admin },
+      ).catch(() => undefined);
+      if (response?.status === 204) revoked += 1;
+    }
+    if (revoked > 0) {
+      console.log(`  (revoked ${revoked} test membership${revoked === 1 ? '' : 's'})`);
+    }
   }
 
   // Capacity first, and through the API, so the restore goes through the same
