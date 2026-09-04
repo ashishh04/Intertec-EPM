@@ -228,7 +228,7 @@ export default function EmployeesPage() {
             description={
               q || departmentId !== ALL || teamId !== ALL
                 ? 'Try a different search or filter.'
-                : 'People appear here once they exist in OpenProject.'
+                : 'People appear here once they have an account.'
             }
           />
         }
@@ -427,7 +427,7 @@ export default function EmployeesPage() {
           <DialogHeader>
             <DialogTitle>Delete {removing?.name}?</DialogTitle>
             <DialogDescription>
-              This removes their account from OpenProject permanently, along with their
+              This removes their account permanently, along with their
               department, team and capacity in EPM. It cannot be undone. To keep their history
               and stop them signing in, deactivate them instead.
             </DialogDescription>

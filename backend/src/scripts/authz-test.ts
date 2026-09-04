@@ -4571,6 +4571,9 @@ async function main() {
     placementProblems?: string[];
   }
 
+  // Meets the instance's password rules. Used once, then the person is deleted.
+  const ACCOUNT_PASSWORD = 'Str0ng!Testing2026';
+
   const accountsOf = async (cookie: string) =>
     (await (await call('/accounts', { cookie })).json()) as AccountRow[];
 
@@ -4606,16 +4609,20 @@ async function main() {
   // --- validation ---
   const badAccounts: [string, Record<string, unknown>][] = [
     ['an empty payload is rejected', {}],
-    ['a missing login is rejected', { firstName: 'A', lastName: 'B', email: 'a@b.co' }],
-    ['a missing email is rejected', { login: 'x', firstName: 'A', lastName: 'B' }],
+    ['a missing login is rejected', { firstName: 'A', lastName: 'B', email: 'a@b.co', password: ACCOUNT_PASSWORD }],
+    ['a missing email is rejected', { login: 'x', firstName: 'A', lastName: 'B', password: ACCOUNT_PASSWORD }],
     ['a missing name is rejected', { login: 'x', email: 'a@b.co' }],
     [
+      'a missing password is rejected',
+      { login: 'x', firstName: 'A', lastName: 'B', email: 'a@b.co' },
+    ],
+    [
       'an invalid email is rejected',
-      { login: 'x', firstName: 'A', lastName: 'B', email: 'not-an-email' },
+      { login: 'x', firstName: 'A', lastName: 'B', email: 'not-an-email', password: ACCOUNT_PASSWORD },
     ],
     [
       'whitespace is not a name',
-      { login: 'x', firstName: '   ', lastName: 'B', email: 'a@b.co' },
+      { login: 'x', firstName: '   ', lastName: 'B', email: 'a@b.co', password: ACCOUNT_PASSWORD },
     ],
   ];
   for (const [label, body] of badAccounts) {
@@ -4634,6 +4641,7 @@ async function main() {
       firstName: 'EPM',
       lastName: `Test ${accountStamp}`,
       email: `epm.test.${accountStamp}@example.net`,
+      password: ACCOUNT_PASSWORD,
       departmentId: deptId,
       teamId,
       hoursCapacity: 37.5,
@@ -4645,19 +4653,54 @@ async function main() {
   const createdAccount = (await createdAccountResponse.json()) as AccountRow;
   const createdAccountId = createdAccount.id;
 
-  check('the new person is invited rather than active', createdAccount.status, 'invited');
+  // Active with a password, not invited: there is no mail transport here, so an
+  // invited account would have no password and no way to receive one.
+  check('the new person can sign in immediately', createdAccount.status, 'active');
   check('the login is what was asked for', createdAccount.login, accountLogin);
   check('a new person is not an administrator by default', createdAccount.admin, false);
   check('nothing failed during placement', createdAccount.placementProblems, undefined);
-  // An invited account has no lock affordance upstream, and the mapping must
-  // report that rather than offering an action that would 406.
-  check('an invited account cannot be deactivated', createdAccount.can.lock, false);
+  check('an active account can be deactivated', createdAccount.can.lock, true);
 
   check(
     'no password is echoed back',
     JSON.stringify(createdAccount).toLowerCase().includes('password'),
     false,
   );
+
+  // The point of the whole flow. An earlier version created people as
+  // `invited`, which relies on an invitation email — and with no mail transport
+  // configured, every one of them was unreachable: no password, no mail, no way
+  // in. Asserting the status was not enough; this asserts they can actually
+  // get in.
+  {
+    const signIn = await call('/auth/login', {
+      method: 'POST',
+      body: { username: accountLogin, password: ACCOUNT_PASSWORD },
+    });
+    check('the new person can actually sign in', signIn.status, 200);
+
+    const theirSession = (signIn.headers.getSetCookie?.() ?? [])
+      .map((entry) => entry.split(';')[0])
+      .join('; ');
+    check('and gets a working session', await status('/me', { cookie: theirSession }), 200);
+
+    // A brand new person holds nothing beyond what any signed-in user does.
+    check(
+      'but no management permission comes with the account',
+      await status('/accounts', { cookie: theirSession }),
+      403,
+    );
+    check(
+      'the wrong password still fails',
+      (
+        await call('/auth/login', {
+          method: 'POST',
+          body: { username: accountLogin, password: 'not-the-password' },
+        })
+      ).status,
+      401,
+    );
+  }
 
   // The half OpenProject's own form cannot do.
   const placed = (await (
@@ -4678,6 +4721,7 @@ async function main() {
         firstName: 'Duplicate',
         lastName: 'Login',
         email: `dupe.${accountStamp}@example.net`,
+        password: ACCOUNT_PASSWORD,
       },
     }) >= 400,
     true,
@@ -4712,11 +4756,6 @@ async function main() {
   );
 
   // --- the lifecycle, which is lock rather than delete ---
-  check(
-    'an invited person cannot be deactivated',
-    await status(`/accounts/${createdAccountId}/lock`, { method: 'POST', cookie: admin }),
-    403,
-  );
   check(
     'someone who is not deactivated cannot be reactivated',
     await status(`/accounts/${createdAccountId}/lock`, { method: 'DELETE', cookie: admin }),
@@ -4772,7 +4811,16 @@ async function main() {
         method,
         cookie: restricted,
         ...(method === 'POST' || method === 'PATCH'
-          ? { body: { login: 'nope', firstName: 'N', lastName: 'O', email: 'n@o.co', admin: true } }
+          ? {
+              body: {
+                login: 'nope',
+                firstName: 'N',
+                lastName: 'O',
+                email: 'n@o.co',
+                password: ACCOUNT_PASSWORD,
+                admin: true,
+              },
+            }
           : {}),
       }),
       403,

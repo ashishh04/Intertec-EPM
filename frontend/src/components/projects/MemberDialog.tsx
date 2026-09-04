@@ -130,8 +130,8 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
           <DialogTitle>{isEdit ? 'Change role' : 'Add a member'}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Their role on this project. This changes their access in OpenProject.'
-              : 'Grants access to this project in OpenProject, and OpenProject emails them.'}
+              ? 'Their role on this project, and what they can do in it.'
+              : 'Gives this person access to the project.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -185,7 +185,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
               </SelectContent>
             </Select>
             <p className="text-2xs text-muted-foreground">
-              Roles are OpenProject's, and decide what this person can do here.
+              The role decides what this person can do in this project.
             </p>
           </div>
 

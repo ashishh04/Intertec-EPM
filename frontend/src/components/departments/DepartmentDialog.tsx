@@ -106,7 +106,7 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
           <DialogHeader>
             <DialogTitle>{isEdit ? 'Edit department' : 'New department'}</DialogTitle>
             <DialogDescription>
-              Departments are defined in EPM. They are not sent to OpenProject.
+              Departments exist only in EPM. Nothing about them leaves it.
             </DialogDescription>
           </DialogHeader>
 

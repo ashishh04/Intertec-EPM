@@ -120,8 +120,8 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
           <DialogHeader>
             <DialogTitle>Change portfolio</DialogTitle>
             <DialogDescription>
-              Which portfolio {project.name} belongs to. The project itself stays in
-              OpenProject.
+              Which portfolio {project.name} belongs to. The portfolio is an EPM grouping;
+              the project itself is unchanged.
             </DialogDescription>
           </DialogHeader>
 

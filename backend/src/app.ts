@@ -26,10 +26,20 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
-      // The Authorization header carries the OpenProject key on the way out and
-      // the session cookie on the way in. Neither belongs in a log line.
+      // The Authorization header carries the upstream key on the way out and
+      // the session cookie on the way in. Neither belongs in a log line, and
+      // nor does a starting password on the way to creating an account —
+      // Fastify does not log bodies by default, but this survives anyone
+      // deciding it should.
       redact: {
-        paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'res.headers["set-cookie"]',
+          'req.body.password',
+          'body.password',
+          'password',
+        ],
         censor: '[redacted]',
       },
       ...(isProduction ? {} : { transport: { target: 'pino-pretty' } }),

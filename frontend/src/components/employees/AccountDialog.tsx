@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -28,19 +29,51 @@ import type { EpmAccount } from '@/types';
 /**
  * Add a person, or edit their account details.
  *
- * Creating covers both systems: the account is made in OpenProject and the
- * department, team and capacity are written in EPM. That pairing is the point
- * — OpenProject's own form cannot ask for the last three, because it has no
- * such concepts.
+ * Creating does two things at once: it makes the sign-in account and records
+ * where the person sits in the organisation. The second half is the reason
+ * this exists here at all.
  *
  * Editing covers the account only. Department, team and capacity already have
  * their own dialogs on this page, and duplicating them here would give two
  * places to change one thing.
  *
- * No password field, in either mode. A new account is created as *invited*, so
- * OpenProject mails the person and they set their own credentials — EPM never
- * sees, stores or transmits one.
+ * A starting password is required rather than an emailed invitation, because
+ * this deployment has no mail transport: an invited account would have no
+ * password and no way to receive one, so nobody created that way could ever
+ * sign in. The password is shown once for the administrator to hand over, sent
+ * once, and never stored on either side.
  */
+
+/**
+ * A password that satisfies the usual rules without the administrator having
+ * to think of one. Uses `crypto.getRandomValues`, not `Math.random`, because
+ * this is a credential and not a placeholder.
+ */
+function suggestPassword(): string {
+  const groups = [
+    'ABCDEFGHJKLMNPQRSTUVWXYZ',
+    'abcdefghijkmnopqrstuvwxyz',
+    '23456789',
+    '!@#$%^&*?',
+  ];
+  const all = groups.join('');
+  const bytes = new Uint32Array(16);
+  crypto.getRandomValues(bytes);
+
+  // One from each group first, so every rule is met however the rest fall.
+  const picked = groups.map((group, index) => group[bytes[index]! % group.length]!);
+  for (let index = groups.length; index < bytes.length; index += 1) {
+    picked.push(all[bytes[index]! % all.length]!);
+  }
+
+  // Shuffled, so the guaranteed characters are not always in the same places.
+  for (let index = picked.length - 1; index > 0; index -= 1) {
+    const swap = bytes[index]! % (index + 1);
+    [picked[index], picked[swap]] = [picked[swap]!, picked[index]!];
+  }
+
+  return picked.join('');
+}
 
 const NONE = '__none__';
 
@@ -64,6 +97,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   const [email, setEmail] = useState('');
   const [login, setLogin] = useState('');
   const [admin, setAdmin] = useState(false);
+  const [password, setPassword] = useState('');
   const [departmentId, setDepartmentId] = useState(NONE);
   const [teamId, setTeamId] = useState(NONE);
   const [capacity, setCapacity] = useState('40');
@@ -79,6 +113,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     setEmail(account?.email ?? '');
     setLogin(account?.login ?? '');
     setAdmin(account?.admin ?? false);
+    setPassword(isEdit ? '' : suggestPassword());
     setDepartmentId(NONE);
     setTeamId(NONE);
     setCapacity('40');
@@ -133,6 +168,11 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
       return;
     }
 
+    if (!password) {
+      setProblem('A starting password is required.');
+      return;
+    }
+
     const hours = Number(capacity);
     if (!Number.isFinite(hours) || hours < 0) {
       setProblem('Capacity must be a number of hours.');
@@ -145,6 +185,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
+        password,
         admin,
         departmentId: departmentId === NONE ? undefined : departmentId,
         teamId: teamId === NONE ? undefined : teamId,
@@ -159,8 +200,8 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
               description: created.placementProblems.join(' '),
             });
           } else {
-            toast.success(`${created.name} was invited`, {
-              description: 'They will receive an email to set their password.',
+            toast.success(`${created.name} can now sign in`, {
+              description: 'Give them the username and password you set.',
             });
           }
           onOpenChange(false);
@@ -177,8 +218,8 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
           <DialogTitle>{isEdit ? 'Edit person' : 'Add a person'}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Their account details in OpenProject.'
-              : 'Creates the account in OpenProject and places them in your organisation.'}
+              ? 'Their account details.'
+              : 'Creates a sign-in account and places them in your organisation.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -227,11 +268,41 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             </div>
           )}
 
+          {isEdit ? null : (
+            <div className="space-y-1.5">
+              <Label htmlFor="account-password">Starting password</Label>
+              <div className="flex gap-2">
+                {/* Shown, not masked: the administrator has to read it out to
+                    hand it over, and hiding it from the person typing it
+                    protects nobody. */}
+                <Input
+                  id="account-password"
+                  value={password}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="font-mono"
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setPassword(suggestPassword())}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  New
+                </Button>
+              </div>
+              <p className="text-2xs text-muted-foreground">
+                Give this to them along with the username. They can change it once signed in.
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center justify-between rounded-lg border border-border p-3">
             <div className="min-w-0 pr-3">
               <p className="text-xs font-medium">Instance administrator</p>
               <p className="text-2xs text-muted-foreground">
-                Full access in OpenProject. Unrelated to permissions in EPM.
+                Full access to every project and setting. Unrelated to EPM permissions.
               </p>
             </div>
             <Switch checked={admin} onCheckedChange={setAdmin} aria-label="Instance administrator" />
@@ -307,7 +378,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             Cancel
           </Button>
           <Button onClick={submit} disabled={pending}>
-            {isEdit ? 'Save' : 'Create and invite'}
+            {isEdit ? 'Save' : 'Create person'}
           </Button>
         </DialogFooter>
       </DialogContent>

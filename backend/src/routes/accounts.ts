@@ -62,23 +62,26 @@ function requireAffordance(
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
-/** Rejects a payload OpenProject would reject anyway, with a clearer message. */
+/** Rejects a payload upstream would reject anyway, with a clearer message. */
 function requireCreateFields(body: Record<string, unknown>): {
   login: string;
   firstName: string;
   lastName: string;
   email: string;
+  password: string;
 } {
   const login = text(body.login);
   const firstName = text(body.firstName);
   const lastName = text(body.lastName);
   const email = text(body.email);
+  const password = typeof body.password === 'string' ? body.password : '';
 
   const missing = [
     ['a username', login],
     ['a first name', firstName],
     ['a last name', lastName],
     ['an email address', email],
+    ['a starting password', password],
   ]
     .filter(([, value]) => !value)
     .map(([label]) => label as string);
@@ -91,7 +94,7 @@ function requireCreateFields(body: Record<string, unknown>): {
   // the one worth showing. This only catches the obviously wrong.
   if (!email.includes('@')) throw EpmError.badRequest('That email address is not valid.');
 
-  return { login, firstName, lastName, email };
+  return { login, firstName, lastName, email, password };
 }
 
 export const accountRoutes: FastifyPluginAsync = async (app) => {
@@ -122,9 +125,18 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
   /**
    * Creates a person, and optionally places them in the organisation.
    *
-   * `status: invited` deliberately: it is what OpenProject's own form does, it
-   * needs no password, and it puts the account in the state where the person
-   * sets their own credentials. EPM never handles a password.
+   * The account is created **active with a starting password**, so the person
+   * can sign in the moment they are told it.
+   *
+   * An earlier version created them as `invited`, which is what the upstream
+   * admin form does and needs no password — but that relies on an invitation
+   * email, and this deployment has no mail transport configured. Every account
+   * made that way was unreachable: no password, no mail, no way in. A working
+   * account the administrator can hand over beats a tidier flow that produces
+   * nobody who can log in.
+   *
+   * The password is validated upstream against the instance's own rules, is
+   * never stored by EPM, never logged, and never echoed back in the response.
    */
   app.post<{ Params: never; Body: Record<string, unknown> }>(
     '/accounts',
@@ -132,7 +144,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       await guard.require(request, 'users:manage');
 
       const body = request.body ?? {};
-      const { login, firstName, lastName, email } = requireCreateFields(body);
+      const { login, firstName, lastName, email, password } = requireCreateFields(body);
       const signal = requestSignal(request);
 
       const created = await openProject.request<OpPrincipal>('/users', {
@@ -142,7 +154,8 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
           firstName,
           lastName,
           email,
-          status: 'invited',
+          status: 'active',
+          password,
           ...(text(body.language) ? { language: text(body.language) } : {}),
           ...(typeof body.admin === 'boolean' ? { admin: body.admin } : {}),
         },

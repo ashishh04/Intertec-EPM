@@ -222,7 +222,7 @@ export default function ProjectTeamTab() {
             <DialogTitle>Remove from project</DialogTitle>
             <DialogDescription>
               {users.get(removing?.userId ?? '')?.name ?? 'This person'} loses access to{' '}
-              {project.name} in OpenProject. You can add them back afterwards.
+              {project.name}. You can add them back afterwards.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

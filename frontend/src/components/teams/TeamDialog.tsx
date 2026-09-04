@@ -119,7 +119,7 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
           <DialogHeader>
             <DialogTitle>{isEdit ? 'Edit team' : 'New team'}</DialogTitle>
             <DialogDescription>
-              Teams are defined in EPM. They are not sent to OpenProject.
+              Teams exist only in EPM. Nothing about them leaves it.
             </DialogDescription>
           </DialogHeader>
 

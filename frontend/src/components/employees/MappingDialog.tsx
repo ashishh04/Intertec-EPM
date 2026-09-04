@@ -117,7 +117,7 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
         <DialogHeader>
           <DialogTitle>Assign {employee?.name}</DialogTitle>
           <DialogDescription>
-            Where this person sits in EPM. Their name and account stay with OpenProject.
+            Where this person sits in EPM. Their name and account are managed centrally.
           </DialogDescription>
         </DialogHeader>
 
