@@ -6,6 +6,7 @@ import {
   createDepartment,
   getDepartment,
   listDepartments,
+  deleteDepartment,
   setDepartmentActive,
   updateDepartment,
   type DepartmentInput,
@@ -67,5 +68,19 @@ export const departmentRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'departments:manage');
 
     return setDepartmentActive(request.params.id, true, requestSignal(request));
+  });
+
+  /**
+   * Deletes a department for good.
+   *
+   * Archiving is still the ordinary lifecycle; this is for one created by
+   * mistake. Refused while anything references it, rather than detaching people
+   * or teams to make it succeed.
+   */
+  app.delete<{ Params: { id: string } }>('/departments/:id', async (request, reply) => {
+    await guard.require(request, 'departments:manage');
+
+    await deleteDepartment(request.params.id);
+    reply.code(204);
   });
 };

@@ -8,7 +8,8 @@ import type { ID } from '@/types';
  * OpenProject. The one exception is `manager.name`, which the backend resolves
  * from the user directory at read time; only the id is stored.
  *
- * There is no remove method. Departments are deactivated, not deleted, because
+ * Archiving is the ordinary lifecycle. `remove` deletes outright and is refused
+ * while anything still references the record, because
  * teams and employee mappings will reference them.
  */
 
@@ -54,6 +55,14 @@ export class ApiDepartmentRepository {
 
   update(id: ID, input: Partial<DepartmentInput>): Promise<EpmDepartment> {
     return apiClient.patch<EpmDepartment>(`/departments/${id}`, input);
+  }
+
+  /**
+   * Deletes outright. Refused while anything still references the department,
+   * because detaching people to make a delete succeed loses real data.
+   */
+  remove(id: ID): Promise<void> {
+    return apiClient.delete<void>(`/departments/${id}`);
   }
 
   archive(id: ID): Promise<EpmDepartment> {

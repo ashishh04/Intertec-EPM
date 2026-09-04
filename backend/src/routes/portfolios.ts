@@ -6,6 +6,7 @@ import {
   createPortfolio,
   getPortfolio,
   listPortfolios,
+  deletePortfolio,
   setPortfolioActive,
   updatePortfolio,
   type PortfolioInput,
@@ -98,5 +99,13 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'portfolios:manage');
 
     return setPortfolioActive(request.params.id, true, await factsFor(request));
+  });
+
+  /** Deletes a portfolio for good. Refused while any project is still in it. */
+  app.delete<{ Params: { id: string } }>('/portfolios/:id', async (request, reply) => {
+    await guard.require(request, 'portfolios:manage');
+
+    await deletePortfolio(request.params.id);
+    reply.code(204);
   });
 };

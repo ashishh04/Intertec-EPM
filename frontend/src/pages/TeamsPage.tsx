@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Archive, Building2, Pencil, Plus, RotateCcw, Users } from 'lucide-react';
+import { Archive, Building2, Pencil, Plus, RotateCcw, Trash2, Users } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -10,6 +10,14 @@ import { TeamDialog } from '@/components/teams/TeamDialog';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card } from '@/components/ui/card';
 import {
   Select,
@@ -21,7 +29,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { useDepartments } from '@/hooks/useDepartments';
-import { useSetTeamActive, useTeams } from '@/hooks/useTeams';
+import { useDeleteTeam, useSetTeamActive, useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmTeam } from '@/services/api/teams';
@@ -65,6 +73,26 @@ export default function TeamsPage() {
   const openEdit = (team: EpmTeam) => {
     setEditing(team);
     setDialogOpen(true);
+  };
+
+  const [removing, setRemoving] = useState<EpmTeam>();
+  const deleteTeam = useDeleteTeam();
+
+  const confirmRemove = () => {
+    if (!removing) return;
+    const name = removing.name;
+
+    deleteTeam.mutate(removing.id, {
+      onSuccess: () => {
+        toast.success(`${name} deleted`);
+        setRemoving(undefined);
+      },
+      // The refusal names who is still on the team, so it is shown as-is.
+      onError: (error) =>
+        toast.error('That could not be deleted', {
+          description: error instanceof Error ? error.message : undefined,
+        }),
+    });
   };
 
   const toggleActive = (team: EpmTeam) => {
@@ -237,6 +265,17 @@ export default function TeamsPage() {
                         <RotateCcw className="h-3.5 w-3.5" aria-hidden />
                       )}
                     </button>
+
+                    {/* For a team created by mistake. Archiving keeps it; the
+                        backend refuses this while anyone is still on it. */}
+                    <button
+                      type="button"
+                      aria-label={`Delete ${team.name}`}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setRemoving(team)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
                   </div>
                 ) : null}
               </Card>
@@ -244,6 +283,30 @@ export default function TeamsPage() {
           ))}
         </ul>
       </QueryBoundary>
+
+      <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogDescription>
+              This removes the team from EPM permanently. Archiving keeps it and can be undone;
+              deleting cannot. It is refused if anyone is still on the team.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setRemoving(undefined)}
+              disabled={deleteTeam.isPending}
+            >
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmRemove} disabled={deleteTeam.isPending}>
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <TeamDialog
         open={dialogOpen}

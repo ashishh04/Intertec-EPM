@@ -60,6 +60,19 @@ export function useUpdateDepartment() {
 }
 
 /** Deactivate or reactivate. There is no delete — see the repository. */
+/**
+ * Deletes a department outright. The backend refuses while anything still
+ * references it, and that refusal names what is in the way.
+ */
+export function useDeleteDepartment() {
+  const settle = useDepartmentInvalidation();
+
+  return useMutation({
+    mutationFn: (id: ID) => departmentService.remove(id),
+    onSuccess: () => void settle(),
+  });
+}
+
 export function useSetDepartmentActive() {
   const settle = useDepartmentInvalidation();
 

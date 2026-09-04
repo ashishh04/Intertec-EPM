@@ -363,3 +363,26 @@ export async function setProjectPortfolio(
 
   return requested;
 }
+
+/**
+ * Deletes a portfolio outright.
+ *
+ * Same shape as departments and teams: archiving is the ordinary lifecycle,
+ * this is for one created by mistake, and it refuses rather than quietly
+ * unlinking the projects in it.
+ */
+export async function deletePortfolio(id: string): Promise<void> {
+  const existing = await prisma.portfolio.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) throw EpmError.notFound('That portfolio');
+
+  const projects = await prisma.projectProfile.count({ where: { portfolioId: id } });
+
+  if (projects > 0) {
+    throw EpmError.badRequest(
+      `That portfolio still has ${projects} ${projects === 1 ? 'project' : 'projects'} in it. ` +
+        `Move them first, or archive the portfolio instead of deleting it.`,
+    );
+  }
+
+  await prisma.portfolio.delete({ where: { id } });
+}

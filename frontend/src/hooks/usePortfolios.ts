@@ -72,6 +72,16 @@ export function useUpdatePortfolio() {
 }
 
 /** Deactivate or reactivate. There is no delete — see the repository. */
+/** Deletes a portfolio. The backend refuses while projects are still in it. */
+export function useDeletePortfolio() {
+  const settle = usePortfolioInvalidation();
+
+  return useMutation({
+    mutationFn: (id: ID) => portfolioService.remove(id),
+    onSuccess: () => void settle(),
+  });
+}
+
 export function useSetPortfolioActive() {
   const settle = usePortfolioInvalidation();
 

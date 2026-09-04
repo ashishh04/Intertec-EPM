@@ -326,3 +326,26 @@ export async function setTeamActive(
 
   return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
+
+/**
+ * Deletes a team outright.
+ *
+ * Same reasoning as a department: archiving is the ordinary lifecycle, this is
+ * for something that should not exist, and it refuses rather than detaching
+ * people to make itself succeed.
+ */
+export async function deleteTeam(id: string): Promise<void> {
+  const existing = await prisma.team.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) throw EpmError.notFound('That team');
+
+  const people = await prisma.userProfile.count({ where: { teamId: id } });
+
+  if (people > 0) {
+    throw EpmError.badRequest(
+      `That team still has ${people} ${people === 1 ? 'person' : 'people'} on it. Move them ` +
+        `first, or archive the team instead of deleting it.`,
+    );
+  }
+
+  await prisma.team.delete({ where: { id } });
+}

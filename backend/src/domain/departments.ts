@@ -283,3 +283,39 @@ export async function setDepartmentActive(
 
   return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
+
+/**
+ * Deletes a department outright.
+ *
+ * Archiving remains the ordinary lifecycle — it keeps the record and can be
+ * undone. This is for a department that should never have existed, and it
+ * refuses rather than cascading: the foreign keys are `RESTRICT`, and silently
+ * detaching people or teams to make a delete succeed would lose organisational
+ * data nobody asked to lose.
+ *
+ * The refusal names what is in the way and how many, because "cannot delete"
+ * without that is a dead end.
+ */
+export async function deleteDepartment(id: string): Promise<void> {
+  const existing = await prisma.department.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) throw EpmError.notFound('That department');
+
+  const [teams, people] = await Promise.all([
+    prisma.team.count({ where: { departmentId: id } }),
+    prisma.userProfile.count({ where: { departmentId: id } }),
+  ]);
+
+  const blocking = [
+    teams > 0 ? `${teams} ${teams === 1 ? 'team' : 'teams'}` : '',
+    people > 0 ? `${people} ${people === 1 ? 'person' : 'people'}` : '',
+  ].filter(Boolean);
+
+  if (blocking.length > 0) {
+    throw EpmError.badRequest(
+      `That department still has ${blocking.join(' and ')} in it. Move them first, or archive ` +
+        `the department instead of deleting it.`,
+    );
+  }
+
+  await prisma.department.delete({ where: { id } });
+}

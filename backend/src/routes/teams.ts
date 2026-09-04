@@ -12,6 +12,7 @@ import {
   createTeam,
   getTeam,
   listTeams,
+  deleteTeam,
   setTeamActive,
   updateTeam,
   type TeamInput,
@@ -198,5 +199,18 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'teams:manage');
 
     return setTeamActive(request.params.id, true, requestSignal(request));
+  });
+
+  /**
+   * Deletes a team for good.
+   *
+   * Archiving is still the ordinary lifecycle; this is for one created by
+   * mistake. Refused while anyone is still on it.
+   */
+  app.delete<{ Params: { id: string } }>('/teams/:id', async (request, reply) => {
+    await guard.require(request, 'teams:manage');
+
+    await deleteTeam(request.params.id);
+    reply.code(204);
   });
 };

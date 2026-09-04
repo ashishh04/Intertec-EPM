@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Archive, Briefcase, Pencil, Plus, RotateCcw, Users } from 'lucide-react';
+import { Archive, Briefcase, Pencil, Plus, RotateCcw, Trash2, Users } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -8,11 +8,19 @@ import { PortfolioDialog } from '@/components/portfolios/PortfolioDialog';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card } from '@/components/ui/card';
 import { HealthIndicator } from '@/components/common/StatusBadge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import { usePortfolios, useSetPortfolioActive } from '@/hooks/usePortfolios';
+import { useDeletePortfolio, usePortfolios, useSetPortfolioActive } from '@/hooks/usePortfolios';
 import { useAuth } from '@/providers/AuthProvider';
 import { pluralize } from '@/lib/utils';
 import type { EpmPortfolio } from '@/services/api/portfolios';
@@ -48,6 +56,25 @@ export default function PortfoliosPage() {
   const openEdit = (portfolio: EpmPortfolio) => {
     setEditing(portfolio);
     setDialogOpen(true);
+  };
+
+  const [removing, setRemoving] = useState<EpmPortfolio>();
+  const deletePortfolio = useDeletePortfolio();
+
+  const confirmRemove = () => {
+    if (!removing) return;
+    const name = removing.name;
+
+    deletePortfolio.mutate(removing.id, {
+      onSuccess: () => {
+        toast.success(`${name} deleted`);
+        setRemoving(undefined);
+      },
+      onError: (error) =>
+        toast.error('That could not be deleted', {
+          description: error instanceof Error ? error.message : undefined,
+        }),
+    });
   };
 
   const toggleActive = (portfolio: EpmPortfolio) => {
@@ -196,6 +223,17 @@ export default function PortfoliosPage() {
                         <RotateCcw className="h-3.5 w-3.5" aria-hidden />
                       )}
                     </button>
+
+                    {/* For a portfolio created by mistake. The backend refuses
+                        this while any project is still in it. */}
+                    <button
+                      type="button"
+                      aria-label={`Delete ${portfolio.name}`}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setRemoving(portfolio)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
                   </div>
                 ) : null}
               </Card>
@@ -213,6 +251,30 @@ export default function PortfoliosPage() {
       </QueryBoundary>
 
       <PortfolioDialog open={dialogOpen} onOpenChange={setDialogOpen} portfolio={editing} />
+
+      <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogDescription>
+              This removes the portfolio from EPM permanently. Archiving keeps it and can be
+              undone; deleting cannot. It is refused if any project is still in it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setRemoving(undefined)}
+              disabled={deletePortfolio.isPending}
+            >
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmRemove} disabled={deletePortfolio.isPending}>
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

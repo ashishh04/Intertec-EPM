@@ -62,6 +62,19 @@ export function useUpdateTeam() {
 }
 
 /** Deactivate or reactivate. There is no delete — see the repository. */
+/**
+ * Deletes a team outright. The backend refuses while anything still
+ * references it, and that refusal names what is in the way.
+ */
+export function useDeleteTeam() {
+  const settle = useTeamInvalidation();
+
+  return useMutation({
+    mutationFn: (id: ID) => teamService.remove(id),
+    onSuccess: () => void settle(),
+  });
+}
+
 export function useSetTeamActive() {
   const settle = useTeamInvalidation();
 

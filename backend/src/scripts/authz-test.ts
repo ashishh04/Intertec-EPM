@@ -2113,13 +2113,8 @@ async function main() {
     true,
   );
 
-  // Deletion is deliberately absent: teams and employee mappings will reference
-  // departments, so removing one would orphan them.
-  check(
-    'there is no route for deleting a department',
-    await status(`/departments/${deptId}`, { method: 'DELETE', cookie: admin }),
-    404,
-  );
+  // Deleting exists now, and is refused while anything still references the
+  // department — asserted below, once a team has been put in it.
 
   check('an unknown department is not found', await status('/departments/no-such-id', { cookie: admin }), 404);
   check(
@@ -2131,6 +2126,17 @@ async function main() {
     'an unknown department cannot be archived',
     await status('/departments/no-such-id/archive', { method: 'PATCH', cookie: admin }),
     404,
+  );
+
+  check(
+    'an unknown department cannot be deleted',
+    await status('/departments/no-such-id', { method: 'DELETE', cookie: admin }),
+    404,
+  );
+  check(
+    'a caller without the grant cannot delete a department',
+    await status(`/departments/${deptId}`, { method: 'DELETE', cookie: restricted }),
+    403,
   );
 
   // The id is EPM's own, and no OpenProject reference should ride along.
@@ -2429,11 +2435,6 @@ async function main() {
   const restoredTeam = await call(`/teams/${teamId}/restore`, { method: 'PATCH', cookie: admin });
   check('an archived team can be restored', ((await restoredTeam.json()) as TestTeam).active, true);
 
-  check(
-    'there is no route for deleting a team',
-    await status(`/teams/${teamId}`, { method: 'DELETE', cookie: admin }),
-    404,
-  );
   check('an unknown team is not found', await status('/teams/no-such-id', { cookie: admin }), 404);
   check(
     'an unknown team cannot be updated',
@@ -2445,6 +2446,36 @@ async function main() {
     await status('/teams/no-such-id/archive', { method: 'PATCH', cookie: admin }),
     404,
   );
+
+  check(
+    'an unknown team cannot be deleted',
+    await status('/teams/no-such-id', { method: 'DELETE', cookie: admin }),
+    404,
+  );
+  check(
+    'a caller without the grant cannot delete a team',
+    await status(`/teams/${teamId}`, { method: 'DELETE', cookie: restricted }),
+    403,
+  );
+
+  // Deleting is refused while anything still points at the department: the
+  // foreign keys are RESTRICT, and detaching people or teams to make a delete
+  // succeed would lose organisational data nobody asked to lose.
+  {
+    const blocked = await call(`/departments/${deptId}`, { method: 'DELETE', cookie: admin });
+    check('a department with a team in it cannot be deleted', blocked.status, 400);
+    const problem = (await blocked.json()) as { message?: string };
+    check(
+      'and the refusal says what is in the way',
+      (problem.message ?? '').includes('team'),
+      true,
+    );
+    check(
+      'the department is still there afterwards',
+      (await status(`/departments/${deptId}`, { cookie: admin })) === 200,
+      true,
+    );
+  }
 
   // The workload endpoint shares the /teams prefix but is about people. It must
   // not be captured by the :id route, and must survive teams changing shape.
@@ -3550,15 +3581,21 @@ async function main() {
   check('an archived portfolio can be restored', ((await restoredPortfolio.json()) as TestPortfolio).active, true);
 
   check(
-    'there is no route for deleting a portfolio',
-    await status(`/portfolios/${portfolioId}`, { method: 'DELETE', cookie: admin }),
-    404,
-  );
-  check(
     'an unknown portfolio cannot be updated',
     await status('/portfolios/no-such-id', { method: 'PATCH', cookie: admin, body: { name: 'X' } }),
     404,
   );
+  check(
+    'an unknown portfolio cannot be deleted',
+    await status('/portfolios/no-such-id', { method: 'DELETE', cookie: admin }),
+    404,
+  );
+  check(
+    'a caller without the grant cannot delete a portfolio',
+    await status(`/portfolios/${portfolioId}`, { method: 'DELETE', cookie: restricted }),
+    403,
+  );
+
   check(
     'an unknown portfolio cannot be archived',
     await status('/portfolios/no-such-id/archive', { method: 'PATCH', cookie: admin }),

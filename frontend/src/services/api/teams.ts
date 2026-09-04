@@ -7,7 +7,8 @@ import type { ID, TeamMemberWorkload } from '@/types';
  * Nothing behind these endpoints comes from OpenProject except the two resolved
  * display names: `department.name` and `lead.name`. Only ids are stored.
  *
- * There is no remove method. Teams are archived, not deleted, as departments
+ * Archiving is the ordinary lifecycle. `remove` deletes outright and is refused
+ * while anyone is still on the team, as departments
  * and projects are.
  *
  * `getWorkloads` is about people rather than teams despite the path, and is
@@ -67,6 +68,14 @@ export class ApiTeamRepository {
 
   update(id: ID, input: Partial<TeamInput>): Promise<EpmTeam> {
     return apiClient.patch<EpmTeam>(`/teams/${id}`, input);
+  }
+
+  /**
+   * Deletes outright. Refused while anything still references the team,
+   * because detaching people to make a delete succeed loses real data.
+   */
+  remove(id: ID): Promise<void> {
+    return apiClient.delete<void>(`/teams/${id}`);
   }
 
   archive(id: ID): Promise<EpmTeam> {

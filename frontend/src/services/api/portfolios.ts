@@ -62,6 +62,11 @@ export class ApiPortfolioRepository {
     return apiClient.patch<EpmPortfolio>(`/portfolios/${id}`, input);
   }
 
+  /** Deletes outright. Refused while any project is still in the portfolio. */
+  remove(id: ID): Promise<void> {
+    return apiClient.delete<void>(`/portfolios/${id}`);
+  }
+
   archive(id: ID): Promise<EpmPortfolio> {
     return apiClient.patch<EpmPortfolio>(`/portfolios/${id}/archive`);
   }

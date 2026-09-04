@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Archive, Building2, Pencil, Plus, RotateCcw, Users } from 'lucide-react';
+import { Archive, Building2, Pencil, Plus, RotateCcw, Trash2, Users } from 'lucide-react';
 
 import { DepartmentDialog } from '@/components/departments/DepartmentDialog';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -9,10 +9,18 @@ import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
-import { useDepartments, useSetDepartmentActive } from '@/hooks/useDepartments';
+import { useDeleteDepartment, useDepartments, useSetDepartmentActive } from '@/hooks/useDepartments';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmDepartment } from '@/services/api/departments';
@@ -49,6 +57,27 @@ export default function DepartmentsPage() {
   const openEdit = (department: EpmDepartment) => {
     setEditing(department);
     setDialogOpen(true);
+  };
+
+  const [removing, setRemoving] = useState<EpmDepartment>();
+  const deleteDepartment = useDeleteDepartment();
+
+  const confirmRemove = () => {
+    if (!removing) return;
+    const name = removing.name;
+
+    deleteDepartment.mutate(removing.id, {
+      onSuccess: () => {
+        toast.success(`${name} deleted`);
+        setRemoving(undefined);
+      },
+      // The message names what is still in the department, so it is shown
+      // rather than replaced with something generic.
+      onError: (error) =>
+        toast.error('That could not be deleted', {
+          description: error instanceof Error ? error.message : undefined,
+        }),
+    });
   };
 
   const toggleActive = (department: EpmDepartment) => {
@@ -193,6 +222,19 @@ export default function DepartmentsPage() {
                         <RotateCcw className="h-3.5 w-3.5" aria-hidden />
                       )}
                     </button>
+
+                    {/* Deleting is for a department created by mistake;
+                        archiving is the ordinary lifecycle and keeps the
+                        record. The backend refuses while anything still
+                        references it, and says what. */}
+                    <button
+                      type="button"
+                      aria-label={`Delete ${department.name}`}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => setRemoving(department)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    </button>
                   </div>
                 ) : null}
               </Card>
@@ -202,6 +244,37 @@ export default function DepartmentsPage() {
       </QueryBoundary>
 
       <DepartmentDialog open={dialogOpen} onOpenChange={setDialogOpen} department={editing} />
+
+      <Dialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => !open && setRemoving(undefined)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogDescription>
+              This removes the department from EPM permanently. Archiving keeps it and can be
+              undone; deleting cannot. It is refused if any team or person is still in it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setRemoving(undefined)}
+              disabled={deleteDepartment.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={confirmRemove}
+              disabled={deleteDepartment.isPending}
+            >
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
