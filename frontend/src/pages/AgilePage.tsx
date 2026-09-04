@@ -26,10 +26,19 @@ import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
-import { daysFromToday, formatShortDate } from '@/lib/utils';
+import { daysFromToday, formatShortDate, pluralize } from '@/lib/utils';
 import type { ID, TaskStatusCategory } from '@/types';
 
 /** Agile workspace: the sprint, its burndown and its board in one place. */
+/**
+ * How many of a sprint's work packages load at once.
+ *
+ * A sprint board is not a paged list — moving a card between columns needs the
+ * whole set — so this loads in one go and grows on request. A sprint rarely
+ * holds more than this; the notice below exists for when one does.
+ */
+const SPRINT_PAGE_SIZE = 200;
+
 export default function AgilePage() {
   const { openTaskDrawer } = useUI();
   const sprintsQuery = useSprints();
@@ -49,8 +58,14 @@ export default function AgilePage() {
 
   const sprint = index !== null ? sprints[index] : undefined;
 
-  const tasksQuery = useTasks({ sprintId: sprint?.id, pageSize: 200 });
+  // Same reasoning as the board on Boards: a sprint board is not a paged list,
+  // so it loads in one go and grows on request. What it must not do is show a
+  // subset silently — the column counts are computed from what was fetched.
+  const [pageSize, setPageSize] = useState(SPRINT_PAGE_SIZE);
+  const tasksQuery = useTasks({ sprintId: sprint?.id, pageSize });
   const tasks = tasksQuery.data?.items ?? [];
+  const total = tasksQuery.data?.total ?? tasks.length;
+  const hidden = Math.max(0, total - tasks.length);
 
   const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
@@ -263,13 +278,37 @@ export default function AgilePage() {
             </Card>
           }
         >
-          <KanbanBoard
-            tasks={tasks}
-            users={users}
-            onStatusChange={handleStatusChange}
-            onCreate={(status) => openTaskDrawer({ status, sprintId: sprint.id })}
-            columns={['todo', 'in_progress', 'review', 'done']}
-          />
+          <div className="space-y-3">
+            <KanbanBoard
+              tasks={tasks}
+              users={users}
+              onStatusChange={handleStatusChange}
+              onCreate={(status) => openTaskDrawer({ status, sprintId: sprint.id })}
+              columns={['todo', 'in_progress', 'review', 'done']}
+            />
+
+            {/* Only when the board is showing a subset. A sprint rarely holds
+                more than this, so the normal case is silence. */}
+            {hidden > 0 ? (
+              <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <p className="text-2xs text-muted-foreground">
+                  Showing <span className="font-medium text-foreground">{tasks.length}</span> of{' '}
+                  <span className="font-medium text-foreground">{total}</span>{' '}
+                  {pluralize(total, 'task')}. The column counts cover what is loaded.
+                </p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={tasksQuery.isFetching}
+                  onClick={() => setPageSize((size) => size + SPRINT_PAGE_SIZE)}
+                >
+                  {tasksQuery.isFetching
+                    ? 'Loading…'
+                    : `Load ${Math.min(hidden, SPRINT_PAGE_SIZE)} more`}
+                </Button>
+              </Card>
+            ) : null}
+          </div>
         </QueryBoundary>
       </section>
     </div>
