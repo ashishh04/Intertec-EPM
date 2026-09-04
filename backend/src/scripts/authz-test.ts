@@ -1487,6 +1487,23 @@ async function main() {
     403,
   );
 
+  // A run that aborts between creating this relation and deleting it leaves it
+  // behind, and upstream refuses a duplicate with 422 — so every later run
+  // failed here until the leftover was removed by hand. Clearing first makes
+  // the section idempotent instead of depending on the previous run finishing.
+  {
+    const existing = (await (
+      await call(`/work-packages/${target}/relations`, { cookie: admin })
+    ).json()) as { id: string; related?: { id?: string } }[];
+
+    for (const relation of Array.isArray(existing) ? existing : []) {
+      if (relation.related?.id !== other) continue;
+      await call(`/relations/${relation.id}`, { method: 'DELETE', cookie: admin }).catch(
+        () => undefined,
+      );
+    }
+  }
+
   const createResponse = await call(`/work-packages/${target}/relations`, {
     method: 'POST',
     cookie: admin,
@@ -5132,10 +5149,22 @@ async function main() {
 
   // --- Cleanup -------------------------------------------------------------
   if (createdId) {
-    await call(`/projects/${createdId}/archive`, { method: 'PATCH', cookie: admin }).catch(
+    // Deleted, not archived. Archiving was the only option when this was
+    // written; it meant every run left a project behind, and the instance
+    // accumulated dozens of them. Falls back to archiving if the instance does
+    // not permit deletion, which is the setting's default.
+    const removed = await call(`/projects/${createdId}`, { method: 'DELETE', cookie: admin }).catch(
       () => undefined,
     );
-    console.log(`\n  (archived test project ${createdId})`);
+
+    if (removed && (removed.status === 204 || removed.status === 202)) {
+      console.log(`\n  (deleted test project ${createdId})`);
+    } else {
+      await call(`/projects/${createdId}/archive`, { method: 'PATCH', cookie: admin }).catch(
+        () => undefined,
+      );
+      console.log(`\n  (archived test project ${createdId}; deletion is off on this instance)`);
+    }
   }
 
   // Departments have no delete route by design, so the rows these tests

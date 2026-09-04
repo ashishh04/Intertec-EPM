@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Mail, Pencil, UserMinus, UserPlus } from 'lucide-react';
+import { Crown, Mail, Pencil, UserMinus, UserPlus } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ import { MemberDialog } from '@/components/projects/MemberDialog';
 import { WorkloadList, WorkloadListSkeleton } from '@/components/teams/WorkloadList';
 import { useProject } from '@/hooks/useProjects';
 import { useProjectMembers, useRemoveProjectMember } from '@/hooks/useMembers';
+import { useSetProjectOwner } from '@/hooks/useProjects';
 import { useTeamWorkloads } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
@@ -36,6 +37,7 @@ export default function ProjectTeamTab() {
   const membersQuery = useProjectMembers(projectId);
   const workloadsQuery = useTeamWorkloads();
   const removeMember = useRemoveProjectMember(projectId ?? '');
+  const setOwner = useSetProjectOwner();
   const users = useUserMap();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -62,6 +64,21 @@ export default function ProjectTeamTab() {
   const openEdit = (member: EpmProjectMember) => {
     setEditing(member);
     setDialogOpen(true);
+  };
+
+  // The owner badge is shown on this list, so this is where someone looks to
+  // change it. It is also on the Overview tab; both write the same field.
+  const makeOwner = (userId: string, name: string) => {
+    setOwner.mutate(
+      { id: projectId ?? '', ownerId: userId },
+      {
+        onSuccess: () => toast.success(`${name} is now the owner`),
+        onError: (error) =>
+          toast.error('That could not be saved', {
+            description: error instanceof Error ? error.message : undefined,
+          }),
+      },
+    );
   };
 
   const confirmRemove = () => {
@@ -150,6 +167,21 @@ export default function ProjectTeamTab() {
                     >
                       <Mail className="h-3.5 w-3.5" />
                     </Button>
+
+                    {/* Offered on anyone who is not already the owner. Gated on
+                        editing the project, which is what owning it amounts to
+                        deciding — not on managing members. */}
+                    {canInProject(projectId, 'project:edit') &&
+                    member.userId !== project.ownerId ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Make ${person?.name ?? 'this person'} the owner`}
+                        onClick={() => makeOwner(member.userId, person?.name ?? 'That person')}
+                      >
+                        <Crown className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : null}
 
                     {member.canManage ? (
                       <>
