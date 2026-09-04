@@ -96,6 +96,9 @@ async function main() {
   // than removed only by the test that asserts removal — an abort in between
   // would otherwise leave a real person holding real access to a real project.
   const grantedMemberships: { projectId: string; membershipId: string }[] = [];
+  // Sprints are OpenProject versions; the API has no delete route for them, so
+  // the cleanup removes these through the upstream endpoint directly.
+  const createdSprintIds: string[] = [];
   // Health pins are real management state. Whatever these tests set is put
   // back, including "there was no pin", which is a value too.
   const originalHealthOverride = new Map<string, Record<string, string> | null>();
@@ -5109,6 +5112,79 @@ async function main() {
     );
   }
 
+  // --- Sprints ---------------------------------------------------------------
+  console.log('\nSprints');
+
+  {
+    const sprintName = `Authz Sprint ${Date.now()}`;
+
+    check(
+      'a sprint needs a name',
+      await status('/sprints', { method: 'POST', cookie: admin, body: { projectId: project } }),
+      400,
+    );
+    check(
+      'a sprint needs a project',
+      await status('/sprints', { method: 'POST', cookie: admin, body: { name: sprintName } }),
+      400,
+    );
+    check(
+      'a non-numeric project is rejected before it reaches upstream',
+      await status('/sprints', {
+        method: 'POST',
+        cookie: admin,
+        body: { name: sprintName, projectId: '../admin' },
+      }),
+      400,
+    );
+
+    // Authorised by asking upstream for the version form rather than by a
+    // permission EPM derives: `sprint:manage` has no capability behind it, so
+    // requiring it would deny everyone.
+    check(
+      'a caller who may not define versions is refused',
+      await status('/sprints', {
+        method: 'POST',
+        cookie: restricted,
+        body: { name: sprintName, projectId: project },
+      }),
+      403,
+    );
+
+    const createdSprint = await call('/sprints', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: sprintName, projectId: project, startDate: '2026-09-10', endDate: '2026-09-24' },
+    });
+    check('a permitted caller can create a sprint', createdSprint.status, 201);
+
+    const sprintRow = (await createdSprint.json()) as { id?: string; name?: string };
+    check('the sprint is returned with its name', sprintRow.name, sprintName);
+
+    const sprintList = (await (await call('/sprints', { cookie: admin })).json()) as {
+      id: string;
+      name: string;
+    }[];
+    check(
+      'and appears in the sprint list',
+      sprintList.some((entry) => entry.id === sprintRow.id),
+      true,
+    );
+
+    if (sprintRow.id) createdSprintIds.push(sprintRow.id);
+
+    check(
+      'a caller who may not manage it cannot delete a sprint',
+      await status(`/sprints/${sprintRow.id}`, { method: 'DELETE', cookie: restricted }),
+      403,
+    );
+    check(
+      'a non-numeric sprint id is not found',
+      await status('/sprints/not-a-number', { method: 'DELETE', cookie: admin }),
+      404,
+    );
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -5307,6 +5383,17 @@ async function main() {
     if (revoked > 0) {
       console.log(`  (revoked ${revoked} test membership${revoked === 1 ? '' : 's'})`);
     }
+  }
+
+  {
+    let removed = 0;
+    for (const sprintId of createdSprintIds) {
+      const response = await call(`/sprints/${sprintId}`, { method: 'DELETE', cookie: admin }).catch(
+        () => undefined,
+      );
+      if (response?.status === 204) removed += 1;
+    }
+    if (removed > 0) console.log(`  (removed ${removed} test sprint${removed === 1 ? '' : 's'})`);
   }
 
   // Capacity first, and through the API, so the restore goes through the same

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
@@ -18,13 +19,14 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Breadcrumbs } from './Breadcrumbs';
 import { NotificationPanel } from './NotificationPanel';
 import { UserMenu } from './UserMenu';
+import { ProjectDialog } from '@/components/common/ProjectDialog';
+import { SprintDialog } from '@/components/sprints/SprintDialog';
 import { useUI } from '@/providers/UIProvider';
 import { env } from '@/config/env';
 import { cn } from '@/lib/utils';
@@ -40,6 +42,8 @@ const ENV_LABEL: Record<string, { label: string; className: string }> = {
 /** Sticky application header: context on the left, search and actions on the right. */
 export function TopHeader() {
   const { setCommandPaletteOpen, setMobileNavOpen, openTaskDrawer } = useUI();
+  const [projectOpen, setProjectOpen] = useState(false);
+  const [sprintOpen, setSprintOpen] = useState(false);
   const { can, canAnywhere } = useAuth();
   const navigate = useNavigate();
 
@@ -120,35 +124,14 @@ export function TopHeader() {
           </DropdownMenuItem>
           <DropdownMenuItem
             disabled={!can('project:create')}
-            onSelect={() =>
-              toast('Project creation is not implemented yet', {
-                description: 'New projects are provisioned through the EPM backend.',
-              })
-            }
+            onSelect={() => setProjectOpen(true)}
           >
             <FolderPlus />
             New Project
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() =>
-              toast('Sprint planning is not implemented yet', {
-                description: 'Sprints are created from the Agile workspace in a live workspace.',
-              })
-            }
-          >
+          <DropdownMenuItem onSelect={() => setSprintOpen(true)}>
             <Timer />
             New Sprint
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={() =>
-              toast('Time logging is not implemented yet', {
-                description: 'Time entries sync from the delivery system in a live workspace.',
-              })
-            }
-          >
-            <Keyboard />
-            Log Time
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -187,6 +170,9 @@ export function TopHeader() {
       </DropdownMenu>
 
       <UserMenu />
+
+      <ProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
+      <SprintDialog open={sprintOpen} onOpenChange={setSprintOpen} />
     </header>
   );
 }

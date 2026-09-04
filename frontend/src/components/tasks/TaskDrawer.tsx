@@ -4,13 +4,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
 import { FieldError, FieldHint, Label } from '@/components/ui/label';
@@ -167,17 +167,20 @@ export function TaskDrawer() {
   });
 
   return (
-    <Sheet open={taskDrawerOpen} onOpenChange={(open) => (open ? null : closeTaskDrawer())}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>Create task</SheetTitle>
-          <SheetDescription>
+    <Dialog open={taskDrawerOpen} onOpenChange={(open) => (open ? null : closeTaskDrawer())}>
+      {/* Centred rather than a side panel: creating a task is a focused,
+          self-contained action, and every other create surface here is a
+          dialog. A drawer also fought the page underneath for attention. */}
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create task</DialogTitle>
+          <DialogDescription>
             New work packages are created through the EPM backend.
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="epm-scroll flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
             <div className="space-y-1.5">
               <Label htmlFor="task-subject" required>
                 Title
@@ -355,17 +358,17 @@ export function TaskDrawer() {
             </div>
           </div>
 
-          <SheetFooter>
-            <Button type="button" variant="secondary" onClick={closeTaskDrawer}>
+          <DialogFooter className="pt-4">
+            <Button type="button" variant="ghost" onClick={closeTaskDrawer}>
               Cancel
             </Button>
             <Button type="submit" loading={isSubmitting || createTask.isPending}>
               Create Task
             </Button>
-          </SheetFooter>
+          </DialogFooter>
         </form>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
