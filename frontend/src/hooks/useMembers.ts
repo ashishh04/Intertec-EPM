@@ -60,6 +60,9 @@ function useMemberInvalidation(projectId: ID) {
     void client.invalidateQueries({ queryKey: ['projects'] });
     void client.invalidateQueries({ queryKey: ['teams'] });
     void client.invalidateQueries({ queryKey: ['portfolios'] });
+    // Adding, removing or re-roling someone changes what they may do in this
+    // project, and the permission map is only fetched once per session.
+    void client.invalidateQueries({ queryKey: ['current-user'] });
   };
 }
 

@@ -46,6 +46,11 @@ export const queryKeys = {
 /** Root keys used for coarse invalidation after a mutation. */
 export const invalidationGroups = {
   taskWrite: [['tasks'], ['dashboard'], ['activity'], ['projects'], ['reports']],
-  projectWrite: [['projects'], ['dashboard'], ['activity'], ['reports']],
+  // `current-user` carries the per-project permission map, and it is fetched
+  // once per session with `staleTime: Infinity`. Creating a project grants the
+  // creator rights on it, so without this the new project's buttons stay
+  // disabled for the rest of the session — the server says yes and the browser
+  // is still holding an answer from before the project existed.
+  projectWrite: [['projects'], ['dashboard'], ['activity'], ['reports'], ['current-user']],
   notificationWrite: [['notifications']],
 } as const;

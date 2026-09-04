@@ -82,6 +82,54 @@ async function status(path: string, options: Parameters<typeof call>[1] = {}): P
 async function main() {
   console.log(`Authorization tests against ${BASE}\n`);
 
+  // Created below; removed in the cleanup step, which the API cannot do.
+  const departmentIds: string[] = [];
+  const teamIds: string[] = [];
+  // Capacity is real per-person data. Whatever these tests change is put
+  // back in the cleanup step, so the database ends as it began.
+  const originalCapacity = new Map<string, number>();
+  // A person's department and team are real organisational data. The mapping
+  // tests remap whoever they run as, so whatever was there is put back —
+  // including "they were mapped to nothing", which is a value too.
+  const originalMapping = new Map<string, { departmentId: string | null; teamId: string | null }>();
+  // Memberships these tests grant. Registered as soon as one is created rather
+  // than removed only by the test that asserts removal — an abort in between
+  // would otherwise leave a real person holding real access to a real project.
+  const grantedMemberships: { projectId: string; membershipId: string }[] = [];
+  // Health pins are real management state. Whatever these tests set is put
+  // back, including "there was no pin", which is a value too.
+  const originalHealthOverride = new Map<string, Record<string, string> | null>();
+  const portfolioIds: string[] = [];
+  // A project's portfolio is real organisational state; whatever these tests
+  // set is put back, including "it was in none".
+  const originalProjectPortfolio = new Map<string, string | null>();
+  // Snapshot rows these tests write. The user-scoped history the dashboard
+  // has been recording since before this feature is left alone.
+  const analyticsFixtureScopes: string[] = [];
+  let analyticsCaptureDay: string | undefined;
+  const schedulerCaptureDays: string[] = [];
+  // Dedupe keys the notification tests create directly. Not the whole story:
+  // the capacity, employee and portfolio sections mutate capacity through the
+  // API, and each of those now produces a notification too. The timestamp below
+  // is what catches those, since they cannot all be enumerated ahead of time.
+  const notificationKeys: string[] = [];
+  const suiteStartedAt = new Date();
+
+  // Everything below runs inside this try, and the cleanup is in the finally.
+  // A run that threw part-way used to skip cleanup entirely and leave real
+  // state behind: a membership granting a real person real access, a relation
+  // that made the next run fail, an archived project that could not be repaired
+  // because archiving removes the rights needed to repair it. The next run then
+  // failed for reasons that had nothing to do with the code.
+  // Hoisted so the cleanup in the finally can see them: it has to be able to
+  // undo what the run did, whether or not the run finished.
+  let admin = '';
+  let restricted = '';
+  let adminId = '';
+  let createdId: string | undefined;
+
+  try {
+
   // --- Authentication ------------------------------------------------------
   console.log('Authentication');
   check('anonymous GET /me is refused', await status('/me'), 401);
@@ -111,8 +159,8 @@ async function main() {
     true,
   );
 
-  const admin = await signIn(ADMIN);
-  const restricted = await signIn(RESTRICTED);
+  admin = await signIn(ADMIN);
+  restricted = await signIn(RESTRICTED);
   check('admin can sign in', typeof admin === 'string' && admin.length > 0, true);
   check('restricted user can sign in', typeof restricted === 'string' && restricted.length > 0, true);
 
@@ -153,7 +201,23 @@ async function main() {
     body: { payload: { name: 'Authz Test Project', identifier: `authz-test-${Date.now()}` } },
   });
   check('admin can create a project', created.status, 201);
-  const createdId = created.ok ? ((await created.json()) as { id: string }).id : undefined;
+
+  // Name checked as well as id. The cleanup archives or deletes whatever this
+  // holds, so it must be this suite's project and nothing else — an id alone
+  // would let a bad response point the cleanup at somebody's real project.
+  const createdBody = created.ok
+    ? ((await created.json()) as { id?: string; name?: string })
+    : undefined;
+  createdId =
+    createdBody?.name === 'Authz Test Project' ? createdBody.id : undefined;
+
+  if (created.ok && !createdId) {
+    throw new Error(
+      `Created project did not come back as asked (id=${createdBody?.id ?? 'missing'}, ` +
+        `name=${createdBody?.name ?? 'missing'}). Refusing to continue, because the cleanup ` +
+        `would act on it.`,
+    );
+  }
 
   check(
     'restricted user cannot create a project',
@@ -1275,7 +1339,7 @@ async function main() {
   // --- Watchers ------------------------------------------------------------
   console.log('\nWatchers');
 
-  const adminId = adminMe.id;
+  adminId = adminMe.id;
 
   check('anonymous cannot list watchers', await status(`/work-packages/${target}/watchers`), 401);
   check(
@@ -1798,38 +1862,6 @@ async function main() {
     404,
   );
 
-  // Created below; removed in the cleanup step, which the API cannot do.
-  const departmentIds: string[] = [];
-  const teamIds: string[] = [];
-  // Capacity is real per-person data. Whatever these tests change is put
-  // back in the cleanup step, so the database ends as it began.
-  const originalCapacity = new Map<string, number>();
-  // A person's department and team are real organisational data. The mapping
-  // tests remap whoever they run as, so whatever was there is put back —
-  // including "they were mapped to nothing", which is a value too.
-  const originalMapping = new Map<string, { departmentId: string | null; teamId: string | null }>();
-  // Memberships these tests grant. Registered as soon as one is created rather
-  // than removed only by the test that asserts removal — an abort in between
-  // would otherwise leave a real person holding real access to a real project.
-  const grantedMemberships: { projectId: string; membershipId: string }[] = [];
-  // Health pins are real management state. Whatever these tests set is put
-  // back, including "there was no pin", which is a value too.
-  const originalHealthOverride = new Map<string, Record<string, string> | null>();
-  const portfolioIds: string[] = [];
-  // A project's portfolio is real organisational state; whatever these tests
-  // set is put back, including "it was in none".
-  const originalProjectPortfolio = new Map<string, string | null>();
-  // Snapshot rows these tests write. The user-scoped history the dashboard
-  // has been recording since before this feature is left alone.
-  const analyticsFixtureScopes: string[] = [];
-  let analyticsCaptureDay: string | undefined;
-  const schedulerCaptureDays: string[] = [];
-  // Dedupe keys the notification tests create directly. Not the whole story:
-  // the capacity, employee and portfolio sections mutate capacity through the
-  // API, and each of those now produces a notification too. The timestamp below
-  // is what catches those, since they cannot all be enumerated ahead of time.
-  const notificationKeys: string[] = [];
-  const suiteStartedAt = new Date();
 
   // --- Departments ---------------------------------------------------------
   //
@@ -5147,6 +5179,7 @@ async function main() {
   const forged = 'epm.sid=s%3Anot-a-real-session.forged-signature';
   check('a forged session cookie is refused', await status('/me', { cookie: forged }), 401);
 
+  } finally {
   // --- Cleanup -------------------------------------------------------------
   if (createdId) {
     // Deleted, not archived. Archiving was the only option when this was
@@ -5359,6 +5392,8 @@ async function main() {
       })
       .catch(() => ({ count: 0 }));
     console.log(`  (removed ${removed.count} test notification${removed.count === 1 ? '' : 's'})`);
+  }
+
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
