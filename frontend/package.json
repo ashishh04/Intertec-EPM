@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "EPM \u2014 Intertec Systems Unified Project & Delivery Platform",
+  "description": "EPM — Intertec Systems Unified Project & Delivery Platform",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { Lock, Search, Trash2, Unlock, UserPlus, UserRound, Users } from 'lucide-react';
+import {
+  Ellipsis,
+  Lock,
+  Pencil,
+  Search,
+  Trash2,
+  Unlock,
+  UserPlus,
+  UserRound,
+  Users,
+} from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
 import { AccountDialog } from '@/components/employees/AccountDialog';
@@ -11,6 +21,12 @@ import { UserAvatar } from '@/components/common/UserAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -184,13 +200,6 @@ export default function EmployeesPage() {
               </SelectContent>
             </Select>
 
-            {mayManageAccounts ? (
-              <Button size="sm" onClick={openCreate}>
-                <UserPlus className="h-3.5 w-3.5" />
-                Add person
-              </Button>
-            ) : null}
-
             <Select value={teamId} onValueChange={setTeamId}>
               <SelectTrigger className="w-44" aria-label="Filter by team">
                 <SelectValue placeholder="All teams" />
@@ -204,6 +213,13 @@ export default function EmployeesPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {mayManageAccounts ? (
+              <Button size="sm" onClick={openCreate}>
+                <UserPlus className="h-3.5 w-3.5" />
+                Add person
+              </Button>
+            ) : null}
           </div>
         }
       />
@@ -243,7 +259,7 @@ export default function EmployeesPage() {
                   <TableHead>Team</TableHead>
                   <TableHead className="text-right">Capacity</TableHead>
                   {mayManageAccounts ? <TableHead>Account</TableHead> : null}
-                  {mayManage || mayManageAccounts ? <TableHead className="w-56" /> : null}
+                  {mayManage || mayManageAccounts ? <TableHead className="w-44" /> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -350,58 +366,61 @@ export default function EmployeesPage() {
                             </>
                           ) : null}
 
-                          {/* Each action is offered only where OpenProject
+                          {/* The three account actions live behind one menu.
+                              Five controls in a narrow cell read as clutter,
+                              and these are a different kind of thing from the
+                              two above: those place a person in EPM, these
+                              change their sign-in account.
+
+                              Each item still appears only where the backend
                               published the affordance for this very account —
                               an invited person cannot be locked, a locked one
                               cannot be locked again, and deletion is absent
-                              unless the instance allows it. */}
+                              unless the instance allows it at all. */}
                           {(() => {
                             const account = accountById.get(employee.id);
                             if (!account) return null;
 
+                            const { update, lock, unlock, remove } = account.can;
+                            if (!update && !lock && !unlock && !remove) return null;
+
                             return (
-                              <>
-                                {account.can.update ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    aria-label={`Edit ${employee.name}'s account`}
-                                    onClick={() => openAccount(account)}
-                                  >
-                                    Edit
-                                  </Button>
-                                ) : null}
-
-                                {account.can.lock || account.can.unlock ? (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
                                   <Button
                                     size="icon-sm"
                                     variant="ghost"
-                                    aria-label={
-                                      account.can.unlock
-                                        ? `Reactivate ${employee.name}`
-                                        : `Deactivate ${employee.name}`
-                                    }
-                                    onClick={() => toggleLocked(account)}
+                                    aria-label={`Account actions for ${employee.name}`}
                                   >
-                                    {account.can.unlock ? (
-                                      <Unlock className="h-3.5 w-3.5" />
-                                    ) : (
-                                      <Lock className="h-3.5 w-3.5" />
-                                    )}
+                                    <Ellipsis className="h-4 w-4" />
                                   </Button>
-                                ) : null}
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {update ? (
+                                    <DropdownMenuItem onSelect={() => openAccount(account)}>
+                                      <Pencil />
+                                      Edit details
+                                    </DropdownMenuItem>
+                                  ) : null}
 
-                                {account.can.remove ? (
-                                  <Button
-                                    size="icon-sm"
-                                    variant="ghost"
-                                    aria-label={`Delete ${employee.name}`}
-                                    onClick={() => setRemoving(account)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                ) : null}
-                              </>
+                                  {lock || unlock ? (
+                                    <DropdownMenuItem onSelect={() => toggleLocked(account)}>
+                                      {unlock ? <Unlock /> : <Lock />}
+                                      {unlock ? 'Reactivate' : 'Deactivate'}
+                                    </DropdownMenuItem>
+                                  ) : null}
+
+                                  {remove ? (
+                                    <DropdownMenuItem
+                                      destructive
+                                      onSelect={() => setRemoving(account)}
+                                    >
+                                      <Trash2 />
+                                      Delete permanently
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             );
                           })()}
                         </div>

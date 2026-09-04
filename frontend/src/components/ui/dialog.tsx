@@ -34,7 +34,15 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4',
+        'fixed left-1/2 top-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4',
+        // Never taller than the viewport. Without this a long form runs off
+        // both edges with no way to reach the buttons — the dialog is centred
+        // and translated, so there is nothing to scroll.
+        //
+        // A long dialog should give its body `epm-dialog-body`, which scrolls
+        // and leaves the header and the actions pinned. The overflow here is
+        // the fallback for one that does not.
+        'max-h-[calc(100dvh-2rem)] overflow-y-auto epm-scroll',
         'rounded-xl border border-border bg-surface p-5 shadow-popover duration-200',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',

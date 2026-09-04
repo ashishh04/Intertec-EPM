@@ -213,7 +213,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit person' : 'Add a person'}</DialogTitle>
           <DialogDescription>
@@ -223,93 +223,105 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="account-first">First name</Label>
-              <Input
-                id="account-first"
-                value={firstName}
-                onChange={(event) => setFirstName(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="account-last">Last name</Label>
-              <Input
-                id="account-last"
-                value={lastName}
-                onChange={(event) => setLastName(event.target.value)}
-              />
-            </div>
-          </div>
+        <div className="epm-dialog-body epm-scroll space-y-5 py-1 pr-1">
+          {/* Two halves, labelled: the sign-in account, then where the person
+              sits. Grouping them is what makes a form this long readable —
+              stacked one-per-row it ran off the bottom of the screen. */}
+          <section className="space-y-3">
+            {isEdit ? null : <p className="epm-eyebrow">Account</p>}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="account-email">Email</Label>
-            <Input
-              id="account-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </div>
-
-          {isEdit ? null : (
-            <div className="space-y-1.5">
-              <Label htmlFor="account-login">Username</Label>
-              <Input
-                id="account-login"
-                value={login}
-                onChange={(event) => setLogin(event.target.value)}
-                placeholder="jane.doe"
-              />
-              <p className="text-2xs text-muted-foreground">
-                What they sign in with. It cannot be changed here afterwards.
-              </p>
-            </div>
-          )}
-
-          {isEdit ? null : (
-            <div className="space-y-1.5">
-              <Label htmlFor="account-password">Starting password</Label>
-              <div className="flex gap-2">
-                {/* Shown, not masked: the administrator has to read it out to
-                    hand it over, and hiding it from the person typing it
-                    protects nobody. */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="account-first">First name</Label>
                 <Input
-                  id="account-password"
-                  value={password}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono"
-                  onChange={(event) => setPassword(event.target.value)}
+                  id="account-first"
+                  value={firstName}
+                  onChange={(event) => setFirstName(event.target.value)}
                 />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setPassword(suggestPassword())}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  New
-                </Button>
               </div>
-              <p className="text-2xs text-muted-foreground">
-                Give this to them along with the username. They can change it once signed in.
-              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="account-last">Last name</Label>
+                <Input
+                  id="account-last"
+                  value={lastName}
+                  onChange={(event) => setLastName(event.target.value)}
+                />
+              </div>
             </div>
-          )}
 
-          <div className="flex items-center justify-between rounded-lg border border-border p-3">
-            <div className="min-w-0 pr-3">
-              <p className="text-xs font-medium">Instance administrator</p>
-              <p className="text-2xs text-muted-foreground">
-                Full access to every project and setting. Unrelated to EPM permissions.
-              </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="account-email">Email</Label>
+                <Input
+                  id="account-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </div>
+
+              {isEdit ? null : (
+                <div className="space-y-1.5">
+                  <Label htmlFor="account-login">Username</Label>
+                  <Input
+                    id="account-login"
+                    value={login}
+                    onChange={(event) => setLogin(event.target.value)}
+                    placeholder="jane.doe"
+                  />
+                </div>
+              )}
             </div>
-            <Switch checked={admin} onCheckedChange={setAdmin} aria-label="Instance administrator" />
-          </div>
+
+            {isEdit ? null : (
+              <div className="space-y-1.5">
+                <Label htmlFor="account-password">Starting password</Label>
+                <div className="flex gap-2">
+                  {/* Shown, not masked: the administrator has to read it out to
+                      hand it over, and hiding it from the person typing it
+                      protects nobody. */}
+                  <Input
+                    id="account-password"
+                    value={password}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono"
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="shrink-0"
+                    onClick={() => setPassword(suggestPassword())}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    New
+                  </Button>
+                </div>
+                <p className="text-2xs text-muted-foreground">
+                  Give this to them with the username. They can change it once signed in.
+                </p>
+              </div>
+            )}
+
+            <label
+              htmlFor="account-admin"
+              className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5"
+            >
+              <span className="min-w-0">
+                <span className="block text-xs font-medium">Instance administrator</span>
+                <span className="block text-2xs text-muted-foreground">
+                  Full access to every project and setting.
+                </span>
+              </span>
+              <Switch id="account-admin" checked={admin} onCheckedChange={setAdmin} />
+            </label>
+          </section>
 
           {isEdit ? null : (
-            <>
+            <section className="space-y-3 border-t border-border pt-4">
+              <p className="epm-eyebrow">Organisation</p>
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="account-department">Department</Label>
@@ -352,22 +364,25 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="account-capacity">Weekly capacity (hours)</Label>
-                <Input
-                  id="account-capacity"
-                  type="number"
-                  min={0}
-                  max={168}
-                  step={0.25}
-                  value={capacity}
-                  onChange={(event) => setCapacity(event.target.value)}
-                />
-                <p className="text-2xs text-muted-foreground">
-                  Used for allocation. 40 is the default when nothing is set.
-                </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="account-capacity">Weekly capacity</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="account-capacity"
+                      type="number"
+                      min={0}
+                      max={168}
+                      step={0.25}
+                      value={capacity}
+                      onChange={(event) => setCapacity(event.target.value)}
+                    />
+                    <span className="shrink-0 text-2xs text-muted-foreground">hours</span>
+                  </div>
+                  <p className="text-2xs text-muted-foreground">Used for allocation.</p>
+                </div>
               </div>
-            </>
+            </section>
           )}
 
           {problem ? <p className="text-2xs text-danger">{problem}</p> : null}

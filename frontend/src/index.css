@@ -145,6 +145,21 @@
     @apply rounded-xl border border-border bg-surface shadow-sm;
   }
 
+  /*
+   * The scrolling middle of a tall dialog. Keeps the title and the action
+   * buttons in place while the fields scroll, so the primary action is never
+   * below the fold — `min-height: 0` because a flex child will not shrink
+   * below its content without it.
+   */
+  .epm-dialog-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* A line between the scrolled content and the pinned actions, so a field
+       cut off at the fold reads as "there is more" rather than as clipped. */
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
   .epm-scroll {
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--border)) transparent;
