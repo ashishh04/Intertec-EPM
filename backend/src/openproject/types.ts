@@ -43,6 +43,7 @@ export interface OpPrincipal extends HalResource {
   login?: string;
   admin?: boolean;
   status?: 'active' | 'invited' | 'registered' | 'locked';
+  language?: string;
   avatar?: string;
   createdAt?: string;
   updatedAt?: string;

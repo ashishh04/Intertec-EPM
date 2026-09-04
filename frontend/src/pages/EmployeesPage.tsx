@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Search, UserRound, Users } from 'lucide-react';
+import { Lock, Search, Trash2, Unlock, UserPlus, UserRound, Users } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { AccountDialog } from '@/components/employees/AccountDialog';
 import { CapacityDialog } from '@/components/employees/CapacityDialog';
 import { MappingDialog } from '@/components/employees/MappingDialog';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -21,12 +22,27 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDebounce } from '@/hooks/useDebounce';
+import {
+  useAccounts,
+  useDeleteAccount,
+  useSetAccountLocked,
+} from '@/hooks/useAccounts';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useEmployees } from '@/hooks/useEmployees';
 import { useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmEmployee } from '@/services/api/employees';
+import type { EpmAccount } from '@/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { toast } from 'sonner';
 
 /**
  * People, and where they sit.
@@ -64,6 +80,62 @@ export default function EmployeesPage() {
   const [editing, setEditing] = useState<EpmEmployee>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [capacityOpen, setCapacityOpen] = useState(false);
+
+  // Account management is a separate permission from placing people, and the
+  // directory upstream is admin-only — so this is fetched only when the caller
+  // can manage, and a 403 simply leaves the account columns absent.
+  const mayManageAccounts = can('users:manage');
+  const accounts = useAccounts(mayManageAccounts);
+  const setLocked = useSetAccountLocked();
+  const deleteAccount = useDeleteAccount();
+
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<EpmAccount>();
+  const [removing, setRemoving] = useState<EpmAccount>();
+
+  const accountById = new Map((accounts.data ?? []).map((account) => [account.id, account]));
+
+  const openCreate = () => {
+    setEditingAccount(undefined);
+    setAccountOpen(true);
+  };
+
+  const openAccount = (account: EpmAccount) => {
+    setEditingAccount(account);
+    setAccountOpen(true);
+  };
+
+  const toggleLocked = (account: EpmAccount) => {
+    const locked = account.status !== 'locked';
+
+    setLocked.mutate(
+      { id: account.id, locked },
+      {
+        onSuccess: () =>
+          toast.success(locked ? `${account.name} deactivated` : `${account.name} reactivated`),
+        onError: (error) =>
+          toast.error('That could not be changed', {
+            description: error instanceof Error ? error.message : undefined,
+          }),
+      },
+    );
+  };
+
+  const confirmRemove = () => {
+    if (!removing) return;
+    const name = removing.name;
+
+    deleteAccount.mutate(removing.id, {
+      onSuccess: () => {
+        toast.success(`${name} was deleted`);
+        setRemoving(undefined);
+      },
+      onError: (error) =>
+        toast.error('That could not be deleted', {
+          description: error instanceof Error ? error.message : undefined,
+        }),
+    });
+  };
 
   const openEdit = (employee: EpmEmployee) => {
     setEditing(employee);
@@ -111,6 +183,13 @@ export default function EmployeesPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {mayManageAccounts ? (
+              <Button size="sm" onClick={openCreate}>
+                <UserPlus className="h-3.5 w-3.5" />
+                Add person
+              </Button>
+            ) : null}
 
             <Select value={teamId} onValueChange={setTeamId}>
               <SelectTrigger className="w-44" aria-label="Filter by team">
@@ -163,7 +242,8 @@ export default function EmployeesPage() {
                   <TableHead>Department</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead className="text-right">Capacity</TableHead>
-                  {mayManage ? <TableHead className="w-40" /> : null}
+                  {mayManageAccounts ? <TableHead>Account</TableHead> : null}
+                  {mayManage || mayManageAccounts ? <TableHead className="w-56" /> : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -222,25 +302,108 @@ export default function EmployeesPage() {
                       <span className="text-muted-foreground">/wk</span>
                     </TableCell>
 
-                    {mayManage ? (
+                    {mayManageAccounts ? (
+                      <TableCell>
+                        {/* Absent rather than guessed: someone who is in the
+                            directory but not in the admin listing has no
+                            account state this caller may read. */}
+                        {accountById.get(employee.id) ? (
+                          <Badge
+                            tone={
+                              accountById.get(employee.id)!.status === 'active'
+                                ? 'success'
+                                : accountById.get(employee.id)!.status === 'locked'
+                                  ? 'danger'
+                                  : 'warning'
+                            }
+                            className="text-2xs capitalize"
+                          >
+                            {accountById.get(employee.id)!.status}
+                          </Badge>
+                        ) : (
+                          <span className="text-2xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    ) : null}
+
+                    {mayManage || mayManageAccounts ? (
                       <TableCell>
                         <div className="flex justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Assign ${employee.name}`}
-                            onClick={() => openEdit(employee)}
-                          >
-                            Assign
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            aria-label={`Set capacity for ${employee.name}`}
-                            onClick={() => openCapacity(employee)}
-                          >
-                            Capacity
-                          </Button>
+                          {mayManage ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label={`Assign ${employee.name}`}
+                                onClick={() => openEdit(employee)}
+                              >
+                                Assign
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                aria-label={`Set capacity for ${employee.name}`}
+                                onClick={() => openCapacity(employee)}
+                              >
+                                Capacity
+                              </Button>
+                            </>
+                          ) : null}
+
+                          {/* Each action is offered only where OpenProject
+                              published the affordance for this very account —
+                              an invited person cannot be locked, a locked one
+                              cannot be locked again, and deletion is absent
+                              unless the instance allows it. */}
+                          {(() => {
+                            const account = accountById.get(employee.id);
+                            if (!account) return null;
+
+                            return (
+                              <>
+                                {account.can.update ? (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    aria-label={`Edit ${employee.name}'s account`}
+                                    onClick={() => openAccount(account)}
+                                  >
+                                    Edit
+                                  </Button>
+                                ) : null}
+
+                                {account.can.lock || account.can.unlock ? (
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    aria-label={
+                                      account.can.unlock
+                                        ? `Reactivate ${employee.name}`
+                                        : `Deactivate ${employee.name}`
+                                    }
+                                    onClick={() => toggleLocked(account)}
+                                  >
+                                    {account.can.unlock ? (
+                                      <Unlock className="h-3.5 w-3.5" />
+                                    ) : (
+                                      <Lock className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                ) : null}
+
+                                {account.can.remove ? (
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    aria-label={`Delete ${employee.name}`}
+                                    onClick={() => setRemoving(account)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                         </div>
                       </TableCell>
                     ) : null}
@@ -254,6 +417,35 @@ export default function EmployeesPage() {
 
       <MappingDialog open={dialogOpen} onOpenChange={setDialogOpen} employee={editing} />
       <CapacityDialog open={capacityOpen} onOpenChange={setCapacityOpen} employee={editing} />
+      <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} account={editingAccount} />
+
+      {/* Deletion is permanent and OpenProject processes it in the background,
+          so it is confirmed and says plainly what goes with it. Deactivating
+          is the reversible alternative, and is named here. */}
+      <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogDescription>
+              This removes their account from OpenProject permanently, along with their
+              department, team and capacity in EPM. It cannot be undone. To keep their history
+              and stop them signing in, deactivate them instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setRemoving(undefined)}
+              disabled={deleteAccount.isPending}
+            >
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmRemove} disabled={deleteAccount.isPending}>
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -46,6 +46,53 @@ export interface EpmUser {
   accent: AvatarAccent;
 }
 
+/**
+ * The account's state in OpenProject.
+ *
+ * Not `UserStatus` above, which is a presence indicator. `invited` means an
+ * invitation was sent and not yet accepted; `locked` is deactivation, and is
+ * reversible.
+ */
+export type AccountStatus = 'active' | 'invited' | 'registered' | 'locked';
+
+/**
+ * What OpenProject says this caller may do to this account, read from the
+ * resource's own links rather than inferred from a role.
+ *
+ * The set varies by state, which is why it is per account and not per caller:
+ * an active user offers `lock`, a locked one offers `unlock`, and an invited
+ * one offers neither. `delete` appears only when the instance permits deletion
+ * at all — it is disabled by default, and no capability advertises it.
+ */
+export interface AccountAffordances {
+  update: boolean;
+  lock: boolean;
+  unlock: boolean;
+  remove: boolean;
+}
+
+/**
+ * A person as the administration surface sees them.
+ *
+ * Distinct from `EpmUser`, which is the read-only directory entry every other
+ * screen uses and which carries no account state. Nothing here is stored by
+ * EPM: accounts are OpenProject's, and this is a view of them.
+ */
+export interface EpmAccount {
+  id: ID;
+  login: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  email: string;
+  /** Instance administrator upstream. Unrelated to any EPM permission. */
+  admin: boolean;
+  status: AccountStatus;
+  language?: string;
+  createdAt: ISODate;
+  can: AccountAffordances;
+}
+
 export interface TeamMemberWorkload {
   userId: ID;
   /**
