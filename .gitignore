@@ -46,3 +46,7 @@ backend/openproject-profile.json
 docs/
 e2e/
 report/
+
+# Private keys. Never in the repository.
+*.ppk
+*.pem

@@ -1,0 +1,57 @@
+# Caddy fronts the whole deployment.
+#
+# TLS is not optional here. The backend sets `secure` on the session cookie
+# whenever NODE_ENV is production, and a secure cookie is never sent over plain
+# HTTP — so on http:// the browser accepts the sign-in response, silently drops
+# the cookie, and bounces the person straight back to the login form with
+# nothing in any log to explain it. Caddy obtains and renews a certificate on
+# its own, provided EPM_DOMAIN resolves to this host.
+
+{$EPM_DOMAIN} {
+	encode zstd gzip
+
+	# The API, proxied under the same origin as the app.
+	#
+	# Same-origin is what keeps the session cookie simple: no CORS preflight on
+	# every request, and `SameSite=lax` behaves as intended because the browser
+	# is not crossing a site boundary. The backend's own CORS allowlist still
+	# applies and should name this domain.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Readiness, so a load balancer or uptime check can reach it without the
+	# API prefix. `/health` is liveness only and deliberately checks nothing.
+	handle /ready {
+		reverse_proxy backend:8000
+	}
+
+	handle /health {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else is the single-page app. `try_files` sends unknown paths to
+	# index.html so a deep link like /projects/42/board is resolved by the
+	# router rather than answered with a 404 by the file server.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		# HSTS. Only meaningful once TLS is working, which it is by the time a
+		# response reaches here.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Hashed asset filenames are immutable; index.html must never be cached or a
+	# deploy leaves browsers on the previous bundle.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header /index.html Cache-Control "no-store"
+}
