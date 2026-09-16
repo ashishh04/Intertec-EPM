@@ -6,7 +6,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { captureSnapshot, coverage, trends, type ScopeType } from '../domain/analytics.js';
 import { evaluateHealthTransitions } from '../domain/notifications.js';
-import { listPortfolios } from '../domain/portfolios.js';
+import { listPortfolios, toPortfolioFacts } from '../domain/portfolios.js';
 import { loadProjects } from './projects.js';
 
 /**
@@ -41,14 +41,7 @@ const trendQuery = z.object({
 export async function loadSnapshotInputs(signal: AbortSignal) {
   const projects = await loadProjects(signal);
 
-  const facts = projects
-    .filter((project) => Boolean(project.portfolioId))
-    .map((project) => ({
-      portfolioId: project.portfolioId as string,
-      active: project.status !== 'paused',
-      overallHealth: project.health.overall,
-      memberIds: project.memberIds,
-    }));
+  const facts = toPortfolioFacts(projects);
 
   // Archived portfolios included: archiving is a visibility decision, and their
   // projects are still real. The live rollups make the same assumption.

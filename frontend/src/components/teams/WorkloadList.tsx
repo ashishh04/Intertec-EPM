@@ -1,4 +1,5 @@
-import { cn, formatHours, pluralize } from '@/lib/utils';
+import { cn, formatHours, formatNumber, formatPercent, pluralize } from '@/lib/utils';
+import { TONE_TEXT } from '@/lib/domain';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import { ProgressBar } from '@/components/ui/progress';
@@ -32,7 +33,7 @@ function labelFor(allocation: number | null) {
 interface WorkloadListProps {
   workloads: TeamMemberWorkload[];
   users: Map<ID, EpmUser>;
-  /** Rows per page. The paginator hides itself when everything fits. */
+  /** Rows per page. */
   pageSize?: number;
   className?: string;
 }
@@ -49,77 +50,71 @@ export function WorkloadList({ workloads, users, pageSize = 10, className }: Wor
 
   return (
     <div className={className}>
-    <ul className="divide-y divide-border">
-      {paged.items.map((workload) => {
-        const user = users.get(workload.userId);
-        const tone = toneFor(workload.allocation);
+      <ul className="divide-y divide-border">
+        {paged.items.map((workload) => {
+          const user = users.get(workload.userId);
+          const tone = toneFor(workload.allocation);
 
-        return (
-          <li key={workload.userId} className="flex items-center gap-3 px-4 py-3">
-            <UserAvatar user={user} size="default" showStatus />
+          return (
+            <li key={workload.userId} className="flex items-center gap-3 px-4 py-3">
+              <UserAvatar user={user} size="default" showStatus />
 
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="truncate text-xs font-medium">{user?.name ?? 'Unknown member'}</p>
-                <span className="shrink-0 font-mono text-xs font-medium tabular-nums">
-                  {workload.allocation === null ? '—' : `${workload.allocation}%`}
-                </span>
-              </div>
-              <p className="mt-0.5 truncate text-2xs text-muted-foreground">{user?.role}</p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="truncate text-xs font-medium">{user?.name ?? 'Unknown member'}</p>
+                  {/* `formatPercent` renders the dash itself when there is no
+                      capacity to divide by. */}
+                  <span className="shrink-0 font-mono text-xs font-medium tabular-nums">
+                    {formatPercent(workload.allocation)}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-2xs text-muted-foreground">{user?.role}</p>
 
-              <div className="mt-1.5 flex items-center gap-2">
-                <ProgressBar
-                  // The bar is capped for display only; the figure beside it is
-                  // the true percentage, so overallocation is still visible.
-                  value={Math.min(100, workload.allocation ?? 0)}
-                  tone={tone}
-                  size="sm"
-                  label={`${user?.name ?? 'Member'} allocation`}
-                  className="flex-1"
-                />
-                <span
-                  className={cn(
-                    'shrink-0 text-2xs font-medium',
-                    tone === 'danger'
-                      ? 'text-danger'
-                      : tone === 'warning'
-                        ? 'text-warning'
-                        : tone === 'success'
-                          ? 'text-success'
-                          : 'text-muted-foreground',
-                  )}
-                >
-                  {labelFor(workload.allocation)}
-                </span>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <ProgressBar
+                    // The bar is capped for display only; the figure beside it is
+                    // the true percentage, so overallocation is still visible.
+                    value={Math.min(100, workload.allocation ?? 0)}
+                    tone={tone}
+                    size="sm"
+                    label={`${user?.name ?? 'Member'} allocation`}
+                    className="flex-1"
+                  />
+                  <span className={cn('shrink-0 text-2xs font-medium', TONE_TEXT[tone])}>
+                    {labelFor(workload.allocation)}
+                  </span>
+                </div>
               </div>
-            </div>
 
-            <dl className="hidden shrink-0 gap-4 text-right sm:flex">
-              <div>
-                <dt className="epm-eyebrow">Assigned</dt>
-                <dd className="font-mono text-xs tabular-nums">
-                  {workload.assignedTasks} {pluralize(workload.assignedTasks, 'task')}
-                </dd>
-              </div>
-              <div>
-                <dt className="epm-eyebrow">Logged</dt>
-                <dd className="font-mono text-xs tabular-nums">
-                  {formatHours(workload.hoursLogged)} / {formatHours(workload.hoursCapacity)}
-                </dd>
-              </div>
-            </dl>
-          </li>
-        );
-      })}
-    </ul>
-    <Pagination
-      page={paged.page}
-      pageSize={paged.pageSize}
-      total={paged.total}
-      onPageChange={paged.setPage}
-      itemLabel="member"
-      className="border-t border-border"
-    />
+              <dl className="hidden shrink-0 gap-4 text-right sm:flex">
+                <div>
+                  <dt className="epm-eyebrow">Assigned</dt>
+                  <dd className="font-mono text-xs tabular-nums">
+                    {formatNumber(workload.assignedTasks)}{' '}
+                    {pluralize(workload.assignedTasks, 'task')}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="epm-eyebrow">Logged</dt>
+                  <dd className="font-mono text-xs tabular-nums">
+                    {formatHours(workload.hoursLogged)} / {formatHours(workload.hoursCapacity)}
+                  </dd>
+                </div>
+              </dl>
+            </li>
+          );
+        })}
+      </ul>
+      <Pagination
+        page={paged.page}
+        pageSize={paged.pageSize}
+        total={paged.total}
+        onPageChange={paged.setPage}
+        onPageSizeChange={paged.setPageSize}
+        pageSizeOptions={[5, 10, 25]}
+        itemLabel="member"
+        className="border-t border-border"
+      />
     </div>
   );
 }

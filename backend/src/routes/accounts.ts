@@ -1,11 +1,17 @@
+import { randomInt } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { referenceCache } from '../lib/cache.js';
 import { requestSignal } from '../lib/request-signal.js';
+import { checkPassword } from '../domain/password-policy.js';
 import { setCapacity, setMapping } from '../domain/employees.js';
+import { createInvite, inviteUrl } from '../email/invites.js';
+import { enqueueEmail } from '../email/outbox.js';
+import { forgetRecipient } from '../email/recipients.js';
 import { toEpmAccount } from '../mapping/accounts.js';
+import { getCurrentUser } from '../mapping/users.js';
 import { openProject } from '../openproject/client.js';
 import type { OpPrincipal } from '../openproject/types.js';
 import type { EpmAccount } from '../types/epm.js';
@@ -62,8 +68,40 @@ function requireAffordance(
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
 
+/**
+ * A starting password nobody will ever type.
+ *
+ * Made only when an invitation is being sent, so the account can be created
+ * active — upstream requires a password for that — while the person sets
+ * their own through the invite link. One character from each class, so it
+ * passes whatever rules the instance enforces; never returned, never logged.
+ */
+function generatePassword(): string {
+  const classes = [
+    'abcdefghijkmnopqrstuvwxyz',
+    'ABCDEFGHJKLMNPQRSTUVWXYZ',
+    '23456789',
+    '!@#$%^&*-_=+',
+  ];
+  const all = classes.join('');
+
+  const chars = classes.map((set) => set[randomInt(set.length)]!);
+  while (chars.length < 24) chars.push(all[randomInt(all.length)]!);
+
+  // Fisher–Yates, so the guaranteed characters are not always the first four.
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j]!, chars[i]!];
+  }
+
+  return chars.join('');
+}
+
 /** Rejects a payload upstream would reject anyway, with a clearer message. */
-function requireCreateFields(body: Record<string, unknown>): {
+function requireCreateFields(
+  body: Record<string, unknown>,
+  options: { passwordRequired: boolean },
+): {
   login: string;
   firstName: string;
   lastName: string;
@@ -81,7 +119,7 @@ function requireCreateFields(body: Record<string, unknown>): {
     ['a first name', firstName],
     ['a last name', lastName],
     ['an email address', email],
-    ['a starting password', password],
+    ['a starting password', options.passwordRequired ? password : 'not needed'],
   ]
     .filter(([, value]) => !value)
     .map(([label]) => label as string);
@@ -95,6 +133,42 @@ function requireCreateFields(body: Record<string, unknown>): {
   if (!email.includes('@')) throw EpmError.badRequest('That email address is not valid.');
 
   return { login, firstName, lastName, email, password };
+}
+
+/**
+ * Mints a token for the account and queues the invitation email. True when a
+ * row was written to the outbox; false when the email could not be queued —
+ * which `enqueueEmail` has already logged with the reason.
+ */
+async function sendInvitation(input: {
+  account: OpPrincipal;
+  createdBy: string;
+  signal: AbortSignal;
+}): Promise<boolean> {
+  const id = String(input.account.id);
+  const email = input.account.email?.trim() ?? '';
+  if (!email) throw EpmError.badRequest('This person has no email address to invite.');
+
+  // Named in the email, so the person knows who to ask if the link expires.
+  const invitedBy = await getCurrentUser(input.signal)
+    .then((user) => user.name)
+    .catch(() => 'Your administrator');
+
+  const { token, expiresAt } = await createInvite({ openProjectId: id, email, createdBy: input.createdBy });
+
+  const outcome = await enqueueEmail({
+    recipientId: id,
+    template: 'invite',
+    payload: {
+      firstName: input.account.firstName?.trim() || input.account.name,
+      inviteUrl: inviteUrl(token),
+      expiresAt: expiresAt.toISOString(),
+      invitedBy,
+    },
+    channel: 'immediate',
+  });
+
+  return outcome === 'queued';
 }
 
 export const accountRoutes: FastifyPluginAsync = async (app) => {
@@ -137,6 +211,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
    *
    * The password is validated upstream against the instance's own rules, is
    * never stored by EPM, never logged, and never echoed back in the response.
+   *
+   * With `sendInvite` (the default now that EPM has an outbox) the starting
+   * password is optional: one is generated if none is given, and the person
+   * receives a link to choose their own. The account is still created exactly
+   * as above — active, with the handover gate set — so an invitation that
+   * never arrives leaves an account an administrator can still hand over.
    */
   app.post<{ Params: never; Body: Record<string, unknown> }>(
     '/accounts',
@@ -144,7 +224,20 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       await guard.require(request, 'users:manage');
 
       const body = request.body ?? {};
-      const { login, firstName, lastName, email, password } = requireCreateFields(body);
+      const sendInvite = body.sendInvite !== false;
+      const fields = requireCreateFields(body, { passwordRequired: !sendInvite });
+      const { login, firstName, lastName, email } = fields;
+      const password = fields.password || generatePassword();
+
+      // Only what an administrator typed. `generatePassword` guarantees one
+      // character from each class at 24 long, so checking it would be checking
+      // this file's own arithmetic.
+      if (fields.password) {
+        const failures = await checkPassword(fields.password, requestSignal(request));
+        if (failures.length > 0) {
+          throw EpmError.badRequest(`That starting password needs: ${failures.join(', ')}.`);
+        }
+      }
       const signal = requestSignal(request);
 
       const created = await openProject.request<OpPrincipal>('/users', {
@@ -166,7 +259,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
       // The directory is cached, and a person who does not appear in it cannot
       // be mapped — so it is invalidated before the placement below.
-      referenceCache.invalidate('users');
+      referenceCache.invalidatePrefix('users');
 
       // The password was chosen by an administrator, so it is a handover
       // credential and not this person's own. EPM makes them replace it before
@@ -181,6 +274,21 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
           update: { mustChangePassword: true },
         })
         .catch(() => undefined);
+
+      // The invitation. A failure here is reported as `inviteSent: false`
+      // rather than as an error: the account exists, and the administrator
+      // can resend from the account page.
+      let inviteSent = false;
+      if (sendInvite) {
+        inviteSent = await sendInvitation({
+          account: created,
+          createdBy: request.auth?.userId ?? '',
+          signal,
+        }).catch((error: unknown) => {
+          request.log.warn({ err: error, accountId: id }, 'The invitation could not be queued');
+          return false;
+        });
+      }
 
       // The EPM half. Failing here must not leave the caller believing nothing
       // happened: the account exists either way, so the problem is reported
@@ -207,11 +315,38 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
       reply.code(201);
 
-      const account: EpmAccount & { placementProblems?: string[] } = toEpmAccount(created);
+      const account: EpmAccount & { placementProblems?: string[]; inviteSent: boolean } = {
+        ...toEpmAccount(created),
+        inviteSent,
+      };
       if (placementProblems.length > 0) account.placementProblems = placementProblems;
       return account;
     },
   );
+
+  /**
+   * Sends a fresh invitation.
+   *
+   * Any earlier link stops working the moment this one is made, so a
+   * forwarded or leaked first email cannot be used once a second has gone
+   * out. `inviteSent` is false when nothing was queued — no address on the
+   * account, or the person has turned email off — so the administrator is
+   * told rather than left assuming.
+   */
+  app.post<{ Params: { id: string } }>('/accounts/:id/invite', async (request) => {
+    const { id } = request.params;
+
+    await guard.require(request, 'users:manage');
+    const account = await accountOf(request, id);
+
+    const inviteSent = await sendInvitation({
+      account,
+      createdBy: request.auth?.userId ?? '',
+      signal: requestSignal(request),
+    });
+
+    return { inviteSent };
+  });
 
   /** Edits a person's details. Not their password, which EPM never touches. */
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
@@ -245,8 +380,10 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         signal: requestSignal(request),
       });
 
-      // Name and email are carried in the cached directory.
-      referenceCache.invalidate('users');
+      // Name and email are carried in the cached directory — and the address
+      // the outbox resolves to, which must not keep going to the old one.
+      referenceCache.invalidatePrefix('users');
+      forgetRecipient(id);
 
       return toEpmAccount(updated);
     },
@@ -275,7 +412,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       signal: requestSignal(request),
     });
 
-    referenceCache.invalidate('users');
+    referenceCache.invalidatePrefix('users');
     return toEpmAccount(locked);
   });
 
@@ -293,7 +430,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       signal: requestSignal(request),
     });
 
-    referenceCache.invalidate('users');
+    referenceCache.invalidatePrefix('users');
     return toEpmAccount(unlocked);
   });
 
@@ -352,7 +489,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       gone = still === null;
     }
 
-    referenceCache.invalidate('users');
+    referenceCache.invalidatePrefix('users');
 
     // 202 when it has not finished: the work was accepted and is still running,
     // which is the truth rather than a 204 claiming it is done.

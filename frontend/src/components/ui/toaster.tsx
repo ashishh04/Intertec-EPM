@@ -1,13 +1,10 @@
 import { Toaster as SonnerToaster, toast } from 'sonner';
-import { useTheme } from '@/providers/ThemeProvider';
 
 /** App-wide toast surface, themed with the EPM tokens. */
 function Toaster() {
-  const { resolvedTheme } = useTheme();
-
   return (
     <SonnerToaster
-      theme={resolvedTheme}
+      theme="light"
       position="bottom-right"
       offset={16}
       gap={8}

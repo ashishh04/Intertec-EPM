@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import { useSetCapacity } from '@/hooks/useEmployees';
 import type { EpmEmployee } from '@/services/api/employees';
 
@@ -77,7 +78,7 @@ export function CapacityDialog({ open, onOpenChange, employee }: CapacityDialogP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
-        <form onSubmit={submit}>
+        <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>Capacity for {employee?.name}</DialogTitle>
             <DialogDescription>
@@ -85,7 +86,7 @@ export function CapacityDialog({ open, onOpenChange, employee }: CapacityDialogP
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="capacity-hours" required>
                 Hours per week
@@ -100,17 +101,13 @@ export function CapacityDialog({ open, onOpenChange, employee }: CapacityDialogP
                 autoFocus
                 onChange={(event) => setHours(event.target.value)}
               />
-              <p className="text-2xs text-muted-foreground">
+              <FieldHint>
                 0 to {MAX_HOURS}, in quarter-hour steps. Zero means this person contributes no
                 capacity but stays on the team.
-              </p>
+              </FieldHint>
             </div>
 
-            {problem ? (
-              <p role="alert" className="text-xs text-danger">
-                {problem}
-              </p>
-            ) : null}
+            {problem ? <Alert tone="danger">{problem}</Alert> : null}
           </div>
 
           <DialogFooter>

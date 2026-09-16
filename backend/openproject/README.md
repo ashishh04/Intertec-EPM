@@ -43,17 +43,66 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 
 | Path | Purpose |
 | --- | --- |
-| `zzz_epm_password_grant.rb` | The initializer. Source of truth. |
-| `docker-compose.openproject.yml` | Runs OpenProject with the initializer mounted. |
+| `zzz_epm_password_grant.rb` | The sign-in initializer. Source of truth. |
+| `zzz_epm_admin_api.rb` | Users settings, the permission catalogue and roles (below). |
+| `zzz_epm_admin_settings.rb` | The settings sections: work packages, projects, languages, repositories, emails, incoming email, aggregation, authentication, calendars, avatars. |
+| `zzz_epm_admin_catalog.rb` | Create, edit and delete for types, statuses, priorities, custom fields, webhooks and OAuth applications. |
+| `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
 
 ## Container destination
 
 ```
 /app/config/initializers/zzz_epm_password_grant.rb
+/app/config/initializers/zzz_epm_admin_api.rb
+/app/config/initializers/zzz_epm_admin_settings.rb
+/app/config/initializers/zzz_epm_admin_catalog.rb
 ```
 
-The `zzz_` prefix matters: Rails loads initializers alphabetically, and this one
-must run after `doorkeeper.rb` has finished configuring.
+The `zzz_` prefix matters: Rails loads initializers alphabetically, and the
+sign-in one must run after `doorkeeper.rb` has finished configuring.
+
+## The admin API (`zzz_epm_admin_api.rb`)
+
+OpenProject's REST API has no endpoints for the users settings, the permission
+catalogue or role editing; they exist only as HTML forms in its admin UI. This
+initializer adds them as JSON endpoints under `/epm_admin/*` on the instance,
+which EPM's `/admin/settings/users`, `/admin/permissions` and `/admin/roles`
+routes consume (see `docs/administration-design.md`, "Users and permissions").
+
+| Method | Path | Does |
+| --- | --- | --- |
+| GET, PATCH | `/epm_admin/settings/users` | Default language, time zone, display format, deletion, consent |
+| GET | `/epm_admin/permissions` | Every settable permission, grouped by module as the role form groups them |
+| GET, POST | `/epm_admin/roles` | Roles with their permissions; create one |
+| PATCH, DELETE | `/epm_admin/roles/:id` | Rename or re-permission; delete (refused for built-in or assigned roles) |
+
+**Admin only.** The caller is identified the way API v3 identifies it (an OAuth
+bearer token or `apikey:<key>` Basic auth) and refused with 403 unless that
+user is an active administrator. Writes go through OpenProject's own
+`Settings::UpdateService` and `Roles::*Service`, so its validation and
+notifications apply unchanged.
+
+To apply it to a running container without recreating it:
+
+```bash
+docker cp backend/openproject/zzz_epm_admin_api.rb openproject:/app/config/initializers/zzz_epm_admin_api.rb
+docker restart openproject
+```
+
+Verify it is live (an unauthenticated call is refused by the initializer, not
+by a routing error):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/epm_admin/permissions   # 403
+curl -s -u apikey:<key> http://localhost:8080/epm_admin/roles                            # JSON array
+```
+
+Like the sign-in patch, everything it touches — `Roles::BaseContract`,
+`Settings::UpdateService`, `Doorkeeper::AccessToken`, `Token::API`,
+`OpenProject::AccessControl` — is internal OpenProject API with no
+compatibility guarantee. After an upgrade, re-run the two checks above; a 404
+means the routes or controller no longer load and the three EPM admin pages
+built on them will report an upstream error until the file is adapted.
 
 ## Running it
 
@@ -90,3 +139,50 @@ Change the `image` tag, recreate, then re-run both checks above. If the handler
 still resolves into the doorkeeper gem, the mutation no longer applies and
 sign-in will fail with `unsupported_grant_type` — the backend surfaces that as
 "this instance does not accept password sign-in" rather than a generic error.
+
+
+## Why there are three admin initializers
+
+OpenProject's REST API is a project-management API, not an administration one.
+It reads types, statuses and priorities but publishes no write affordance on
+any of them; it does not expose custom fields, webhooks or OAuth applications
+at all; and whole settings pages exist only as HTML forms behind the admin UI,
+which EPM never shows. Each initializer covers one shape of that gap.
+
+| File | Endpoints | Shape |
+| --- | --- | --- |
+| `zzz_epm_admin_api.rb` | `/epm_admin/settings/users`, `/epm_admin/permissions`, `/epm_admin/roles` | Bespoke, one endpoint per thing |
+| `zzz_epm_admin_settings.rb` | `/epm_admin/sections`, `/epm_admin/sections/:id` | Self-describing field descriptors |
+| `zzz_epm_admin_catalog.rb` | `/epm_admin/catalog`, `/epm_admin/catalog/:resource[/:id]` | Self-describing descriptors plus rows |
+
+The later two are self-describing on purpose: the instance reports each field's
+type, value, choices and whether it is writable, so EPM renders a page from the
+descriptor alone. A setting or column added upstream appears in the product
+without a change in the browser, and the alternative — a bespoke page per
+section on both sides — is the same form typed three times.
+
+## What an Enterprise licence gates
+
+These are absent rather than broken. An endpoint that always answered 403 would
+be worse than no endpoint, so EPM reports them as unavailable instead. Checked
+against `EnterpriseToken.allows_to?` on an instance with no token:
+
+- Custom actions
+- Attribute help texts (reading them works; creating one does not)
+- Project attributes and project lists
+- LDAP authentication, SAML providers, OpenID providers
+- Two-factor authentication
+
+## After an upgrade
+
+Everything in the two newer files is internal OpenProject API with no
+compatibility guarantee: `Settings::UpdateService`, the `Setting.*_writable?`
+probes, `ActiveModel::Type::Boolean` casting of plugin settings hashes, and the
+`Type`, `Status`, `IssuePriority`, `CustomField`, `Webhooks::Webhook` and
+`Doorkeeper::Application` models. Verify each endpoint still answers:
+
+```bash
+KEY=<api key>
+curl -s -u "apikey:$KEY" http://localhost:8080/epm_admin/sections | head -c 200
+curl -s -u "apikey:$KEY" http://localhost:8080/epm_admin/catalog  | head -c 200
+```

@@ -21,11 +21,18 @@ export interface AccountInput {
   /**
    * The starting password, on create only.
    *
-   * Sent once and never stored on either side. Required because this
-   * deployment has no mail transport: an emailed invitation would leave the
-   * person with no password and no way to receive one.
+   * Sent once and never stored on either side. Optional when an invitation is
+   * sent: the server then generates one that nobody ever sees, and the person
+   * chooses their own from the link. Required when no invitation goes out,
+   * because otherwise nobody created that way could ever sign in.
    */
   password?: string;
+  /**
+   * Email the person a link to set their own password. The server defaults
+   * this to true when an email address is given, so it is only worth sending
+   * to turn it off.
+   */
+  sendInvite?: boolean;
   language?: string;
   admin?: boolean;
   /** EPM placement, all optional. */
@@ -42,6 +49,8 @@ export interface AccountInput {
  */
 export interface CreatedAccount extends EpmAccount {
   placementProblems?: string[];
+  /** Whether an invitation email actually went out. */
+  inviteSent: boolean;
 }
 
 export class ApiAccountRepository {
@@ -59,6 +68,11 @@ export class ApiAccountRepository {
 
   update(id: ID, patch: Partial<AccountInput>): Promise<EpmAccount> {
     return apiClient.patch<EpmAccount>(`/accounts/${id}`, patch);
+  }
+
+  /** A fresh invitation link; any earlier one stops working. */
+  resendInvite(id: ID): Promise<{ inviteSent: boolean }> {
+    return apiClient.post<{ inviteSent: boolean }>(`/accounts/${id}/invite`);
   }
 
   /** Deactivate. Reversible, and the reason there is rarely a need to delete. */

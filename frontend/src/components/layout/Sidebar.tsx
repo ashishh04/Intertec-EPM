@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
-import { NAV_SECTIONS, type NavItem } from '@/config/navigation';
+import { visibleNavSections, type NavItem } from '@/config/navigation';
 import { featureFlags } from '@/config/env';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/providers/UIProvider';
@@ -11,7 +11,7 @@ import { EpmLogo, EpmMark } from '@/components/common/EpmLogo';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import { CountBadge } from '@/components/ui/badge';
 
 const EXPANDED_WIDTH = 260;
 const COLLAPSED_WIDTH = 72;
@@ -27,10 +27,13 @@ interface SidebarProps {
  * across sessions.
  */
 export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
-  const { sidebarCollapsed, toggleSidebar } = useUI();
-  const { user } = useAuth();
+  const { sidebarCollapsed, toggleSidebar, openPragnya } = useUI();
+  const { user, can } = useAuth();
   const unread = useUnreadCount();
   const location = useLocation();
+  // Filtered per person: administration items only appear for those who hold
+  // the permission, so an administrator and a regular user see different rails.
+  const sections = visibleNavSections(can);
 
   const collapsed = variant === 'sheet' ? false : sidebarCollapsed;
 
@@ -66,9 +69,9 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
       {/* Navigation */}
       <nav
         aria-label="Primary"
-        className={cn('epm-scroll flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}
+        className={cn('epm-scroll relative flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}
       >
-        {NAV_SECTIONS.map((section, sectionIndex) => (
+        {sections.map((section, sectionIndex) => (
           <div key={section.title ?? `section-${sectionIndex}`} className={cn(sectionIndex > 0 && 'mt-4')}>
             {section.title && !collapsed ? (
               <p className="epm-eyebrow px-2.5 pb-1.5">{section.title}</p>
@@ -88,18 +91,21 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                     onClick={onNavigate}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'group relative flex items-center gap-2.5 rounded-lg text-xs font-medium transition-colors',
+                      'group relative flex items-center gap-2.5 rounded-lg font-display text-xs font-medium transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar',
                       collapsed ? 'h-9 w-9 justify-center' : 'px-2.5 py-2',
                       active
-                        ? 'bg-sidebar-active text-primary'
+                        ? 'bg-sidebar-active font-semibold text-primary'
                         : 'text-sidebar-muted hover:bg-muted hover:text-sidebar-foreground',
                     )}
                   >
                     {active ? (
                       <motion.span
                         layoutId="sidebar-active-indicator"
-                        className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary"
+                        // The brand gradient, so the rail that follows you down
+                        // the nav is the same mark as the primary buttons.
+                        // Vertical, because the bar is 2px wide.
+                        className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-brand-y"
                         transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
                         aria-hidden
                       />
@@ -113,9 +119,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                           aria-hidden
                         />
                       ) : (
-                        <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-danger-foreground">
-                          {badgeCount > 9 ? '9+' : badgeCount}
-                        </span>
+                        <CountBadge count={badgeCount} max={9} className="ml-auto" />
                       )
                     ) : null}
                     {collapsed ? <span className="sr-only">{item.label}</span> : null}
@@ -142,23 +146,22 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
           </div>
         ))}
 
-        {featureFlags.epmAi ? (
+        {featureFlags.pragnya ? (
           <div className={cn('mt-4', collapsed ? '' : 'px-0.5')}>
             <button
               type="button"
-              onClick={() =>
-                toast('EPM AI is not available yet', {
-                  description: 'The assistant entry point is reserved for a future release.',
-                })
-              }
+              onClick={() => {
+                onNavigate?.();
+                openPragnya();
+              }}
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg border border-dashed border-highlight/40 text-xs font-medium text-highlight transition-colors hover:bg-highlight-soft',
+                'flex w-full items-center gap-2.5 rounded-lg border border-dashed border-highlight/40 text-xs font-medium text-highlight-strong transition-colors hover:bg-highlight-soft',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 collapsed ? 'h-9 w-9 justify-center' : 'px-2.5 py-2',
               )}
             >
               <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
-              {!collapsed ? <span>Ask EPM</span> : <span className="sr-only">Ask EPM</span>}
+              {!collapsed ? <span>Pragnya</span> : <span className="sr-only">Pragnya</span>}
             </button>
           </div>
         ) : null}

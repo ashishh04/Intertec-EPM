@@ -135,7 +135,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                 {search ? 'Nothing matched that search.' : 'No other tasks are available.'}
               </p>
             ) : (
-              <ul className="max-h-56 overflow-y-auto">
+              <ul className="relative max-h-56 overflow-y-auto">
                 {candidates.data?.map((candidate) => (
                   <li key={candidate.id}>
                     <button

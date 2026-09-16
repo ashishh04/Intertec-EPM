@@ -2,6 +2,9 @@ import { toast } from 'sonner';
 import { Lock, RefreshCw, Server, ShieldCheck, Webhook } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { EmptyState } from '@/components/common/EmptyState';
+import { FactList } from '@/components/common/FactList';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -61,16 +64,10 @@ export default function IntegrationPage() {
       />
 
       {!isAdmin ? (
-        <div className="flex items-start gap-2.5 rounded-lg border border-warning/25 bg-warning-soft p-3">
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
-          <div>
-            <p className="text-xs font-medium text-foreground">Read-only access</p>
-            <p className="mt-0.5 text-2xs text-muted-foreground">
-              You can view integration health, but only workspace administrators can change the
-              connection. Actions on this page are disabled for your role.
-            </p>
-          </div>
-        </div>
+        <Alert tone="warning" icon={Lock} title="Read-only access">
+          You can view integration health, but only workspace administrators can change the
+          connection. Actions on this page are disabled for your role.
+        </Alert>
       ) : null}
 
       <QueryBoundary
@@ -84,6 +81,17 @@ export default function IntegrationPage() {
             <Skeleton className="h-32 rounded-xl" />
             <Skeleton className="h-64 rounded-xl" />
           </div>
+        }
+        isEmpty={!status}
+        empty={
+          <Card>
+            <EmptyState
+              icon={Server}
+              title="No integration status yet"
+              description="The backend has not reported on the delivery system connection. Run a synchronisation to populate this page."
+              action={{ label: 'Sync now', onClick: () => sync.mutate(undefined) }}
+            />
+          </Card>
         }
       >
         {status ? (
@@ -130,32 +138,32 @@ export default function IntegrationPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-4">
-                <dl className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <dt className="epm-eyebrow">API version</dt>
-                    <dd className="mt-1 font-mono text-xs">{status.apiVersion}</dd>
-                  </div>
-                  <div>
-                    <dt className="epm-eyebrow">Authentication</dt>
-                    <dd className="mt-1 text-xs">OAuth client credentials, held server-side</dd>
-                  </div>
-                  <div>
-                    <dt className="epm-eyebrow">Access token</dt>
-                    <dd className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Lock className="h-3 w-3" aria-hidden />
-                      Never exposed to the frontend
-                    </dd>
-                  </div>
-                </dl>
+                <FactList
+                  facts={[
+                    { label: 'API version', value: status.apiVersion },
+                    {
+                      label: 'Authentication',
+                      value: 'OAuth client credentials, held server-side',
+                      mono: false,
+                    },
+                    {
+                      label: 'Access token',
+                      mono: false,
+                      value: (
+                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                          <Lock className="h-3 w-3" aria-hidden />
+                          Never exposed to the frontend
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
 
-                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/60 p-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
-                  <p className="text-2xs text-muted-foreground">
-                    The browser never calls the delivery system directly. Every request goes
-                    through the EPM backend, which owns authentication, authorisation, rate
-                    limiting, response transformation and audit logging.
-                  </p>
-                </div>
+                <Alert tone="neutral" icon={ShieldCheck}>
+                  The browser never calls the delivery system directly. Every request goes through
+                  the EPM backend, which owns authentication, authorisation, rate limiting, response
+                  transformation and audit logging.
+                </Alert>
               </CardContent>
             </Card>
 
@@ -167,36 +175,44 @@ export default function IntegrationPage() {
                   What the backend keeps in step with the upstream instance.
                 </CardDescription>
               </CardHeader>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Resource</TableHead>
-                      <TableHead>Records</TableHead>
-                      <TableHead>Last synchronised</TableHead>
-                      <TableHead>State</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {status.syncedResources.map((resource) => (
-                      <TableRow key={resource.resource}>
-                        <TableCell className="font-medium">{resource.resource}</TableCell>
-                        <TableCell className="font-mono text-2xs">
-                          {formatNumber(resource.count)}
-                        </TableCell>
-                        <TableCell className="font-mono text-2xs text-muted-foreground">
-                          {formatRelative(resource.lastSyncAt)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge tone="success" size="sm" dot>
-                            In sync
-                          </Badge>
-                        </TableCell>
+              {status.syncedResources.length === 0 ? (
+                <EmptyState
+                  size="inline"
+                  title="Nothing synchronised yet"
+                  description="Resources appear here after the first successful synchronisation."
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Resource</TableHead>
+                        <TableHead>Records</TableHead>
+                        <TableHead>Last synchronised</TableHead>
+                        <TableHead>State</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {status.syncedResources.map((resource) => (
+                        <TableRow key={resource.resource}>
+                          <TableCell className="font-medium">{resource.resource}</TableCell>
+                          <TableCell className="font-mono text-2xs">
+                            {formatNumber(resource.count)}
+                          </TableCell>
+                          <TableCell className="font-mono text-2xs text-muted-foreground">
+                            {formatRelative(resource.lastSyncAt)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge tone="success" size="sm" dot>
+                              In sync
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </Card>
           </>
         ) : null}

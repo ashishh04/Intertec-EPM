@@ -1,5 +1,5 @@
-import { openProject, linkId, type OpFilter } from '../openproject/client.js';
-import { aggregateCache } from '../lib/cache.js';
+import { openProject, linkId, linkTitle, type OpFilter } from '../openproject/client.js';
+import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { HalCollection, OpProject } from '../openproject/types.js';
 import type {
@@ -77,7 +77,9 @@ async function loadAggregates(signal?: AbortSignal): Promise<ProjectAggregates> 
 }
 
 export function getProjectAggregates(signal?: AbortSignal): Promise<ProjectAggregates> {
-  return aggregateCache.get('project-aggregates', () => loadAggregates(signal));
+  // Counted from work packages fetched on the caller's token, so the totals
+  // already reflect their permissions — the key has to say whose they are.
+  return aggregateCache.get(userScopedKey('project-aggregates'), () => loadAggregates(signal));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -362,6 +364,12 @@ export function toEpmProject(
     // did. Neither is invented — an unassigned project reports nothing.
     portfolio: options.overlay?.portfolioRef?.name ?? options.overlay?.portfolio ?? '',
     portfolioId: options.overlay?.portfolioId ?? undefined,
+    // Upstream's hierarchy, read from the resource's own link rather than
+    // stored here. A project whose parent the caller cannot see reports no
+    // parent at all: OpenProject omits the href, and inventing one would name
+    // a project they are not allowed to know about.
+    parentId: linkId(links, 'parent'),
+    parentName: linkTitle(links, 'parent'),
     can,
     budgetUsed: options.overlay?.budgetUsed ?? 0,
     budgetTotal: options.overlay?.budgetTotal ?? 0,

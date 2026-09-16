@@ -13,19 +13,45 @@ function readString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.length > 0 ? value : fallback;
 }
 
+const appEnv = readString(raw.VITE_APP_ENV, 'development') as AppEnvironment;
+
+/**
+ * Where the backend lives.
+ *
+ * Vite inlines this at build time, so a production bundle built without
+ * `VITE_API_BASE_URL` set would carry the development fallback and every
+ * browser would call its own machine — the app wholly broken, and the backend
+ * logs silent because nothing reaches them. Failing the build is the only
+ * point at which that is cheap to notice, so a production build that has not
+ * been told the address refuses to start rather than shipping localhost.
+ */
+function resolveApiBaseUrl(): string {
+  const configured = raw.VITE_API_BASE_URL;
+  if (typeof configured === 'string' && configured.length > 0) return configured;
+
+  if (appEnv === 'production') {
+    throw new Error(
+      'VITE_API_BASE_URL is not set. A production build must be given the backend address ' +
+        '(see frontend/.env.production); otherwise the bundle points at localhost.',
+    );
+  }
+
+  return 'http://localhost:8000/api';
+}
+
 export const env = {
   /** Base URL of the EPM backend API. Never an OpenProject URL. */
-  apiBaseUrl: readString(raw.VITE_API_BASE_URL, 'http://localhost:8000/api'),
+  apiBaseUrl: resolveApiBaseUrl(),
 
   /** Drives the environment badge in the header. */
-  appEnv: readString(raw.VITE_APP_ENV, 'development') as AppEnvironment,
+  appEnv,
 
-  isProduction: readString(raw.VITE_APP_ENV, 'development') === 'production',
+  isProduction: appEnv === 'production',
 } as const;
 
 export const featureFlags = {
-  /** Renders the "Ask EPM" entry point. The assistant itself is not implemented. */
-  epmAi: true,
+  /** Renders Pragnya, the in-app assistant, and its entry points. */
+  pragnya: true,
   /** Reserved for the future WebSocket/SSE cache-invalidation layer. */
   realtime: false,
 } as const;

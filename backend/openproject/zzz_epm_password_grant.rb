@@ -13,6 +13,7 @@
 # Scope of the change:
 #   * adds "password" to Doorkeeper's grant flows
 #   * implements resource_owner_from_credentials via User.try_to_login
+#   * lets a person sign in with their email address as well as their login
 #
 # It deliberately does NOT touch token lifetimes, scopes, or any other
 # Doorkeeper setting, and it mutates the existing configuration rather than
@@ -39,9 +40,32 @@ Rails.application.config.after_initialize do
   # Returning nil makes Doorkeeper answer with invalid_grant, which is what an
   # unknown user, a wrong password, or a locked account should all look like.
   credentials_handler = proc do |_routes|
-    login = params[:username].to_s
+    identifier = params[:username].to_s
     password = params[:password].to_s
-    next nil if login.empty? || password.empty?
+    next nil if identifier.empty? || password.empty?
+
+    # People know their email address; many do not know their OpenProject
+    # login. `User.try_to_login` resolves by login only (`find_by_login`), so an
+    # email never matches and returns the same invalid_grant as a wrong
+    # password — indistinguishable, and a common support call.
+    #
+    # An existing login always wins, so nothing that worked before changes, and
+    # a login that happens to look like an email still resolves to its owner.
+    # Only when no such login exists is the string tried as an email.
+    #
+    # The resolved *login* is handed to `try_to_login`, not the user object, so
+    # brute-force blocking, LDAP, account status and login auditing all keep
+    # running exactly as they did.
+    login = identifier
+
+    if User.find_by_login(identifier).nil? && identifier.include?("@")
+      # Case-insensitive: OpenProject lowercases stored addresses, and people
+      # capitalise inconsistently. Ambiguity resolves to nothing rather than to
+      # a guess — `mail` is unique, so more than one hit means something is
+      # wrong with the data and signing someone in would be the wrong answer.
+      matches = User.where("LOWER(mail) = ?", identifier.downcase).limit(2).to_a
+      login = matches.first.login if matches.size == 1
+    end
 
     User.try_to_login(login, password)
   end

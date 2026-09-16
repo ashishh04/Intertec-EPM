@@ -1,9 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { persistOptions, PERSIST_MAX_AGE } from './lib/queryPersister';
 import { App } from './App';
-import { ThemeProvider } from './providers/ThemeProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { UIProvider } from './providers/UIProvider';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -19,7 +20,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      gcTime: 5 * 60_000,
+      // Must exceed the persister's maxAge. A restored query is garbage
+      // collected the moment nothing observes it, so a shorter gcTime would
+      // discard the persisted cache before the page that needs it mounts —
+      // the restore would silently do nothing.
+      gcTime: PERSIST_MAX_AGE,
       retry: 1,
       refetchOnWindowFocus: false,
     },
@@ -29,19 +34,21 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AuthProvider>
-          <UIProvider>
-            <TooltipProvider delayDuration={300} skipDelayDuration={200}>
-              <BrowserRouter>
-                <App />
-              </BrowserRouter>
-              <Toaster />
-            </TooltipProvider>
-          </UIProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    {/*
+      Restores the last known data before the first request goes out, then
+      revalidates. The skeletons only appear on a genuinely first visit.
+    */}
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+      <AuthProvider>
+        <UIProvider>
+          <TooltipProvider delayDuration={300} skipDelayDuration={200}>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+            <Toaster />
+          </TooltipProvider>
+        </UIProvider>
+      </AuthProvider>
+    </PersistQueryClientProvider>
   </StrictMode>,
 );

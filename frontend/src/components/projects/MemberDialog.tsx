@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -10,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -18,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ListSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import {
@@ -79,6 +82,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
 
   const pending = addMember.isPending || setRoles.isPending;
   const available = candidates.data ?? [];
+  const roleOptions = roles.data ?? [];
   const person = users.get(userId);
 
   const fail = (error: unknown) =>
@@ -135,17 +139,17 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4">
           {isEdit ? (
-            <div className="flex items-center gap-2 rounded-lg border border-border p-3">
+            <Card className="flex items-center gap-3 p-3">
               <UserAvatar user={person} size="sm" />
               <p className="truncate text-xs font-medium">{person?.name ?? 'Unknown person'}</p>
-            </div>
+            </Card>
           ) : (
             <div className="space-y-1.5">
               <Label htmlFor="member-person">Person</Label>
               {candidates.isLoading ? (
-                <p className="text-2xs text-muted-foreground">Loading…</p>
+                <ListSkeleton rows={2} height="h-9" />
               ) : available.length === 0 ? (
                 <EmptyState
                   size="inline"
@@ -172,24 +176,32 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
 
           <div className="space-y-1.5">
             <Label htmlFor="member-role">Role</Label>
-            <Select value={roleId} onValueChange={setRoleId}>
+            {/* An empty value while the roles load shows the placeholder rather
+                than a blank trigger for the role an existing member holds. */}
+            <Select
+              value={roles.isLoading ? '' : roleId}
+              onValueChange={setRoleId}
+              disabled={roles.isLoading}
+            >
               <SelectTrigger id="member-role" aria-label="Select a role">
-                <SelectValue placeholder="Choose a role" />
+                <SelectValue placeholder={roles.isLoading ? 'Loading…' : 'Choose a role'} />
               </SelectTrigger>
               <SelectContent>
-                {(roles.data ?? []).map((role) => (
+                {roleOptions.map((role) => (
                   <SelectItem key={role.id} value={role.id}>
                     {role.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-2xs text-muted-foreground">
-              The role decides what this person can do in this project.
-            </p>
+            <FieldHint>
+              {!roles.isLoading && roleOptions.length === 0
+                ? 'No roles are defined for projects. An administrator must add one first.'
+                : 'The role decides what this person can do in this project.'}
+            </FieldHint>
           </div>
 
-          {problem ? <p className="text-2xs text-danger">{problem}</p> : null}
+          {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>
 
         <DialogFooter>

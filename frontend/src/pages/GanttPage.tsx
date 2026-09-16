@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
 import { GanttChart, GanttChartSkeleton } from '@/components/gantt/GanttChart';
 import {
   Select,
@@ -14,6 +15,15 @@ import { useTasks } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
 import type { ID } from '@/types';
 
+/**
+ * How many work packages the timeline draws at once.
+ *
+ * A timeline is read as a whole, so it loads in one go rather than paging.
+ * What it must not do is stop short silently: the notice under the chart
+ * says when a project has more scheduled work than is drawn.
+ */
+const GANTT_PAGE_SIZE = 200;
+
 /** Portfolio timeline with a project switcher. */
 export default function GanttPage() {
   const projectsQuery = useProjects();
@@ -25,7 +35,7 @@ export default function GanttPage() {
 
   const tasksQuery = useTasks({
     projectId,
-    pageSize: 200,
+    pageSize: GANTT_PAGE_SIZE,
     sortBy: 'dueDate',
     sortDir: 'asc',
   });
@@ -33,6 +43,8 @@ export default function GanttPage() {
   const users = useUserMap();
 
   const project = projectsQuery.data?.find((item) => item.id === projectId);
+  const tasks = tasksQuery.data?.items ?? [];
+  const total = tasksQuery.data?.total ?? tasks.length;
 
   return (
     <div className="space-y-5">
@@ -68,11 +80,10 @@ export default function GanttPage() {
         errorTitle="Unable to load the timeline"
         skeleton={<GanttChartSkeleton />}
       >
-        <GanttChart
-          tasks={tasksQuery.data?.items ?? []}
-          users={users}
-          milestones={milestonesQuery.data ?? []}
-        />
+        <div className="space-y-3">
+          <GanttChart tasks={tasks} users={users} milestones={milestonesQuery.data ?? []} />
+          <TruncationNotice shown={tasks.length} total={total} itemLabel="task" affected="The bars" />
+        </div>
       </QueryBoundary>
     </div>
   );

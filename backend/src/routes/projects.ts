@@ -4,7 +4,8 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { openProject, linkId } from '../openproject/client.js';
+import { aggregateCache, userScopedKey } from '../lib/cache.js';
+import { openProject, linkId, MAX_PAGE_SIZE } from '../openproject/client.js';
 import {
   HEALTH_DIMENSIONS,
   HEALTH_LEVELS,
@@ -28,7 +29,7 @@ const listQuery = z.object({
 /** Project members, grouped in one pass over memberships. */
 async function membersByProject(signal?: AbortSignal): Promise<Map<string, string[]>> {
   const memberships = await openProject
-    .getAll<OpMembership>('/memberships', { pageSize: 100 }, { signal })
+    .getAll<OpMembership>('/memberships', { pageSize: MAX_PAGE_SIZE }, { signal })
     .catch(() => ({ items: [] as OpMembership[] }));
 
   const byProject = new Map<string, string[]>();
@@ -58,11 +59,35 @@ export async function loadProjectsFor(
   return loadProjects(requestSignal(request));
 }
 
+/**
+ * Cached per user on the short aggregate TTL — the project list is read on
+ * almost every page and fans out to several upstream calls. Invalidated on any
+ * project write, so a project you create is usable straight away.
+ */
 export async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
+  return aggregateCache.get(userScopedKey('projects'), () => buildProjects(signal));
+}
+
+/**
+ * Drops the cached project list for every caller.
+ *
+ * Every write below has to call this before it re-reads, or it returns the
+ * snapshot taken up to 20 seconds *before* the change and the UI — which seeds
+ * its cache from the response — shows the edit as having silently failed.
+ *
+ * Not scoped to the caller: a project's name, parent or portfolio is the same
+ * for everyone who can see it, so one person's edit staleness is everyone's.
+ */
+function invalidateProjects() {
+  aggregateCache.invalidatePrefix('projects');
+  aggregateCache.invalidatePrefix('project-aggregates');
+}
+
+async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
   const today = new Date().toISOString().slice(0, 10);
 
   const [projects, aggregates, members, overlays] = await Promise.all([
-    openProject.getAll<OpProject>('/projects', { pageSize: 100 }, { signal }),
+    openProject.getAll<OpProject>('/projects', { pageSize: MAX_PAGE_SIZE }, { signal }),
     getProjectAggregates(signal),
     membersByProject(signal),
     getProjectOverlays(),
@@ -193,6 +218,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         );
       }
 
+      invalidateProjects();
+
       const projects = await loadProjects(requestSignal(request));
       const project = projects.find((candidate) => candidate.id === id);
       if (!project) throw EpmError.notFound('That project');
@@ -222,6 +249,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         body: payload,
         signal: requestSignal(request),
       });
+
+      invalidateProjects();
 
       reply.code(201);
       return { id: String(created.id), name: created.name };
@@ -332,11 +361,95 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       });
 
       await setProjectPortfolio(id, request.body?.portfolioId);
+      invalidateProjects();
 
       const projects = await loadProjects(requestSignal(request));
       return projects.find((candidate) => candidate.id === id);
     },
   );
+
+  /**
+   * Moves a project under another, or promotes it to the top level.
+   *
+   * The hierarchy is OpenProject's own — this writes the `parent` link rather
+   * than an EPM overlay, so a structure built directly in the instance and one
+   * built here are the same structure.
+   *
+   * Gated on `project:edit` for the project being moved, matching the upstream
+   * permission that governs the write. Sending null, an empty string or no id
+   * at all detaches it.
+   */
+  app.patch<{ Params: { id: string }; Body: { parentId?: unknown } }>(
+    '/projects/:id/parent',
+    async (request) => {
+      const { id } = request.params;
+
+      await guard.require(request, 'project:edit', id);
+
+      const raw = request.body?.parentId;
+      const parentId =
+        raw === undefined || raw === null || raw === '' ? null : String(raw);
+
+      // Upstream rejects a cycle, but its message names the system behind EPM.
+      // Catching the obvious case here keeps the common mistake readable.
+      if (parentId === id) {
+        throw EpmError.badRequest('A project cannot be its own parent.');
+      }
+
+      if (parentId !== null && !/^\d+$/.test(parentId)) {
+        throw EpmError.badRequest('That parent project does not exist.');
+      }
+
+      if (parentId !== null) {
+        // Confirms the caller can see the parent, so this cannot be used to
+        // discover project ids, and fails before the write rather than after.
+        const parent = await openProject
+          .request<{ id: number }>(`/projects/${parentId}`, { signal: requestSignal(request) })
+          .catch(() => null);
+
+        if (!parent) throw EpmError.badRequest('That parent project does not exist.');
+
+        // A project cannot move under its own descendant. Upstream enforces
+        // this too; checking here turns a 422 into a sentence that says why.
+        const descendants = await subtreeIds(id, requestSignal(request));
+        if (descendants.has(parentId)) {
+          throw EpmError.badRequest(
+            'That project is already below this one, so it cannot also be its parent.',
+          );
+        }
+      }
+
+      await openProject.request<{ id: number }>(`/projects/${id}`, {
+        method: 'PATCH',
+        body: { _links: { parent: { href: parentId ? `/api/v3/projects/${parentId}` : null } } },
+        signal: requestSignal(request),
+      });
+
+      invalidateProjects();
+
+      const projects = await loadProjects(requestSignal(request));
+      const project = projects.find((candidate) => candidate.id === id);
+      if (!project) throw EpmError.notFound('That project');
+      return project;
+    },
+  );
+
+  /**
+   * The projects directly beneath this one.
+   *
+   * Read from the live project list rather than queried upstream, so a child
+   * the caller cannot see simply does not appear.
+   */
+  app.get<{ Params: { id: string } }>('/projects/:id/children', async (request) => {
+    const { id } = request.params;
+
+    const projects = await loadProjects(requestSignal(request));
+    if (!projects.some((candidate) => candidate.id === id)) {
+      throw EpmError.notFound('That project');
+    }
+
+    return projects.filter((candidate) => candidate.parentId === id);
+  });
 
   app.patch<{ Params: { id: string } }>('/projects/:id/archive', async (request) => {
     await guard.require(request, 'project:archive', request.params.id);
@@ -345,6 +458,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       `/projects/${request.params.id}`,
       { method: 'PATCH', body: { active: false }, signal: requestSignal(request) },
     );
+    invalidateProjects();
     return { id: String(updated.id), name: updated.name, active: updated.active };
   });
 
@@ -382,6 +496,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         update: { ownerId },
       });
 
+      invalidateProjects();
       return { id, ownerId: ownerId ?? '' };
     },
   );
@@ -425,6 +540,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       `/projects/${id}`,
       { method: 'PATCH', body: { active: true }, signal: requestSignal(request) },
     );
+    invalidateProjects();
     return { id: String(updated.id), name: updated.name, active: updated.active };
   });
 
@@ -477,11 +593,44 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       gone = still === null;
     }
 
+    invalidateProjects();
+
     // 202 while it is still running, rather than a 204 that claims otherwise.
     reply.code(gone ? 204 : 202);
   });
 
 };
+/**
+ * Every project at or below `rootId`, by id.
+ *
+ * Used to refuse a move that would put a project under its own descendant,
+ * which would detach that whole branch from the tree.
+ */
+async function subtreeIds(rootId: string, signal: AbortSignal): Promise<Set<string>> {
+  const projects = await loadProjects(signal);
+
+  const childrenOf = new Map<string, string[]>();
+  for (const project of projects) {
+    if (!project.parentId) continue;
+    const siblings = childrenOf.get(project.parentId) ?? [];
+    siblings.push(project.id);
+    childrenOf.set(project.parentId, siblings);
+  }
+
+  const seen = new Set<string>([rootId]);
+  const queue = [rootId];
+
+  while (queue.length > 0) {
+    for (const child of childrenOf.get(queue.pop() as string) ?? []) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      queue.push(child);
+    }
+  }
+
+  return seen;
+}
+
 async function milestoneTypeIds(signal: AbortSignal): Promise<string[]> {
   const { getCatalog } = await import('../mapping/catalog.js');
   const catalog = await getCatalog(signal);

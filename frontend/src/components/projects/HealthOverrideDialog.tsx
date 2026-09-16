@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { HealthIndicator } from '@/components/common/StatusBadge';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -111,7 +112,7 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-4">
+        <div className="space-y-3">
           {DIMENSIONS.map((dimension) => (
             <div key={dimension.key} className="flex items-center gap-3">
               <Label htmlFor={`health-${dimension.key}`} className="w-24 shrink-0">
@@ -150,27 +151,33 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
             </div>
           ))}
 
-          <p className="text-2xs text-muted-foreground">
+          <FieldHint>
             Overall follows the worst of the four dimensions unless it is pinned itself.
-          </p>
+          </FieldHint>
 
-          {problem ? (
-            <p role="alert" className="text-xs text-danger">
-              {problem}
-            </p>
-          ) : null}
+          {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>
 
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={clearAll}>
+        {/* "Clear all" is a destructive shortcut, not a way out of the dialog,
+            so it sits on the far side from Cancel rather than next to it where
+            two ghost buttons would compete. */}
+        <DialogFooter className="sm:justify-between">
+          <Button
+            type="button"
+            variant="link"
+            className="px-0 text-danger hover:text-danger"
+            onClick={clearAll}
+          >
             Clear all
           </Button>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button type="button" loading={setOverride.isPending} onClick={save}>
-            Save
-          </Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="button" loading={setOverride.isPending} onClick={save}>
+              Save
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

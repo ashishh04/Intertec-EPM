@@ -300,10 +300,17 @@ export function SchemaForm({
         switch (field.type) {
           case 'Boolean':
             return (
-              <div key={name} className="flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label htmlFor={`schema-${name}`}>{field.name}</Label>
-                  {error ? <FieldError>{error}</FieldError> : null}
+              // The same toggle row as every other switch in the product, so a
+              // schema-driven boolean does not look like a stray control.
+              <div
+                key={name}
+                className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <Label htmlFor={`schema-${name}`} required={field.required}>
+                    {field.name}
+                  </Label>
+                  {error ? <FieldError className="mt-0.5">{error}</FieldError> : null}
                 </div>
                 <Switch
                   id={`schema-${name}`}

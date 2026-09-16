@@ -29,7 +29,7 @@ const BASE = process.env.AUTHZ_BASE_URL ?? 'http://localhost:8000/api';
 
 const ADMIN = {
   username: process.env.AUTHZ_ADMIN_USER ?? 'admin',
-  password: process.env.AUTHZ_ADMIN_PASSWORD ?? 'admin12345',
+  password: process.env.AUTHZ_ADMIN_PASSWORD ?? 'Admin@12345',
 };
 const RESTRICTED = {
   username: process.env.AUTHZ_RESTRICTED_USER ?? 'restricted',

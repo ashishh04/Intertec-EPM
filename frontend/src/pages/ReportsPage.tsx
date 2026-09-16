@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { toast } from 'sonner';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,6 +7,7 @@ import {
   FolderKanban,
   Gauge,
   TrendingUp,
+  Users,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
@@ -15,8 +15,11 @@ import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Badge } from '@/components/ui/badge';
 import { HealthIndicator, ProjectStatusBadge } from '@/components/common/StatusBadge';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Pagination } from '@/components/common/Pagination';
+import { TableCard, TableSkeleton } from '@/components/common/DataTable';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
 import {
   DeliveryTrendChart,
   HorizontalBarChart,
@@ -37,6 +40,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -56,11 +60,27 @@ import {
   useTimeSummary,
 } from '@/hooks/useReports';
 import { PROJECT_STATUS_META } from '@/lib/domain';
-import { daysFromToday, formatHours, formatShortDate, toISODateOnly } from '@/lib/utils';
+import {
+  daysFromToday,
+  formatHours,
+  formatNumber,
+  formatPercent,
+  formatShortDate,
+  toISODateOnly,
+} from '@/lib/utils';
 import { subDays } from 'date-fns';
 import type { HealthLevel, ID, ReportFilters } from '@/types';
 
 const ALL = '__all__';
+
+/**
+ * How many work packages the overdue report reads at once.
+ *
+ * The overdue list is filtered in the browser from this page, so a project
+ * with more open work than this would under-report. The notice under the
+ * table says when that happens and lets the reader pull the rest.
+ */
+const TASK_PAGE_SIZE = 200;
 
 const REPORTS = [
   { value: 'status', label: 'Project Status' },
@@ -79,6 +99,7 @@ export default function ReportsPage() {
     from: toISODateOnly(subDays(new Date(), 90)),
     to: toISODateOnly(new Date()),
   });
+  const [taskPageSize, setTaskPageSize] = useState(TASK_PAGE_SIZE);
 
   const projectsQuery = useProjects();
   const teamsQuery = useTeams();
@@ -87,7 +108,11 @@ export default function ReportsPage() {
   const trendsQuery = useDeliveryTrends(filters);
   const insightsQuery = useExecutiveInsights(filters);
   const timeQuery = useTimeSummary(filters);
-  const tasksQuery = useTasks({ projectId: filters.projectId, pageSize: 200 });
+  const tasksQuery = useTasks({ projectId: filters.projectId, pageSize: taskPageSize });
+
+  // One key for every client-side pager, so changing any filter returns each
+  // table to its first page rather than stranding the reader mid-list.
+  const filtersKey = `${filters.projectId ?? ''}|${filters.teamId ?? ''}|${filters.from ?? ''}|${filters.to ?? ''}`;
 
   const projects = useMemo(
     () =>
@@ -96,6 +121,9 @@ export default function ReportsPage() {
       ),
     [projectsQuery.data, filters.projectId],
   );
+
+  const loadedTasks = tasksQuery.data?.items ?? [];
+  const totalTasks = tasksQuery.data?.total ?? loadedTasks.length;
 
   const overdue = useMemo(
     () =>
@@ -117,13 +145,28 @@ export default function ReportsPage() {
     [timeQuery.data, users],
   );
 
-  const overduePaged = usePagination(overdue, {
-    pageSize: 10,
-    resetKey: `${filters.projectId ?? ''}|${filters.from ?? ''}|${filters.to ?? ''}`,
-  });
-  const timePaged = usePagination(timeQuery.data ?? [], { pageSize: 10 });
+  const projectsPaged = usePagination(projects, { pageSize: 10, resetKey: filtersKey });
+  const teamsPaged = usePagination(teamsQuery.data ?? [], { pageSize: 10, resetKey: filtersKey });
+  const overduePaged = usePagination(overdue, { pageSize: 10, resetKey: filtersKey });
+  const timePaged = usePagination(timeQuery.data ?? [], { pageSize: 10, resetKey: filtersKey });
 
   const insights = insightsQuery.data;
+
+  // The overdue list is filtered from one page of work packages, so a large
+  // project can under-report until the rest is loaded. Shown under the table
+  // and beside the empty state alike: "nothing is overdue" is only true of
+  // what was fetched.
+  const overdueTruncation = (
+    <TruncationNotice
+      shown={loadedTasks.length}
+      total={totalTasks}
+      itemLabel="task"
+      affected="The overdue figures"
+      step={TASK_PAGE_SIZE}
+      loading={tasksQuery.isFetching}
+      onLoadMore={() => setTaskPageSize((size) => size + TASK_PAGE_SIZE)}
+    />
+  );
 
   return (
     <div className="space-y-5">
@@ -131,18 +174,18 @@ export default function ReportsPage() {
         title="Reports"
         description="Delivery reporting across projects, teams and time."
         actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() =>
-              toast('Export runs on the EPM backend', {
-                description: 'Connected workspaces generate a PDF or CSV from the current filters.',
-              })
-            }
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export
-          </Button>
+          // Export is a backend job that is not wired up yet. A disabled button
+          // that says why is more honest than one that looks live and toasts.
+          // The span exists because a disabled button emits no pointer events,
+          // so the tooltip would never open on it directly.
+          <InfoTooltip label="Export is prepared on the EPM backend and is not available yet">
+            <span className="inline-flex" tabIndex={0}>
+              <Button variant="secondary" size="sm" disabled>
+                <Download className="h-3.5 w-3.5" />
+                Export
+              </Button>
+            </span>
+          </InfoTooltip>
         }
       />
 
@@ -291,23 +334,62 @@ export default function ReportsPage() {
 
         {/* Project status */}
         <TabsContent value="status" className="mt-4">
-          <Card className="overflow-hidden">
-            <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border py-3">
-              <CardTitle>Project status</CardTitle>
-              {/* Counted from effective health, so a pinned project is counted
-                  where it was pinned rather than where the rules put it. */}
-              <div className="flex items-center gap-3 text-2xs text-muted-foreground">
-                {(['healthy', 'warning', 'critical'] as HealthLevel[]).map((level) => (
-                  <span key={level} className="flex items-center gap-1.5">
-                    <HealthIndicator level={level} />
-                    <span className="font-mono tabular-nums">
-                      {projects.filter((project) => project.health.overall === level).length}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </CardHeader>
-            <div className="overflow-x-auto">
+          <QueryBoundary
+            isLoading={projectsQuery.isLoading}
+            isError={projectsQuery.isError}
+            error={projectsQuery.error}
+            onRetry={() => projectsQuery.refetch()}
+            errorTitle="Unable to load project status"
+            skeleton={<TableSkeleton columns={7} rows={6} />}
+            isEmpty={projects.length === 0}
+            empty={
+              <Card>
+                <EmptyState
+                  icon={FolderKanban}
+                  title="No projects to report on"
+                  description="Projects appear here once they exist in the portfolio."
+                />
+              </Card>
+            }
+          >
+            <TableCard
+              toolbar={
+                // The toolbar slot draws the divider, so the header drops its own.
+                <CardHeader
+                  variant="compact"
+                  className="border-b-0"
+                  actions={
+                    // Counted from effective health, so a pinned project is
+                    // counted where it was pinned rather than where the rules
+                    // put it.
+                    <div className="flex items-center gap-3 text-2xs text-muted-foreground">
+                      {(['healthy', 'warning', 'critical'] as HealthLevel[]).map((level) => (
+                        <span key={level} className="flex items-center gap-1.5">
+                          <HealthIndicator level={level} />
+                          <span className="font-mono tabular-nums">
+                            {formatNumber(
+                              projects.filter((project) => project.health.overall === level).length,
+                            )}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  }
+                >
+                  <CardTitle>Project status</CardTitle>
+                </CardHeader>
+              }
+              footer={
+                <Pagination
+                  page={projectsPaged.page}
+                  pageSize={projectsPaged.pageSize}
+                  total={projectsPaged.total}
+                  onPageChange={projectsPaged.setPage}
+                  onPageSizeChange={projectsPaged.setPageSize}
+                  itemLabel="project"
+                />
+              }
+            >
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -315,13 +397,13 @@ export default function ReportsPage() {
                     <TableHead>Status</TableHead>
                     <TableHead>Health</TableHead>
                     <TableHead className="min-w-36">Progress</TableHead>
-                    <TableHead>Tasks</TableHead>
-                    <TableHead>Risks</TableHead>
+                    <TableHead numeric>Tasks</TableHead>
+                    <TableHead numeric>Risks</TableHead>
                     <TableHead>Target</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {projects.map((project) => (
+                  {projectsPaged.items.map((project) => (
                     <TableRow key={project.id}>
                       <TableCell className="font-medium">{project.name}</TableCell>
                       <TableCell>
@@ -348,22 +430,24 @@ export default function ReportsPage() {
                             label={`${project.name} progress`}
                             className="w-20"
                           />
-                          <span className="font-mono text-2xs tabular-nums">{project.progress}%</span>
+                          <span className="font-mono text-2xs tabular-nums">
+                            {formatPercent(project.progress)}
+                          </span>
                         </div>
                       </TableCell>
-                      <TableCell className="font-mono text-2xs">
-                        {project.completedTaskCount}/{project.taskCount}
+                      <TableCell numeric>
+                        {formatNumber(project.completedTaskCount)}/{formatNumber(project.taskCount)}
                       </TableCell>
-                      <TableCell className="font-mono text-2xs">{project.openRiskCount}</TableCell>
-                      <TableCell className="font-mono text-2xs">
+                      <TableCell numeric>{formatNumber(project.openRiskCount)}</TableCell>
+                      <TableCell className="font-mono text-2xs tabular-nums">
                         {formatShortDate(project.dueDate)}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
-            </div>
-          </Card>
+            </TableCard>
+          </QueryBoundary>
         </TabsContent>
 
         {/* Task completion */}
@@ -371,10 +455,18 @@ export default function ReportsPage() {
           <QueryBoundary
             isLoading={distributionQuery.isLoading}
             isError={distributionQuery.isError}
+            error={distributionQuery.error}
             onRetry={() => distributionQuery.refetch()}
             errorTitle="Unable to load the report"
-            skeleton={<ChartCardSkeleton />}
+            skeleton={
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ChartCardSkeleton />
+                <ChartCardSkeleton />
+              </div>
+            }
           >
+            {/* An empty distribution is drawn by the charts themselves, inside
+                their cards, so the layout holds its shape. */}
             <div className="grid gap-4 lg:grid-cols-2">
               <ChartCard title="Status distribution" description="Where work currently sits">
                 <StatusDistributionChart data={distributionQuery.data ?? []} />
@@ -393,134 +485,227 @@ export default function ReportsPage() {
 
         {/* Velocity */}
         <TabsContent value="velocity" className="mt-4">
-          <ChartCard title="Sprint velocity" description="Story points delivered per sprint" height={280}>
-            <VelocityChart data={trendsQuery.data ?? []} />
-          </ChartCard>
+          <QueryBoundary
+            isLoading={trendsQuery.isLoading}
+            isError={trendsQuery.isError}
+            error={trendsQuery.error}
+            onRetry={() => trendsQuery.refetch()}
+            errorTitle="Unable to load sprint velocity"
+            skeleton={<ChartCardSkeleton height={280} />}
+          >
+            <ChartCard title="Sprint velocity" description="Story points delivered per sprint" height={280}>
+              <VelocityChart data={trendsQuery.data ?? []} />
+            </ChartCard>
+          </QueryBoundary>
         </TabsContent>
 
         {/* Team performance */}
         <TabsContent value="team" className="mt-4">
-          <div className="grid gap-4">
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b border-border py-3">
-                <CardTitle>Teams</CardTitle>
-              </CardHeader>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Team</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Lead</TableHead>
-                      <TableHead className="text-right">Members</TableHead>
-                      <TableHead className="text-right">Capacity</TableHead>
+          <QueryBoundary
+            isLoading={teamsQuery.isLoading}
+            isError={teamsQuery.isError}
+            error={teamsQuery.error}
+            onRetry={() => teamsQuery.refetch()}
+            errorTitle="Unable to load teams"
+            skeleton={<TableSkeleton columns={6} rows={6} />}
+            isEmpty={teamsPaged.total === 0}
+            empty={
+              <Card>
+                <EmptyState
+                  icon={Users}
+                  title="No teams yet"
+                  description="Team performance fills in once teams are set up in administration."
+                />
+              </Card>
+            }
+          >
+            <TableCard
+              toolbar={
+                <CardHeader variant="compact" className="border-b-0">
+                  <CardTitle>Teams</CardTitle>
+                </CardHeader>
+              }
+              footer={
+                <Pagination
+                  page={teamsPaged.page}
+                  pageSize={teamsPaged.pageSize}
+                  total={teamsPaged.total}
+                  onPageChange={teamsPaged.setPage}
+                  onPageSizeChange={teamsPaged.setPageSize}
+                  itemLabel="team"
+                />
+              }
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Team</TableHead>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Lead</TableHead>
+                    <TableHead numeric>Members</TableHead>
+                    <TableHead numeric>Capacity</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {/* Members and capacity are back, but from EPM's employee
+                      mapping rather than the OpenProject-group reading that
+                      made them permanently zero. Sprint progress stays out —
+                      it has no source yet. */}
+                  {teamsPaged.items.map((team) => (
+                    <TableRow key={team.id}>
+                      <TableCell className="font-medium">{team.name}</TableCell>
+                      <TableCell className="font-mono text-2xs">{team.code}</TableCell>
+                      <TableCell className="text-2xs">{team.department?.name ?? '—'}</TableCell>
+                      <TableCell className="text-2xs">{team.lead?.name ?? '—'}</TableCell>
+                      <TableCell numeric>{formatNumber(team.memberCount)}</TableCell>
+                      <TableCell numeric>{formatNumber(team.capacityHours)} h/wk</TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {/* Members and capacity are back, but from EPM's employee
-                        mapping rather than the OpenProject-group reading that
-                        made them permanently zero. Sprint progress stays out —
-                        it has no source yet. */}
-                    {(teamsQuery.data ?? []).map((team) => (
-                      <TableRow key={team.id}>
-                        <TableCell className="font-medium">{team.name}</TableCell>
-                        <TableCell className="font-mono text-2xs">{team.code}</TableCell>
-                        <TableCell className="text-2xs">
-                          {team.department?.name ?? '—'}
-                        </TableCell>
-                        <TableCell className="text-2xs">{team.lead?.name ?? '—'}</TableCell>
-                        <TableCell className="text-right font-mono text-2xs tabular-nums">
-                          {team.memberCount}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-2xs tabular-nums">
-                          {team.capacityHours} h/wk
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </Card>
-          </div>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableCard>
+          </QueryBoundary>
         </TabsContent>
 
         {/* Overdue work */}
         <TabsContent value="overdue" className="mt-4">
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b border-border py-3">
-              <CardTitle>Overdue work packages</CardTitle>
-            </CardHeader>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Task</TableHead>
-                    <TableHead>Assignee</TableHead>
-                    <TableHead>Due</TableHead>
-                    <TableHead>Days late</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {overduePaged.items.map((task) => {
-                    const assignee = users?.find((user) => user.id === task.assigneeId);
-                    const late = Math.abs(daysFromToday(task.dueDate) ?? 0);
-                    return (
-                      <TableRow key={task.id}>
-                        <TableCell className="font-mono text-2xs text-muted-foreground">
-                          {task.key}
-                        </TableCell>
-                        <TableCell className="font-medium">{task.subject}</TableCell>
-                        <TableCell>
-                          <span className="flex items-center gap-1.5">
-                            <UserAvatar user={assignee} size="xs" />
-                            {assignee?.name ?? 'Unassigned'}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-mono text-2xs">
-                          {formatShortDate(task.dueDate)}
-                        </TableCell>
-                        <TableCell className="font-mono text-2xs font-medium text-danger">
-                          {late}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+          <QueryBoundary
+            isLoading={tasksQuery.isLoading}
+            isError={tasksQuery.isError}
+            error={tasksQuery.error}
+            onRetry={() => tasksQuery.refetch()}
+            errorTitle="Unable to load overdue work"
+            skeleton={<TableSkeleton columns={5} rows={6} />}
+            isEmpty={overdue.length === 0}
+            empty={
+              <div className="space-y-3">
+                <Card>
+                  <EmptyState
+                    icon={CheckCircle2}
+                    title="Nothing is overdue"
+                    description="Every open work package is still inside its committed date."
+                  />
+                </Card>
+                {overdueTruncation}
+              </div>
+            }
+          >
+            <div className="space-y-3">
+              <TableCard
+                toolbar={
+                  <CardHeader variant="compact" className="border-b-0">
+                    <CardTitle>Overdue work packages</CardTitle>
+                  </CardHeader>
+                }
+                footer={
+                  <Pagination
+                    page={overduePaged.page}
+                    pageSize={overduePaged.pageSize}
+                    total={overduePaged.total}
+                    onPageChange={overduePaged.setPage}
+                    onPageSizeChange={overduePaged.setPageSize}
+                    itemLabel="task"
+                  />
+                }
+              >
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Task</TableHead>
+                      <TableHead>Assignee</TableHead>
+                      <TableHead>Due</TableHead>
+                      <TableHead numeric>Days late</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {overduePaged.items.map((task) => {
+                      const assignee = users?.find((user) => user.id === task.assigneeId);
+                      const late = Math.abs(daysFromToday(task.dueDate) ?? 0);
+                      return (
+                        <TableRow key={task.id}>
+                          <TableCell className="font-mono text-2xs text-muted-foreground">
+                            {task.key}
+                          </TableCell>
+                          <TableCell className="font-medium">{task.subject}</TableCell>
+                          <TableCell>
+                            <span className="flex items-center gap-1.5">
+                              <UserAvatar user={assignee} size="xs" />
+                              {assignee?.name ?? 'Unassigned'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="font-mono text-2xs tabular-nums">
+                            {formatShortDate(task.dueDate)}
+                          </TableCell>
+                          <TableCell numeric className="font-medium text-danger">
+                            {formatNumber(late)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableCard>
+              {overdueTruncation}
             </div>
-            <Pagination
-              page={overduePaged.page}
-              pageSize={overduePaged.pageSize}
-              total={overduePaged.total}
-              onPageChange={overduePaged.setPage}
-              onPageSizeChange={overduePaged.setPageSize}
-              itemLabel="task"
-              className="border-t border-border"
-            />
-          </Card>
+          </QueryBoundary>
         </TabsContent>
 
         {/* Time tracking */}
         <TabsContent value="time" className="mt-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ChartCard title="Hours logged" description="Effort recorded per person">
-              <HorizontalBarChart data={timeByUser} tone="highlight" />
-            </ChartCard>
+          <QueryBoundary
+            isLoading={timeQuery.isLoading}
+            isError={timeQuery.isError}
+            error={timeQuery.error}
+            onRetry={() => timeQuery.refetch()}
+            errorTitle="Unable to load time tracking"
+            skeleton={
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ChartCardSkeleton />
+                <TableSkeleton columns={4} rows={6} />
+              </div>
+            }
+            isEmpty={timePaged.total === 0}
+            empty={
+              <Card>
+                <EmptyState
+                  icon={Clock}
+                  title="No time logged"
+                  description="Hours appear here once people record time against work in this window."
+                />
+              </Card>
+            }
+          >
+            <div className="grid gap-4 lg:grid-cols-2">
+              <ChartCard title="Hours logged" description="Effort recorded per person">
+                <HorizontalBarChart data={timeByUser} tone="highlight" />
+              </ChartCard>
 
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b border-border py-3">
-                <CardTitle>Billable summary</CardTitle>
-              </CardHeader>
-              <div className="overflow-x-auto">
+              <TableCard
+                toolbar={
+                  <CardHeader variant="compact" className="border-b-0">
+                    <CardTitle>Billable summary</CardTitle>
+                  </CardHeader>
+                }
+                footer={
+                  <Pagination
+                    page={timePaged.page}
+                    pageSize={timePaged.pageSize}
+                    total={timePaged.total}
+                    onPageChange={timePaged.setPage}
+                  onPageSizeChange={timePaged.setPageSize}
+                    itemLabel="contributor"
+                  />
+                }
+              >
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Person</TableHead>
-                      <TableHead>Logged</TableHead>
-                      <TableHead>Billable</TableHead>
-                      <TableHead>Projects</TableHead>
+                      <TableHead numeric>Logged</TableHead>
+                      <TableHead numeric>Billable</TableHead>
+                      <TableHead numeric>Projects</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -529,65 +714,60 @@ export default function ReportsPage() {
                       return (
                         <TableRow key={entry.userId}>
                           <TableCell className="font-medium">{user?.name ?? 'Unknown'}</TableCell>
-                          <TableCell className="font-mono text-2xs">
-                            {formatHours(entry.hoursLogged)}
-                          </TableCell>
-                          <TableCell className="font-mono text-2xs">
-                            {formatHours(entry.hoursBillable)}
-                          </TableCell>
-                          <TableCell className="font-mono text-2xs">
-                            {entry.projectBreakdown.length}
-                          </TableCell>
+                          <TableCell numeric>{formatHours(entry.hoursLogged)}</TableCell>
+                          <TableCell numeric>{formatHours(entry.hoursBillable)}</TableCell>
+                          <TableCell numeric>{formatNumber(entry.projectBreakdown.length)}</TableCell>
                         </TableRow>
                       );
                     })}
                   </TableBody>
                 </Table>
-              </div>
-              <Pagination
-                page={timePaged.page}
-                pageSize={timePaged.pageSize}
-                total={timePaged.total}
-                onPageChange={timePaged.setPage}
-                itemLabel="contributor"
-                className="border-t border-border"
-              />
-            </Card>
-          </div>
+              </TableCard>
+            </div>
+          </QueryBoundary>
         </TabsContent>
 
         {/* Delivery trends */}
         <TabsContent value="trends" className="mt-4">
-          <div className="space-y-4">
-            <ChartCard
-              title="Delivery trend"
-              description="Completed vs. created work packages per sprint"
-              height={280}
-            >
-              <DeliveryTrendChart data={trendsQuery.data ?? []} />
-            </ChartCard>
+          <QueryBoundary
+            isLoading={trendsQuery.isLoading}
+            isError={trendsQuery.isError}
+            error={trendsQuery.error}
+            onRetry={() => trendsQuery.refetch()}
+            errorTitle="Unable to load delivery trends"
+            skeleton={<ChartCardSkeleton height={280} />}
+          >
+            <div className="space-y-4">
+              <ChartCard
+                title="Delivery trend"
+                description="Completed vs. created work packages per sprint"
+                height={280}
+              >
+                <DeliveryTrendChart data={trendsQuery.data ?? []} />
+              </ChartCard>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <MetricCard
-                label="Projects reported"
-                value={projects.length}
-                icon={FolderKanban}
-                tone="primary"
-              />
-              <MetricCard
-                label="Window"
-                value={`${formatShortDate(filters.from)} – ${formatShortDate(filters.to)}`}
-                icon={Clock}
-                tone="neutral"
-              />
-              <MetricCard
-                label="Open risks"
-                value={insights?.openRisks ?? 0}
-                icon={AlertTriangle}
-                tone="warning"
-              />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <MetricCard
+                  label="Projects reported"
+                  value={projects.length}
+                  icon={FolderKanban}
+                  tone="primary"
+                />
+                <MetricCard
+                  label="Window"
+                  value={`${formatShortDate(filters.from)} – ${formatShortDate(filters.to)}`}
+                  icon={Clock}
+                  tone="neutral"
+                />
+                <MetricCard
+                  label="Open risks"
+                  value={insights?.openRisks ?? 0}
+                  icon={AlertTriangle}
+                  tone="warning"
+                />
+              </div>
             </div>
-          </div>
+          </QueryBoundary>
         </TabsContent>
       </Tabs>
     </div>

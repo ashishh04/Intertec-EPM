@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { CODE_PATTERN, CODE_PROBLEM, CodeField } from '@/components/common/CodeField';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -67,9 +69,7 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
 
     if (!input.name) return setProblem('A name is required.');
     if (!input.code) return setProblem('A code is required.');
-    if (!/^[A-Z0-9-]{2,16}$/.test(input.code)) {
-      return setProblem('The code must be 2–16 letters, numbers or hyphens.');
-    }
+    if (!CODE_PATTERN.test(input.code)) return setProblem(CODE_PROBLEM);
 
     const onSuccess = () => {
       toast.success(isEdit ? 'Portfolio updated' : 'Portfolio created');
@@ -88,7 +88,7 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <form onSubmit={submit}>
+        <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>{isEdit ? 'Edit portfolio' : 'New portfolio'}</DialogTitle>
             <DialogDescription>
@@ -96,7 +96,7 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="portfolio-name" required>
                 Name
@@ -111,22 +111,7 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="portfolio-code" required>
-                Code
-              </Label>
-              <Input
-                id="portfolio-code"
-                value={code}
-                maxLength={16}
-                // Uppercased as typed, because that is how it is stored.
-                onChange={(event) => setCode(event.target.value.toUpperCase())}
-                placeholder="CUST"
-              />
-              <p className="text-2xs text-muted-foreground">
-                2–16 letters, numbers or hyphens. Must be unique.
-              </p>
-            </div>
+            <CodeField id="portfolio-code" value={code} onChange={setCode} placeholder="CUST" />
 
             <div className="space-y-1.5">
               <Label htmlFor="portfolio-description">Description</Label>
@@ -140,11 +125,7 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
               />
             </div>
 
-            {problem ? (
-              <p role="alert" className="text-xs text-danger">
-                {problem}
-              </p>
-            ) : null}
+            {problem ? <Alert tone="danger">{problem}</Alert> : null}
           </div>
 
           <DialogFooter>

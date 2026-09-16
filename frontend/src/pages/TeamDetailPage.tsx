@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Archive, Building2, Pencil, RotateCcw, UserRound, Users } from 'lucide-react';
 
+import { ListSkeleton } from '@/components/common/DataTable';
+import { EmptyState } from '@/components/common/EmptyState';
 import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TeamDialog } from '@/components/teams/TeamDialog';
 import { UserAvatar } from '@/components/common/UserAvatar';
@@ -11,10 +14,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { usePagination } from '@/hooks/usePagination';
 import { useSetTeamActive, useTeam, useTeamWorkloads } from '@/hooks/useTeams';
 import { useTeamMembers } from '@/hooks/useEmployees';
 import { useUserMap } from '@/hooks/useUsers';
+import { formatHours, formatNumber, formatPercent } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
+
+const MEMBERS_PAGE_SIZE = 10;
 
 /**
  * One team.
@@ -39,8 +46,10 @@ export default function TeamDetailPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const loggedThisWeek =
-    Math.round((workloads.data ?? []).reduce((total, w) => total + w.hoursLogged, 0) * 100) / 100;
+  const memberItems = useMemo(() => members.data ?? [], [members.data]);
+  const pagedMembers = usePagination(memberItems, { pageSize: MEMBERS_PAGE_SIZE });
+
+  const loggedThisWeek = (workloads.data ?? []).reduce((total, w) => total + w.hoursLogged, 0);
 
   // Undefined rather than zero when there is no capacity to divide by — the
   // same rule the per-person figure uses.
@@ -121,22 +130,26 @@ export default function TeamDetailPage() {
           <div className="grid gap-4 sm:grid-cols-3">
             <Card className="p-4">
               <p className="epm-eyebrow">Members</p>
-              <p className="mt-1 font-mono text-lg tabular-nums">{team.data.memberCount}</p>
+              <p className="mt-1 font-mono text-lg tabular-nums">
+                {formatNumber(team.data.memberCount)}
+              </p>
             </Card>
             <Card className="p-4">
               <p className="epm-eyebrow">Capacity</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
-                {team.data.capacityHours}
+                {formatNumber(team.data.capacityHours)}
                 <span className="ml-1 text-xs text-muted-foreground">h/wk</span>
               </p>
             </Card>
             <Card className="p-4">
               <p className="epm-eyebrow">Logged this week</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
-                {loggedThisWeek}
-                <span className="ml-1 text-xs text-muted-foreground">
-                  h{utilization === null ? '' : ` · ${utilization}%`}
-                </span>
+                {formatHours(loggedThisWeek)}
+                {utilization === null ? null : (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    · {formatPercent(utilization)}
+                  </span>
+                )}
               </p>
               {utilization === null ? (
                 <p className="mt-0.5 text-2xs text-muted-foreground">
@@ -148,38 +161,41 @@ export default function TeamDetailPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Department
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="p-4">
                 {team.data.department ? (
                   <div className="flex items-center gap-2">
                     <span className="text-sm">{team.data.department.name}</span>
                     {team.data.department.active ? null : (
-                      <Badge tone="warning" className="text-2xs">
+                      <Badge tone="warning" size="sm">
                         Archived
                       </Badge>
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
-                    This team does not belong to a department.
-                  </p>
+                  <EmptyState
+                    size="inline"
+                    icon={Building2}
+                    title="No department"
+                    description="This team does not belong to a department."
+                  />
                 )}
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle className="flex items-center gap-2">
                   <UserRound className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Lead
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-4">
+              <CardContent className="p-4">
                 {team.data.lead ? (
                   <div className="flex items-center gap-2">
                     {/* The name comes from the backend; the directory is only
@@ -188,38 +204,48 @@ export default function TeamDetailPage() {
                     <span className="text-sm">{team.data.lead.name}</span>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">No lead has been assigned.</p>
+                  <EmptyState
+                    size="inline"
+                    icon={UserRound}
+                    title="No lead"
+                    description="No lead has been assigned."
+                  />
                 )}
               </CardContent>
             </Card>
           </div>
 
           <Card>
-            <CardHeader className="border-b border-border">
+            <CardHeader variant="compact">
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
                 Members
-                {(members.data?.length ?? 0) > 0 ? (
-                  <span className="text-2xs font-normal text-muted-foreground">
-                    {members.data?.length}
+                {memberItems.length > 0 ? (
+                  <span className="font-mono text-2xs font-normal tabular-nums text-muted-foreground">
+                    {formatNumber(memberItems.length)}
                   </span>
                 ) : null}
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-4">
-              {members.isLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-8 w-full" />
-                  <Skeleton className="h-8 w-full" />
-                </div>
-              ) : (members.data?.length ?? 0) === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  Nobody is assigned to this team yet. People are assigned on the
-                  employees page.
-                </p>
-              ) : (
+            <CardContent className="p-4">
+              <QueryBoundary
+                isLoading={members.isLoading}
+                isError={members.isError}
+                onRetry={() => members.refetch()}
+                errorTitle="Unable to load members"
+                skeleton={<ListSkeleton rows={3} height="h-8" />}
+                isEmpty={memberItems.length === 0}
+                empty={
+                  <EmptyState
+                    size="inline"
+                    icon={Users}
+                    title="Nobody is assigned to this team yet"
+                    description="People are assigned on the employees page."
+                  />
+                }
+              >
                 <ul className="space-y-1.5">
-                  {members.data?.map((member) => (
+                  {pagedMembers.items.map((member) => (
                     <li key={member.id} className="flex items-center gap-2">
                       <UserAvatar user={users.get(member.id)} size="xs" />
                       <span className="text-xs">{member.name}</span>
@@ -229,8 +255,17 @@ export default function TeamDetailPage() {
                     </li>
                   ))}
                 </ul>
-              )}
+              </QueryBoundary>
             </CardContent>
+            {/* Hides itself when everyone fits on one page. */}
+            <Pagination
+              page={pagedMembers.page}
+              pageSize={pagedMembers.pageSize}
+              total={pagedMembers.total}
+              onPageChange={pagedMembers.setPage}
+              itemLabel="member"
+              className="border-t border-border"
+            />
           </Card>
 
           <TeamDialog open={dialogOpen} onOpenChange={setDialogOpen} team={team.data} />

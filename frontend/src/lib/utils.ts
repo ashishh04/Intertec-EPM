@@ -34,6 +34,12 @@ export function formatLongDate(value?: string | Date | null): string {
   return date ? format(date, 'd MMM yyyy') : '—';
 }
 
+/** "Monday, 30 August 2026" — used where a single date is the subject. */
+export function formatWeekdayDate(value?: string | Date | null): string {
+  const date = toDate(value);
+  return date ? format(date, 'EEEE, d MMMM yyyy') : '—';
+}
+
 export function formatDateTime(value?: string | Date | null): string {
   const date = toDate(value);
   return date ? format(date, 'd MMM yyyy, HH:mm') : '—';
@@ -109,6 +115,12 @@ export function formatCurrency(value: number): string {
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+/** "42%" — whole percentages; pass `digits` for finer values. */
+export function formatPercent(value?: number | null, digits = 0): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return '—';
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value)}%`;
 }
 
 export function formatHours(value?: number): string {

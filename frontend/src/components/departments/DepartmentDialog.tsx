@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { CODE_PATTERN, CODE_PROBLEM, CodeField } from '@/components/common/CodeField';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input, Textarea } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -81,9 +83,7 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
 
     if (!input.name) return setProblem('A name is required.');
     if (!input.code) return setProblem('A code is required.');
-    if (!/^[A-Z0-9-]{2,16}$/.test(input.code)) {
-      return setProblem('The code must be 2–16 letters, numbers or hyphens.');
-    }
+    if (!CODE_PATTERN.test(input.code)) return setProblem(CODE_PROBLEM);
 
     const onSuccess = () => {
       toast.success(isEdit ? 'Department updated' : 'Department created');
@@ -99,10 +99,14 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
     }
   };
 
+  const people = users.data ?? [];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <form onSubmit={submit}>
+        {/* The form is the dialog's only flex child, so it has to carry the
+            column layout for the body to scroll under a pinned footer. */}
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogHeader>
             <DialogTitle>{isEdit ? 'Edit department' : 'New department'}</DialogTitle>
             <DialogDescription>
@@ -110,7 +114,7 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
             <div className="space-y-1.5">
               <Label htmlFor="department-name" required>
                 Name
@@ -125,39 +129,32 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="department-code" required>
-                Code
-              </Label>
-              <Input
-                id="department-code"
-                value={code}
-                maxLength={16}
-                // Uppercased as it is typed, because that is how it is stored —
-                // showing one thing and saving another invites a false conflict.
-                onChange={(event) => setCode(event.target.value.toUpperCase())}
-                placeholder="ENG"
-              />
-              <p className="text-2xs text-muted-foreground">
-                2–16 letters, numbers or hyphens. Must be unique.
-              </p>
-            </div>
+            <CodeField id="department-code" value={code} onChange={setCode} placeholder="ENG" />
 
             <div className="space-y-1.5">
               <Label htmlFor="department-manager">Manager</Label>
-              <Select value={managerId} onValueChange={setManagerId}>
+              {/* An empty value while loading shows the placeholder instead of
+                  the "No manager" option, which would read as a settled answer. */}
+              <Select
+                value={users.isLoading ? '' : managerId}
+                onValueChange={setManagerId}
+                disabled={users.isLoading}
+              >
                 <SelectTrigger id="department-manager" aria-label="Select a manager">
-                  <SelectValue placeholder="No manager" />
+                  <SelectValue placeholder={users.isLoading ? 'Loading…' : 'No manager'} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_MANAGER}>No manager</SelectItem>
-                  {(users.data ?? []).map((user) => (
+                  {people.map((user) => (
                     <SelectItem key={user.id} value={String(user.id)}>
                       {user.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {!users.isLoading && people.length === 0 ? (
+                <FieldHint>Nobody in the directory to choose from.</FieldHint>
+              ) : null}
             </div>
 
             <div className="space-y-1.5">
@@ -172,11 +169,7 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
               />
             </div>
 
-            {problem ? (
-              <p role="alert" className="text-xs text-danger">
-                {problem}
-              </p>
-            ) : null}
+            {problem ? <Alert tone="danger">{problem}</Alert> : null}
           </div>
 
           <DialogFooter>

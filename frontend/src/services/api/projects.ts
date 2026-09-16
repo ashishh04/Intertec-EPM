@@ -37,4 +37,18 @@ export class ApiProjectRepository implements ProjectRepository {
   setHealthOverride(id: ID, override: HealthOverride): Promise<EpmProject> {
     return apiClient.patch<EpmProject>(`/projects/${id}/health`, override);
   }
+
+  /** The projects directly beneath this one. */
+  getChildren(id: ID): Promise<EpmProject[]> {
+    return apiClient.get<EpmProject[]>(`/projects/${id}/children`);
+  }
+
+  /**
+   * Moves the project under another, or to the top level with an empty id.
+   * The hierarchy is the instance's own, so this is a real upstream move
+   * rather than an EPM-side label.
+   */
+  setParent(id: ID, parentId: string): Promise<EpmProject> {
+    return apiClient.patch<EpmProject>(`/projects/${id}/parent`, { parentId });
+  }
 }

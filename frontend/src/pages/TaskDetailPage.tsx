@@ -3,6 +3,7 @@ import { Ellipsis, Eye, Pencil, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ErrorState } from '@/components/common/ErrorState';
+import { EmptyState } from '@/components/common/EmptyState';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { PriorityBadge, StatusBadge, TypeBadge } from '@/components/common/StatusBadge';
 import { UserAvatar } from '@/components/common/UserAvatar';
@@ -209,9 +210,17 @@ export default function TaskDetailPage() {
               <CardTitle>Description</CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
-              <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
-                {task.description ?? 'No description provided.'}
-              </p>
+              {task.description ? (
+                <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
+                  {task.description}
+                </p>
+              ) : (
+                <EmptyState
+                  size="inline"
+                  title="No description yet"
+                  description="Add one in the delivery system and it will appear here."
+                />
+              )}
 
               {task.labels.length > 0 ? (
                 <div className="mt-4 flex flex-wrap gap-1.5 border-t border-border pt-4">

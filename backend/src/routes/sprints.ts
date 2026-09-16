@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
+import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
@@ -18,6 +19,9 @@ import type { BurndownPoint, EpmSprint, SprintState } from '../types/epm.js';
 
 function stateOf(version: OpVersion, today: string): SprintState {
   if (version.status === 'closed') return 'completed';
+  // A version with no dates is a backlog, not a sprint that is running. It
+  // reads as planned until someone starts it, which gives it a start date.
+  if (!version.startDate && !version.endDate) return 'planned';
   if (version.startDate && version.startDate > today) return 'planned';
   if (version.endDate && version.endDate < today) return 'completed';
   return 'active';
@@ -101,12 +105,23 @@ async function buildSprint(version: OpVersion, signal: AbortSignal): Promise<Epm
   };
 }
 
+/**
+ * Every sprint route reads through here — the list, the active one, and a
+ * single sprint by id — and each call fans out to one request per version.
+ * Caching the loader rather than the routes covers all of them once.
+ *
+ * Keyed per user because the versions and their work packages are filtered by
+ * the caller's permissions; invalidated on any sprint write so a new or
+ * completed sprint appears immediately rather than after the TTL.
+ */
 async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
-  const versions = await openProject
-    .getAll<OpVersion>('/versions', { pageSize: 100 }, { signal })
-    .catch(() => ({ items: [] as OpVersion[] }));
+  return aggregateCache.get(userScopedKey('sprints'), async () => {
+    const versions = await openProject
+      .getAll<OpVersion>('/versions', { pageSize: 100 }, { signal })
+      .catch(() => ({ items: [] as OpVersion[] }));
 
-  return Promise.all(versions.items.map((version) => buildSprint(version, signal)));
+    return Promise.all(versions.items.map((version) => buildSprint(version, signal)));
+  });
 }
 
 export const sprintRoutes: FastifyPluginAsync = async (app) => {
@@ -184,6 +199,62 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
 
       reply.code(201);
       return { id: String(created.id), name: created.name };
+    },
+  );
+
+  /**
+   * Starts or completes a sprint.
+   *
+   * A sprint's state is its version's status. Completing closes the version;
+   * starting opens it and, if the planned start is still ahead, pulls the
+   * start date to today so the sprint reads as active rather than planned.
+   * Work packages are not touched either way — unfinished work stays where it
+   * is, visibly, for someone to move.
+   *
+   * Gated on the `update` affordance the version publishes, the same signal
+   * the delete route relies on.
+   */
+  app.patch<{ Params: { id: string }; Body: { state?: unknown } }>(
+    '/sprints/:id',
+    async (request) => {
+      const { id } = request.params;
+      if (!/^\d+$/.test(id)) throw EpmError.notFound('That sprint');
+
+      const state = request.body?.state;
+      if (state !== 'active' && state !== 'completed') {
+        throw EpmError.badRequest('A sprint can only be started or completed.');
+      }
+
+      const signal = requestSignal(request);
+      const version = await openProject
+        .request<OpVersion>(`/versions/${id}`, { signal })
+        .catch(() => null);
+      if (!version) throw EpmError.notFound('That sprint');
+
+      const links = version._links ?? {};
+      if (!Object.hasOwn(links, 'update') && !Object.hasOwn(links, 'updateImmediately')) {
+        throw EpmError.forbidden('You do not have permission to change this sprint.');
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      const body: Record<string, unknown> =
+        state === 'completed'
+          ? { status: 'closed' }
+          : {
+              status: 'open',
+              ...(!version.startDate || version.startDate > today ? { startDate: today } : {}),
+              // A sprint that ended in the past cannot be active again; give
+              // it today as its end so it does not close the moment it opens.
+              ...(version.endDate && version.endDate < today ? { endDate: today } : {}),
+            };
+
+      const updated = await openProject.request<OpVersion>(`/versions/${id}`, {
+        method: 'PATCH',
+        body,
+        signal,
+      });
+
+      return buildSprint(updated, signal);
     },
   );
 

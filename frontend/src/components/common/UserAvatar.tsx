@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage, type AvatarSize } from '@/components/ui/avatar';
+import { env } from '@/config/env';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { EpmUser, UserStatus } from '@/types';
@@ -15,6 +16,15 @@ const STATUS_LABEL: Record<UserStatus, string> = {
   offline: 'Offline',
 };
 
+/**
+ * An avatar path is served by the EPM backend, not by the page's own origin,
+ * so it is resolved against the API base. Anything already absolute is left
+ * alone.
+ */
+function avatarSrc(path: string): string {
+  return path.startsWith('/') ? `${env.apiBaseUrl}${path}` : path;
+}
+
 interface UserAvatarProps {
   user?: Pick<EpmUser, 'name' | 'initials' | 'accent' | 'avatarUrl' | 'status'>;
   size?: AvatarSize;
@@ -29,7 +39,7 @@ function UserAvatar({ user, size = 'default', showStatus = false, className }: U
   return (
     <span className={cn('relative inline-flex shrink-0', className)}>
       <Avatar size={size}>
-        {user?.avatarUrl ? <AvatarImage src={user.avatarUrl} alt="" /> : null}
+        {user?.avatarUrl ? <AvatarImage src={avatarSrc(user.avatarUrl)} alt="" /> : null}
         <AvatarFallback accent={user?.accent ?? 'slate'}>
           {user?.initials ?? '–'}
           <span className="sr-only">{label}</span>
@@ -74,8 +84,10 @@ interface AvatarGroupProps {
 
 /** Sizes for the "+N" overflow chip, kept in step with the avatar sizes. */
 const OVERFLOW_SIZE: Record<AvatarSize, string> = {
-  xs: 'h-5 w-5 text-[9px]',
-  sm: 'h-6 w-6 text-[10px]',
+  // The two smallest chips are tighter than the type scale; the smallest
+  // size stays legible by dropping line height rather than shrinking the face.
+  xs: 'h-5 w-5 text-2xs leading-none',
+  sm: 'h-6 w-6 text-2xs',
   default: 'h-8 w-8 text-xs',
   lg: 'h-10 w-10 text-sm',
   xl: 'h-16 w-16 text-lg',

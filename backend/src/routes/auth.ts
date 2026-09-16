@@ -54,7 +54,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const parsed = credentials.safeParse(request.body);
       if (!parsed.success) {
-        throw EpmError.badRequest('Enter your username and password.');
+        throw EpmError.badRequest('Enter your username or email, and your password.');
       }
 
       const { username, password } = parsed.data;

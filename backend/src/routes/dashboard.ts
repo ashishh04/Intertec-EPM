@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import { requestSignal } from '../lib/request-signal.js';
-import { aggregateCache } from '../lib/cache.js';
+import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
@@ -109,13 +109,28 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const signal = requestSignal(request);
     const today = new Date().toISOString().slice(0, 10);
 
-    const [me, catalog, projects, aggregates] = await Promise.all([
+    /*
+     * The costliest read on the dashboard: ~10 upstream calls across four
+     * dependent waves, and it gates first paint because every KPI tile waits
+     * on it. Cached on the short aggregate TTL, the same one the activity feed
+     * and delivery trends already use, so the counters stay live enough to
+     * trust while a reload costs nothing.
+     *
+     * Keyed per user — these are *your* counts, filtered by your permissions.
+     */
+    return aggregateCache.get(userScopedKey('dashboard-metrics'), async () => {
+
+    // `loadHealthOverrides` reads the local database and depends on nothing
+    // below, so it joins this wave rather than adding a round trip of its own
+    // after the counts have resolved.
+    const [me, catalog, projects, aggregates, overrides] = await Promise.all([
       getCurrentUser(signal),
       getCatalog(signal),
       openProject
         .getAll<OpProject>('/projects', { pageSize: 100 }, { signal })
         .catch(() => ({ items: [] as OpProject[] })),
       getProjectAggregates(signal),
+      loadHealthOverrides(),
     ]);
 
     const mine: OpFilter = { field: 'assignee', operator: '=', values: [me.id] };
@@ -153,7 +168,6 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const active = projects.items.filter((project) => project.active);
     // Pins are honoured here too, so this count agrees with what the project
     // pages show rather than contradicting them.
-    const overrides = await loadHealthOverrides();
     const atRisk = active.filter((project) => {
       const id = String(project.id);
       const { health } = computeHealth({
@@ -196,7 +210,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       },
     };
 
-    return metrics;
+      return metrics;
+    });
   });
 
   /**
@@ -212,7 +227,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const signal = requestSignal(request);
     const max = Math.min(limit ?? 20, 50);
 
-    return aggregateCache.get(`activity:${projectId ?? 'all'}:${max}`, async () => {
+    return aggregateCache.get(userScopedKey(`activity:${projectId ?? 'all'}:${max}`), async () => {
       const filters: OpFilter[] = projectId
         ? [{ field: 'project', operator: '=', values: [projectId] }]
         : [];

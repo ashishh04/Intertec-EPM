@@ -8,6 +8,7 @@ import {
   listPortfolios,
   deletePortfolio,
   setPortfolioActive,
+  toPortfolioFacts,
   updatePortfolio,
   type PortfolioInput,
   type PortfolioProjectFacts,
@@ -31,17 +32,7 @@ import { loadProjectsFor } from './projects.js';
 async function factsFor(
   request: Parameters<typeof requestSignal>[0],
 ): Promise<PortfolioProjectFacts[]> {
-  const projects = await loadProjectsFor(request);
-
-  return projects
-    .filter((project) => Boolean(project.portfolioId))
-    .map((project) => ({
-      portfolioId: project.portfolioId as string,
-      // OpenProject's own state, not a copy: `status` is derived per read.
-      active: project.status !== 'paused',
-      overallHealth: project.health.overall,
-      memberIds: project.memberIds,
-    }));
+  return toPortfolioFacts(await loadProjectsFor(request));
 }
 
 export const portfolioRoutes: FastifyPluginAsync = async (app) => {

@@ -14,6 +14,7 @@ import type {
   ExecutiveInsights,
   ID,
   IntegrationStatus,
+  InviteInfo,
   Milestone,
   EpmDocument,
   EpmNotification,
@@ -28,6 +29,7 @@ import type {
   TaskFilters,
   TimeEntrySummary,
   UpdateTaskInput,
+  UserPreferences,
 } from '@/types';
 
 export interface ProjectRepository {
@@ -37,6 +39,10 @@ export interface ProjectRepository {
   updateProject(id: ID, patch: Partial<EpmProject>): Promise<EpmProject>;
   /** Pins health dimensions. EPM-owned, so its own endpoint and permission. */
   setHealthOverride(id: ID, override: HealthOverride): Promise<EpmProject>;
+  /** The projects directly beneath this one. */
+  getChildren(id: ID): Promise<EpmProject[]>;
+  /** Moves it under another project, or to the top level with an empty id. */
+  setParent(id: ID, parentId: string): Promise<EpmProject>;
 }
 
 export interface TaskRepository {
@@ -48,16 +54,45 @@ export interface TaskRepository {
   deleteTasks(ids: ID[]): Promise<void>;
 }
 
+export interface ProfileInput {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  language?: string;
+  /** An IANA zone name, e.g. `Asia/Kolkata`. The instance validates it. */
+  timezone?: string;
+}
+
 export interface UserRepository {
   getCurrentUser(): Promise<EpmUser>;
   getUsers(): Promise<EpmUser[]>;
   getUser(id: ID): Promise<EpmUser>;
+  /** The timezone names the instance accepts, which are not the browser's. */
+  getTimezones(): Promise<string[]>;
+  /** Edits the signed-in person's own details. Returns their updated record. */
+  updateProfile(input: ProfileInput): Promise<EpmUser>;
+}
+
+export interface CreateSprintInput {
+  name: string;
+  projectId: ID;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface SprintRepository {
   getSprints(): Promise<EpmSprint[]>;
   getSprint(id: ID): Promise<EpmSprint>;
-  getActiveSprint(): Promise<EpmSprint>;
+  /**
+   * The sprint currently running, or `null` when there is none. A team between
+   * sprints is an ordinary state rather than a failure, so it resolves instead
+   * of rejecting — callers that cannot tell the two apart end up rendering a
+   * loading skeleton forever.
+   */
+  getActiveSprint(): Promise<EpmSprint | null>;
+  createSprint(input: CreateSprintInput): Promise<{ id: ID; name: string }>;
+  /** Starts (`active`) or completes (`completed`) a sprint. */
+  setSprintState(id: ID, state: 'active' | 'completed'): Promise<EpmSprint>;
 }
 
 export interface DashboardRepository {
@@ -87,6 +122,22 @@ export interface DocumentRepository {
 export interface IntegrationRepository {
   getStatus(): Promise<IntegrationStatus>;
   triggerSync(): Promise<IntegrationStatus>;
+}
+
+/** The signed-in person's own settings. Server-side, so they follow the person between browsers. */
+export interface PreferenceRepository {
+  get(): Promise<UserPreferences>;
+  /** Partial in; the merged whole out. */
+  update(patch: Partial<UserPreferences>): Promise<UserPreferences>;
+}
+
+/**
+ * Invitations, from the invited person's side. Both calls are public: the
+ * token is the only proof of identity there is at this point.
+ */
+export interface InviteRepository {
+  get(token: string): Promise<InviteInfo>;
+  accept(token: string, password: string): Promise<{ login: string }>;
 }
 
 export interface EpmRepositories {

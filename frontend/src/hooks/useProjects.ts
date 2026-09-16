@@ -43,6 +43,42 @@ export function useSetProjectOwner() {
   });
 }
 
+/**
+ * The projects directly beneath this one.
+ *
+ * Scoped under the project's own key so it clears with the rest of that
+ * project's reads whenever the hierarchy is edited.
+ */
+export function useProjectChildren(id?: ID) {
+  return useQuery({
+    queryKey: queryKeys.projectChildren(id ?? 'unknown'),
+    queryFn: () => projectService.getChildren(id!),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Moves a project under another, or to the top level.
+ *
+ * Invalidates every project read rather than the two projects involved: the
+ * move changes what sits beneath the old parent as well as the new one, and
+ * the grid, dashboard and reports all render the hierarchy.
+ */
+export function useSetProjectParent() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, parentId }: { id: ID; parentId: string }) =>
+      projectService.setParent(id, parentId),
+    onSuccess: () => {
+      for (const key of invalidationGroups.projectWrite) {
+        void client.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
+}
+
 export function useProjectMilestones(id?: ID) {
   return useQuery({
     queryKey: queryKeys.projectMilestones(id ?? 'unknown'),

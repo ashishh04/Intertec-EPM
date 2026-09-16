@@ -5,7 +5,7 @@ import * as guard from '../auth/guard.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, type QueryParams } from '../openproject/client.js';
-import { referenceCache } from '../lib/cache.js';
+import { referenceCache, userScopedKey } from '../lib/cache.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { toEpmTask } from '../mapping/tasks.js';
 import {
@@ -183,7 +183,7 @@ async function applyTitles(
 ): Promise<void> {
   // Keyed by scope: the project-scoped set includes custom fields the global
   // set does not, and a shared key would leave them with the fallback name.
-  const titles = await referenceCache.get(`query-filter-titles:${scope}`, async () => {
+  const titles = await referenceCache.get(userScopedKey(`query-filter-titles:${scope}`), async () => {
     const entries = await Promise.all(
       filters.map(async (filter) => {
         const resource = await openProject
@@ -227,7 +227,7 @@ async function queryCapabilities(
   projectId: string | undefined,
   signal: AbortSignal,
 ): Promise<{ columns: QueryColumn[]; sortable: string[]; groupable: QueryColumn[] }> {
-  return referenceCache.get(`query-capabilities:${projectId ?? 'global'}`, async () => {
+  return referenceCache.get(userScopedKey(`query-capabilities:${projectId ?? 'global'}`), async () => {
     const form = await openProject
       .request<{
         _embedded?: {

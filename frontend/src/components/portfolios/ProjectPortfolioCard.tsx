@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Briefcase, Pencil } from 'lucide-react';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -13,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -99,7 +100,7 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
       <CardContent className="pt-4">
         {project.portfolioId ? (
           <Link
-            to="/portfolios"
+            to={`/portfolios/${project.portfolioId}`}
             className="text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {project.portfolio}
@@ -125,12 +126,18 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="project-portfolio">Portfolio</Label>
-              <Select value={choice} onValueChange={setChoice}>
+              {/* An empty value while loading shows the placeholder instead of
+                  the "No portfolio" option, which would read as a settled answer. */}
+              <Select
+                value={portfolios.isLoading ? '' : choice}
+                onValueChange={setChoice}
+                disabled={portfolios.isLoading}
+              >
                 <SelectTrigger id="project-portfolio" aria-label="Select a portfolio">
-                  <SelectValue placeholder="No portfolio" />
+                  <SelectValue placeholder={portfolios.isLoading ? 'Loading…' : 'No portfolio'} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE}>No portfolio</SelectItem>
@@ -142,13 +149,12 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
                   ))}
                 </SelectContent>
               </Select>
+              {!portfolios.isLoading && options.length === 0 ? (
+                <FieldHint>No portfolios yet. Create one from the Portfolios page.</FieldHint>
+              ) : null}
             </div>
 
-            {problem ? (
-              <p role="alert" className="text-xs text-danger">
-                {problem}
-              </p>
-            ) : null}
+            {problem ? <Alert tone="danger">{problem}</Alert> : null}
           </div>
 
           <DialogFooter>

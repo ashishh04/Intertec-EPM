@@ -11,6 +11,8 @@ import {
   Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import { Badge } from '@/components/ui/badge';
@@ -59,24 +61,39 @@ export function PaginatedDocumentGrid({
   const paged = usePagination(documents, { pageSize, resetKey });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <DocumentGrid documents={paged.items} className={className} {...rest} />
-      <Pagination
-        page={paged.page}
-        pageSize={paged.pageSize}
-        total={paged.total}
-        onPageChange={paged.setPage}
-        onPageSizeChange={paged.setPageSize}
-        pageSizeOptions={[9, 18, 36]}
-        itemLabel="document"
-        className="rounded-xl border border-border bg-surface"
-      />
+      {/* The pager sits on its own card, the same footer the tables use, so a
+          grid pages the way a list does. */}
+      <Card>
+        <Pagination
+          page={paged.page}
+          pageSize={paged.pageSize}
+          total={paged.total}
+          onPageChange={paged.setPage}
+          onPageSizeChange={paged.setPageSize}
+          pageSizeOptions={[9, 18, 36]}
+          itemLabel="document"
+        />
+      </Card>
     </div>
   );
 }
 
 /** Card grid of project files. */
 export function DocumentGrid({ documents, users, projects, onOpen, className }: DocumentGridProps) {
+  if (documents.length === 0) {
+    return (
+      <Card className={className}>
+        <EmptyState
+          icon={FileText}
+          title="No documents"
+          description="Upload a file or adjust the filters to see documents here."
+        />
+      </Card>
+    );
+  }
+
   return (
     <div className={cn('grid gap-3 sm:grid-cols-2 xl:grid-cols-3', className)}>
       {documents.map((document) => {
@@ -86,13 +103,16 @@ export function DocumentGrid({ documents, users, projects, onOpen, className }: 
         const project = document.projectId ? projects?.get(document.projectId) : undefined;
 
         return (
+          // A button, not a Card: the tile is the click target and the
+          // hover lift animates the element itself, so it carries the card
+          // surface classes rather than wrapping a static Card.
           <motion.button
             key={document.id}
             type="button"
             onClick={() => onOpen?.(document)}
             whileHover={{ y: -2 }}
             transition={{ duration: 0.16 }}
-            className="flex items-start gap-3 rounded-xl border border-border bg-surface p-3.5 text-left shadow-sm transition-colors hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="flex items-start gap-3 rounded-lg border border-border bg-surface p-3.5 text-left text-foreground transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             <span
               className={cn(
@@ -191,14 +211,14 @@ export function DocumentGridSkeleton({ cards = 6 }: { cards?: number }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: cards }).map((_, index) => (
-        <div key={index} className="flex gap-3 rounded-xl border border-border bg-surface p-3.5">
+        <Card key={index} className="flex gap-3 p-3.5">
           <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
           <div className="flex-1 space-y-2">
             <Skeleton className="h-3 w-4/5" />
             <Skeleton className="h-2.5 w-1/2" />
             <Skeleton className="h-4 w-24" />
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   );

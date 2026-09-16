@@ -10,16 +10,18 @@ import { usePagination } from '@/hooks/usePagination';
 /** Full change history for a project. */
 export default function ProjectActivityTab() {
   const { projectId } = useParams();
-  const activityQuery = useActivity({ projectId, limit: 40 });
+  const activityQuery = useActivity({ projectId, limit: 100 });
   const users = useUserMap();
   const paged = usePagination(activityQuery.data ?? [], { pageSize: 15, resetKey: projectId });
 
   return (
-    <Card className="max-w-3xl">
-      <CardHeader className="border-b border-border">
+    <Card>
+      <CardHeader variant="compact">
         <CardTitle>Activity</CardTitle>
       </CardHeader>
-      <CardContent className="pt-5">
+      {/* The timeline draws its own empty state, so the boundary only has to
+          cover loading and failure. */}
+      <CardContent className="p-4">
         <QueryBoundary
           isLoading={activityQuery.isLoading}
           isError={activityQuery.isError}
@@ -36,6 +38,8 @@ export default function ProjectActivityTab() {
         pageSize={paged.pageSize}
         total={paged.total}
         onPageChange={paged.setPage}
+        onPageSizeChange={paged.setPageSize}
+        pageSizeOptions={[10, 15, 25, 50]}
         itemLabel="event"
         className="border-t border-border"
       />

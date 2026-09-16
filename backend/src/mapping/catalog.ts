@@ -1,5 +1,5 @@
 import { openProject, linkId } from '../openproject/client.js';
-import { referenceCache } from '../lib/cache.js';
+import { referenceCache, userScopedKey } from '../lib/cache.js';
 import type { OpPriority, OpStatus, OpType } from '../openproject/types.js';
 import type { TaskPriority, TaskStatusCategory, TaskType } from '../types/epm.js';
 
@@ -164,5 +164,5 @@ async function loadCatalog(signal?: AbortSignal): Promise<Catalog> {
 }
 
 export function getCatalog(signal?: AbortSignal): Promise<Catalog> {
-  return referenceCache.get('catalog', () => loadCatalog(signal));
+  return referenceCache.get(userScopedKey('catalog'), () => loadCatalog(signal));
 }

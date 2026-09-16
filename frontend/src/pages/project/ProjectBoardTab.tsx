@@ -5,6 +5,7 @@ import { KanbanBoard, KanbanBoardSkeleton } from '@/components/board/KanbanBoard
 import { FilterBar } from '@/components/tasks/FilterBar';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { EmptyState } from '@/components/common/EmptyState';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
 import { Card } from '@/components/ui/card';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useSprints } from '@/hooks/useSprints';
@@ -13,11 +14,20 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
 import type { ID, TaskFilters, TaskStatusCategory } from '@/types';
 
+/**
+ * How many work packages the board loads at once.
+ *
+ * A board is not a paged list — dragging between columns needs the whole
+ * set — so it loads in one go and grows on request. What it must not do is
+ * show a subset silently: the column counts come from what was fetched.
+ */
+const BOARD_PAGE_SIZE = 200;
+
 /** Delivery board for a single project. */
 export default function ProjectBoardTab() {
   const { projectId } = useParams();
   const { openTaskDrawer } = useUI();
-  const [filters, setFilters] = useState<TaskFilters>({ projectId, pageSize: 200 });
+  const [filters, setFilters] = useState<TaskFilters>({ projectId, pageSize: BOARD_PAGE_SIZE });
 
   const debouncedSearch = useDebounce(filters.search ?? '', 250);
   const query = useTasks({ ...filters, projectId, search: debouncedSearch || undefined });
@@ -27,6 +37,7 @@ export default function ProjectBoardTab() {
   const updateTask = useUpdateTask();
 
   const tasks = useMemo(() => query.data?.items ?? [], [query.data]);
+  const total = query.data?.total ?? tasks.length;
 
   const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
@@ -68,12 +79,28 @@ export default function ProjectBoardTab() {
           </Card>
         }
       >
-        <KanbanBoard
-          tasks={tasks}
-          users={users}
-          onStatusChange={handleStatusChange}
-          onCreate={(status) => openTaskDrawer({ projectId, status })}
-        />
+        <div className="space-y-3">
+          <KanbanBoard
+            tasks={tasks}
+            users={users}
+            onStatusChange={handleStatusChange}
+            onCreate={(status) => openTaskDrawer({ projectId, status })}
+          />
+          <TruncationNotice
+            shown={tasks.length}
+            total={total}
+            itemLabel="task"
+            affected="The column counts"
+            step={BOARD_PAGE_SIZE}
+            loading={query.isFetching}
+            onLoadMore={() =>
+              setFilters((current) => ({
+                ...current,
+                pageSize: (current.pageSize ?? BOARD_PAGE_SIZE) + BOARD_PAGE_SIZE,
+              }))
+            }
+          />
+        </div>
       </QueryBoundary>
     </div>
   );

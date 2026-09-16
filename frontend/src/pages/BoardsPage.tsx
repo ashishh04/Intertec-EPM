@@ -4,9 +4,9 @@ import { SquareKanban } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
 import { KanbanBoard, KanbanBoardSkeleton } from '@/components/board/KanbanBoard';
 import { FilterBar } from '@/components/tasks/FilterBar';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
   Select,
@@ -20,7 +20,6 @@ import { useSprints } from '@/hooks/useSprints';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
-import { pluralize } from '@/lib/utils';
 import { useUI } from '@/providers/UIProvider';
 import type { ID, TaskFilters, TaskStatusCategory } from '@/types';
 
@@ -61,7 +60,6 @@ export default function BoardsPage() {
 
   const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
   const total = tasksQuery.data?.total ?? tasks.length;
-  const hidden = Math.max(0, total - tasks.length);
   const project = projectsQuery.data?.find((item) => item.id === projectId);
 
   const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
@@ -136,30 +134,22 @@ export default function BoardsPage() {
             onCreate={(status) => openTaskDrawer({ projectId, status })}
           />
 
-          {/* Only when the board is actually showing a subset. Silence here
-              would mean the column counts are wrong and nothing says so. */}
-          {hidden > 0 ? (
-            <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-              <p className="text-2xs text-muted-foreground">
-                Showing <span className="font-medium text-foreground">{tasks.length}</span> of{' '}
-                <span className="font-medium text-foreground">{total}</span>{' '}
-                {pluralize(total, 'task')}. The column counts cover what is loaded.
-              </p>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={tasksQuery.isFetching}
-                onClick={() =>
-                  setFilters((current) => ({
-                    ...current,
-                    pageSize: (current.pageSize ?? BOARD_PAGE_SIZE) + BOARD_PAGE_SIZE,
-                  }))
-                }
-              >
-                {tasksQuery.isFetching ? 'Loading…' : `Load ${Math.min(hidden, BOARD_PAGE_SIZE)} more`}
-              </Button>
-            </Card>
-          ) : null}
+          {/* Renders only when the board is actually showing a subset. Silence
+              here would mean the column counts are wrong and nothing says so. */}
+          <TruncationNotice
+            shown={tasks.length}
+            total={total}
+            itemLabel="task"
+            affected="The column counts"
+            step={BOARD_PAGE_SIZE}
+            loading={tasksQuery.isFetching}
+            onLoadMore={() =>
+              setFilters((current) => ({
+                ...current,
+                pageSize: (current.pageSize ?? BOARD_PAGE_SIZE) + BOARD_PAGE_SIZE,
+              }))
+            }
+          />
         </div>
       </QueryBoundary>
     </div>

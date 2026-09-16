@@ -22,13 +22,17 @@
     "test:authz": "tsx --env-file-if-exists=.env src/scripts/authz-test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.33.6",
+    "@anthropic-ai/sdk": "0.126.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.2",
     "@fastify/helmet": "^13.0.1",
     "@fastify/multipart": "^10.1.1",
     "@fastify/rate-limit": "^10.2.2",
     "@prisma/client": "^6.2.1",
+    "@types/nodemailer": "^8.0.2",
     "fastify": "^5.2.1",
+    "nodemailer": "^10.0.10",
     "zod": "^3.24.1"
   },
   "devDependencies": {

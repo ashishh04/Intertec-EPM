@@ -25,6 +25,14 @@ interface UIContextValue {
   taskPanelId: ID | null;
   openTaskPanel: (id: ID) => void;
   closeTaskPanel: () => void;
+
+  /** Pragnya, the assistant popup. */
+  pragnyaOpen: boolean;
+  /** A prompt handed to the composer to edit before sending, never auto-sent. */
+  pragnyaPrompt: string | null;
+  openPragnya: (prompt?: string) => void;
+  closePragnya: () => void;
+  clearPragnyaPrompt: () => void;
 }
 
 const UIContext = createContext<UIContextValue | null>(null);
@@ -39,6 +47,14 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [taskDrawerPrefill, setTaskDrawerPrefill] = useState<TaskDrawerPrefill>({});
   const [taskPanelId, setTaskPanelId] = useState<ID | null>(null);
+  const [pragnyaOpen, setPragnyaOpen] = useState(false);
+  const [pragnyaPrompt, setPragnyaPrompt] = useState<string | null>(null);
+
+  const openPragnya = useCallback((prompt?: string) => {
+    const trimmed = prompt?.trim();
+    if (trimmed) setPragnyaPrompt(trimmed);
+    setPragnyaOpen(true);
+  }, []);
 
   const openTaskDrawer = useCallback(
     (prefill: TaskDrawerPrefill = {}) => {
@@ -64,6 +80,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       taskPanelId,
       openTaskPanel: setTaskPanelId,
       closeTaskPanel: () => setTaskPanelId(null),
+      pragnyaOpen,
+      pragnyaPrompt,
+      openPragnya,
+      closePragnya: () => setPragnyaOpen(false),
+      clearPragnyaPrompt: () => setPragnyaPrompt(null),
     }),
     [
       sidebarCollapsed,
@@ -74,6 +95,9 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       taskDrawerPrefill,
       openTaskDrawer,
       taskPanelId,
+      pragnyaOpen,
+      pragnyaPrompt,
+      openPragnya,
     ],
   );
 

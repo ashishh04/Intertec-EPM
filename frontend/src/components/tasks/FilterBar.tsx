@@ -1,7 +1,7 @@
 import { Filter, Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Badge, CountBadge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -132,11 +132,7 @@ export function FilterBar({
             <Button size="sm" variant="secondary">
               <Filter className="h-3.5 w-3.5" />
               Filter
-              {activeCount > 0 ? (
-                <Badge tone="primary" size="sm" className="ml-0.5 px-1.5">
-                  {activeCount}
-                </Badge>
-              ) : null}
+              <CountBadge count={activeCount} tone="primary" className="ml-0.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-52">
@@ -263,9 +259,10 @@ export function FilterBar({
   );
 }
 
+/** One active filter, removable in place. */
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-2xs text-foreground">
+    <Badge tone="neutral" size="sm" className="gap-1 pr-1">
       {label}
       <button
         type="button"
@@ -275,6 +272,6 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
       >
         <X className="h-3 w-3" />
       </button>
-    </span>
+    </Badge>
   );
 }

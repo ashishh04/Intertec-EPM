@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -10,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -65,6 +67,7 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
     setProblem(undefined);
   }, [open, employee?.id]);
 
+  const allDepartments = departments.data ?? [];
   const allTeams = teams.data ?? [];
 
   // A team with no department fits anywhere, so it stays on offer whichever
@@ -111,6 +114,17 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
     );
   };
 
+  // What to say under the team picker: which teams are on offer, or why none.
+  const teamHint = teams.isLoading
+    ? null
+    : allTeams.length === 0
+      ? 'No teams yet.'
+      : departmentId !== NONE
+        ? selectableTeams.length === 0
+          ? 'No teams in this department.'
+          : 'Only teams in this department are listed.'
+        : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -121,9 +135,9 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4">
           {employee ? (
-            <div className="flex items-center gap-2 rounded-lg border border-border p-3">
+            <Card className="flex items-center gap-3 p-3">
               <UserAvatar user={users.get(employee.id)} size="sm" />
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium">{employee.name}</p>
@@ -131,31 +145,44 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
                   <p className="truncate text-2xs text-muted-foreground">{employee.email}</p>
                 ) : null}
               </div>
-            </div>
+            </Card>
           ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="mapping-department">Department</Label>
-            <Select value={departmentId} onValueChange={chooseDepartment}>
+            {/* An empty value while loading shows the placeholder instead of
+                the "No department" option, which would read as a settled answer. */}
+            <Select
+              value={departments.isLoading ? '' : departmentId}
+              onValueChange={chooseDepartment}
+              disabled={departments.isLoading}
+            >
               <SelectTrigger id="mapping-department" aria-label="Select a department">
-                <SelectValue placeholder="No department" />
+                <SelectValue placeholder={departments.isLoading ? 'Loading…' : 'No department'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>No department</SelectItem>
-                {(departments.data ?? []).map((department) => (
+                {allDepartments.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
                     {department.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {!departments.isLoading && allDepartments.length === 0 ? (
+              <FieldHint>No departments yet.</FieldHint>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="mapping-team">Team</Label>
-            <Select value={teamId} onValueChange={chooseTeam}>
+            <Select
+              value={teams.isLoading ? '' : teamId}
+              onValueChange={chooseTeam}
+              disabled={teams.isLoading}
+            >
               <SelectTrigger id="mapping-team" aria-label="Select a team">
-                <SelectValue placeholder="No team" />
+                <SelectValue placeholder={teams.isLoading ? 'Loading…' : 'No team'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>No team</SelectItem>
@@ -167,18 +194,10 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
                 ))}
               </SelectContent>
             </Select>
-            {departmentId !== NONE ? (
-              <p className="text-2xs text-muted-foreground">
-                Only teams in this department are listed.
-              </p>
-            ) : null}
+            {teamHint ? <FieldHint>{teamHint}</FieldHint> : null}
           </div>
 
-          {problem ? (
-            <p role="alert" className="text-xs text-danger">
-              {problem}
-            </p>
-          ) : null}
+          {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>
 
         <DialogFooter>

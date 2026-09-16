@@ -17,26 +17,35 @@ import {
   subMonths,
 } from 'date-fns';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import { PageHeader } from '@/components/common/PageHeader';
+import { PageHeader, SectionHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvents } from '@/hooks/useDashboard';
 import { useUI } from '@/providers/UIProvider';
-import { cn, toISODateOnly } from '@/lib/utils';
+import {
+  cn,
+  formatLongDate,
+  formatNumber,
+  formatWeekdayDate,
+  pluralize,
+  toISODateOnly,
+} from '@/lib/utils';
 import type { CalendarEvent, CalendarEventKind } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
 
 type ViewMode = 'month' | 'week' | 'day';
 
+// Text takes the `-strong` step for the same reason `TONE_SOFT` does: event
+// chips are 11px on a pale surface, where the vivid tones fall under AA.
 const KIND_STYLE: Record<CalendarEventKind, string> = {
-  task: 'bg-primary-soft text-primary-dark border-primary/25 dark:text-primary',
-  milestone: 'bg-warning-soft text-warning border-warning/25',
-  sprint: 'bg-accent-soft text-accent border-accent/25',
-  meeting: 'bg-highlight-soft text-highlight border-highlight/25',
+  task: 'bg-primary-soft text-primary-dark border-primary/25',
+  milestone: 'bg-warning-soft text-warning-strong border-warning/25',
+  sprint: 'bg-accent-soft text-accent-strong border-accent/25',
+  meeting: 'bg-highlight-soft text-highlight-strong border-highlight/25',
 };
 
 const KIND_LABEL: Record<CalendarEventKind, string> = {
@@ -90,11 +99,14 @@ export default function CalendarPage() {
     else setAnchor((current) => addDays(current, direction));
   };
 
+  // The month title is the one date on this page with no shared formatter:
+  // "September 2026" is neither a short nor a long date, so it stays a direct
+  // date-fns pattern.
   const title =
     view === 'day'
-      ? format(anchor, 'EEEE, d MMMM yyyy')
+      ? formatWeekdayDate(anchor)
       : view === 'week'
-        ? `${format(range.start, 'd MMM')} — ${format(range.end, 'd MMM yyyy')}`
+        ? `${formatLongDate(range.start)} — ${formatLongDate(range.end)}`
         : format(anchor, 'MMMM yyyy');
 
   return (
@@ -123,7 +135,7 @@ export default function CalendarPage() {
           </Button>
         </div>
 
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        <SectionHeader title={title} className="min-w-0" />
 
         <Tabs
           value={view}
@@ -197,11 +209,11 @@ export default function CalendarPage() {
                               : 'text-muted-foreground',
                         )}
                       >
-                        {format(day, 'd')}
+                        {day.getDate()}
                       </span>
                       {dayEvents.length > 3 ? (
-                        <span className="font-mono text-[10px] text-muted-foreground">
-                          {dayEvents.length}
+                        <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                          {formatNumber(dayEvents.length)}
                         </span>
                       ) : null}
                     </div>
@@ -220,7 +232,7 @@ export default function CalendarPage() {
                               setAnchor(day);
                               setView('day');
                             }}
-                            className="w-full rounded px-1 text-left text-[10px] text-muted-foreground hover:text-foreground"
+                            className="w-full rounded px-1 text-left text-2xs text-muted-foreground hover:text-foreground"
                           >
                             +{dayEvents.length - 3} more
                           </button>
@@ -242,7 +254,7 @@ function EventChip({ event }: { event: CalendarEvent }) {
   const content = (
     <span
       className={cn(
-        'block truncate rounded border px-1.5 py-0.5 text-[10px] leading-tight',
+        'block truncate rounded border px-1.5 py-0.5 text-2xs leading-tight',
         KIND_STYLE[event.kind],
       )}
       title={event.title}
@@ -268,12 +280,14 @@ function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="border-b border-border px-4 py-3">
-        <h3 className="text-sm font-semibold tracking-tight">{format(date, 'EEEE d MMMM')}</h3>
-        <p className="mt-0.5 text-2xs text-muted-foreground">
-          {events.length === 0 ? 'Nothing scheduled' : `${events.length} scheduled items`}
-        </p>
-      </div>
+      <CardHeader variant="compact">
+        <CardTitle>{formatWeekdayDate(date)}</CardTitle>
+        <CardDescription className="text-2xs">
+          {events.length === 0
+            ? 'Nothing scheduled'
+            : `${formatNumber(events.length)} scheduled ${pluralize(events.length, 'item')}`}
+        </CardDescription>
+      </CardHeader>
 
       {allDay.length > 0 ? (
         <div className="space-y-1 border-b border-border bg-surface-sunken/50 p-3">
@@ -298,7 +312,7 @@ function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
             );
             return (
               <li key={hour} className="flex gap-3 px-4 py-2">
-                <span className="w-12 shrink-0 pt-0.5 font-mono text-2xs text-muted-foreground">
+                <span className="w-12 shrink-0 pt-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
                   {String(hour).padStart(2, '0')}:00
                 </span>
                 <div className="min-h-5 flex-1 space-y-1">

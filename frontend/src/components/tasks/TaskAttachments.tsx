@@ -4,6 +4,7 @@ import { Download, Paperclip, Trash2, Upload } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
@@ -14,7 +15,8 @@ import {
 } from '@/hooks/useAttachments';
 import { useUserMap } from '@/hooks/useUsers';
 import { attachmentService } from '@/services';
-import { formatBytes } from '@/lib/utils';
+import { formatBytes, formatShortDate } from '@/lib/utils';
+import type { EpmAttachment } from '@/services/api/attachments';
 import type { ID } from '@/types';
 
 /**
@@ -39,6 +41,22 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
 
   const input = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<string>();
+  // The attachment awaiting delete confirmation, if any.
+  const [deleting, setDeleting] = useState<EpmAttachment>();
+
+  const confirmDelete = () => {
+    if (!deleting) return;
+    remove.mutate(deleting.id, {
+      onSuccess: () => {
+        toast.success('Attachment deleted');
+        setDeleting(undefined);
+      },
+      onError: (error) =>
+        toast.error('Could not delete', {
+          description: error instanceof Error ? error.message : undefined,
+        }),
+    });
+  };
 
   const send = (file: File) => {
     setPending(file.name);
@@ -134,7 +152,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
                   <p className="text-2xs text-muted-foreground">
                     {formatBytes(attachment.fileSize)}
                     {attachment.contentType ? ` · ${attachment.contentType}` : ''}
-                    {` · ${attachment.createdAt.slice(0, 10)}`}
+                    {` · ${formatShortDate(attachment.createdAt)}`}
                   </p>
                 </div>
 
@@ -157,17 +175,8 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
                   <button
                     type="button"
                     aria-label={`Delete ${attachment.fileName}`}
-                    className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => {
-                      if (!window.confirm(`Delete ${attachment.fileName}?`)) return;
-                      remove.mutate(attachment.id, {
-                        onSuccess: () => toast.success('Attachment deleted'),
-                        onError: (error) =>
-                          toast.error('Could not delete', {
-                            description: error instanceof Error ? error.message : undefined,
-                          }),
-                      });
-                    }}
+                    className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setDeleting(attachment)}
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   </button>
@@ -177,6 +186,19 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
           </ul>
         )}
       </CardContent>
+
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(undefined);
+        }}
+        title={`Delete ${deleting?.fileName ?? 'this attachment'}?`}
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        tone="danger"
+        pending={remove.isPending}
+        onConfirm={confirmDelete}
+      />
     </Card>
   );
 }

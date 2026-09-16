@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { SchemaForm } from '@/components/common/SchemaForm';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -82,21 +83,19 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
 
         {/* Scrolls, so the actions stay pinned however many fields the
             instance has configured. */}
-        <div className="epm-dialog-body epm-scroll -mr-1 pr-2">
+        <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
           <SchemaForm
             form={form.form}
-          values={form.draft}
-          errors={form.errors}
-          onChange={form.setValue}
+            values={form.draft}
+            errors={form.errors}
+            onChange={form.setValue}
             isLoading={form.isLoading}
           />
-        </div>
 
-        {form.error ? (
-          <p role="alert" className="text-2xs font-medium text-danger">
-            {form.error.message}
-          </p>
-        ) : null}
+          {/* The schema itself failed to load, so there is no field to hang
+              this on; it stands in for the form. */}
+          {form.error ? <Alert tone="danger">{form.error.message}</Alert> : null}
+        </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isSaving}>

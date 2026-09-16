@@ -5,6 +5,7 @@ import { Pencil, Star, Trash2 } from 'lucide-react';
 import { ColumnPicker } from './ColumnPicker';
 import { QueryBuilder } from './QueryBuilder';
 import { TaskTable, TaskTableSkeleton } from './TaskTable';
+import { ConfirmDialog, PromptDialog } from '@/components/common/ConfirmDialog';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +30,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
-import { pluralize } from '@/lib/utils';
+import { cn, formatNumber, pluralize } from '@/lib/utils';
 import { buildFilters, buildSort, type QueryFilterInstance } from '@/services/api/queries';
 import type { ID, EpmProject, UpdateTaskInput } from '@/types';
 
@@ -122,6 +123,11 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const [newName, setNewName] = useState('');
   const [columns, setColumns] = useState<string[]>();
   const [groupBy, setGroupBy] = useState<string>();
+  // Which confirmation is open. Bulk delete carries the ids so the dialog can
+  // say how many rows are about to go.
+  const [renaming, setRenaming] = useState(false);
+  const [deletingView, setDeletingView] = useState(false);
+  const [deletingTasks, setDeletingTasks] = useState<ID[]>();
 
   const schemaQuery = useQuerySchema(projectId);
   const savedQueries = useSavedQueries(projectId);
@@ -258,16 +264,20 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     );
   };
 
-  const rename = () => {
+  const rename = (name: string) => {
     if (!selected?.id) return;
-
-    const name = window.prompt('Rename this view', selected.name)?.trim();
-    if (!name || name === selected.name) return;
+    if (name === selected.name) {
+      setRenaming(false);
+      return;
+    }
 
     updateQuery.mutate(
       { id: selected.id, patch: { name } },
       {
-        onSuccess: () => toast.success('View renamed'),
+        onSuccess: () => {
+          toast.success('View renamed');
+          setRenaming(false);
+        },
         onError: (error) =>
           toast.error('Could not rename this view', {
             description: error instanceof Error ? error.message : undefined,
@@ -278,17 +288,28 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
   const remove = () => {
     if (!selected?.id) return;
-    if (!window.confirm(`Delete the view “${selected.name}”?`)) return;
 
     deleteQuery.mutate(selected.id, {
       onSuccess: () => {
         toast.success('View deleted');
+        setDeletingView(false);
         selectQuery(AD_HOC);
       },
       onError: (error) =>
         toast.error('Could not delete this view', {
           description: error instanceof Error ? error.message : undefined,
         }),
+    });
+  };
+
+  const removeTasks = () => {
+    if (!deletingTasks?.length) return;
+
+    deleteTasks.mutate(deletingTasks, {
+      onSuccess: () => {
+        toast.success('Deleted');
+        setDeletingTasks(undefined);
+      },
     });
   };
 
@@ -304,8 +325,12 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               <SelectItem value={AD_HOC}>Default view</SelectItem>
               {(savedQueries.data ?? []).map((query) => (
                 <SelectItem key={query.id} value={String(query.id)}>
-                  {query.starred ? '★ ' : ''}
-                  {query.name}
+                  <span className="inline-flex items-center gap-1.5">
+                    {query.starred ? (
+                      <Star className="h-3 w-3 fill-warning text-warning" aria-label="Starred" />
+                    ) : null}
+                    {query.name}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -317,13 +342,12 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-8"
                   onClick={() =>
                     toggleStar.mutate({ id: selected.id!, starred: selected.starred })
                   }
                 >
                   <Star
-                    className={cnStar(selected.starred)}
+                    className={cn('h-3.5 w-3.5', selected.starred && 'fill-warning text-warning')}
                     aria-hidden
                   />
                   {selected.starred ? 'Unstar' : 'Star'}
@@ -332,7 +356,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
               {/* Offered only when OpenProject says this user may change it. */}
               {selected.can.update ? (
-                <Button variant="ghost" size="sm" className="h-8" onClick={rename}>
+                <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
                   <Pencil className="h-3.5 w-3.5" />
                   Rename
                 </Button>
@@ -340,7 +364,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
               {/* Offered only when OpenProject says this user may delete it. */}
               {selected.can.delete ? (
-                <Button variant="ghost" size="sm" className="h-8" onClick={remove}>
+                <Button variant="ghost" size="sm" onClick={() => setDeletingView(true)}>
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete
                 </Button>
@@ -358,7 +382,6 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             />
             <Button
               size="sm"
-              className="h-8"
               onClick={save}
               disabled={!newName.trim() || createQuery.isPending}
             >
@@ -417,7 +440,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         error={result.error}
         onRetry={() => void result.refetch()}
         skeleton={<TaskTableSkeleton />}
-        isEmpty={(result.data?.tasks.length ?? 0) === 0}
+        // No `empty` here on purpose: the table draws its own empty state so
+        // the toolbar and column controls stay put when a filter matches nothing.
         errorTitle="This view could not be loaded"
       >
         <TaskTable
@@ -449,16 +473,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               },
             )
           }
-          onBulkDelete={
-            canAnywhere('task:edit')
-              ? (ids: ID[]) => {
-                  if (!window.confirm(`Delete ${ids.length} ${pluralize(ids.length, 'task')}?`)) {
-                    return;
-                  }
-                  deleteTasks.mutate(ids, { onSuccess: () => toast.success('Deleted') });
-                }
-              : undefined
-          }
+          onBulkDelete={canAnywhere('task:edit') ? (ids: ID[]) => setDeletingTasks(ids) : undefined}
           groups={result.data?.groups}
           columns={tableColumns}
           hideProjectColumn={Boolean(projectId)}
@@ -471,14 +486,47 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
       {current ? (
         <p className="mt-2 text-2xs text-muted-foreground">
-          {result.data?.total ?? 0} {pluralize(result.data?.total ?? 0, 'work package')} ·{' '}
-          {appliedFilters.length} {pluralize(appliedFilters.length, 'filter')} applied
+          {formatNumber(result.data?.total ?? 0)}{' '}
+          {pluralize(result.data?.total ?? 0, 'work package')} ·{' '}
+          {formatNumber(appliedFilters.length)} {pluralize(appliedFilters.length, 'filter')}{' '}
+          applied
         </p>
       ) : null}
+
+      <PromptDialog
+        open={renaming}
+        onOpenChange={setRenaming}
+        title="Rename this view"
+        label="Name"
+        initialValue={selected?.name ?? ''}
+        confirmLabel="Rename"
+        pending={updateQuery.isPending}
+        onSubmit={rename}
+      />
+
+      <ConfirmDialog
+        open={deletingView}
+        onOpenChange={setDeletingView}
+        title={`Delete the view “${selected?.name ?? ''}”?`}
+        description="This cannot be undone."
+        confirmLabel="Delete view"
+        tone="danger"
+        pending={deleteQuery.isPending}
+        onConfirm={remove}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deletingTasks)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingTasks(undefined);
+        }}
+        title={`Delete ${formatNumber(deletingTasks?.length ?? 0)} ${pluralize(deletingTasks?.length ?? 0, 'task')}?`}
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        tone="danger"
+        pending={deleteTasks.isPending}
+        onConfirm={removeTasks}
+      />
     </div>
   );
-}
-
-function cnStar(starred: boolean): string {
-  return starred ? 'h-3.5 w-3.5 fill-warning text-warning' : 'h-3.5 w-3.5';
 }

@@ -1,33 +1,39 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import {
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  CirclePlay,
-  Flag,
-  Gauge,
-  Target,
-  TrendingUp,
-} from 'lucide-react';
-import { PageHeader } from '@/components/common/PageHeader';
+import { CheckCircle2, CirclePlay, Flag, Gauge, Plus, Target, Timer, TrendingUp } from 'lucide-react';
+import { PageHeader, SectionHeader } from '@/components/common/PageHeader';
 import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { SprintStateBadge } from '@/components/common/StatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
+import { SprintWorkList } from '@/components/sprints/SprintWorkList';
+import { SprintDialog } from '@/components/sprints/SprintDialog';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { KanbanBoard, KanbanBoardSkeleton } from '@/components/board/KanbanBoard';
 import { BurndownChart, VelocityChart } from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ProgressBar } from '@/components/ui/progress';
-import { useSprints } from '@/hooks/useSprints';
+import { useSetSprintState, useSprints } from '@/hooks/useSprints';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
-import { daysFromToday, formatShortDate, pluralize } from '@/lib/utils';
-import type { ID, TaskStatusCategory } from '@/types';
+import { SPRINT_STATE_META } from '@/lib/domain';
+import { daysFromToday, formatNumber, formatPercent, formatShortDate, pluralize } from '@/lib/utils';
+import type { EpmSprint, ID, SprintState, TaskStatusCategory } from '@/types';
 
 /** Agile workspace: the sprint, its burndown and its board in one place. */
 /**
@@ -45,18 +51,60 @@ export default function AgilePage() {
   const trendsQuery = useDeliveryTrends();
   const users = useUserMap();
   const updateTask = useUpdateTask();
-  const [index, setIndex] = useState<number | null>(null);
+  const setSprintState = useSetSprintState();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [confirming, setConfirming] = useState<SprintState | null>(null);
 
-  const sprints = useMemo(() => sprintsQuery.data ?? [], [sprintsQuery.data]);
+  // Active sprints first, then what is planned, then history, newest first.
+  const sprints = useMemo(() => {
+    const rank: Record<SprintState, number> = { active: 0, planned: 1, completed: 2 };
+    return [...(sprintsQuery.data ?? [])].sort(
+      (a, b) => rank[a.state] - rank[b.state] || b.startDate.localeCompare(a.startDate),
+    );
+  }, [sprintsQuery.data]);
 
-  // Land on the active sprint once the list arrives.
+  // The selection lives in the URL, so a sprint opened from the Sprints page,
+  // or one just created, is the one shown — and a refresh keeps it.
+  const selectedId = searchParams.get('sprint');
+  const activeSprint = sprints.find((item) => item.state === 'active');
+  const sprint: EpmSprint | undefined =
+    sprints.find((item) => item.id === selectedId) ?? activeSprint ?? sprints[0];
+
+  const selectSprint = (id: ID) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set('sprint', id);
+      return next;
+    });
+  };
+
+  // Once the list is in, pin the default choice into the address bar so the
+  // selector, the URL and the page agree.
   useEffect(() => {
-    if (index !== null || sprints.length === 0) return;
-    const activeIndex = sprints.findIndex((sprint) => sprint.state === 'active');
-    setIndex(activeIndex >= 0 ? activeIndex : 0);
-  }, [sprints, index]);
+    if (sprint && sprint.id !== selectedId) selectSprint(sprint.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sprint?.id]);
 
-  const sprint = index !== null ? sprints[index] : undefined;
+  const changeState = (state: SprintState) => {
+    if (!sprint || state === 'planned') return;
+    setSprintState.mutate(
+      { id: sprint.id, state },
+      {
+        onSuccess: (updated) => {
+          setConfirming(null);
+          toast.success(
+            state === 'completed' ? `${updated.name} completed` : `${updated.name} started`,
+          );
+        },
+        onError: (error) =>
+          toast.error(
+            state === 'completed' ? 'The sprint could not be completed' : 'The sprint could not be started',
+            { description: error instanceof Error ? error.message : undefined },
+          ),
+      },
+    );
+  };
 
   // Same reasoning as the board on Boards: a sprint board is not a paged list,
   // so it loads in one go and grows on request. What it must not do is show a
@@ -65,7 +113,6 @@ export default function AgilePage() {
   const tasksQuery = useTasks({ sprintId: sprint?.id, pageSize });
   const tasks = tasksQuery.data?.items ?? [];
   const total = tasksQuery.data?.total ?? tasks.length;
-  const hidden = Math.max(0, total - tasks.length);
 
   const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
@@ -76,6 +123,37 @@ export default function AgilePage() {
       },
     );
   };
+
+  if (!sprintsQuery.isLoading && sprints.length === 0) {
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="Delivery"
+          title="Agile"
+          description="Sprint delivery workspace."
+          actions={
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New sprint
+            </Button>
+          }
+        />
+        <Card>
+          <EmptyState
+            icon={Timer}
+            title="No sprints yet"
+            description="Create the first sprint to plan work against it, then start it from here."
+            action={{ label: 'New sprint', onClick: () => setCreateOpen(true) }}
+          />
+        </Card>
+        <SprintDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(created) => selectSprint(created.id)}
+        />
+      </div>
+    );
+  }
 
   if (sprintsQuery.isLoading || !sprint) {
     return (
@@ -110,64 +188,75 @@ export default function AgilePage() {
         meta={<SprintStateBadge state={sprint.state} />}
         actions={
           <>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                aria-label="Previous sprint"
-                disabled={index === 0}
-                onClick={() => setIndex((current) => Math.max(0, (current ?? 0) - 1))}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  const activeIndex = sprints.findIndex((item) => item.state === 'active');
-                  setIndex(activeIndex >= 0 ? activeIndex : 0);
-                }}
-              >
-                Current Sprint
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon-sm"
-                aria-label="Next sprint"
-                disabled={index === sprints.length - 1}
-                onClick={() =>
-                  setIndex((current) => Math.min(sprints.length - 1, (current ?? 0) + 1))
-                }
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+            <Select value={sprint.id} onValueChange={selectSprint}>
+              <SelectTrigger className="w-56" aria-label="Choose a sprint">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(['active', 'planned', 'completed'] as SprintState[]).map((state) => {
+                  const group = sprints.filter((item) => item.state === state);
+                  if (group.length === 0) return null;
+                  return (
+                    <SelectGroup key={state}>
+                      <SelectLabel>{SPRINT_STATE_META[state].label}</SelectLabel>
+                      {group.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+
+            <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New sprint
+            </Button>
 
             {sprint.state === 'planned' ? (
-              <Button
-                onClick={() =>
-                  toast('Starting a sprint is not implemented yet', {
-                    description: 'A connected workspace opens the sprint and locks its scope.',
-                  })
-                }
-              >
+              <Button onClick={() => setConfirming('active')}>
                 <CirclePlay className="h-4 w-4" />
-                Start Sprint
+                Start sprint
               </Button>
             ) : sprint.state === 'active' ? (
-              <Button
-                onClick={() =>
-                  toast('Completing a sprint is not implemented yet', {
-                    description: 'Unfinished work would move to the next sprint or the backlog.',
-                  })
-                }
-              >
+              <Button onClick={() => setConfirming('completed')}>
                 <CheckCircle2 className="h-4 w-4" />
-                Complete Sprint
+                Complete sprint
               </Button>
             ) : null}
           </>
         }
+      />
+
+      <SprintDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(created) => selectSprint(created.id)}
+      />
+
+      <ConfirmDialog
+        open={confirming === 'active'}
+        onOpenChange={(open) => !open && setConfirming(null)}
+        title={`Start ${sprint.name}?`}
+        description="The sprint becomes the active one from today. Work already committed to it stays committed."
+        confirmLabel="Start sprint"
+        pending={setSprintState.isPending}
+        onConfirm={() => changeState('active')}
+      />
+      <ConfirmDialog
+        open={confirming === 'completed'}
+        onOpenChange={(open) => !open && setConfirming(null)}
+        title={`Complete ${sprint.name}?`}
+        description={
+          remaining > 0
+            ? `${formatNumber(remaining)} ${pluralize(remaining, 'point')} of committed work ${remaining === 1 ? 'is' : 'are'} not done. The sprint closes anyway; move unfinished work to the next sprint from the board.`
+            : 'Everything committed is done. The sprint closes and moves to history.'
+        }
+        confirmLabel="Complete sprint"
+        pending={setSprintState.isPending}
+        onConfirm={() => changeState('completed')}
       />
 
       {/* Sprint goal */}
@@ -180,16 +269,24 @@ export default function AgilePage() {
         </span>
         <div className="min-w-0 flex-1">
           <p className="epm-eyebrow">Sprint goal</p>
-          <p className="mt-1 text-xs leading-relaxed text-foreground">{sprint.goal}</p>
+          <p className="mt-1 text-xs leading-relaxed text-foreground">
+            {sprint.goal || (
+              <span className="text-muted-foreground">No sprint goal has been set.</span>
+            )}
+          </p>
         </div>
         <div className="hidden w-40 shrink-0 space-y-1.5 sm:block">
           <div className="flex items-baseline justify-between">
             <span className="text-2xs text-muted-foreground">Progress</span>
-            <span className="font-mono text-xs font-semibold tabular-nums">{progress}%</span>
+            <span className="font-mono text-xs font-semibold tabular-nums">
+              {formatPercent(progress)}
+            </span>
           </div>
           <ProgressBar value={progress} label={`${sprint.name} progress`} />
           <p className="text-2xs text-muted-foreground">
-            {daysLeft >= 0 ? `${daysLeft} days remaining` : 'Sprint window closed'}
+            {daysLeft >= 0
+              ? `${formatNumber(daysLeft)} ${pluralize(daysLeft, 'day')} remaining`
+              : 'Sprint window closed'}
           </p>
         </div>
       </Card>
@@ -208,7 +305,7 @@ export default function AgilePage() {
           label="Completed"
           value={sprint.completedPoints}
           suffix="pts"
-          support={`${progress}% of commitment`}
+          support={`${formatPercent(progress)} of commitment`}
           icon={CheckCircle2}
           tone="success"
         />
@@ -216,7 +313,11 @@ export default function AgilePage() {
           label="Remaining"
           value={remaining}
           suffix="pts"
-          support={daysLeft >= 0 ? `${daysLeft} days left` : 'Past the end date'}
+          support={
+            daysLeft >= 0
+              ? `${formatNumber(daysLeft)} ${pluralize(daysLeft, 'day')} left`
+              : 'Past the end date'
+          }
           icon={Gauge}
           tone={remaining > 0 && daysLeft <= 2 ? 'warning' : 'accent'}
         />
@@ -236,25 +337,26 @@ export default function AgilePage() {
           <BurndownChart data={sprint.burndown} />
         </ChartCard>
 
-        {trendsQuery.isLoading ? (
-          <ChartCardSkeleton height={260} />
-        ) : (
+        <QueryBoundary
+          isLoading={trendsQuery.isLoading}
+          isError={trendsQuery.isError}
+          error={trendsQuery.error}
+          onRetry={() => trendsQuery.refetch()}
+          errorTitle="Unable to load velocity"
+          skeleton={<ChartCardSkeleton height={260} />}
+        >
           <ChartCard title="Velocity" description="Story points delivered per sprint" height={260}>
             <VelocityChart data={velocity} />
           </ChartCard>
-        )}
+        </QueryBoundary>
       </div>
 
       {/* Sprint board */}
       <section className="space-y-3">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight">Sprint board</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Work committed to {sprint.name} across every project
-            </p>
-          </div>
-        </div>
+        <SectionHeader
+          title="Sprint board"
+          description={`Work committed to ${sprint.name} across every project`}
+        />
 
         <QueryBoundary
           isLoading={tasksQuery.isLoading}
@@ -287,30 +389,26 @@ export default function AgilePage() {
               columns={['todo', 'in_progress', 'review', 'done']}
             />
 
-            {/* Only when the board is showing a subset. A sprint rarely holds
-                more than this, so the normal case is silence. */}
-            {hidden > 0 ? (
-              <Card className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <p className="text-2xs text-muted-foreground">
-                  Showing <span className="font-medium text-foreground">{tasks.length}</span> of{' '}
-                  <span className="font-medium text-foreground">{total}</span>{' '}
-                  {pluralize(total, 'task')}. The column counts cover what is loaded.
-                </p>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={tasksQuery.isFetching}
-                  onClick={() => setPageSize((size) => size + SPRINT_PAGE_SIZE)}
-                >
-                  {tasksQuery.isFetching
-                    ? 'Loading…'
-                    : `Load ${Math.min(hidden, SPRINT_PAGE_SIZE)} more`}
-                </Button>
-              </Card>
-            ) : null}
+            {/* Renders only when the board is showing a subset. A sprint rarely
+                holds more than this, so the normal case is silence. */}
+            <TruncationNotice
+              shown={tasks.length}
+              total={total}
+              itemLabel="task"
+              affected="The column counts"
+              step={SPRINT_PAGE_SIZE}
+              loading={tasksQuery.isFetching}
+              onLoadMore={() => setPageSize((size) => size + SPRINT_PAGE_SIZE)}
+            />
           </div>
         </QueryBoundary>
       </section>
+
+      {/* Sprint work as a paged list, for scanning and for keyboard users the
+          board cannot serve. */}
+      {tasks.length > 0 ? (
+        <SprintWorkList tasks={tasks} users={users} resetKey={sprint.id} />
+      ) : null}
     </div>
   );
 }

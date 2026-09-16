@@ -24,7 +24,7 @@ function PageHeader({ title, description, eyebrow, meta, actions, className }: P
       <div className="min-w-0 space-y-1">
         {eyebrow ? <div className="epm-eyebrow">{eyebrow}</div> : null}
         <div className="flex flex-wrap items-center gap-2.5">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+          <h1 className="font-display text-xl font-bold tracking-[-0.03em] text-foreground">{title}</h1>
           {meta}
         </div>
         {description ? (
@@ -51,7 +51,7 @@ function SectionHeader({
   return (
     <div className={cn('flex items-end justify-between gap-4', className)}>
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
+        <h2 className="font-display text-sm font-semibold tracking-[-0.02em] text-foreground">{title}</h2>
         {description ? (
           <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
         ) : null}

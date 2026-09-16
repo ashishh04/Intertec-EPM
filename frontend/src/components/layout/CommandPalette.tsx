@@ -8,7 +8,9 @@ import {
   LayoutDashboard,
   ListPlus,
   ListTodo,
+  Loader2,
   Settings,
+  Sparkles,
   SquareKanban,
   Timer,
   Users,
@@ -31,13 +33,18 @@ import { useTasks } from '@/hooks/useTasks';
 import { useUsers } from '@/hooks/useUsers';
 import { useTeams } from '@/hooks/useTeams';
 import { useDebounce } from '@/hooks/useDebounce';
+import { featureFlags } from '@/config/env';
+import { formatNumber } from '@/lib/utils';
+
+/** Each group shows this many before asking for a narrower search. */
+const LIMITS = { projects: 5, tasks: 6, users: 4, teams: 3 };
 
 /**
  * Global command palette. Opens on Ctrl/Cmd+K from anywhere and searches
  * projects, tasks, people and teams alongside the standard actions.
  */
 export function CommandPalette() {
-  const { commandPaletteOpen, setCommandPaletteOpen, openTaskDrawer } = useUI();
+  const { commandPaletteOpen, setCommandPaletteOpen, openTaskDrawer, openPragnya } = useUI();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 200);
@@ -46,9 +53,9 @@ export function CommandPalette() {
   const { data: projects } = useProjects();
   const { data: users } = useUsers();
   const { data: teams } = useTeams();
-  const { data: taskPage } = useTasks({
+  const { data: taskPage, isFetching: searchingTasks } = useTasks({
     search: debouncedQuery || undefined,
-    pageSize: 6,
+    pageSize: LIMITS.tasks,
     sortBy: 'updatedAt',
     sortDir: 'desc',
   });
@@ -74,33 +81,34 @@ export function CommandPalette() {
     requestAnimationFrame(action);
   };
 
-  const matchedProjects = (projects ?? [])
-    .filter((project) =>
-      debouncedQuery
-        ? `${project.name} ${project.identifier} ${project.portfolio}`
-            .toLowerCase()
-            .includes(debouncedQuery.toLowerCase())
-        : true,
-    )
-    .slice(0, 5);
+  // Each group is capped, and remembers how many it left out so the reader
+  // knows to narrow the search rather than assume that was everything.
+  const projectMatches = (projects ?? []).filter((project) =>
+    debouncedQuery
+      ? `${project.name} ${project.identifier} ${project.portfolio}`
+          .toLowerCase()
+          .includes(debouncedQuery.toLowerCase())
+      : true,
+  );
+  const matchedProjects = projectMatches.slice(0, LIMITS.projects);
 
-  const matchedUsers = (users ?? [])
-    .filter((user) =>
-      debouncedQuery
-        ? `${user.name} ${user.role} ${user.department}`
-            .toLowerCase()
-            .includes(debouncedQuery.toLowerCase())
-        : false,
-    )
-    .slice(0, 4);
+  const userMatches = (users ?? []).filter((user) =>
+    debouncedQuery
+      ? `${user.name} ${user.role} ${user.department}`
+          .toLowerCase()
+          .includes(debouncedQuery.toLowerCase())
+      : false,
+  );
+  const matchedUsers = userMatches.slice(0, LIMITS.users);
 
-  const matchedTeams = (teams ?? [])
-    .filter((team) =>
-      debouncedQuery ? team.name.toLowerCase().includes(debouncedQuery.toLowerCase()) : false,
-    )
-    .slice(0, 3);
+  const teamMatches = (teams ?? []).filter((team) =>
+    debouncedQuery ? team.name.toLowerCase().includes(debouncedQuery.toLowerCase()) : false,
+  );
+  const matchedTeams = teamMatches.slice(0, LIMITS.teams);
 
-  const matchedTasks = taskPage?.items.slice(0, 6) ?? [];
+  const matchedTasks = taskPage?.items.slice(0, LIMITS.tasks) ?? [];
+  // Tasks are searched server-side, so the overflow comes from the page total.
+  const moreTasks = Math.max(0, (taskPage?.total ?? 0) - matchedTasks.length);
 
   return (
     <CommandDialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
@@ -118,6 +126,24 @@ export function CommandPalette() {
             Create task
             <CommandShortcut>C</CommandShortcut>
           </CommandItem>
+          {featureFlags.pragnya ? (
+            // The value carries the query so this stays visible whatever is
+            // typed: any search can be turned into a question.
+            <CommandItem
+              value={`pragnya assistant ask ${query}`}
+              onSelect={() => run(() => openPragnya(query.trim() || undefined))}
+            >
+              <Sparkles />
+              {query.trim() ? (
+                <span className="truncate">
+                  Pragnya: <span className="text-muted-foreground">“{query.trim()}”</span>
+                </span>
+              ) : (
+                'Pragnya'
+              )}
+              <CommandShortcut>Ctrl /</CommandShortcut>
+            </CommandItem>
+          ) : null}
           <CommandItem value="my work" onSelect={() => run(() => navigate('/my-work'))}>
             <ListTodo />
             Open my work
@@ -155,8 +181,21 @@ export function CommandPalette() {
                   <CommandShortcut>{project.identifier}</CommandShortcut>
                 </CommandItem>
               ))}
+              <MoreResults count={projectMatches.length - matchedProjects.length} />
             </CommandGroup>
           </>
+        ) : null}
+
+        {/* Outside the group: cmdk hides a group with no matching items, and
+            the search may still be in flight before there are any. */}
+        {searchingTasks ? (
+          <div
+            role="status"
+            className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-muted-foreground"
+          >
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            Searching…
+          </div>
         ) : null}
 
         {matchedTasks.length > 0 ? (
@@ -177,6 +216,7 @@ export function CommandPalette() {
                   </span>
                 </CommandItem>
               ))}
+              <MoreResults count={moreTasks} />
             </CommandGroup>
           </>
         ) : null}
@@ -196,6 +236,7 @@ export function CommandPalette() {
                   <CommandShortcut>{user.role}</CommandShortcut>
                 </CommandItem>
               ))}
+              <MoreResults count={userMatches.length - matchedUsers.length} />
             </CommandGroup>
           </>
         ) : null}
@@ -214,6 +255,7 @@ export function CommandPalette() {
                   <span className="truncate">{team.name}</span>
                 </CommandItem>
               ))}
+              <MoreResults count={teamMatches.length - matchedTeams.length} />
             </CommandGroup>
           </>
         ) : null}
@@ -239,5 +281,19 @@ export function CommandPalette() {
         </CommandGroup>
       </CommandList>
     </CommandDialog>
+  );
+}
+
+/**
+ * Quiet trailer for a capped group. A plain div rather than a `CommandItem`,
+ * because cmdk would filter an item out whenever its text did not match the
+ * search — and this one never will.
+ */
+function MoreResults({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <p className="px-2.5 py-1.5 text-2xs text-muted-foreground" aria-live="polite">
+      {formatNumber(count)} more — refine your search
+    </p>
   );
 }

@@ -179,7 +179,7 @@ absent, the UI says so through a toast instead of faking success.
 | --- | --- |
 | **Authentication** | Stub — `signIn()` sets a `sessionStorage` marker; no real IdP. `AuthProvider` is the single seam to replace. |
 | **Permissions** | Hardcoded to full delivery rights in `AuthProvider`. Needs `GET /me` to carry the caller's OpenProject permissions. |
-| **"Ask EPM"** | Entry point renders; no AI responses are faked. |
+| **Pragnya** | The assistant answers from EPM data via Claude in Amazon Bedrock; unconfigured deployments say so. |
 | **Real-time** | Not implemented. Invalidation groups in `src/lib/queryKeys.ts` are ready for it. |
 | **Write actions** | Project creation, sprint start/complete, time logging, member invite, messaging, document preview and inline task editing are toast stubs (13 sites — grep `not implemented yet`). |
 | **Document upload** | No real file transfer; needs a backend endpoint and storage. |

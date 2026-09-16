@@ -18,11 +18,11 @@ import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TaskListSkeleton, TaskRow } from '@/components/tasks/TaskRow';
-import { SprintSummary, SprintSummarySkeleton } from '@/components/dashboard/SprintSummary';
+import { SprintSummary, SprintSummaryEmpty, SprintSummarySkeleton } from '@/components/dashboard/SprintSummary';
 import { DeliveryTrendChart } from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDashboardMetrics, useActivity } from '@/hooks/useDashboard';
 import { useProjects } from '@/hooks/useProjects';
 import { useTasks } from '@/hooks/useTasks';
@@ -31,7 +31,7 @@ import { useActiveSprint } from '@/hooks/useSprints';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
-import { formatLongDate, greetingForHour, pluralize } from '@/lib/utils';
+import { formatLongDate, formatNumber, greetingForHour, pluralize } from '@/lib/utils';
 import type { ID, EpmProject, TaskFilters } from '@/types';
 
 const WORK_TABS: { value: NonNullable<TaskFilters['bucket']>; label: string }[] = [
@@ -129,7 +129,7 @@ export default function DashboardPage() {
               {
                 label: 'My Tasks',
                 value: metrics.myTasks,
-                support: `${metrics.myTasksDueThisWeek} due this week`,
+                support: `${formatNumber(metrics.myTasksDueThisWeek)} due this week`,
                 icon: ListTodo,
                 tone: 'primary' as const,
                 trend: metrics.trends.myTasks,
@@ -140,7 +140,7 @@ export default function DashboardPage() {
                 value: metrics.inProgress,
                 support:
                   metrics.inProgressBlocked > 0
-                    ? `${metrics.inProgressBlocked} blocked`
+                    ? `${formatNumber(metrics.inProgressBlocked)} blocked`
                     : 'Nothing blocked',
                 icon: CircleDot,
                 tone: 'accent' as const,
@@ -152,7 +152,7 @@ export default function DashboardPage() {
                 value: metrics.overdue,
                 support:
                   metrics.overdueCritical > 0
-                    ? `${metrics.overdueCritical} critical`
+                    ? `${formatNumber(metrics.overdueCritical)} critical`
                     : 'No critical items',
                 icon: AlertTriangle,
                 tone: 'danger' as const,
@@ -162,7 +162,7 @@ export default function DashboardPage() {
               {
                 label: 'Active Projects',
                 value: metrics.activeProjects,
-                support: `${metrics.projectsAtRisk} ${pluralize(metrics.projectsAtRisk, 'project')} at risk`,
+                support: `${formatNumber(metrics.projectsAtRisk)} ${pluralize(metrics.projectsAtRisk, 'project')} at risk`,
                 icon: FolderKanban,
                 tone: 'highlight' as const,
                 trend: metrics.trends.activeProjects,
@@ -178,23 +178,25 @@ export default function DashboardPage() {
       {/* 3 — My Work and sprint progress */}
       <section className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">My Work</h2>
-              <p className="mt-0.5 text-2xs text-muted-foreground">
-                Assigned to you across every active project
-              </p>
-            </div>
-            <Tabs value={bucket} onValueChange={(value) => setBucket(value as typeof bucket)}>
-              <TabsList>
-                {WORK_TABS.map((tab) => (
-                  <TabsTrigger key={tab.value} value={tab.value}>
-                    {tab.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </div>
+          <CardHeader
+            variant="compact"
+            actions={
+              <Tabs value={bucket} onValueChange={(value) => setBucket(value as typeof bucket)}>
+                <TabsList>
+                  {WORK_TABS.map((tab) => (
+                    <TabsTrigger key={tab.value} value={tab.value}>
+                      {tab.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            }
+          >
+            <CardTitle>My Work</CardTitle>
+            <CardDescription className="text-2xs">
+              Assigned to you across every active project
+            </CardDescription>
+          </CardHeader>
 
           <QueryBoundary
             isLoading={myWorkQuery.isLoading}
@@ -241,10 +243,15 @@ export default function DashboardPage() {
         </Card>
 
         {/* 5 — Sprint progress */}
-        {sprintQuery.isLoading || !sprintQuery.data ? (
+        {/* Three states, not two: loading, a running sprint, and no sprint at
+            all. Collapsing the last two into the skeleton left the card
+            loading forever whenever nothing was in flight. */}
+        {sprintQuery.isPending ? (
           <SprintSummarySkeleton />
-        ) : (
+        ) : sprintQuery.data ? (
           <SprintSummary sprint={sprintQuery.data} />
+        ) : (
+          <SprintSummaryEmpty />
         )}
       </section>
 
@@ -304,9 +311,14 @@ export default function DashboardPage() {
 
       {/* 6 and 7 — Delivery trends and recent activity */}
       <section className="grid gap-5 lg:grid-cols-3">
-        {trendsQuery.isLoading ? (
-          <ChartCardSkeleton />
-        ) : (
+        <QueryBoundary
+          isLoading={trendsQuery.isLoading}
+          isError={trendsQuery.isError}
+          error={trendsQuery.error}
+          onRetry={() => trendsQuery.refetch()}
+          errorTitle="Unable to load delivery insights"
+          skeleton={<ChartCardSkeleton height={260} className="lg:col-span-2" />}
+        >
           <ChartCard
             title="Delivery Insights"
             description="Completed vs. created work packages per sprint"
@@ -320,15 +332,15 @@ export default function DashboardPage() {
           >
             <DeliveryTrendChart data={trendsQuery.data ?? []} />
           </ChartCard>
-        )}
+        </QueryBoundary>
 
         <Card>
-          <div className="border-b border-border px-4 py-3">
-            <h2 className="text-sm font-semibold tracking-tight">Recent Activity</h2>
-            <p className="mt-0.5 text-2xs text-muted-foreground">
+          <CardHeader variant="compact">
+            <CardTitle>Recent Activity</CardTitle>
+            <CardDescription className="text-2xs">
               Latest changes across your projects
-            </p>
-          </div>
+            </CardDescription>
+          </CardHeader>
           <div className="p-4">
             <QueryBoundary
               isLoading={activityQuery.isLoading}

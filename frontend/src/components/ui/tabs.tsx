@@ -12,7 +12,7 @@ const TabsList = React.forwardRef<
     ref={ref}
     className={cn(
       'inline-flex items-center gap-1',
-      variant === 'pill' && 'rounded-lg bg-muted p-1',
+      variant === 'pill' && 'rounded-full bg-muted p-1',
       variant === 'underline' && 'gap-4 border-b border-border',
       className,
     )}
@@ -28,13 +28,15 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-xs font-medium transition-all',
+      'inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-display text-xs font-medium transition-all',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
       'disabled:pointer-events-none disabled:opacity-50',
       variant === 'pill' &&
-        'rounded-md px-3 py-1.5 text-muted-foreground hover:text-foreground data-[state=active]:bg-surface data-[state=active]:text-foreground data-[state=active]:shadow-xs',
+        'rounded-full px-3 py-1.5 text-muted-foreground hover:text-foreground data-[state=active]:bg-surface data-[state=active]:text-foreground data-[state=active]:shadow-xs',
+      // The active underline is the brand gradient, which a border cannot be —
+      // hence a pseudo-element bar rather than `border-b-2`.
       variant === 'underline' &&
-        '-mb-px border-b-2 border-transparent px-0.5 pb-2.5 pt-1 text-muted-foreground hover:text-foreground data-[state=active]:border-primary data-[state=active]:text-foreground',
+        'relative px-0.5 pb-2.5 pt-1 text-muted-foreground hover:text-foreground data-[state=active]:font-semibold data-[state=active]:text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full data-[state=active]:after:bg-brand',
       className,
     )}
     {...props}

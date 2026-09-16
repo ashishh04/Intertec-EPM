@@ -8,7 +8,9 @@ import {
   Gauge,
   LayoutDashboard,
   ListTodo,
+  Plug,
   Settings,
+  ShieldCheck,
   SquareKanban,
   Timer,
   Users,
@@ -17,6 +19,7 @@ import {
   Briefcase,
   type LucideIcon,
 } from 'lucide-react';
+import type { Permission } from '@/types';
 
 export interface NavItem {
   label: string;
@@ -26,6 +29,12 @@ export interface NavItem {
   matchNested?: boolean;
   /** Renders the live unread count when true. */
   badge?: 'notifications';
+  /**
+   * Shown only to people holding this global permission. The route behind it
+   * is guarded on the same permission (see App.tsx), so hiding the link is a
+   * courtesy, not the boundary.
+   */
+  permission?: Permission;
 }
 
 export interface NavSection {
@@ -36,7 +45,12 @@ export interface NavSection {
 
 /**
  * Primary navigation. The order is deliberate: overview, then the work the user
- * owns, then how it is delivered, then what it adds up to.
+ * owns, then how it is delivered, then what it adds up to, then administration.
+ *
+ * The Administration section is the difference between an administrator's
+ * sidebar and everyone else's. Its items each carry a permission, and the
+ * section disappears entirely when none of them apply — a regular user is not
+ * shown an empty heading for an area they cannot enter.
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
@@ -62,29 +76,67 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Insights',
-    items: [
-      { label: 'Portfolios', to: '/portfolios', icon: Briefcase },
-      { label: 'Reports', to: '/reports', icon: FileText },
-      { label: 'Analytics', to: '/analytics', icon: BarChart3 },
-    ],
+    items: [{ label: 'Reports', to: '/reports', icon: FileText }],
   },
   {
     title: 'Collaboration',
     items: [
       { label: 'Teams', to: '/teams', icon: Users, matchNested: true },
-      { label: 'Departments', to: '/departments', icon: Building2 },
-      { label: 'Employees', to: '/employees', icon: UserRound },
       { label: 'Documents', to: '/documents', icon: FileText },
+    ],
+  },
+  {
+    title: 'Administration',
+    items: [
+      {
+        label: 'Administration',
+        to: '/admin',
+        icon: ShieldCheck,
+        permission: 'users:manage',
+        matchNested: true,
+      },
+      { label: 'Portfolios', to: '/portfolios', icon: Briefcase, permission: 'portfolios:manage' },
+      { label: 'Analytics', to: '/analytics', icon: BarChart3, permission: 'analytics:manage' },
+      { label: 'Departments', to: '/departments', icon: Building2, permission: 'departments:manage' },
+      { label: 'Employees', to: '/employees', icon: UserRound, permission: 'employees:manage' },
+      { label: 'Integration', to: '/settings/integration', icon: Plug, permission: 'users:manage' },
     ],
   },
   {
     title: 'System',
     items: [
       { label: 'Notifications', to: '/notifications', icon: Bell, badge: 'notifications' },
-      { label: 'Settings', to: '/settings', icon: Settings, matchNested: true },
+      { label: 'Settings', to: '/settings', icon: Settings },
     ],
   },
 ];
+
+/**
+ * The sections a given person may see, with items they lack the permission for
+ * removed and any section left empty dropped with them.
+ */
+export function visibleNavSections(can: (permission: Permission) => boolean): NavSection[] {
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.permission || can(item.permission)),
+  })).filter((section) => section.items.length > 0);
+}
+
+/** The Administration section, filtered to what this person may open. */
+export function adminNavItems(can: (permission: Permission) => boolean): NavItem[] {
+  const section = NAV_SECTIONS.find((candidate) => candidate.title === 'Administration');
+  return (section?.items ?? []).filter((item) => !item.permission || can(item.permission));
+}
+
+/**
+ * Whether this person administers anything at all. This is what separates the
+ * two experiences: an administrator gets the Administration hub, the admin
+ * group in Settings and the extra entry in the account menu; everyone else
+ * gets the same product without them.
+ */
+export function isAdministrator(can: (permission: Permission) => boolean): boolean {
+  return adminNavItems(can).length > 0;
+}
 
 /** Condensed navigation for the mobile bottom bar. */
 export const MOBILE_NAV_ITEMS: NavItem[] = [
@@ -107,17 +159,23 @@ export const PROJECT_TABS = [
   { label: 'Reports', segment: 'reports' },
 ] as const;
 
-/** Settings categories. `managedUpstream` marks settings owned by the delivery system. */
+/**
+ * Settings categories. `group` splits the page the way OpenProject does: the `account` group
+ * is identical for everyone, the `administration` group exists only for
+ * administrators.
+ */
 export const SETTINGS_SECTIONS = [
-  { id: 'profile', label: 'Profile', managedUpstream: false },
-  { id: 'appearance', label: 'Appearance', managedUpstream: false },
-  { id: 'notifications', label: 'Notifications', managedUpstream: false },
-  { id: 'workspace', label: 'Workspace', managedUpstream: false },
-  { id: 'projects', label: 'Projects', managedUpstream: true },
-  { id: 'teams', label: 'Teams', managedUpstream: true },
-  { id: 'integrations', label: 'Integrations', managedUpstream: false },
-  { id: 'security', label: 'Security', managedUpstream: true },
-  { id: 'api', label: 'API', managedUpstream: true },
+  { id: 'profile', label: 'Profile', group: 'account' },
+  { id: 'appearance', label: 'Appearance', group: 'account' },
+  { id: 'notifications', label: 'Notifications', group: 'account' },
+  { id: 'workspace', label: 'Workspace', group: 'administration' },
+  { id: 'projects', label: 'Projects', group: 'administration' },
+  { id: 'teams', label: 'Teams', group: 'administration' },
+  { id: 'integrations', label: 'Integrations', group: 'administration' },
+  { id: 'security', label: 'Security', group: 'administration' },
+  { id: 'api', label: 'API', group: 'administration' },
 ] as const;
+
+export type SettingsGroup = (typeof SETTINGS_SECTIONS)[number]['group'];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];

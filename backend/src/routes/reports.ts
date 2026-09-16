@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import { requestSignal } from '../lib/request-signal.js';
-import { aggregateCache } from '../lib/cache.js';
+import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { getCatalog } from '../mapping/catalog.js';
 import {
@@ -58,7 +58,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = filtersQuery.parse(request.query);
     const signal = requestSignal(request);
 
-    return aggregateCache.get(`status-distribution:${projectId ?? 'all'}`, async () => {
+    return aggregateCache.get(userScopedKey(`status-distribution:${projectId ?? 'all'}`), async () => {
       const catalog = await getCatalog(signal);
 
       const collection = (await openProject.getCollection<unknown>(
@@ -91,7 +91,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = filtersQuery.parse(request.query);
     const signal = requestSignal(request);
 
-    return aggregateCache.get(`delivery-trends:${projectId ?? 'all'}`, async () => {
+    return aggregateCache.get(userScopedKey(`delivery-trends:${projectId ?? 'all'}`), async () => {
       const catalog = await getCatalog(signal);
 
       const workPackages = await openProject

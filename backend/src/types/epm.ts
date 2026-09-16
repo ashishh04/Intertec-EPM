@@ -35,6 +35,13 @@ export type AvatarAccent = 'blue' | 'teal' | 'violet' | 'amber' | 'rose' | 'slat
 export interface EpmUser {
   id: ID;
   name: string;
+  /**
+   * The two halves of the name, as the directory stores them. Present so a
+   * person can edit their own name without EPM guessing where to split the
+   * display form. Empty for a principal the caller may not read in full.
+   */
+  firstName: string;
+  lastName: string;
   initials: string;
   email: string;
   role: string;
@@ -226,6 +233,14 @@ export interface EpmProject {
   portfolio: string;
   /** The linked portfolio, where there is one. Absent means unassigned. */
   portfolioId?: ID;
+  /**
+   * The project this one sits under in the delivery hierarchy, where there is
+   * one. Upstream's own `parent` link, not an EPM overlay — so a hierarchy
+   * built in the instance shows here without EPM being told about it.
+   */
+  parentId?: ID;
+  /** The parent's name, resolved for display. Absent when there is no parent. */
+  parentName?: string;
   budgetUsed: number;
   budgetTotal: number;
   /**
@@ -659,3 +674,221 @@ export interface IntegrationStatus {
   apiVersion: string;
   syncedResources: { resource: string; count: number; lastSyncAt: ISODate }[];
 }
+
+/* -------------------------------------------------------------------------- */
+/* Preferences                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A person's own settings. Stored server-side so they follow the person
+ * between browsers and so the email worker can honour them without a browser
+ * being open. The shape is deliberately the one the Settings page renders.
+ */
+export interface UserPreferences {
+  notifications: {
+    assigned: boolean;
+    mentions: boolean;
+    statusChanges: boolean;
+    dueReminders: boolean;
+    digest: boolean;
+  };
+  email: {
+    /** Master switch. Off means no email of any kind, including invites resent later. */
+    enabled: boolean;
+    assigned: boolean;
+    mentions: boolean;
+    /** Being given access to a project. */
+    membership: boolean;
+    /** Status and field changes on work the person is assigned to or watches. */
+    updates: boolean;
+    dueReminders: boolean;
+    /** One summary a day for everything not sent immediately. */
+    digest: boolean;
+  };
+  appearance: {
+    compactTables: boolean;
+    reduceMotion: boolean;
+    showAvatars: boolean;
+  };
+  workweek: {
+    startOfWeek: 'monday' | 'sunday';
+    timeFormat: '24h' | '12h';
+  };
+  workspace: {
+    landingPage: 'dashboard' | 'my-work' | 'projects';
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Invitations                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** What the invite page may show before the person has proven who they are. */
+export interface InviteInfo {
+  firstName: string;
+  email: string;
+  organisation: string;
+  expiresAt: ISODate;
+  /** `expired` and `used` are both terminal; the page explains which. */
+  state: 'valid' | 'expired' | 'used';
+}
+
+/* -------------------------------------------------------------------------- */
+/* Assistant                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export type AssistantRole = 'user' | 'assistant';
+
+export interface AssistantToolCall {
+  id: string;
+  /** Tool name as the model called it, e.g. `list_tasks`. */
+  name: string;
+  /** Short human label for the chip, e.g. "Looked up overdue tasks". */
+  label: string;
+  arguments: Record<string, unknown>;
+  status: 'running' | 'done' | 'failed';
+}
+
+export interface AssistantMessage {
+  id: ID;
+  conversationId: ID;
+  role: AssistantRole;
+  content: string;
+  toolCalls: AssistantToolCall[];
+  createdAt: ISODate;
+}
+
+export interface AssistantConversation {
+  id: ID;
+  title: string;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+/** Whether the assistant can answer at all, and what to say if it cannot. */
+export interface AssistantStatus {
+  available: boolean;
+  reason?: string;
+  model?: string;
+}
+
+/**
+ * One frame of the streamed reply. Sent as server-sent events with the frame
+ * as JSON in `data:`. `delta` frames concatenate into the assistant's text.
+ */
+export type AssistantStreamEvent =
+  | { type: 'conversation'; conversationId: ID; title: string }
+  | { type: 'tool'; call: AssistantToolCall }
+  | { type: 'delta'; text: string }
+  | { type: 'done'; message: AssistantMessage }
+  | { type: 'error'; message: string };
+
+/* -------------------------------------------------------------------------- */
+/* Administration settings sections                                            */
+/* -------------------------------------------------------------------------- */
+
+export interface AdminSettingOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * One setting, described by the instance rather than by EPM.
+ *
+ * The backend returns the type, the current value, the choices where there are
+ * any, and whether the instance will accept a change. A section therefore
+ * renders from its descriptor alone, so a setting added upstream appears here
+ * without a new page being written for it.
+ */
+export interface AdminSettingField {
+  key: string;
+  label: string;
+  help?: string;
+  type: 'boolean' | 'integer' | 'string' | 'text' | 'enum' | 'multi_enum';
+  value: boolean | number | string | string[];
+  /** False when the instance pins it by environment or configuration file. */
+  writable: boolean;
+  options?: AdminSettingOption[];
+}
+
+export interface AdminSettingsSection {
+  id: string;
+  label: string;
+  description: string;
+  fields: AdminSettingField[];
+}
+
+export interface AdminSettingsSectionSummary {
+  id: string;
+  label: string;
+  description: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Administration catalogues                                                   */
+/* -------------------------------------------------------------------------- */
+
+export interface AdminCatalogOption {
+  value: string;
+  label: string;
+  /** Present on colour options, so a swatch can be filled rather than named. */
+  hex?: string;
+}
+
+/** One column of a catalogue, described by the instance rather than by EPM. */
+export interface AdminCatalogField {
+  key: string;
+  label: string;
+  type: 'string' | 'text' | 'boolean' | 'integer' | 'enum';
+  required?: boolean;
+  help?: string;
+  /** A secret the instance accepts but never reads back, such as a signing key. */
+  writeOnly?: boolean;
+  options?: AdminCatalogOption[];
+}
+
+/**
+ * One row. The declared keys are always present; the rest are the catalogue's
+ * own fields, which vary by resource and are read through the descriptor.
+ */
+export interface AdminCatalogRow {
+  id: ID;
+  /** False when the instance would refuse to remove it. */
+  deletable: boolean;
+  /** Why it cannot be removed, when it cannot. */
+  undeletableReason?: string;
+  [field: string]: unknown;
+}
+
+export interface AdminCatalog {
+  resource: string;
+  label: string;
+  /** The noun for one row, for buttons and confirmations. */
+  singular: string;
+  description: string;
+  fields: AdminCatalogField[];
+  rows: AdminCatalogRow[];
+}
+
+export interface AdminCatalogSummary {
+  id: string;
+  label: string;
+  singular: string;
+  description: string;
+}
+
+/** The character classes an instance can require in a password. */
+export type PasswordRule = 'lowercase' | 'uppercase' | 'numeric' | 'special';
+
+/**
+ * The password rules an instance enforces.
+ *
+ * `minAdheredRules` is how many of `activeRules` a password must satisfy, not a
+ * boolean: zero means none of them are required and only `minLength` applies.
+ */
+export interface PasswordPolicy {
+  minLength: number;
+  activeRules: PasswordRule[];
+  minAdheredRules: number;
+}
+

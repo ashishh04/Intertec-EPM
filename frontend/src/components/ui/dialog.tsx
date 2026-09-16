@@ -15,7 +15,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[2px]',
+      'fixed inset-0 z-50 bg-foreground/30 backdrop-blur-[2px]',
       'data-[state=open]:animate-in data-[state=closed]:animate-out',
       'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
       className,
@@ -42,8 +42,16 @@ const DialogContent = React.forwardRef<
         // A long dialog should give its body `epm-dialog-body`, which scrolls
         // and leaves the header and the actions pinned. The overflow here is
         // the fallback for one that does not.
+        // No `relative` here, unlike the app's other scroll containers: this
+        // panel is already `fixed`, which makes it a containing block anyway,
+        // and `cn()` merges conflicting position utilities by keeping the last
+        // one — adding it silently dropped `fixed` and dumped the dialog into
+        // document flow.
         'max-h-[calc(100dvh-2rem)] overflow-y-auto epm-scroll',
-        'rounded-xl border border-border bg-surface p-5 shadow-popover duration-200',
+        'rounded-xl border border-border bg-surface p-5 shadow-floating duration-200',
+        // Radix focuses the panel itself on open; the page-level focus ring
+        // would draw a halo around the whole dialog, so it is suppressed here.
+        'focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0',
         'data-[state=open]:zoom-in-96 data-[state=closed]:zoom-out-96',

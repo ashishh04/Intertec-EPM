@@ -28,6 +28,9 @@ import { ApiMemberRepository } from './api/members';
 import { ApiEmployeeRepository } from './api/employees';
 import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiPortfolioRepository } from './api/portfolios';
+import { ApiAdminRepository } from './api/admin';
+import { ApiPreferenceRepository } from './api/preferences';
+import { ApiInviteRepository } from './api/invites';
 import { ApiRelationRepository, ApiWatcherRepository } from './api/collaboration';
 import {
   ApiFormRepository,
@@ -85,5 +88,14 @@ export const departmentService = new ApiDepartmentRepository();
 export const employeeService = new ApiEmployeeRepository();
 export const portfolioService = new ApiPortfolioRepository();
 export const analyticsService = new ApiAnalyticsRepository();
+
+/** Instance administration. Reads OpenProject's admin resources through the backend. */
+export const adminService = new ApiAdminRepository();
+
+/** The signed-in person's own settings. EPM-owned; nothing here reaches OpenProject. */
+export const preferenceService = new ApiPreferenceRepository();
+
+/** Invitations, for the person accepting one. Public: no session exists yet. */
+export const inviteService = new ApiInviteRepository();
 
 export type { EpmRepositories } from './repositories';

@@ -20,6 +20,8 @@ export interface PaginationProps {
   pageSizeOptions?: number[];
   /** Singular noun used in the summary line, e.g. "task". */
   itemLabel?: string;
+  /** Plural form when it is not just `itemLabel + "s"`, e.g. "statuses". */
+  itemLabelPlural?: string;
   /** `compact` drops the summary line, for use inside narrow cards. */
   variant?: 'default' | 'compact';
   className?: string;
@@ -70,6 +72,7 @@ export function Pagination({
   onPageSizeChange,
   pageSizeOptions = DEFAULT_PAGE_SIZES,
   itemLabel = 'item',
+  itemLabelPlural,
   variant = 'default',
   className,
 }: PaginationProps) {
@@ -101,7 +104,7 @@ export function Pagination({
                 {formatNumber(rangeStart)}–{formatNumber(rangeEnd)}
               </span>{' '}
               of <span className="font-mono font-medium text-foreground">{formatNumber(total)}</span>{' '}
-              {pluralize(total, itemLabel)}
+              {pluralize(total, itemLabel, itemLabelPlural)}
             </>
           )}
         </p>

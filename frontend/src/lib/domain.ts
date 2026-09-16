@@ -191,25 +191,33 @@ export const TONE_FILL: Record<Tone, string> = {
   highlight: 'bg-highlight',
 };
 
-/** Soft badge surface + readable text for a tone. */
+/**
+ * Soft badge surface + readable text for a tone.
+ *
+ * Text uses the `-strong` step, not the vivid base: badge labels render at
+ * 11px, and the vivid green and amber measure 2.49:1 and 2.10:1 against their
+ * own soft surfaces. The `-strong` step is the same hue darkened until it
+ * clears 4.5:1.
+ */
 export const TONE_SOFT: Record<Tone, string> = {
   neutral: 'bg-neutral-soft text-muted-foreground border-border',
-  primary: 'bg-primary-soft text-primary-dark border-primary/20 dark:text-primary',
-  success: 'bg-success-soft text-success border-success/20',
-  warning: 'bg-warning-soft text-warning border-warning/25',
-  danger: 'bg-danger-soft text-danger border-danger/20',
-  accent: 'bg-accent-soft text-accent border-accent/20',
-  highlight: 'bg-highlight-soft text-highlight border-highlight/20',
+  primary: 'bg-primary-soft text-primary-dark border-primary/20',
+  success: 'bg-success-soft text-success-strong border-success/20',
+  warning: 'bg-warning-soft text-warning-strong border-warning/25',
+  danger: 'bg-danger-soft text-danger-strong border-danger/20',
+  accent: 'bg-accent-soft text-accent-strong border-accent/20',
+  highlight: 'bg-highlight-soft text-highlight-strong border-highlight/20',
 };
 
+/** Tone as bare text on the page. Same reasoning as `TONE_SOFT`. */
 export const TONE_TEXT: Record<Tone, string> = {
   neutral: 'text-muted-foreground',
   primary: 'text-primary',
-  success: 'text-success',
-  warning: 'text-warning',
-  danger: 'text-danger',
-  accent: 'text-accent',
-  highlight: 'text-highlight',
+  success: 'text-success-strong',
+  warning: 'text-warning-strong',
+  danger: 'text-danger-strong',
+  accent: 'text-accent-strong',
+  highlight: 'text-highlight-strong',
 };
 
 /** Chart-safe CSS colour reference for a tone. */

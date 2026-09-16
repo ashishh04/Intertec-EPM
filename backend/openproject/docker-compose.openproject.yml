@@ -42,5 +42,14 @@ services:
     volumes:
       - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/pgdata:/var/openproject/pgdata
       - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/assets:/var/openproject/assets
-      # The EPM patch. Read-only: nothing in the container should rewrite it.
+      # The EPM patches. Read-only: nothing in the container should rewrite them.
       - ./zzz_epm_password_grant.rb:/app/config/initializers/zzz_epm_password_grant.rb:ro
+      # The EPM admin API (/epm_admin/*): users settings, permissions, roles.
+      - ./zzz_epm_admin_api.rb:/app/config/initializers/zzz_epm_admin_api.rb:ro
+      # The EPM admin settings API (/epm_admin/sections/*): the settings
+      # sections that exist upstream only as HTML forms.
+      - ./zzz_epm_admin_settings.rb:/app/config/initializers/zzz_epm_admin_settings.rb:ro
+      # The EPM admin catalogue API (/epm_admin/catalog/*): create, edit and
+      # delete for types, statuses, priorities, custom fields, webhooks and
+      # OAuth applications, none of which API v3 lets anyone write.
+      - ./zzz_epm_admin_catalog.rb:/app/config/initializers/zzz_epm_admin_catalog.rb:ro

@@ -32,8 +32,8 @@ const ILLUSTRATIVE_ROWS = [
 ] as const;
 
 const TONE_STYLES: Record<(typeof ILLUSTRATIVE_ROWS)[number]['tone'], { dot: string; pill: string }> = {
-  success: { dot: 'bg-success', pill: 'bg-success-soft text-success' },
-  warning: { dot: 'bg-warning', pill: 'bg-warning-soft text-warning' },
+  success: { dot: 'bg-success', pill: 'bg-success-soft text-success-strong' },
+  warning: { dot: 'bg-warning', pill: 'bg-warning-soft text-warning-strong' },
   primary: { dot: 'bg-primary', pill: 'bg-primary-soft text-primary' },
   neutral: { dot: 'bg-muted-foreground/50', pill: 'bg-muted text-muted-foreground' },
 };
@@ -94,7 +94,7 @@ export function ProductPreview({ className }: { className?: string }) {
           <div className="rounded-lg border border-border bg-surface p-2.5">
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-2xs text-muted-foreground">Velocity · last 12 sprints</p>
-              <p className="font-mono text-2xs font-medium text-success">+14%</p>
+              <p className="font-mono text-2xs font-medium text-success-strong">+14%</p>
             </div>
             <div className="mt-2.5 flex h-14 items-end gap-1.5">
               {ILLUSTRATIVE_VELOCITY.map((height, index) => (

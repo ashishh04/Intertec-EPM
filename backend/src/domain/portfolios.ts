@@ -2,7 +2,7 @@ import type { Portfolio } from '@prisma/client';
 
 import { EpmError } from '../lib/errors.js';
 import { prisma } from '../db/prisma.js';
-import type { HealthLevel } from '../types/epm.js';
+import type { HealthLevel, ProjectStatus } from '../types/epm.js';
 
 /**
  * Portfolios — a named grouping of projects that EPM owns.
@@ -39,6 +39,23 @@ export interface EpmPortfolio {
   capacityHours: number;
   /** Distinct teams those people belong to. Derived, never declared. */
   teams: { id: string; name: string }[];
+  /**
+   * Work across its projects, summed. Progress is derived from these two
+   * rather than averaging each project's percentage, which would let a
+   * five-task project weigh as heavily as a five-hundred-task one.
+   */
+  taskCount: number;
+  completedTaskCount: number;
+  /** Overdue work across its projects — the same signal a project calls risk. */
+  openRiskCount: number;
+  /**
+   * How its projects' delivery status is distributed. Counted, not collapsed,
+   * for the same reason health is: no rule says what one portfolio-level
+   * verdict would mean.
+   */
+  statuses: Record<ProjectStatus, number>;
+  budgetUsed: number;
+  budgetTotal: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +73,50 @@ export interface PortfolioProjectFacts {
   active: boolean;
   overallHealth: HealthLevel;
   memberIds: string[];
+  /** Upstream's own delivery status for the project. */
+  status: ProjectStatus;
+  taskCount: number;
+  completedTaskCount: number;
+  openRiskCount: number;
+  budgetUsed: number;
+  budgetTotal: number;
+}
+
+/**
+ * The rollup facts for every project that belongs to a portfolio.
+ *
+ * One place rather than one per caller: a rollup that counted a fact the live
+ * portfolio list did not would make the analytics snapshot disagree with the
+ * page it is supposed to be a history of.
+ */
+export function toPortfolioFacts(
+  projects: {
+    portfolioId?: string;
+    status: ProjectStatus;
+    health: { overall: HealthLevel };
+    memberIds: string[];
+    taskCount: number;
+    completedTaskCount: number;
+    openRiskCount: number;
+    budgetUsed: number;
+    budgetTotal: number;
+  }[],
+): PortfolioProjectFacts[] {
+  return projects
+    .filter((project) => Boolean(project.portfolioId))
+    .map((project) => ({
+      portfolioId: project.portfolioId as string,
+      // Upstream's own state, not a copy: `status` is derived per read.
+      active: project.status !== 'paused',
+      overallHealth: project.health.overall,
+      memberIds: project.memberIds,
+      status: project.status,
+      taskCount: project.taskCount,
+      completedTaskCount: project.completedTaskCount,
+      openRiskCount: project.openRiskCount,
+      budgetUsed: project.budgetUsed,
+      budgetTotal: project.budgetTotal,
+    }));
 }
 
 const NAME_MAX = 120;
@@ -164,6 +225,12 @@ async function rollupsFor(
       projectCount: number;
       activeProjectCount: number;
       health: { healthy: number; warning: number; critical: number };
+      statuses: Record<ProjectStatus, number>;
+      taskCount: number;
+      completedTaskCount: number;
+      openRiskCount: number;
+      budgetUsed: number;
+      budgetTotal: number;
       people: Set<string>;
       teams: Map<string, string>;
     }
@@ -176,6 +243,12 @@ async function rollupsFor(
         projectCount: 0,
         activeProjectCount: 0,
         health: { healthy: 0, warning: 0, critical: 0 },
+        statuses: { on_track: 0, at_risk: 0, delayed: 0, completed: 0, paused: 0 },
+        taskCount: 0,
+        completedTaskCount: 0,
+        openRiskCount: 0,
+        budgetUsed: 0,
+        budgetTotal: 0,
         people: new Set(),
         teams: new Map(),
       };
@@ -185,6 +258,12 @@ async function rollupsFor(
     rollup.projectCount += 1;
     if (fact.active) rollup.activeProjectCount += 1;
     rollup.health[fact.overallHealth] += 1;
+    rollup.statuses[fact.status] += 1;
+    rollup.taskCount += fact.taskCount;
+    rollup.completedTaskCount += fact.completedTaskCount;
+    rollup.openRiskCount += fact.openRiskCount;
+    rollup.budgetUsed += fact.budgetUsed;
+    rollup.budgetTotal += fact.budgetTotal;
 
     // A set, so someone on two projects in the same portfolio is counted once.
     for (const memberId of fact.memberIds) rollup.people.add(memberId);
@@ -209,6 +288,12 @@ async function rollupsFor(
       // Float addition leaves 37.5 + 37.5 + 0.1 looking like 75.10000000000001.
       capacityHours: Math.round(capacityHours * 100) / 100,
       teams: [...rollup.teams].map(([id, name]) => ({ id, name })),
+      taskCount: rollup.taskCount,
+      completedTaskCount: rollup.completedTaskCount,
+      openRiskCount: rollup.openRiskCount,
+      statuses: rollup.statuses,
+      budgetUsed: Math.round(rollup.budgetUsed * 100) / 100,
+      budgetTotal: Math.round(rollup.budgetTotal * 100) / 100,
     });
   }
 
@@ -232,6 +317,18 @@ function toEpmPortfolio(
     memberCount: rollup?.memberCount ?? 0,
     capacityHours: rollup?.capacityHours ?? 0,
     teams: rollup?.teams ?? [],
+    taskCount: rollup?.taskCount ?? 0,
+    completedTaskCount: rollup?.completedTaskCount ?? 0,
+    openRiskCount: rollup?.openRiskCount ?? 0,
+    statuses: rollup?.statuses ?? {
+      on_track: 0,
+      at_risk: 0,
+      delayed: 0,
+      completed: 0,
+      paused: 0,
+    },
+    budgetUsed: rollup?.budgetUsed ?? 0,
+    budgetTotal: rollup?.budgetTotal ?? 0,
     active: row.active,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

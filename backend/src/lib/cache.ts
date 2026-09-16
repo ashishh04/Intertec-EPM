@@ -1,3 +1,5 @@
+import { currentAuth } from '../auth/context.js';
+
 /**
  * Small in-process TTL cache.
  *
@@ -47,9 +49,37 @@ export class TtlCache {
     this.entries.delete(key);
   }
 
+  /**
+   * Drops every entry whose key starts with `prefix`. User-scoped entries are
+   * stored as `<name>:u<id>`, so invalidating `<name>` has to clear all of
+   * them rather than a single key.
+   */
+  invalidatePrefix(prefix: string) {
+    for (const key of this.entries.keys()) {
+      if (key === prefix || key.startsWith(`${prefix}:`)) this.entries.delete(key);
+    }
+  }
+
   clear() {
     this.entries.clear();
   }
+}
+
+/**
+ * Scopes a cache key to the signed-in user.
+ *
+ * Every OpenProject call travels on the caller's OAuth token, so responses are
+ * already filtered by that user's permissions. Caching them under a bare name
+ * would serve whichever user populated the entry first to everyone else until
+ * it expired — either leaking records a user should not see, or hiding records
+ * they should. The key carries the user id so those views stay separate.
+ *
+ * Unauthenticated (scheduled, unattended) work uses the configured API key and
+ * gets its own `system` bucket for the same reason.
+ */
+export function userScopedKey(name: string): string {
+  const userId = currentAuth()?.userId;
+  return userId ? `${name}:u${userId}` : `${name}:system`;
 }
 
 /** Reference data: statuses, types, priorities. Rarely changes. */

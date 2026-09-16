@@ -2,6 +2,9 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuth } from '@/providers/AuthProvider';
+import type { Permission } from '@/types';
+import { safeDestination } from '@/lib/navigation';
+import { isAdministrator } from '@/config/navigation';
 
 /**
  * Routes are code-split so the initial bundle only carries the shell and the
@@ -10,6 +13,7 @@ import { useAuth } from '@/providers/AuthProvider';
 const LandingPage = lazy(() => import('@/pages/LandingPage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SetPasswordPage = lazy(() => import('@/pages/SetPasswordPage'));
+const InvitePage = lazy(() => import('@/pages/InvitePage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const MyWorkPage = lazy(() => import('@/pages/MyWorkPage'));
 const ProjectsPage = lazy(() => import('@/pages/ProjectsPage'));
@@ -29,6 +33,8 @@ const TeamsPage = lazy(() => import('@/pages/TeamsPage'));
 const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage'));
 const EmployeesPage = lazy(() => import('@/pages/EmployeesPage'));
 const PortfoliosPage = lazy(() => import('@/pages/PortfoliosPage'));
+const PortfolioDetailPage = lazy(() => import('@/pages/PortfolioDetailPage'));
+const DepartmentDetailPage = lazy(() => import('@/pages/DepartmentDetailPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
 const AgilePage = lazy(() => import('@/pages/AgilePage'));
@@ -43,6 +49,8 @@ const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const IntegrationPage = lazy(() => import('@/pages/IntegrationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
+const AdministrationPage = lazy(() => import('@/pages/admin/AdministrationPage'));
 
 /**
  * Boundary for the routes that render outside AppShell — in practice /login.
@@ -55,6 +63,21 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
  */
 function RouteFallback() {
   return <div className="min-h-screen bg-background" />;
+}
+
+/**
+ * Where an already-signed-in visitor to /login belongs.
+ *
+ * Not always the dashboard. A deep link or a browser refresh lands here for a
+ * moment whenever the session has not been confirmed yet — RequireAuth sends
+ * anyone it cannot vouch for to /login and records where they were going — and
+ * answering "the dashboard" threw that destination away, so every refresh
+ * became a trip home.
+ */
+function SignedInRedirect() {
+  const location = useLocation();
+  const from = (location.state as { from?: unknown } | null)?.from;
+  return <Navigate to={safeDestination(from)} replace />;
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -76,6 +99,26 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   // requested URL is still there once the password is set.
   if (mustChangePassword) return <SetPasswordPage />;
 
+  return <>{children}</>;
+}
+
+/**
+ * Administration routes. The sidebar already hides these links from anyone
+ * without the permission; this is what makes a typed or shared URL honour the
+ * same rule. Rendered in place, like the password gate, so the address stays
+ * put and explains itself.
+ */
+function RequirePermission({
+  permission,
+  children,
+}: {
+  /** A specific permission, or `administrator` for anyone who administers anything. */
+  permission: Permission | 'administrator';
+  children: React.ReactNode;
+}) {
+  const { can } = useAuth();
+  const allowed = permission === 'administrator' ? isAdministrator(can) : can(permission);
+  if (!allowed) return <ForbiddenPage />;
   return <>{children}</>;
 }
 
@@ -102,10 +145,13 @@ export function App() {
           path="/login"
           // Same reason as RequireAuth: show nothing until the session is known,
           // rather than flashing the sign-in form at someone already signed in.
-          element={
-            isLoading ? null : isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />
-          }
+          element={isLoading ? null : isAuthenticated ? <SignedInRedirect /> : <LoginPage />}
         />
+
+        {/* Public, and shown whatever the session state: the person arriving
+            here has no password yet, and an administrator testing the link
+            should see what they will see. */}
+        <Route path="/invite/:token" element={<InvitePage />} />
 
         <Route
           element={
@@ -133,9 +179,47 @@ export function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/tasks/:taskId" element={<TaskDetailPage />} />
 
-          <Route path="/departments" element={<DepartmentsPage />} />
-          <Route path="/employees" element={<EmployeesPage />} />
-          <Route path="/portfolios" element={<PortfoliosPage />} />
+          <Route
+            path="/departments"
+            element={
+              <RequirePermission permission="departments:manage">
+                <DepartmentsPage />
+              </RequirePermission>
+            }
+          />
+          {/* Gated like the directory above it: a department is EPM's own
+              record, and everything on this page is drawn from the same
+              reads the directory already needs that permission for. */}
+          <Route
+            path="/departments/:departmentId"
+            element={
+              <RequirePermission permission="departments:manage">
+                <DepartmentDetailPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/employees"
+            element={
+              <RequirePermission permission="employees:manage">
+                <EmployeesPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/portfolios"
+            element={
+              <RequirePermission permission="portfolios:manage">
+                <PortfoliosPage />
+              </RequirePermission>
+            }
+          />
+          {/* Not gated like the directory above it. A project's overview links
+              here for anyone who can see that project, and the backend serves
+              the read to any signed-in caller — gating it would 403 a member
+              who simply clicked the portfolio their project is in. The page
+              still checks `portfolios:manage` before offering edit or archive. */}
+          <Route path="/portfolios/:portfolioId" element={<PortfolioDetailPage />} />
 
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/teams/:teamId" element={<TeamDetailPage />} />
@@ -147,12 +231,42 @@ export function App() {
           <Route path="/gantt" element={<GanttPage />} />
 
           <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/analytics" element={<AnalyticsPage />} />
+          <Route
+            path="/analytics"
+            element={
+              <RequirePermission permission="analytics:manage">
+                <AnalyticsPage />
+              </RequirePermission>
+            }
+          />
           <Route path="/documents" element={<DocumentsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          {/*
+            One component for the whole of Administration: it reads the area
+            and page from the URL and does its own routing, redirects and
+            not-found handling, so the three paths share one guard.
+          */}
+          {['/admin', '/admin/:areaId', '/admin/:areaId/:pageId', '/admin/:areaId/:pageId/:itemId'].map((path) => (
+            <Route
+              key={path}
+              path={path}
+              element={
+                <RequirePermission permission="administrator">
+                  <AdministrationPage />
+                </RequirePermission>
+              }
+            />
+          ))}
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/settings/integration" element={<IntegrationPage />} />
+          <Route
+            path="/settings/integration"
+            element={
+              <RequirePermission permission="users:manage">
+                <IntegrationPage />
+              </RequirePermission>
+            }
+          />
 
           <Route path="*" element={<NotFoundPage />} />
         </Route>

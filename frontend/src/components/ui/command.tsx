@@ -29,7 +29,7 @@ function CommandDialog({
     <Dialog {...props}>
       <DialogContent
         hideClose
-        className="max-w-xl gap-0 overflow-hidden p-0 shadow-popover"
+        className="top-[18%] max-w-[36rem] translate-y-0 gap-0 overflow-hidden p-0 shadow-floating"
         aria-label={title}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
@@ -46,12 +46,15 @@ const CommandInput = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Input>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Input>
 >(({ className, ...props }, ref) => (
-  <div className="flex items-center gap-2.5 border-b border-border px-3.5" cmdk-input-wrapper="">
+  <div className="flex items-center gap-2.5 border-b border-border px-3" cmdk-input-wrapper="">
     <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        'flex h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-50',
+        // The global focus ring is for controls that sit on a page; inside the
+        // palette the input is the whole surface, so the ring is dropped.
+        'flex h-10 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70',
+        'focus-visible:ring-0 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       {...props}
@@ -66,7 +69,7 @@ const CommandList = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <CommandPrimitive.List
     ref={ref}
-    className={cn('epm-scroll max-h-[22rem] overflow-y-auto overflow-x-hidden p-1.5', className)}
+    className={cn('epm-scroll relative max-h-80 overflow-y-auto overflow-x-hidden p-1.5', className)}
     {...props}
   />
 ));
@@ -107,7 +110,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs outline-none',
+      'relative flex cursor-pointer select-none items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs outline-none',
       'data-[selected=true]:bg-muted data-[selected=true]:text-foreground',
       'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
       '[&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',

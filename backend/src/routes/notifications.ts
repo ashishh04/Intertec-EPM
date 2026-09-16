@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import { prisma } from '../db/prisma.js';
+import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, linkId } from '../openproject/client.js';
 import type { OpNotification } from '../openproject/types.js';
@@ -122,10 +123,29 @@ export const notificationRoutes: FastifyPluginAsync = async (app) => {
         .catch(() => undefined);
     }
 
-    for (const id of upstreamIds) {
-      await openProject
-        .request<void>(`/notifications/${id}/read_ian`, { method: 'POST', signal })
-        .catch(() => undefined);
+    // Sent together rather than one after another: a person clearing a full
+    // panel marks dozens at once, and a serial walk makes that a visible wait.
+    const upstream = await Promise.allSettled(
+      upstreamIds.map((id) =>
+        openProject.request<void>(`/notifications/${id}/read_ian`, { method: 'POST', signal }),
+      ),
+    );
+
+    // Reported rather than swallowed. This used to catch-and-continue and then
+    // answer 204, so an upstream refusal looked exactly like success and the
+    // notification stayed unread with nobody any the wiser — which is what a
+    // missing content-type header on the request above was doing.
+    const failed = upstream.filter((result) => result.status === 'rejected');
+    if (failed.length > 0) {
+      request.log.warn(
+        { count: failed.length, of: upstreamIds.length },
+        'Some notifications could not be marked read upstream',
+      );
+      throw EpmError.unavailable(
+        failed.length === upstreamIds.length
+          ? 'Those notifications could not be marked read.'
+          : `${failed.length} of ${upstreamIds.length} notifications could not be marked read.`,
+      );
     }
 
     reply.status(204);

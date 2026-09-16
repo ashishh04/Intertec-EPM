@@ -15,7 +15,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { TrendingUp } from 'lucide-react';
+import { BarChart3, PieChart as PieChartIcon, TrendingUp, type LucideIcon } from 'lucide-react';
 import { EmptyState } from '@/components/common/EmptyState';
 import { TASK_STATUS_META, TONE_VAR, type Tone } from '@/lib/domain';
 import type { BurndownPoint, DeliveryTrendPoint, StatusDistribution } from '@/types';
@@ -44,7 +44,7 @@ const TOOLTIP_STYLE = {
     background: 'hsl(var(--popover))',
     border: '1px solid hsl(var(--border))',
     borderRadius: '0.5rem',
-    boxShadow: '0 12px 32px -8px rgba(16,24,40,0.18)',
+    boxShadow: '0 12px 32px -8px hsl(var(--foreground) / 0.18)',
     fontSize: 11,
     color: 'hsl(var(--popover-foreground))',
   },
@@ -53,11 +53,38 @@ const TOOLTIP_STYLE = {
   cursor: { fill: 'hsl(var(--muted))', opacity: 0.6 },
 } as const;
 
+/**
+ * The quiet "nothing to draw" block every chart shows for an empty series.
+ * Recharts would otherwise render bare axes over blank space, which reads as
+ * a broken chart rather than an honest absence of data.
+ */
+function ChartEmpty({
+  title,
+  description,
+  icon = BarChart3,
+}: {
+  title: string;
+  description: string;
+  icon?: LucideIcon;
+}) {
+  return <EmptyState icon={icon} size="inline" title={title} description={description} />;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Sprint burndown                                                             */
 /* -------------------------------------------------------------------------- */
 
 export function BurndownChart({ data }: { data: BurndownPoint[] }) {
+  if (data.length === 0) {
+    return (
+      <ChartEmpty
+        icon={TrendingUp}
+        title="No burndown yet"
+        description="The line starts once the sprint records its first day."
+      />
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
@@ -100,6 +127,16 @@ export function BurndownChart({ data }: { data: BurndownPoint[] }) {
 /* -------------------------------------------------------------------------- */
 
 export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
+  if (data.length === 0) {
+    return (
+      <ChartEmpty
+        icon={TrendingUp}
+        title="No delivery history"
+        description="Created and completed counts appear once work has moved."
+      />
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
@@ -149,6 +186,15 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
 /* -------------------------------------------------------------------------- */
 
 export function VelocityChart({ data }: { data: DeliveryTrendPoint[] }) {
+  if (data.length === 0) {
+    return (
+      <ChartEmpty
+        title="No velocity yet"
+        description="Story points show once a sprint has been completed."
+      />
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
@@ -174,6 +220,16 @@ export function VelocityChart({ data }: { data: DeliveryTrendPoint[] }) {
 /* -------------------------------------------------------------------------- */
 
 export function StatusDistributionChart({ data }: { data: StatusDistribution[] }) {
+  if (data.length === 0) {
+    return (
+      <ChartEmpty
+        icon={PieChartIcon}
+        title="No work to break down"
+        description="The distribution fills in as tasks are created."
+      />
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <PieChart>
@@ -219,6 +275,12 @@ export function HorizontalBarChart({
   labelKey?: string;
   tone?: keyof typeof TONE_VAR;
 }) {
+  if (data.length === 0) {
+    return (
+      <ChartEmpty title="Nothing to compare" description="There are no values to chart yet." />
+    );
+  }
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>

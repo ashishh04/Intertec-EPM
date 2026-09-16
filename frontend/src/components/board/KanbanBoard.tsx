@@ -15,10 +15,12 @@ import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { CalendarClock, Plus } from 'lucide-react';
 import { TASK_STATUS_META, TASK_STATUS_ORDER, TONE_FILL } from '@/lib/domain';
-import { cn, describeDueDate, pluralize } from '@/lib/utils';
+import { cn, describeDueDate, formatNumber, pluralize } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/common/EmptyState';
 import { PriorityBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import type { ID, EpmTask, EpmUser, TaskStatusCategory } from '@/types';
@@ -143,15 +145,21 @@ function KanbanColumn({
   const remaining = tasks.length - visible.length;
 
   return (
-    <section
-      className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-surface-sunken/60"
-      aria-label={`${meta.label} column, ${tasks.length} ${pluralize(tasks.length, 'task')}`}
+    // A named region, which is what the <section aria-label> it replaces was.
+    <Card
+      role="region"
+      className="flex w-72 shrink-0 flex-col bg-surface-sunken/60 shadow-none"
+      aria-label={`${meta.label} column, ${formatNumber(tasks.length)} ${pluralize(tasks.length, 'task')}`}
     >
       <header className="flex items-center justify-between gap-2 px-3 py-2.5">
         <div className="flex items-center gap-2">
           <span className={cn('h-2 w-2 rounded-full', TONE_FILL[meta.tone])} aria-hidden />
+          {/* CardTitle scaled down one step: the column is a card, but a board
+              of seven of them needs a quieter heading than a page card. */}
           <h3 className="text-xs font-semibold tracking-tight">{meta.label}</h3>
-          <span className="font-mono text-2xs text-muted-foreground">{tasks.length}</span>
+          <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+            {formatNumber(tasks.length)}
+          </span>
         </div>
         {onCreate ? (
           <Button
@@ -168,14 +176,16 @@ function KanbanColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          'epm-scroll flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto rounded-b-xl px-2 pb-2 transition-colors',
+          'epm-scroll relative flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto rounded-b-xl px-2 pb-2 transition-colors',
           isOver && 'bg-primary-soft/60 ring-1 ring-inset ring-primary/30',
         )}
       >
         {tasks.length === 0 ? (
-          <p className="px-2 py-6 text-center text-2xs text-muted-foreground">
-            {isOver ? 'Drop here' : 'Nothing here'}
-          </p>
+          <EmptyState
+            size="inline"
+            title={isOver ? 'Drop here' : 'Nothing here'}
+            className="py-6"
+          />
         ) : (
           <>
             {visible.map((task) => (
@@ -193,14 +203,16 @@ function KanbanColumn({
                 className="w-full text-2xs"
                 onClick={() => setVisibleCount((count) => count + COLUMN_PAGE_SIZE)}
               >
-                Show {Math.min(remaining, COLUMN_PAGE_SIZE)} more
-                <span className="font-mono text-muted-foreground">({remaining} left)</span>
+                Show {formatNumber(Math.min(remaining, COLUMN_PAGE_SIZE))} more
+                <span className="font-mono text-muted-foreground">
+                  ({formatNumber(remaining)} left)
+                </span>
               </Button>
             ) : null}
           </>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -235,7 +247,7 @@ function KanbanCard({
     <article
       className={cn(
         'select-none rounded-lg border border-border bg-surface p-2.5 shadow-xs transition-shadow',
-        dragging ? 'rotate-1 shadow-elevated' : 'hover:shadow-card',
+        dragging ? 'rotate-1 shadow-elevated' : 'hover:border-primary/40',
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -267,8 +279,8 @@ function KanbanCard({
         <div className="flex items-center gap-2">
           <UserAvatarWithTooltip user={assignee} size="xs" />
           {task.storyPoints ? (
-            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground">
-              {task.storyPoints} pt
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs font-medium leading-none text-muted-foreground">
+              {formatNumber(task.storyPoints)} pt
             </span>
           ) : null}
         </div>
@@ -276,11 +288,11 @@ function KanbanCard({
         {task.dueDate ? (
           <span
             className={cn(
-              'flex items-center gap-1 text-[10px]',
+              'flex items-center gap-1 text-2xs',
               due.tone === 'overdue'
-                ? 'font-medium text-danger'
+                ? 'font-medium text-danger-strong'
                 : due.tone === 'today'
-                  ? 'font-medium text-warning'
+                  ? 'font-medium text-warning-strong'
                   : 'text-muted-foreground',
             )}
           >
@@ -297,15 +309,15 @@ export function KanbanBoardSkeleton({ columns = 5 }: { columns?: number }) {
   return (
     <div className="flex gap-3 overflow-hidden">
       {Array.from({ length: columns }).map((_, columnIndex) => (
-        <div
+        <Card
           key={columnIndex}
-          className="w-72 shrink-0 space-y-2 rounded-xl border border-border bg-surface-sunken/60 p-2"
+          className="w-72 shrink-0 space-y-2 bg-surface-sunken/60 p-2 shadow-none"
         >
           <Skeleton className="mx-1 h-3 w-24" />
           {Array.from({ length: 3 - (columnIndex % 2) }).map((__, cardIndex) => (
             <Skeleton key={cardIndex} className="h-24 rounded-lg" />
           ))}
-        </div>
+        </Card>
       ))}
     </div>
   );

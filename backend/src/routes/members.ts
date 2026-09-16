@@ -3,10 +3,13 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import * as guard from '../auth/guard.js';
 import { allows } from '../auth/capabilities.js';
 import { permissionsFor } from '../auth/guard.js';
+import { enqueueEmail } from '../email/outbox.js';
+import { resolveRecipient } from '../email/recipients.js';
+import { env } from '../config/env.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { toEpmMemberCandidate, toEpmProjectMember, toEpmRole } from '../mapping/members.js';
-import { linkId, openProject, type OpFilter } from '../openproject/client.js';
+import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpRole } from '../openproject/types.js';
 
 /**
@@ -95,6 +98,50 @@ function roleLinks(roleIds: unknown): { href: string }[] {
   return ids.map((id) => ({ href: `/api/v3/roles/${id}` }));
 }
 
+/**
+ * Tells someone they now have access to a project.
+ *
+ * Names come from the membership OpenProject just returned rather than from a
+ * second read: it already carries the project and the roles it granted, and
+ * asking again would be a round trip for information in hand.
+ */
+async function notifyMemberAdded(
+  request: FastifyRequest,
+  projectId: string,
+  userId: string,
+  membership: OpMembership,
+): Promise<void> {
+  const recipient = await resolveRecipient(userId);
+  if (!recipient) return;
+
+  const roles = (membership._links?.roles as { title?: string }[] | undefined)
+    ?.map((role) => role.title)
+    .filter((title): title is string => Boolean(title))
+    .join(', ');
+
+  // Who did it, for context only. An unnamed actor is not worth failing over.
+  const actor = request.auth?.userId
+    ? await resolveRecipient(request.auth.userId).catch(() => undefined)
+    : undefined;
+
+  await enqueueEmail({
+    recipientId: userId,
+    template: 'project-member-added',
+    payload: {
+      firstName: recipient.firstName,
+      projectName: linkTitle(membership._links, 'project') ?? 'a project',
+      roles: roles || 'Member',
+      addedBy: actor?.name ?? '',
+      url: `${env.APP_BASE_URL}/projects/${projectId}`,
+    },
+    channel: 'immediate',
+    // One notice per person per project. Re-adding after a removal is a new
+    // grant, but telling them twice about the same standing access is noise.
+    dedupeKey: `member-added:${projectId}:${userId}`,
+    gate: 'membership',
+  });
+}
+
 export const memberRoutes: FastifyPluginAsync = async (app) => {
   /** Roles that can be granted on a project. Not project-specific upstream. */
   app.get('/project-roles', async (request) => {
@@ -181,11 +228,19 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
         signal: requestSignal(request),
       });
 
-      // OpenProject emails the person it just granted access to. That is left
-      // on: being added to a project is exactly what someone needs to know, and
-      // suppressing it silently would be a worse default than a mail EPM did
-      // not send itself. No EPM notification is created — it would duplicate a
-      // message upstream has already delivered.
+      // The system behind EPM has a membership mailer, but its delivery is
+      // configured for the host it runs on rather than for EPM's provider, and
+      // in this deployment it cannot send at all — so relying on it means
+      // nobody is ever told. EPM sends its own, from its own address, and
+      // honours the person's preferences.
+      //
+      // Deliberately after the write and never allowed to fail it: access has
+      // already been granted, and an email that could not be composed is not a
+      // reason to report that the membership failed.
+      await notifyMemberAdded(request, id, userId, created).catch((error: unknown) => {
+        request.log.warn({ err: error, projectId: id, userId }, 'Membership email not queued');
+      });
+
       reply.code(201);
       return toEpmProjectMember(created, true);
     },

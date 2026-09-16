@@ -9,13 +9,18 @@ const SelectValue = SelectPrimitive.Value;
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & { invalid?: boolean }
->(({ className, children, invalid, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
+    invalid?: boolean;
+    /** `sm` is the toolbar density: same height and type size as a small Button. */
+    size?: 'sm' | 'default';
+  }
+>(({ className, children, invalid, size = 'default', ...props }, ref) => (
   <SelectPrimitive.Trigger
     ref={ref}
     aria-invalid={invalid || undefined}
     className={cn(
-      'flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-surface px-3 py-1 text-sm shadow-xs transition-colors',
+      'flex w-full items-center justify-between gap-2 rounded-lg border border-input bg-surface shadow-xs transition-colors',
+      size === 'sm' ? 'h-8 px-2.5 py-1 text-xs' : 'h-9 px-3 py-1 text-sm',
       'data-[placeholder]:text-muted-foreground/70',
       'focus:outline-none focus:border-primary focus:ring-2 focus:ring-ring/25',
       'disabled:cursor-not-allowed disabled:opacity-60 [&>span]:line-clamp-1 [&>span]:text-left',
@@ -41,7 +46,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'relative z-50 max-h-80 min-w-[8rem] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-popover',
+        'relative z-50 max-h-80 min-w-[8rem] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-floating',
         'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
         position === 'popper' && 'data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1',
         className,

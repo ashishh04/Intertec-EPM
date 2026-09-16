@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { NotificationItem } from '@/components/common/NotificationItem';
 import { Pagination } from '@/components/common/Pagination';
+import { Badge, CountBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -18,6 +19,7 @@ import {
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
 import { NOTIFICATION_CATEGORY_META } from '@/lib/domain';
+import { formatNumber } from '@/lib/utils';
 import type { NotificationCategory } from '@/types';
 
 type Filter = 'all' | NotificationCategory;
@@ -68,9 +70,9 @@ export default function NotificationsPage() {
         description="Mentions, assignments, deadlines and system events."
         meta={
           unread.length > 0 ? (
-            <span className="rounded-full bg-danger px-2 py-0.5 text-2xs font-semibold text-danger-foreground">
-              {unread.length} unread
-            </span>
+            <Badge tone="danger" variant="solid" size="sm" className="rounded-full">
+              {formatNumber(unread.length)} unread
+            </Badge>
           ) : null
         }
         actions={
@@ -99,11 +101,7 @@ export default function NotificationsPage() {
               return (
                 <TabsTrigger key={item.value} value={item.value} variant="underline">
                   {item.label}
-                  {count > 0 ? (
-                    <span className="rounded-full bg-danger px-1.5 text-[10px] font-semibold text-danger-foreground">
-                      {count}
-                    </span>
-                  ) : null}
+                  <CountBadge count={count} />
                 </TabsTrigger>
               );
             })}

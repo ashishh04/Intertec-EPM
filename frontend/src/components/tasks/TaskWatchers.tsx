@@ -119,7 +119,7 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
                     Everyone who can see this task is already watching it.
                   </p>
                 ) : (
-                  <ul className="max-h-64 overflow-y-auto">
+                  <ul className="relative max-h-64 overflow-y-auto">
                     {available.data?.map((candidate) => (
                       <li key={candidate.id}>
                         <button

@@ -7,8 +7,10 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+import { CountBadge } from '@/components/ui/badge';
+import { ListSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 import { NotificationItem } from '@/components/common/NotificationItem';
 import {
   useMarkAllNotificationsRead,
@@ -24,7 +26,7 @@ export function NotificationPanel() {
   // header outlives the route change, so nothing unmounts the popover and Radix
   // never learns the user has left — it has to be closed explicitly.
   const [open, setOpen] = useState(false);
-  const { data: notifications, isLoading } = useNotifications();
+  const { data: notifications, isLoading, isError, refetch } = useNotifications();
   const users = useUserMap();
   const markRead = useMarkNotificationsRead();
   const markAllRead = useMarkAllNotificationsRead();
@@ -54,12 +56,8 @@ export function NotificationPanel() {
       <PopoverContent align="end" className="w-[22rem] overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
           <div className="flex items-center gap-2">
-            <h2 className="text-xs font-semibold">Notifications</h2>
-            {unread > 0 ? (
-              <span className="rounded-full bg-danger px-1.5 text-[10px] font-semibold text-danger-foreground">
-                {unread}
-              </span>
-            ) : null}
+            <h2 className="text-sm font-semibold tracking-tight">Notifications</h2>
+            <CountBadge count={unread} />
           </div>
           {unread > 0 ? (
             <Button
@@ -80,17 +78,15 @@ export function NotificationPanel() {
 
         <div className="epm-scroll max-h-96 overflow-y-auto">
           {isLoading ? (
-            <div className="space-y-3 p-3">
-              {[0, 1, 2, 3].map((index) => (
-                <div key={index} className="flex gap-3">
-                  <Skeleton className="h-6 w-6 shrink-0 rounded-full" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-3 w-3/4" />
-                    <Skeleton className="h-2.5 w-1/2" />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ListSkeleton rows={4} height="h-12" className="p-3" />
+          ) : isError ? (
+            // A failed fetch must not read as an empty inbox.
+            <ErrorState
+              size="inline"
+              title="Notifications could not be loaded"
+              description="Try again in a moment."
+              onRetry={() => void refetch()}
+            />
           ) : items.length === 0 ? (
             <EmptyState
               size="inline"

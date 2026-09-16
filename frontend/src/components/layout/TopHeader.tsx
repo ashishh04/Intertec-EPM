@@ -8,12 +8,12 @@ import {
   Menu,
   Plus,
   Search,
+  Sparkles,
   Timer,
   ListPlus,
   LifeBuoy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,26 +22,21 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { Breadcrumbs } from './Breadcrumbs';
 import { NotificationPanel } from './NotificationPanel';
 import { UserMenu } from './UserMenu';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
 import { SprintDialog } from '@/components/sprints/SprintDialog';
 import { useUI } from '@/providers/UIProvider';
-import { env } from '@/config/env';
+import { featureFlags } from '@/config/env';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { toast } from 'sonner';
 
-const ENV_LABEL: Record<string, { label: string; className: string }> = {
-  development: { label: 'Development', className: 'bg-warning-soft text-warning border-warning/25' },
-  staging: { label: 'Staging', className: 'bg-warning-soft text-warning border-warning/25' },
-  production: { label: '', className: '' },
-};
-
 /** Sticky application header: context on the left, search and actions on the right. */
 export function TopHeader() {
-  const { setCommandPaletteOpen, setMobileNavOpen, openTaskDrawer } = useUI();
+  const { setCommandPaletteOpen, setMobileNavOpen, openTaskDrawer, openPragnya } = useUI();
   const [projectOpen, setProjectOpen] = useState(false);
   const [sprintOpen, setSprintOpen] = useState(false);
   const { can, canAnywhere } = useAuth();
@@ -50,7 +45,7 @@ export function TopHeader() {
   const isMac =
     typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform ?? '');
   const shortcut = isMac ? '⌘K' : 'Ctrl K';
-  const environment = ENV_LABEL[env.appEnv];
+  const pragnyaShortcut = isMac ? '⌘/' : 'Ctrl /';
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-surface/85 px-3 backdrop-blur-md sm:px-4">
@@ -79,7 +74,7 @@ export function TopHeader() {
       >
         <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="truncate">Search projects, tasks, people...</span>
-        <kbd className="ml-auto shrink-0 rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+        <kbd className="ml-auto shrink-0 rounded border border-border bg-surface px-1 py-0.5 font-mono text-2xs leading-none text-muted-foreground">
           {shortcut}
         </kbd>
       </button>
@@ -93,16 +88,6 @@ export function TopHeader() {
       >
         <Search className="h-4 w-4" />
       </Button>
-
-      {environment?.label ? (
-        <Badge
-          size="sm"
-          className={cn('hidden sm:inline-flex', environment.className)}
-          title="Non-production environment"
-        >
-          {environment.label}
-        </Badge>
-      ) : null}
 
       {/* Create */}
       <DropdownMenu>
@@ -138,6 +123,21 @@ export function TopHeader() {
 
       <NotificationPanel />
 
+      {featureFlags.pragnya ? (
+        <InfoTooltip label={`Pragnya (${pragnyaShortcut})`}>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Pragnya"
+            aria-keyshortcuts={isMac ? 'Meta+/' : 'Control+/'}
+            onClick={() => openPragnya()}
+            className="text-highlight hover:bg-highlight-soft hover:text-highlight"
+          >
+            <Sparkles className="h-4 w-4" />
+          </Button>
+        </InfoTooltip>
+      ) : null}
+
       {/* Help */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -172,7 +172,11 @@ export function TopHeader() {
       <UserMenu />
 
       <ProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
-      <SprintDialog open={sprintOpen} onOpenChange={setSprintOpen} />
+      <SprintDialog
+        open={sprintOpen}
+        onOpenChange={setSprintOpen}
+        onCreated={(sprint) => navigate(`/agile?sprint=${sprint.id}`)}
+      />
     </header>
   );
 }

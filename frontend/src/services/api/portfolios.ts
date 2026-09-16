@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { EpmProject, ID } from '@/types';
+import type { EpmProject, ID, ProjectStatus } from '@/types';
 
 /**
  * Portfolios — an EPM-owned grouping of projects.
@@ -26,6 +26,19 @@ export interface EpmPortfolio {
   capacityHours: number;
   /** Derived from those people's team mappings, never declared. */
   teams: { id: ID; name: string }[];
+  /**
+   * Work across its projects, summed. Progress comes from these two rather
+   * than averaging each project's percentage, which would let a five-task
+   * project weigh as heavily as a five-hundred-task one.
+   */
+  taskCount: number;
+  completedTaskCount: number;
+  /** Overdue work across its projects — what a project calls an open risk. */
+  openRiskCount: number;
+  /** Its projects' delivery status, counted rather than collapsed. */
+  statuses: Record<ProjectStatus, number>;
+  budgetUsed: number;
+  budgetTotal: number;
   active: boolean;
   createdAt: string;
   updatedAt: string;

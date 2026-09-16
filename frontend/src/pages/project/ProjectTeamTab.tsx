@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Crown, Mail, Pencil, UserMinus, UserPlus } from 'lucide-react';
+import { Crown, Gauge, Mail, Pencil, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/dialog';
 import { SectionHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ListSkeleton } from '@/components/common/DataTable';
 import { Pagination } from '@/components/common/Pagination';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { MemberDialog } from '@/components/projects/MemberDialog';
@@ -26,6 +28,7 @@ import { useTeamWorkloads } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
 import { useAuth } from '@/providers/AuthProvider';
+import { formatNumber, pluralize } from '@/lib/utils';
 import type { EpmProjectMember } from '@/types';
 import { toast } from 'sonner';
 
@@ -106,7 +109,7 @@ export default function ProjectTeamTab() {
       <div className="space-y-3 lg:col-span-2">
         <SectionHeader
           title="Members"
-          description={`${members.length} people on this project`}
+          description={`${formatNumber(members.length)} ${pluralize(members.length, 'person', 'people')} on this project`}
           actions={
             <Button
               size="sm"
@@ -125,9 +128,19 @@ export default function ProjectTeamTab() {
           <QueryBoundary
             isLoading={membersQuery.isLoading}
             isError={membersQuery.isError}
+            error={membersQuery.error}
             onRetry={() => membersQuery.refetch()}
             errorTitle="Unable to load members"
-            skeleton={<Skeleton className="h-48 w-full" />}
+            skeleton={<ListSkeleton rows={4} height="h-14" className="p-3" />}
+            isEmpty={members.length === 0}
+            empty={
+              <EmptyState
+                size="inline"
+                icon={Users}
+                title="Nobody on this project yet"
+                description="Invite people to give them access and a role here."
+              />
+            }
           >
             <ul className="divide-y divide-border">
               {memberPage.items.map((member) => {
@@ -214,6 +227,8 @@ export default function ProjectTeamTab() {
             pageSize={memberPage.pageSize}
             total={memberPage.total}
             onPageChange={memberPage.setPage}
+            onPageSizeChange={memberPage.setPageSize}
+            pageSizeOptions={[5, 10, 25]}
             itemLabel="member"
             className="border-t border-border"
           />
@@ -223,15 +238,25 @@ export default function ProjectTeamTab() {
       <div className="space-y-3 lg:col-span-3">
         <SectionHeader title="Workload" description="Allocation across all assigned work" />
         <Card className="overflow-hidden">
-          <CardHeader className="border-b border-border py-3">
-            <CardTitle className="text-xs">Capacity vs. assigned</CardTitle>
+          <CardHeader variant="compact">
+            <CardTitle>Capacity vs. assigned</CardTitle>
           </CardHeader>
           <QueryBoundary
             isLoading={workloadsQuery.isLoading}
             isError={workloadsQuery.isError}
+            error={workloadsQuery.error}
             onRetry={() => workloadsQuery.refetch()}
             errorTitle="Unable to load workload"
             skeleton={<WorkloadListSkeleton />}
+            isEmpty={memberWorkloads.length === 0}
+            empty={
+              <EmptyState
+                size="inline"
+                icon={Gauge}
+                title="No workload to show"
+                description="Allocation appears once members have assigned work."
+              />
+            }
           >
             <WorkloadList workloads={memberWorkloads} users={users} />
           </QueryBoundary>

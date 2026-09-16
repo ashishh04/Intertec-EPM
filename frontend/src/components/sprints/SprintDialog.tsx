@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,8 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { apiClient } from '@/services/api/client';
 import { useProjects } from '@/hooks/useProjects';
+import { useCreateSprint } from '@/hooks/useSprints';
 import type { ID } from '@/types';
 
 /**
@@ -34,11 +34,12 @@ import type { ID } from '@/types';
 interface SprintDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Called once the sprint exists, so the opener can show it straight away. */
+  onCreated?: (sprint: { id: ID; name: string }) => void;
 }
 
-export function SprintDialog({ open, onOpenChange }: SprintDialogProps) {
+export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProps) {
   const projects = useProjects();
-  const client = useQueryClient();
 
   const [name, setName] = useState('');
   const [projectId, setProjectId] = useState('');
@@ -55,17 +56,7 @@ export function SprintDialog({ open, onOpenChange }: SprintDialogProps) {
     setProblem(undefined);
   }, [open]);
 
-  const create = useMutation({
-    mutationFn: (input: { name: string; projectId: ID; startDate?: string; endDate?: string }) =>
-      apiClient.post<{ id: ID; name: string }>('/sprints', input),
-    onSuccess: (created) => {
-      void client.invalidateQueries({ queryKey: ['sprints'] });
-      toast.success(`${created.name} created`);
-      onOpenChange(false);
-    },
-    onError: (error) =>
-      setProblem(error instanceof Error ? error.message : 'That could not be created.'),
-  });
+  const create = useCreateSprint();
 
   const submit = () => {
     setProblem(undefined);
@@ -85,13 +76,26 @@ export function SprintDialog({ open, onOpenChange }: SprintDialogProps) {
       return;
     }
 
-    create.mutate({
-      name: name.trim(),
-      projectId,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-    });
+    create.mutate(
+      {
+        name: name.trim(),
+        projectId,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      },
+      {
+        onSuccess: (created) => {
+          toast.success(`${created.name} created`);
+          onOpenChange(false);
+          onCreated?.(created);
+        },
+        onError: (error) =>
+          setProblem(error instanceof Error ? error.message : 'That could not be created.'),
+      },
+    );
   };
+
+  const available = projects.data ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -103,7 +107,7 @@ export function SprintDialog({ open, onOpenChange }: SprintDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="sprint-name" required>
               Name
@@ -121,18 +125,21 @@ export function SprintDialog({ open, onOpenChange }: SprintDialogProps) {
             <Label htmlFor="sprint-project" required>
               Project
             </Label>
-            <Select value={projectId} onValueChange={setProjectId}>
+            <Select value={projectId} onValueChange={setProjectId} disabled={projects.isLoading}>
               <SelectTrigger id="sprint-project" aria-label="Select a project">
-                <SelectValue placeholder="Choose a project" />
+                <SelectValue placeholder={projects.isLoading ? 'Loading…' : 'Choose a project'} />
               </SelectTrigger>
               <SelectContent>
-                {(projects.data ?? []).map((project) => (
+                {available.map((project) => (
                   <SelectItem key={project.id} value={project.id}>
                     {project.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {!projects.isLoading && available.length === 0 ? (
+              <FieldHint>No projects to put a sprint in. Create one first.</FieldHint>
+            ) : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -157,14 +164,14 @@ export function SprintDialog({ open, onOpenChange }: SprintDialogProps) {
           </div>
           <FieldHint>Leave both empty for a backlog rather than a timeboxed sprint.</FieldHint>
 
-          {problem ? <p className="text-2xs text-danger">{problem}</p> : null}
+          {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={create.isPending}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={create.isPending}>
+          <Button onClick={submit} loading={create.isPending}>
             Create sprint
           </Button>
         </DialogFooter>

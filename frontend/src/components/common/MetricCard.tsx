@@ -57,9 +57,9 @@ function MetricCard({
             }
           : {})}
         className={cn(
-          'group flex h-full flex-col justify-between gap-3 rounded-xl border border-border bg-surface p-4 shadow-sm transition-all',
+          'group flex h-full flex-col justify-between gap-3 rounded-lg border border-border bg-surface p-4 transition-all',
           interactive &&
-            'cursor-pointer hover:border-primary/30 hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            'cursor-pointer hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         )}
       >
         <div className="flex items-start justify-between gap-3">
@@ -76,7 +76,15 @@ function MetricCard({
         </div>
 
         <div className="flex items-baseline gap-1">
-          <span className="text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+          {/*
+            Brand violet, not the gradient. The site sets its headline figures
+            in the crimson-to-violet sweep, but those are marketing numbers on
+            a wide "500+"; a one- or two-digit KPI only samples the crimson end
+            and comes out looking like an alert — a red "19" next to "My tasks"
+            says something is wrong when nothing is. Status lives in the tone
+            chip above, which is already coloured.
+          */}
+          <span className="font-display text-2xl font-bold tracking-[-0.03em] tabular-nums text-primary">
             {typeof value === 'number' ? formatNumber(value) : value}
           </span>
           {suffix ? <span className="text-sm font-medium text-muted-foreground">{suffix}</span> : null}
@@ -93,7 +101,7 @@ function MetricCard({
 
 function MetricCardSkeleton() {
   return (
-    <div className="flex h-full flex-col justify-between gap-3 rounded-xl border border-border bg-surface p-4">
+    <div className="flex h-full flex-col justify-between gap-3 rounded-lg border border-border bg-surface p-4">
       <div className="flex items-start justify-between">
         <Skeleton className="h-3 w-20" />
         <Skeleton className="h-7 w-7 rounded-lg" />

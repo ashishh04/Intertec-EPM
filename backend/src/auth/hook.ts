@@ -20,15 +20,23 @@ declare module 'fastify' {
   }
 }
 
-/** Reachable without a session: sign-in itself, and liveness. */
-const PUBLIC_PATHS = new Set(['/auth/login', '/auth/logout', '/auth/config']);
+/**
+ * Reachable without a session: sign-in itself, liveness, and the two doors
+ * that exist for callers who cannot have one — an invitee who has no password
+ * yet, and OpenProject delivering a webhook, which proves itself with a
+ * signature instead.
+ */
+const PUBLIC_PATHS = new Set(['/auth/login', '/auth/logout', '/auth/config', '/webhooks/openproject']);
+
+/** Everything under here is public: the token in the path is the credential. */
+const PUBLIC_PREFIXES = ['/invites/'];
 
 function isPublic(request: FastifyRequest, apiPrefix: string): boolean {
   const path = request.url.split('?')[0] ?? '';
-  if (path === '/health') return true;
+  if (path === '/health' || path === '/ready') return true;
 
   const relative = path.startsWith(apiPrefix) ? path.slice(apiPrefix.length) : path;
-  return PUBLIC_PATHS.has(relative);
+  return PUBLIC_PATHS.has(relative) || PUBLIC_PREFIXES.some((prefix) => relative.startsWith(prefix));
 }
 
 export function registerAuth(app: FastifyInstance, apiPrefix: string): void {

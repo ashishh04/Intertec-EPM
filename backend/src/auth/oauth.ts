@@ -66,16 +66,26 @@ function oauthConfig() {
 async function exchange(body: Record<string, string>): Promise<TokenResponse> {
   const config = oauthConfig();
 
-  const response = await fetch(config.tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      scope: 'api_v3',
-      ...body,
-    }),
-  });
+  // A network failure here is the sign-in service being down, not a fault in
+  // this process. Say so, rather than letting it fall through as a generic 500.
+  let response: Response;
+  try {
+    response = await fetch(config.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        scope: 'api_v3',
+        ...body,
+      }),
+    });
+  } catch (cause) {
+    throw EpmError.unavailable(
+      'Sign-in is unavailable right now: the account service could not be reached. Try again shortly.',
+      cause,
+    );
+  }
 
   if (response.ok) return (await response.json()) as TokenResponse;
 
@@ -87,7 +97,7 @@ async function exchange(body: Record<string, string>): Promise<TokenResponse> {
     );
   }
 
-  throw EpmError.unauthorized('Incorrect username or password.');
+  throw EpmError.unauthorized('Those sign-in details were not accepted.');
 }
 
 export interface EstablishedSession {
@@ -137,6 +147,69 @@ export interface ResolvedSession {
 }
 
 /**
+ * Refreshes in flight, keyed on session.
+ *
+ * OpenProject rotates the refresh token on use, so the token is a single-use
+ * credential. A page firing several requests at once puts all of them inside
+ * the same expiry window: the first refresh succeeds and invalidates the token
+ * the others are still holding, their exchanges fail, and the failure path
+ * deletes the session — signing the person out mid-action for no reason they
+ * could see. Once every two hours, per active session, under exactly the
+ * concurrency real use produces and a single developer never does.
+ *
+ * So one refresh runs and the rest await its result. Scoped to this process,
+ * which matches how the service is deployed; more than one instance would need
+ * the same guard in the database, since the token is shared state.
+ */
+const refreshing = new Map<string, Promise<string | undefined>>();
+
+async function performRefresh(
+  sessionId: string,
+  refreshToken: string,
+  storedRefreshToken: string | null,
+): Promise<string | undefined> {
+  try {
+    const refreshed = await exchange({ grant_type: 'refresh_token', refresh_token: refreshToken });
+
+    await prisma.session.update({
+      where: { id: sessionId },
+      data: {
+        accessToken: encryptToken(refreshed.access_token),
+        // Keep the newest or the next refresh fails and the user is signed out
+        // for no reason.
+        refreshToken: refreshed.refresh_token
+          ? encryptToken(refreshed.refresh_token)
+          : storedRefreshToken,
+        tokenExpiresAt: refreshed.expires_in
+          ? new Date(Date.now() + refreshed.expires_in * 1000)
+          : null,
+      },
+    });
+
+    return refreshed.access_token;
+  } catch {
+    await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
+    return undefined;
+  }
+}
+
+function refreshOnce(
+  sessionId: string,
+  refreshToken: string,
+  storedRefreshToken: string | null,
+): Promise<string | undefined> {
+  const inFlight = refreshing.get(sessionId);
+  if (inFlight) return inFlight;
+
+  const run = performRefresh(sessionId, refreshToken, storedRefreshToken).finally(() => {
+    refreshing.delete(sessionId);
+  });
+
+  refreshing.set(sessionId, run);
+  return run;
+}
+
+/**
  * Returns a usable token for a session id, refreshing first if it is about to
  * expire. Any failure resolves to undefined, which callers treat as signed out.
  */
@@ -157,28 +230,8 @@ export async function resolveSession(sessionId?: string): Promise<ResolvedSessio
   const expiringSoon = expiresAt !== undefined && expiresAt - REFRESH_SKEW_MS < Date.now();
 
   if (expiringSoon && refreshToken) {
-    try {
-      const refreshed = await exchange({ grant_type: 'refresh_token', refresh_token: refreshToken });
-      accessToken = refreshed.access_token;
-
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: {
-          accessToken: encryptToken(refreshed.access_token),
-          // OpenProject rotates refresh tokens; keep the newest or the next
-          // refresh fails and the user is signed out for no reason.
-          refreshToken: refreshed.refresh_token
-            ? encryptToken(refreshed.refresh_token)
-            : session.refreshToken,
-          tokenExpiresAt: refreshed.expires_in
-            ? new Date(Date.now() + refreshed.expires_in * 1000)
-            : null,
-        },
-      });
-    } catch {
-      await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
-      return undefined;
-    }
+    accessToken = (await refreshOnce(sessionId, refreshToken, session.refreshToken)) ?? '';
+    if (!accessToken) return undefined;
   } else if (expiringSoon) {
     // Expired with nothing to refresh from.
     await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);

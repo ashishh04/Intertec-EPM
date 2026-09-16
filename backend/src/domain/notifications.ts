@@ -1,5 +1,7 @@
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
+import { enqueueEmail } from '../email/outbox.js';
+import { resolveRecipient } from '../email/recipients.js';
 import type { HealthLevel } from '../types/epm.js';
 
 /**
@@ -20,6 +22,11 @@ import type { HealthLevel } from '../types/epm.js';
  * silent no-op rather than a resurrected notification jumping back to the top
  * of someone's list — and two concurrent producers cannot both decide the same
  * notification is new.
+ *
+ * Each new notification is also offered to the email outbox, on the digest
+ * channel: none of these is urgent enough to interrupt someone, and one
+ * summary a day is what the `email.updates` switch promises. The outbox
+ * applies that switch and its own dedupe; this only asks.
  */
 
 export type Severity = 'info' | 'warning' | 'critical';
@@ -67,9 +74,38 @@ async function notify(input: NotificationInput): Promise<number> {
       .catch(() => ({ count: 0 }));
 
     created += result.count;
+
+    // Only what was actually new: a repeat that wrote no row is not news in
+    // the inbox either. Email is a side effect of the notification and must
+    // never make it fail, so nothing here is allowed to throw.
+    if (result.count > 0) await offerByEmail(recipientId, input);
   }
 
   return created;
+}
+
+async function offerByEmail(recipientId: string, input: NotificationInput): Promise<void> {
+  try {
+    const recipient = await resolveRecipient(recipientId);
+    if (!recipient) return;
+
+    await enqueueEmail({
+      recipientId,
+      template: 'notification',
+      payload: {
+        firstName: recipient.firstName,
+        title: input.title,
+        body: input.body,
+        // `link` is an EPM route; the email needs somewhere absolute to point.
+        url: input.link ? `${env.APP_BASE_URL}${input.link}` : undefined,
+      },
+      channel: 'digest',
+      dedupeKey: `notification:${input.dedupeKey}`,
+      gate: 'updates',
+    });
+  } catch {
+    // Already logged by the outbox where it could be; the notification stands.
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -280,11 +316,16 @@ export async function notifySnapshotFailure(input: {
   // would be worse than none.
   if (recipients.length === 0) return 0;
 
+  // The reason comes from whatever threw, and an error message is as likely to
+  // end without punctuation as with it. Sentences either side of it make the
+  // difference visible, so it is closed here rather than hoped for.
+  const reason = input.reason.trim().replace(/[.!?]*$/, '');
+
   return notify({
     recipients,
     category: 'system',
     title: 'Analytics snapshot failed',
-    body: `No metrics were recorded for ${input.day}. ${input.reason} The period will show as a gap until a capture succeeds.`,
+    body: `No metrics were recorded for ${input.day}.${reason ? ` ${reason}.` : ''} The period will show as a gap until a capture succeeds.`,
     link: '/analytics',
     severity: 'warning',
     dedupeKey: `snapshot-failed:${input.day}`,

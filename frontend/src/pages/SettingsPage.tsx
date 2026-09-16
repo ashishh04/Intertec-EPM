@@ -1,26 +1,25 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   ArrowRight,
   ExternalLink,
   Lock,
-  Monitor,
-  Moon,
+  RotateCcw,
   Server,
   ShieldCheck,
-  Sun,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
-import { EpmLogo } from '@/components/common/EpmLogo';
+import { FactList } from '@/components/common/FactList';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { useTimezones, useUpdateProfile } from '@/hooks/useUsers';
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label, FieldHint } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -28,9 +27,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { SETTINGS_SECTIONS, type SettingsSectionId } from '@/config/navigation';
+import { SETTINGS_SECTIONS, isAdministrator, type SettingsSectionId } from '@/config/navigation';
 import { useAuth } from '@/providers/AuthProvider';
-import { useTheme, type ThemeSetting } from '@/providers/ThemeProvider';
+import { usePreferences, type Preferences } from '@/hooks/usePreferences';
 import { APP_NAME, ORG_NAME, env } from '@/config/env';
 import { cn } from '@/lib/utils';
 
@@ -39,9 +38,27 @@ import { cn } from '@/lib/utils';
  * here, so it is always clear which system is authoritative for a setting.
  */
 export default function SettingsPage() {
-  const [section, setSection] = useState<SettingsSectionId>('profile');
-  const { user } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { user, can } = useAuth();
+  const administrator = isAdministrator(can);
+  // The account group is the same for everyone; the administration group exists
+  // only for administrators, exactly as the sidebar and the account menu do.
+  const visibleSections = SETTINGS_SECTIONS.filter(
+    (item) => item.group === 'account' || administrator,
+  );
+
+  // The section lives in the URL so the Administration hub, and anyone sharing
+  // a link, can open one directly. An id this person may not see falls back to
+  // Profile rather than rendering a blank page.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get('section');
+  const section: SettingsSectionId =
+    visibleSections.find((item) => item.id === requested)?.id ?? 'profile';
+  const setSection = (id: SettingsSectionId) =>
+    setSearchParams(id === 'profile' ? {} : { section: id });
+
+  // Toggles and selects write straight to the shared record, so there is no
+  // "save" step to forget and the Profile page shows the same values.
+  const { preferences, update, reset, isSaving } = usePreferences();
 
   const active = SETTINGS_SECTIONS.find((item) => item.id === section)!;
 
@@ -56,84 +73,62 @@ export default function SettingsPage() {
         {/* Section navigation */}
         <nav aria-label="Settings sections" className="lg:sticky lg:top-20 lg:self-start">
           <ul className="epm-scroll flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
-            {SETTINGS_SECTIONS.map((item) => (
-              <li key={item.id} className="shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setSection(item.id)}
-                  aria-current={section === item.id ? 'page' : undefined}
-                  className={cn(
-                    'flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    section === item.id
-                      ? 'bg-primary-soft text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  {item.label}
-                  {item.managedUpstream ? (
-                    <Server className="ml-auto h-3 w-3 shrink-0 opacity-60" aria-hidden />
-                  ) : null}
-                </button>
-              </li>
+            {visibleSections.map((item, index) => (
+              <Fragment key={item.id}>
+                {administrator && index === 0 ? (
+                  <li className="hidden shrink-0 lg:block">
+                    <p className="epm-eyebrow px-2.5 pb-1">Account</p>
+                  </li>
+                ) : null}
+                {item.group === 'administration' &&
+                visibleSections[index - 1]?.group !== 'administration' ? (
+                  <li className="hidden shrink-0 lg:block">
+                    <p className="epm-eyebrow mt-3 px-2.5 pb-1">Administration</p>
+                  </li>
+                ) : null}
+                <li className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSection(item.id)}
+                    aria-current={section === item.id ? 'page' : undefined}
+                    className={cn(
+                      'flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      section === item.id
+                        ? 'bg-primary-soft text-primary'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              </Fragment>
             ))}
           </ul>
-
-          <p className="mt-3 hidden items-start gap-1.5 px-2.5 text-2xs text-muted-foreground lg:flex">
-            <Server className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-            Managed centrally
-          </p>
         </nav>
 
         <div className="min-w-0 space-y-4">
-          {active.managedUpstream ? (
-            <div className="flex items-start gap-2.5 rounded-lg border border-warning/25 bg-warning-soft p-3">
-              <Server className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
-              <div>
-                <p className="text-xs font-medium text-foreground">
-                  These settings are managed centrally
-                </p>
-                <p className="mt-0.5 text-2xs text-muted-foreground">
-                  {APP_NAME} reads them through the EPM backend and shows them here for context.
-                  Changes are made in the upstream system by an administrator.
-                </p>
-              </div>
-            </div>
-          ) : null}
-
           {section === 'profile' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>Profile</CardTitle>
                 <CardDescription>Your identity across the platform.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4 pt-4">
+              <CardContent className="space-y-4 p-4">
                 <div className="flex items-center gap-3">
                   <UserAvatar user={user} size="lg" />
-                  <div>
-                    <p className="text-xs font-medium">{user?.name}</p>
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-medium">{user?.name}</p>
                     <p className="text-2xs text-muted-foreground">{user?.role}</p>
                   </div>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="settings-name">Display name</Label>
-                    <Input id="settings-name" defaultValue={user?.name} readOnly />
-                    <FieldHint>Synchronised from the organisation directory.</FieldHint>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="settings-email">Work email</Label>
-                    <Input id="settings-email" defaultValue={user?.email} readOnly />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="settings-department">Department</Label>
-                    <Input id="settings-department" defaultValue={user?.department} readOnly />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="settings-timezone">Timezone</Label>
-                    <Input id="settings-timezone" defaultValue={user?.timezone} readOnly />
-                  </div>
+                <ProfileForm />
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="settings-department">Department</Label>
+                  <Input id="settings-department" defaultValue={user?.department} readOnly />
+                  <FieldHint>Set by an administrator on the Employees page.</FieldHint>
                 </div>
 
                 <Button asChild variant="secondary" size="sm">
@@ -148,93 +143,140 @@ export default function SettingsPage() {
 
           {section === 'appearance' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>Appearance</CardTitle>
                 <CardDescription>How EPM looks on this device.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-5 pt-4">
-                <fieldset className="space-y-2">
-                  <legend className="text-xs font-medium">Theme</legend>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {(
-                      [
-                        { value: 'light', label: 'Light', icon: Sun },
-                        { value: 'dark', label: 'Dark', icon: Moon },
-                        { value: 'system', label: 'System', icon: Monitor },
-                      ] as { value: ThemeSetting; label: string; icon: typeof Sun }[]
-                    ).map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setTheme(option.value)}
-                        aria-pressed={theme === option.value}
-                        className={cn(
-                          'flex items-center gap-2 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors',
-                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                          theme === option.value
-                            ? 'border-primary/40 bg-primary-soft text-primary'
-                            : 'border-border bg-surface text-muted-foreground hover:border-primary/25 hover:text-foreground',
-                        )}
-                      >
-                        <option.icon className="h-4 w-4" aria-hidden />
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                  <FieldHint>Your choice is remembered on this device.</FieldHint>
-                </fieldset>
-
-                <Separator />
-
-                <ToggleRow
-                  id="dense-tables"
-                  label="Compact tables"
-                  hint="Reduce row height in work package tables."
-                  defaultChecked
-                />
-                <ToggleRow
-                  id="reduced-motion"
-                  label="Reduce motion"
-                  hint="Minimise transitions and animated chart entrances."
-                />
+              <CardContent className="p-0">
+                {/* No theme picker: EPM follows the Intertec brand, which is a
+                    single light identity. */}
+                <div className="divide-y divide-border">
+                  <ToggleRow
+                    id="dense-tables"
+                    label="Compact tables"
+                    hint="Reduce row height in work package tables."
+                    checked={preferences.appearance.compactTables}
+                    onCheckedChange={(checked) => update('appearance', 'compactTables', checked)}
+                  />
+                  <ToggleRow
+                    id="reduced-motion"
+                    label="Reduce motion"
+                    hint="Minimise transitions and animated chart entrances."
+                    checked={preferences.appearance.reduceMotion}
+                    onCheckedChange={(checked) => update('appearance', 'reduceMotion', checked)}
+                  />
+                  <ToggleRow
+                    id="show-avatars"
+                    label="Show avatars"
+                    hint="Faces beside names in lists and boards."
+                    checked={preferences.appearance.showAvatars}
+                    onCheckedChange={(checked) => update('appearance', 'showAvatars', checked)}
+                  />
+                </div>
               </CardContent>
             </Card>
           ) : null}
 
           {section === 'notifications' ? (
-            <Card>
-              <CardHeader className="border-b border-border">
-                <CardTitle>Notifications</CardTitle>
-                <CardDescription>What EPM tells you about, and where.</CardDescription>
-              </CardHeader>
-              <CardContent className="divide-y divide-border pt-0">
-                <ToggleRow id="notify-mentions" label="Mentions" hint="When someone mentions you in a comment." defaultChecked />
-                <ToggleRow id="notify-assign" label="Assignments" hint="When work is assigned to you." defaultChecked />
-                <ToggleRow id="notify-deadline" label="Deadline reminders" hint="Two days before a due date." defaultChecked />
-                <ToggleRow id="notify-project" label="Project updates" hint="Status and health changes on your projects." />
-                <ToggleRow id="notify-digest" label="Daily digest email" hint="A morning summary of what needs attention." />
-              </CardContent>
-            </Card>
+            <>
+              <Card>
+                <CardHeader variant="compact">
+                  <CardTitle>In-app</CardTitle>
+                  <CardDescription>What appears in your notifications feed.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y divide-border">
+                    {NOTIFICATION_ROWS.map((row) => (
+                      <ToggleRow
+                        key={row.key}
+                        id={`notify-${row.key}`}
+                        label={row.label}
+                        hint={row.hint}
+                        checked={preferences.notifications[row.key]}
+                        onCheckedChange={(checked) => update('notifications', row.key, checked)}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Email has its own card and its own master switch: it reaches
+                  the person while EPM is closed, so opting out of all of it
+                  has to be one movement rather than five. */}
+              <Card>
+                <CardHeader variant="compact">
+                  <CardTitle>Email</CardTitle>
+                  <CardDescription>
+                    What EPM sends to {user?.email ? user.email : 'your work email'}.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y divide-border">
+                    <ToggleRow
+                      id="email-enabled"
+                      label="Send me email"
+                      hint="Off means no email of any kind."
+                      checked={preferences.email.enabled}
+                      onCheckedChange={(checked) => update('email', 'enabled', checked)}
+                    />
+                    {EMAIL_ROWS.map((row) => (
+                      <ToggleRow
+                        key={row.key}
+                        id={`email-${row.key}`}
+                        label={row.label}
+                        hint={row.hint}
+                        checked={preferences.email[row.key]}
+                        disabled={!preferences.email.enabled}
+                        onCheckedChange={(checked) => update('email', row.key, checked)}
+                      />
+                    ))}
+                    <div className="px-4 py-2.5">
+                      <FieldHint>
+                        One summary a day, at 06:00 UTC, for everything not sent immediately.
+                      </FieldHint>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
           ) : null}
 
           {section === 'workspace' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>Workspace</CardTitle>
                 <CardDescription>Defaults applied across {ORG_NAME}.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="flex items-center gap-3 rounded-lg border border-border p-3">
-                  <EpmLogo variant="full" showDescriptor />
-                  <Badge tone="highlight" size="sm" className="ml-auto capitalize">
-                    {env.appEnv}
-                  </Badge>
-                </div>
+              <CardContent className="space-y-4 p-4">
+                <FactList
+                  facts={[
+                    { label: 'Organisation', value: ORG_NAME, mono: false },
+                    { label: 'Application', value: APP_NAME, mono: false },
+                    {
+                      label: 'Environment',
+                      value: (
+                        <Badge tone="highlight" size="sm" className="capitalize">
+                          {env.appEnv}
+                        </Badge>
+                      ),
+                      mono: false,
+                    },
+                  ]}
+                />
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="workspace-landing">Default landing page</Label>
-                    <Select defaultValue="dashboard">
+                    <Select
+                      value={preferences.workspace.landingPage}
+                      onValueChange={(value) =>
+                        update(
+                          'workspace',
+                          'landingPage',
+                          value as Preferences['workspace']['landingPage'],
+                        )
+                      }
+                    >
                       <SelectTrigger id="workspace-landing">
                         <SelectValue />
                       </SelectTrigger>
@@ -248,7 +290,16 @@ export default function SettingsPage() {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="workspace-week">Week starts on</Label>
-                    <Select defaultValue="monday">
+                    <Select
+                      value={preferences.workweek.startOfWeek}
+                      onValueChange={(value) =>
+                        update(
+                          'workweek',
+                          'startOfWeek',
+                          value as Preferences['workweek']['startOfWeek'],
+                        )
+                      }
+                    >
                       <SelectTrigger id="workspace-week">
                         <SelectValue />
                       </SelectTrigger>
@@ -260,16 +311,31 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <Button size="sm" onClick={() => toast.success('Changes saved')}>
-                  Save changes
-                </Button>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <FieldHint>{isSaving ? 'Saving…' : 'Changes are saved as you make them.'}</FieldHint>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      // The failure toast comes from the hook; only the
+                      // success is worth saying here.
+                      reset().then(
+                        () => toast.success('Preferences reset to defaults'),
+                        () => undefined,
+                      )
+                    }
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reset to defaults
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ) : null}
 
           {section === 'projects' || section === 'teams' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>{active.label}</CardTitle>
                 <CardDescription>
                   {section === 'projects'
@@ -277,120 +343,107 @@ export default function SettingsPage() {
                     : 'Groups, memberships and role assignments.'}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3 pt-4">
-                <ul className="divide-y divide-border rounded-lg border border-border">
-                  {(section === 'projects'
+              <CardContent className="space-y-3 p-4">
+                <FactList
+                  facts={(section === 'projects'
                     ? ['Work package types', 'Statuses and workflows', 'Custom fields', 'Versions']
                     : ['Groups', 'Roles and permissions', 'Memberships', 'Directory sync']
-                  ).map((item) => (
-                    <li key={item} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <span className="text-xs">{item}</span>
+                  ).map((item) => ({
+                    label: item,
+                    mono: false,
+                    value: (
                       <Badge tone="neutral" size="sm">
                         <Lock className="h-2.5 w-2.5" aria-hidden />
                         Managed
                       </Badge>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-2xs text-muted-foreground">
+                    ),
+                  }))}
+                />
+                <FieldHint>
                   An administrator manages these in the upstream system. EPM reflects the values
                   after the next synchronisation.
-                </p>
+                </FieldHint>
               </CardContent>
             </Card>
           ) : null}
 
           {section === 'integrations' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>Integrations</CardTitle>
                 <CardDescription>Systems EPM reads from and writes to.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3 pt-4">
-                <div className="flex items-center gap-3 rounded-lg border border-border p-3">
-                  <span
-                    className="flex h-9 w-9 items-center justify-center rounded-lg bg-success-soft text-success"
-                    aria-hidden
-                  >
-                    <Server className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium">Delivery system</p>
-                    <p className="text-2xs text-muted-foreground">
-                      Projects, work packages, members and time entries
-                    </p>
-                  </div>
-                  <Badge tone="success" size="sm" dot>
-                    Connected
-                  </Badge>
-                  <Button asChild variant="secondary" size="sm">
-                    <Link to="/settings/integration">
-                      Manage
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                  </Button>
-                </div>
+              <CardContent className="space-y-3 p-4">
+                <Alert
+                  tone="success"
+                  icon={Server}
+                  title="Delivery system"
+                  actions={
+                    <>
+                      <Badge tone="success" size="sm" dot>
+                        Connected
+                      </Badge>
+                      {can('users:manage') ? (
+                        <Button asChild variant="secondary" size="sm">
+                          <Link to="/settings/integration">
+                            Manage
+                            <ArrowRight className="h-3.5 w-3.5" />
+                          </Link>
+                        </Button>
+                      ) : null}
+                    </>
+                  }
+                >
+                  Projects, work packages, members and time entries
+                </Alert>
 
-                <div className="flex items-center gap-3 rounded-lg border border-dashed border-border p-3">
-                  <span
-                    className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted text-muted-foreground"
-                    aria-hidden
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium">Additional integrations</p>
-                    <p className="text-2xs text-muted-foreground">
-                      Identity, chat and CI connections are configured by the platform team.
-                    </p>
-                  </div>
-                  <Badge tone="neutral" size="sm">
-                    Not configured
-                  </Badge>
-                </div>
+                <Alert
+                  tone="neutral"
+                  icon={ExternalLink}
+                  title="Additional integrations"
+                  actions={
+                    <Badge tone="neutral" size="sm">
+                      Not configured
+                    </Badge>
+                  }
+                >
+                  Identity, chat and CI connections are configured by the platform team.
+                </Alert>
               </CardContent>
             </Card>
           ) : null}
 
           {section === 'security' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>Security</CardTitle>
                 <CardDescription>Authentication and session policy.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/60 p-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
-                  <p className="text-2xs text-muted-foreground">
-                    Authentication, authorisation and API credentials are handled entirely by the
-                    EPM backend. No tokens or secrets are ever stored in the browser.
-                  </p>
-                </div>
+              <CardContent className="space-y-4 p-4">
+                <Alert tone="neutral" icon={ShieldCheck}>
+                  Authentication, authorisation and API credentials are handled entirely by the
+                  EPM backend. No tokens or secrets are ever stored in the browser.
+                </Alert>
 
-                <ul className="divide-y divide-border rounded-lg border border-border">
-                  {[
+                <FactList
+                  facts={[
                     { label: 'Single sign-on', value: 'Microsoft Entra ID' },
                     { label: 'Multi-factor authentication', value: 'Enforced by policy' },
                     { label: 'Session lifetime', value: '8 hours' },
                     { label: 'API credentials', value: 'Server-side only' },
-                  ].map((item) => (
-                    <li key={item.label} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <span className="text-xs">{item.label}</span>
-                      <span className="font-mono text-2xs text-muted-foreground">{item.value}</span>
-                    </li>
-                  ))}
-                </ul>
+                  ]}
+                />
               </CardContent>
             </Card>
           ) : null}
 
           {section === 'api' ? (
             <Card>
-              <CardHeader className="border-b border-border">
+              <CardHeader variant="compact">
                 <CardTitle>API</CardTitle>
                 <CardDescription>How EPM talks to its backend.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4 pt-4">
+              <CardContent className="space-y-4 p-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="api-base">EPM API base URL</Label>
                   <Input id="api-base" readOnly value={env.apiBaseUrl} className="font-mono text-2xs" />
@@ -399,13 +452,11 @@ export default function SettingsPage() {
                   </FieldHint>
                 </div>
 
-                <div className="flex items-start gap-2.5 rounded-lg border border-danger/20 bg-danger-soft p-3">
-                  <Lock className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
-                  <p className="text-2xs text-muted-foreground">
-                    API tokens are never exposed to the frontend and cannot be viewed or rotated from
-                    this interface.
-                  </p>
-                </div>
+                {/* No action here on purpose: there is nothing to rotate from the browser. */}
+                <Alert tone="danger" icon={Lock} title="Tokens stay server-side">
+                  API tokens are never exposed to the frontend and cannot be viewed or rotated from
+                  this interface.
+                </Alert>
               </CardContent>
             </Card>
           ) : null}
@@ -415,34 +466,228 @@ export default function SettingsPage() {
   );
 }
 
+/**
+ * Copy for each notification switch, keyed by the preference it drives. The
+ * Profile page renders a subset of the same keys, so the two never disagree.
+ */
+const NOTIFICATION_ROWS: {
+  key: keyof Preferences['notifications'];
+  label: string;
+  hint: string;
+}[] = [
+  { key: 'mentions', label: 'Mentions', hint: 'When someone mentions you in a comment.' },
+  { key: 'assigned', label: 'Assignments', hint: 'When work is assigned to you.' },
+  { key: 'dueReminders', label: 'Deadline reminders', hint: 'Two days before a due date.' },
+  {
+    key: 'statusChanges',
+    label: 'Project updates',
+    hint: 'Status and health changes on your projects.',
+  },
+  { key: 'digest', label: 'Daily digest', hint: 'A morning summary, in your notifications feed.' },
+];
+
+/**
+ * The per-type email switches. The master switch above them is separate, and
+ * every one of these is inert while it is off.
+ */
+const EMAIL_ROWS: {
+  key: Exclude<keyof Preferences['email'], 'enabled'>;
+  label: string;
+  hint: string;
+}[] = [
+  { key: 'assigned', label: 'Assignments', hint: 'When work is assigned to you.' },
+  { key: 'mentions', label: 'Mentions', hint: 'When someone mentions you in a comment.' },
+  {
+    key: 'membership',
+    label: 'Project access',
+    hint: 'When you are added to a project.',
+  },
+  {
+    key: 'updates',
+    label: 'Updates to my work',
+    hint: 'Status and field changes on work you are assigned to or watch.',
+  },
+  {
+    key: 'dueReminders',
+    label: 'Deadline reminders',
+    // The window is configured on the backend, so the hint describes the shape
+    // rather than a number this page cannot know.
+    hint: 'A daily list of anything overdue or falling due shortly.',
+  },
+  { key: 'digest', label: 'Daily digest', hint: 'A morning summary of what needs attention.' },
+];
+
+/**
+ * The part of a person's identity they own.
+ *
+ * Name and email are theirs to change — OpenProject's own update contract
+ * lists both as writable by the user themselves — so EPM offers them rather
+ * than showing a disabled box. Department and timezone stay read-only above,
+ * because those really are set elsewhere.
+ *
+ * The name is split into first and last because that is how the directory
+ * stores it; showing one "display name" box would mean guessing where to cut.
+ */
+function ProfileForm() {
+  const { user } = useAuth();
+  const update = useUpdateProfile();
+  const zones = useTimezones();
+
+  // Whatever is already set stays offerable even if a tzdata change dropped it
+  // from the list, so the field can always show the truth.
+  const timezoneOptions = useMemo(() => {
+    const known = zones.data ?? [];
+    const current = user?.timezone;
+    return current && !known.includes(current) ? [current, ...known] : known;
+  }, [zones.data, user?.timezone]);
+
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [timezone, setTimezone] = useState('');
+  const [problem, setProblem] = useState<string>();
+
+  // Seeded from the record once it arrives, and again if it changes elsewhere.
+  useEffect(() => {
+    if (!user) return;
+    setFirstName(user.firstName ?? '');
+    setLastName(user.lastName ?? '');
+    setEmail(user.email ?? '');
+    setTimezone(user.timezone ?? '');
+  }, [user?.firstName, user?.lastName, user?.email, user?.timezone]);
+
+  const dirty =
+    user !== undefined &&
+    (firstName !== (user.firstName ?? '') ||
+      lastName !== (user.lastName ?? '') ||
+      email !== (user.email ?? '') ||
+      timezone !== (user.timezone ?? ''));
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setProblem(undefined);
+
+    if (!firstName.trim() || !lastName.trim()) {
+      setProblem('A first and last name are required.');
+      return;
+    }
+    if (!email.trim()) {
+      setProblem('An email address is required.');
+      return;
+    }
+
+    update.mutate(
+      {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        ...(timezone ? { timezone } : {}),
+      },
+      {
+        onSuccess: (updated) => toast.success(`Saved. You are ${updated.name}.`),
+        // The instance owns the rules — a duplicate address, a format it
+        // rejects — so its sentence is the one worth showing.
+        onError: (error) =>
+          setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+      },
+    );
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="settings-first-name" required>
+            First name
+          </Label>
+          <Input
+            id="settings-first-name"
+            value={firstName}
+            onChange={(event) => setFirstName(event.target.value)}
+            autoComplete="given-name"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="settings-last-name" required>
+            Last name
+          </Label>
+          <Input
+            id="settings-last-name"
+            value={lastName}
+            onChange={(event) => setLastName(event.target.value)}
+            autoComplete="family-name"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="settings-email" required>
+            Work email
+          </Label>
+          <Input
+            id="settings-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+          />
+          <FieldHint>
+            Used for invitations and notifications. Changing it does not change how you sign in.
+          </FieldHint>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="settings-timezone">Timezone</Label>
+          <Select value={timezone} onValueChange={setTimezone}>
+            <SelectTrigger id="settings-timezone" aria-label="Timezone" disabled={zones.isLoading}>
+              <SelectValue placeholder="Choose a timezone" />
+            </SelectTrigger>
+            <SelectContent>
+              {timezoneOptions.map((zone) => (
+                <SelectItem key={zone} value={zone}>
+                  {zone.replace(/_/g, ' ')}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FieldHint>Dates and times across EPM are shown in this zone.</FieldHint>
+        </div>
+      </div>
+
+      {problem ? <Alert tone="danger">{problem}</Alert> : null}
+
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={!dirty} loading={update.isPending}>
+          Save changes
+        </Button>
+        {dirty && !update.isPending ? (
+          <span className="text-2xs text-muted-foreground">Unsaved changes</span>
+        ) : null}
+      </div>
+    </form>
+  );
+}
+
 function ToggleRow({
   id,
   label,
   hint,
-  defaultChecked,
+  checked,
+  disabled,
+  onCheckedChange,
 }: {
   id: string;
   label: string;
   hint: string;
-  defaultChecked?: boolean;
+  checked: boolean;
+  /** Inert, and reads as such, because a switch above it is off. */
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <Label htmlFor={id} className="text-xs">
-          {label}
-        </Label>
-        <p className="mt-0.5 text-2xs text-muted-foreground">{hint}</p>
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className={cn('min-w-0 space-y-0.5', disabled && 'opacity-60')}>
+        <Label htmlFor={id}>{label}</Label>
+        <FieldHint>{hint}</FieldHint>
       </div>
-      <Switch
-        id={id}
-        defaultChecked={defaultChecked}
-        onCheckedChange={(checked) =>
-          toast.success('Preference saved', {
-            description: `${label} ${checked ? 'enabled' : 'disabled'}.`,
-          })
-        }
-      />
+      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
     </div>
   );
 }

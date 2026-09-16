@@ -1,28 +1,20 @@
 import { useNavigate } from 'react-router-dom';
-import { Check, LogOut, Monitor, Moon, Settings, Sun, User } from 'lucide-react';
+import { LogOut, Settings, ShieldCheck, User } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { useAuth } from '@/providers/AuthProvider';
-import { useTheme, type ThemeSetting } from '@/providers/ThemeProvider';
-import { cn } from '@/lib/utils';
+import { isAdministrator } from '@/config/navigation';
 
-const THEME_OPTIONS: { value: ThemeSetting; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'system', label: 'System', icon: Monitor },
-];
-
-/** Avatar button in the header: identity, theme control and sign-out. */
+/** Avatar button in the header: identity and sign-out. */
 export function UserMenu() {
-  const { user, signOut } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { user, signOut, can } = useAuth();
+  const administrator = isAdministrator(can);
   const navigate = useNavigate();
 
   return (
@@ -54,25 +46,12 @@ export function UserMenu() {
           <Settings />
           Settings
         </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-        <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-        {THEME_OPTIONS.map((option) => (
-          <DropdownMenuItem
-            key={option.value}
-            onSelect={(event) => {
-              event.preventDefault();
-              setTheme(option.value);
-            }}
-          >
-            <option.icon />
-            {option.label}
-            <Check
-              className={cn('ml-auto h-3.5 w-3.5', theme === option.value ? 'opacity-100' : 'opacity-0')}
-              aria-hidden
-            />
+        {administrator ? (
+          <DropdownMenuItem onSelect={() => navigate('/admin')}>
+            <ShieldCheck />
+            Administration
           </DropdownMenuItem>
-        ))}
+        ) : null}
 
         <DropdownMenuSeparator />
         <DropdownMenuItem

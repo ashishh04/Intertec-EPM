@@ -4,11 +4,18 @@ import { ChevronRight } from 'lucide-react';
 import { useProject } from '@/hooks/useProjects';
 import { useTask } from '@/hooks/useTasks';
 import { useTeam } from '@/hooks/useTeams';
+import { usePortfolio } from '@/hooks/usePortfolios';
+import { useDepartment } from '@/hooks/useDepartments';
 import { cn } from '@/lib/utils';
+import { findAdminArea, findAdminPage } from '@/config/administration';
 
 /** Human labels for static route segments. */
 const SEGMENT_LABEL: Record<string, string> = {
+  admin: 'Administration',
   dashboard: 'Overview',
+  employees: 'Employees',
+  departments: 'Departments',
+  portfolios: 'Portfolios',
   'my-work': 'My Work',
   projects: 'Projects',
   tasks: 'Tasks',
@@ -48,12 +55,14 @@ export function Breadcrumbs({ className }: { className?: string }) {
   const { data: project } = useProject(params.projectId);
   const { data: task } = useTask(params.taskId);
   const { data: team } = useTeam(params.teamId);
+  const { data: portfolio } = usePortfolio(params.portfolioId);
+  const { data: department } = useDepartment(params.departmentId);
 
   const segments = location.pathname.split('/').filter(Boolean);
   const crumbs: Crumb[] = [];
   let path = '';
 
-  for (const segment of segments) {
+  for (const [index, segment] of segments.entries()) {
     path += `/${segment}`;
 
     if (segment === params.projectId) {
@@ -67,6 +76,29 @@ export function Breadcrumbs({ className }: { className?: string }) {
     if (segment === params.teamId) {
       crumbs.push({ label: team?.name ?? 'Team', to: path });
       continue;
+    }
+    if (segment === params.portfolioId) {
+      crumbs.push({ label: portfolio?.name ?? 'Portfolio', to: path });
+      continue;
+    }
+    if (segment === params.departmentId) {
+      crumbs.push({ label: department?.name ?? 'Department', to: path });
+      continue;
+    }
+
+    // Administration routes carry area and page ids; their labels live in the
+    // administration config rather than in the static table above.
+    if (segments[0] === 'admin' && crumbs.length > 0) {
+      const area = findAdminArea(segments[1]);
+      if (area && index === 1) {
+        crumbs.push({ label: area.label, to: path });
+        continue;
+      }
+      const page = area && index === 2 ? findAdminPage(area, segment) : undefined;
+      if (page) {
+        crumbs.push({ label: page.label, to: path });
+        continue;
+      }
     }
 
     crumbs.push({ label: SEGMENT_LABEL[segment] ?? segment, to: path });

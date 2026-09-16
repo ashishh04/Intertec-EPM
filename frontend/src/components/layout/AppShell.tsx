@@ -6,6 +6,8 @@ import { TopHeader } from './TopHeader';
 import { CommandPalette } from './CommandPalette';
 import { MobileBottomNav, MobileNavSheet } from './MobileNav';
 import { TaskDrawer } from '@/components/tasks/TaskDrawer';
+import { PragnyaWidget } from '@/components/assistant';
+import { featureFlags } from '@/config/env';
 import { ErrorBoundary } from '@/components/common/ErrorState';
 import { PageSkeleton } from '@/components/common/PageSkeleton';
 import { useUI } from '@/providers/UIProvider';
@@ -18,7 +20,14 @@ import { usePrefersReducedMotion } from '@/hooks/useMediaQuery';
  */
 export function AppShell() {
   const location = useLocation();
-  const { openTaskDrawer, taskDrawerOpen, commandPaletteOpen } = useUI();
+  const {
+    openTaskDrawer,
+    taskDrawerOpen,
+    commandPaletteOpen,
+    pragnyaOpen,
+    openPragnya,
+    closePragnya,
+  } = useUI();
   const reducedMotion = usePrefersReducedMotion();
 
   // "C" creates a task, matching the shortcut advertised in the header menu.
@@ -26,7 +35,7 @@ export function AppShell() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'c' && event.key !== 'C') return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (taskDrawerOpen || commandPaletteOpen) return;
+      if (taskDrawerOpen || commandPaletteOpen || pragnyaOpen) return;
 
       const target = event.target as HTMLElement | null;
       const isEditable =
@@ -40,7 +49,22 @@ export function AppShell() {
 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [openTaskDrawer, taskDrawerOpen, commandPaletteOpen]);
+  }, [openTaskDrawer, taskDrawerOpen, commandPaletteOpen, pragnyaOpen]);
+
+  // Ctrl+/ (Cmd+/ on a Mac) toggles Pragnya from anywhere, editable or not:
+  // the modifier keeps it from colliding with typing.
+  useEffect(() => {
+    if (!featureFlags.pragnya) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== '/' || !(event.metaKey || event.ctrlKey) || event.altKey) return;
+      event.preventDefault();
+      if (pragnyaOpen) closePragnya();
+      else openPragnya();
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [pragnyaOpen, openPragnya, closePragnya]);
 
   // Scroll back to the top on navigation so long pages do not start mid-content.
   useEffect(() => {
@@ -65,10 +89,23 @@ export function AppShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopHeader />
 
+        {/*
+          `relative` is load-bearing, not decoration.
+
+          A scroll container only clips what it is the containing block for.
+          Left static, every absolutely positioned descendant — the hidden input
+          behind each checkbox, every `sr-only` span — resolves against the
+          initial containing block instead, escapes this element's overflow and
+          stretches the *document*. A long form then paints a second scrollbar
+          beside this one and scrolls the whole app off-screen; the roles page,
+          with 122 checkboxes, pushed the document to 4002px.
+
+          Every scroll container in the app carries this for the same reason.
+        */}
         <main
           id="epm-main"
           tabIndex={-1}
-          className="epm-scroll flex-1 overflow-y-auto pb-20 focus-visible:outline-none md:pb-0"
+          className="epm-scroll relative flex-1 overflow-y-auto pb-20 focus-visible:outline-none md:pb-0"
         >
           <ErrorBoundary fallbackTitle="This page could not be displayed">
             <AnimatePresence mode="wait" initial={false}>
@@ -92,6 +129,7 @@ export function AppShell() {
       <MobileBottomNav />
       <CommandPalette />
       <TaskDrawer />
+      {featureFlags.pragnya ? <PragnyaWidget /> : null}
     </div>
   );
 }

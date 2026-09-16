@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { CalendarDays, CheckCircle2, Users } from 'lucide-react';
-import { cn, formatShortDate, isOverdue, pluralize } from '@/lib/utils';
+import { cn, formatNumber, formatPercent, formatShortDate, isOverdue, pluralize } from '@/lib/utils';
 import { PROJECT_STATUS_META } from '@/lib/domain';
 import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,73 +21,73 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
   const overdue = isOverdue(project.dueDate) && project.status !== 'completed';
 
   return (
-    <motion.div
-      whileHover={{ y: -2 }}
-      transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
-      className={cn('h-full', className)}
+    // The lift is a CSS transition on the link itself, so the whole tile is
+    // one focusable element with no wrapper to animate.
+    <Link
+      to={`/projects/${project.id}`}
+      className={cn(
+        'flex h-full flex-col gap-3.5 rounded-lg border border-border bg-surface p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        className,
+      )}
     >
-      <Link
-        to={`/projects/${project.id}`}
-        className="flex h-full flex-col gap-3.5 rounded-xl border border-border bg-surface p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
-              {project.name}
-            </h3>
-            <p className="mt-0.5 font-mono text-2xs uppercase tracking-wide text-muted-foreground">
-              {project.identifier} · {project.portfolio}
-            </p>
-          </div>
-          <ProjectStatusBadge status={project.status} size="sm" />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
+            {project.name}
+          </h3>
+          <p className="mt-0.5 font-mono text-2xs uppercase tracking-wide text-muted-foreground">
+            {project.identifier} · {project.portfolio}
+          </p>
         </div>
+        <ProjectStatusBadge status={project.status} size="sm" />
+      </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-2xs text-muted-foreground">Progress</span>
-            <span className="font-mono text-xs font-medium tabular-nums text-foreground">
-              {project.progress}%
-            </span>
-          </div>
-          <ProgressBar value={project.progress} tone={tone} size="sm" label={`${project.name} progress`} />
+      <div className="space-y-1.5">
+        <div className="flex items-baseline justify-between">
+          <span className="text-2xs text-muted-foreground">Progress</span>
+          <span className="font-mono text-xs font-medium tabular-nums text-foreground">
+            {formatPercent(project.progress)}
+          </span>
         </div>
+        <ProgressBar value={project.progress} tone={tone} size="sm" label={`${project.name} progress`} />
+      </div>
 
-        <dl className="mt-auto grid grid-cols-3 gap-2 border-t border-border pt-3 text-2xs">
-          <div className="min-w-0">
-            <dt className="flex items-center gap-1 text-muted-foreground">
-              <CheckCircle2 className="h-3 w-3" aria-hidden />
-              Tasks
-            </dt>
-            <dd className="mt-0.5 truncate font-mono font-medium tabular-nums text-foreground">
-              {project.completedTaskCount}/{project.taskCount}
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="flex items-center gap-1 text-muted-foreground">
-              <CalendarDays className="h-3 w-3" aria-hidden />
-              Due
-            </dt>
-            <dd
-              className={cn(
-                'mt-0.5 truncate font-mono font-medium text-foreground',
-                overdue && 'text-danger',
-              )}
-            >
-              {formatShortDate(project.dueDate)}
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="flex items-center gap-1 text-muted-foreground">
-              <Users className="h-3 w-3" aria-hidden />
-              Team
-            </dt>
-            <dd className="mt-0.5">
-              <AvatarGroup users={members} max={3} size="xs" />
-            </dd>
-          </div>
-        </dl>
-      </Link>
-    </motion.div>
+      <dl className="mt-auto grid grid-cols-3 gap-2 border-t border-border pt-3 text-2xs">
+        <div className="min-w-0">
+          <dt className="flex items-center gap-1 text-muted-foreground">
+            <CheckCircle2 className="h-3 w-3" aria-hidden />
+            Tasks
+          </dt>
+          <dd className="mt-0.5 truncate font-mono font-medium tabular-nums text-foreground">
+            {formatNumber(project.completedTaskCount)}/{formatNumber(project.taskCount)}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="flex items-center gap-1 text-muted-foreground">
+            <CalendarDays className="h-3 w-3" aria-hidden />
+            Due
+          </dt>
+          <dd
+            className={cn(
+              'mt-0.5 truncate font-mono font-medium text-foreground',
+              overdue && 'text-danger',
+            )}
+          >
+            {formatShortDate(project.dueDate)}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="flex items-center gap-1 text-muted-foreground">
+            <Users className="h-3 w-3" aria-hidden />
+            Team
+          </dt>
+          <dd className="mt-0.5">
+            <AvatarGroup users={members} max={3} size="xs" />
+          </dd>
+        </div>
+      </dl>
+    </Link>
   );
 }
 
@@ -108,7 +107,8 @@ function ProjectRow({ project, className }: { project: EpmProject; className?: s
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium text-foreground">{project.name}</span>
         <span className="block text-2xs text-muted-foreground">
-          {project.taskCount} {pluralize(project.taskCount, 'task')} · {project.progress}%
+          {formatNumber(project.taskCount)} {pluralize(project.taskCount, 'task')} ·{' '}
+          {formatPercent(project.progress)}
         </span>
       </span>
       <ProjectStatusBadge status={project.status} size="sm" />

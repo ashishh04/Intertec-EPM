@@ -32,3 +32,19 @@ export async function optional<T>(query: () => Promise<T>, fallback: T): Promise
 export async function disconnectPrisma() {
   await prisma.$disconnect().catch(() => undefined);
 }
+
+/**
+ * Whether the database will answer right now.
+ *
+ * `SELECT 1` rather than a model query: it needs no table to exist, so it
+ * reports the connection rather than the schema, and a pending migration does
+ * not read as an outage.
+ */
+export async function prismaReady(): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : 'unreachable' };
+  }
+}

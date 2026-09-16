@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Check, Copy, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { FieldHint, Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
   Select,
@@ -37,11 +38,10 @@ import type { EpmAccount } from '@/types';
  * their own dialogs on this page, and duplicating them here would give two
  * places to change one thing.
  *
- * A starting password is required rather than an emailed invitation, because
- * this deployment has no mail transport: an invited account would have no
- * password and no way to receive one, so nobody created that way could ever
- * sign in. The password is shown once for the administrator to hand over, sent
- * once, and never stored on either side.
+ * By default the person is emailed a link and chooses their own password, so
+ * nobody else ever sees one. A starting password remains for the cases where
+ * mail cannot reach them: it is shown once for the administrator to hand over,
+ * sent once, and never stored on either side.
  */
 
 /**
@@ -98,6 +98,10 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   const [login, setLogin] = useState('');
   const [admin, setAdmin] = useState(false);
   const [password, setPassword] = useState('');
+  const [sendInvite, setSendInvite] = useState(true);
+  // Brief confirmation on the copy button; the toast says it too, but the
+  // button is where the eye is.
+  const [copied, setCopied] = useState(false);
   const [departmentId, setDepartmentId] = useState(NONE);
   const [teamId, setTeamId] = useState(NONE);
   const [capacity, setCapacity] = useState('40');
@@ -114,6 +118,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     setLogin(account?.login ?? '');
     setAdmin(account?.admin ?? false);
     setPassword(isEdit ? '' : suggestPassword());
+    setSendInvite(true);
     setDepartmentId(NONE);
     setTeamId(NONE);
     setCapacity('40');
@@ -121,6 +126,11 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   }, [open, account?.id]);
 
   const pending = createAccount.isPending || updateAccount.isPending;
+
+  // An invitation needs somewhere to go, so the switch only counts once an
+  // email address is in. Create only: an existing account is never re-invited
+  // from here.
+  const inviting = !isEdit && sendInvite && email.trim() !== '';
 
   // A team that belongs to a department settles the department too, so only
   // compatible teams are offered — the same rule the mapping dialog applies,
@@ -168,7 +178,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
       return;
     }
 
-    if (!password) {
+    if (!inviting && !password) {
       setProblem('A starting password is required.');
       return;
     }
@@ -185,7 +195,10 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
-        password,
+        // Never both: with an invitation the server makes a password nobody
+        // sees, and one typed here would be a second secret to leak.
+        password: inviting ? undefined : password,
+        sendInvite: inviting,
         admin,
         departmentId: departmentId === NONE ? undefined : departmentId,
         teamId: teamId === NONE ? undefined : teamId,
@@ -198,6 +211,16 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
           if (created.placementProblems?.length) {
             toast.warning(`${created.name} was created, but not fully placed`, {
               description: created.placementProblems.join(' '),
+            });
+          } else if (created.inviteSent) {
+            toast.success(`Invitation sent to ${created.email || email.trim()}`, {
+              description: 'They have 7 days to set a password from the link.',
+            });
+          } else if (inviting) {
+            // Asked for, not delivered: the account exists with a password
+            // nobody knows, so the way forward is another invitation.
+            toast.warning(`${created.name} was created, but the invitation was not sent`, {
+              description: 'Use "Resend invitation" from their account menu.',
             });
           } else {
             toast.success(`${created.name} can now sign in`, {
@@ -274,6 +297,27 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             </div>
 
             {isEdit ? null : (
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
+                <div className="min-w-0">
+                  <Label htmlFor="account-invite">Send an invitation email</Label>
+                  <FieldHint className="mt-0.5">
+                    {email.trim() === ''
+                      ? 'Enter their email address first.'
+                      : inviting
+                        ? 'They will set their own password from the link. It expires in 7 days.'
+                        : 'You will hand over a starting password instead.'}
+                  </FieldHint>
+                </div>
+                <Switch
+                  id="account-invite"
+                  checked={inviting}
+                  disabled={email.trim() === ''}
+                  onCheckedChange={setSendInvite}
+                />
+              </div>
+            )}
+
+            {isEdit || inviting ? null : (
               <div className="space-y-1.5">
                 <Label htmlFor="account-password">Starting password</Label>
                 <div className="flex gap-2">
@@ -292,30 +336,47 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     type="button"
                     variant="secondary"
                     className="shrink-0"
+                    disabled={!password}
+                    aria-label="Copy starting password"
+                    onClick={() => {
+                      navigator.clipboard
+                        .writeText(password)
+                        .then(() => {
+                          setCopied(true);
+                          toast.success('Password copied');
+                          window.setTimeout(() => setCopied(false), 2000);
+                        })
+                        .catch(() => toast.error('Could not copy. Select the password and copy it by hand.'));
+                    }}
+                  >
+                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copied ? 'Copied' : 'Copy'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="shrink-0"
                     onClick={() => setPassword(suggestPassword())}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                     New
                   </Button>
                 </div>
-                <p className="text-2xs text-muted-foreground">
+                <FieldHint>
                   Give this to them with the username. They can change it once signed in.
-                </p>
+                </FieldHint>
               </div>
             )}
 
-            <label
-              htmlFor="account-admin"
-              className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5"
-            >
-              <span className="min-w-0">
-                <span className="block text-xs font-medium">Instance administrator</span>
-                <span className="block text-2xs text-muted-foreground">
-                  Full access to every project and setting.
-                </span>
-              </span>
+            {/* The same toggle row as the settings page, so a switch reads the
+                same wherever it appears. */}
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
+              <div className="min-w-0">
+                <Label htmlFor="account-admin">Instance administrator</Label>
+                <FieldHint className="mt-0.5">Full access to every project and setting.</FieldHint>
+              </div>
               <Switch id="account-admin" checked={admin} onCheckedChange={setAdmin} />
-            </label>
+            </div>
           </section>
 
           {isEdit ? null : (
@@ -325,15 +386,21 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="account-department">Department</Label>
+                  {/* An empty value while loading shows the placeholder instead
+                      of the "No department" option, which would read as a
+                      settled answer. */}
                   <Select
-                    value={departmentId}
+                    value={departments.isLoading ? '' : departmentId}
                     onValueChange={(value) => {
                       setDepartmentId(value);
                       setTeamId(NONE);
                     }}
+                    disabled={departments.isLoading}
                   >
                     <SelectTrigger id="account-department" aria-label="Select a department">
-                      <SelectValue placeholder="No department" />
+                      <SelectValue
+                        placeholder={departments.isLoading ? 'Loading…' : 'No department'}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>No department</SelectItem>
@@ -348,9 +415,13 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
                 <div className="space-y-1.5">
                   <Label htmlFor="account-team">Team</Label>
-                  <Select value={teamId} onValueChange={setTeamId}>
+                  <Select
+                    value={teams.isLoading ? '' : teamId}
+                    onValueChange={setTeamId}
+                    disabled={teams.isLoading}
+                  >
                     <SelectTrigger id="account-team" aria-label="Select a team">
-                      <SelectValue placeholder="No team" />
+                      <SelectValue placeholder={teams.isLoading ? 'Loading…' : 'No team'} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>No team</SelectItem>
@@ -361,6 +432,9 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                       ))}
                     </SelectContent>
                   </Select>
+                  {!teams.isLoading && (teams.data ?? []).length === 0 ? (
+                    <FieldHint>No teams yet.</FieldHint>
+                  ) : null}
                 </div>
               </div>
 
@@ -379,13 +453,13 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     />
                     <span className="shrink-0 text-2xs text-muted-foreground">hours</span>
                   </div>
-                  <p className="text-2xs text-muted-foreground">Used for allocation.</p>
+                  <FieldHint>Used for allocation.</FieldHint>
                 </div>
               </div>
             </section>
           )}
 
-          {problem ? <p className="text-2xs text-danger">{problem}</p> : null}
+          {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>
 
         <DialogFooter>

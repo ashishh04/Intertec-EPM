@@ -1,5 +1,5 @@
-import { openProject, linkId, linkTitle } from '../openproject/client.js';
-import { referenceCache } from '../lib/cache.js';
+import { openProject, linkId, linkTitle, MAX_PAGE_SIZE } from '../openproject/client.js';
+import { referenceCache, userScopedKey } from '../lib/cache.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AvatarAccent, ID, EpmUser } from '../types/epm.js';
@@ -42,13 +42,15 @@ interface UserOverlay {
 
 export function toEpmUser(
   principal: OpPrincipal,
-  options: { role?: string; overlay?: UserOverlay } = {},
+  options: { role?: string; overlay?: UserOverlay; timezone?: string } = {},
 ): EpmUser {
   const id = String(principal.id);
 
   return {
     id,
     name: principal.name,
+    firstName: principal.firstName ?? '',
+    lastName: principal.lastName ?? '',
     initials: initialsFor(principal.name),
     // Principals do not expose email to a non-admin token.
     email: principal.email ?? '',
@@ -57,11 +59,13 @@ export function toEpmUser(
     // deployment that populated it before employee mapping existed; this one
     // never did. Neither is invented — an unmapped person reports nothing.
     department: options.overlay?.departmentRef?.name ?? options.overlay?.department ?? '',
-    avatarUrl: principal.avatar,
+    // EPM's own path, not the absolute upstream URL the principal carries:
+    // that would name the system behind EPM in every page that shows a face.
+    avatarUrl: principal.avatar ? `/users/${id}/avatar` : '',
     // OpenProject has no presence concept. `status` is an account state, not
     // whether someone is online, so it is not reported as presence.
     status: 'offline',
-    timezone: options.overlay?.timezone ?? '',
+    timezone: options.timezone ?? options.overlay?.timezone ?? '',
     accent: accentFor(id),
   };
 }
@@ -70,7 +74,7 @@ export function toEpmUser(
 async function loadRoles(signal?: AbortSignal): Promise<Map<string, string>> {
   const memberships = await openProject.getAll<OpMembership>(
     '/memberships',
-    { pageSize: 100 },
+    { pageSize: MAX_PAGE_SIZE },
     { signal },
   );
 
@@ -89,7 +93,7 @@ async function loadRoles(signal?: AbortSignal): Promise<Map<string, string>> {
 
 async function loadUsers(signal?: AbortSignal): Promise<EpmUser[]> {
   const [principals, roles] = await Promise.all([
-    openProject.getAll<OpPrincipal>('/principals', { pageSize: 100 }, { signal }),
+    openProject.getAll<OpPrincipal>('/principals', { pageSize: MAX_PAGE_SIZE }, { signal }),
     loadRoles(signal).catch(() => new Map<string, string>()),
   ]);
 
@@ -115,12 +119,28 @@ async function loadUsers(signal?: AbortSignal): Promise<EpmUser[]> {
 }
 
 export function getUsers(signal?: AbortSignal): Promise<EpmUser[]> {
-  return referenceCache.get('users', () => loadUsers(signal), 5 * 60_000);
+  return referenceCache.get(userScopedKey('users'), () => loadUsers(signal), 5 * 60_000);
 }
 
 /** The signed-in user, where OpenProject does return the full record. */
+/**
+ * The signed-in person's own preferences, for the handful of fields EPM shows.
+ *
+ * A separate call because a principal does not carry them. Failure is not
+ * fatal: the profile is still worth rendering without a timezone, so this
+ * reports nothing rather than taking the page down with it.
+ */
+async function myPreferences(signal?: AbortSignal): Promise<{ timeZone?: string }> {
+  return openProject
+    .request<{ timeZone?: string }>('/users/me/preferences', { signal })
+    .catch(() => ({}));
+}
+
 export async function getCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
-  const me = await openProject.request<OpPrincipal>('/users/me', { signal });
+  const [me, preferences] = await Promise.all([
+    openProject.request<OpPrincipal>('/users/me', { signal }),
+    myPreferences(signal),
+  ]);
 
   const overlay = await optional(
     () =>
@@ -136,6 +156,9 @@ export async function getCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
   return toEpmUser(me, {
     role: roles.get(String(me.id)) ?? (me.admin ? 'Administrator' : ''),
     overlay: overlay ?? undefined,
+    // The instance is the authority; the EPM column is a fallback for a
+    // deployment that populated it before this was read from upstream.
+    timezone: preferences.timeZone ?? undefined,
   });
 }
 

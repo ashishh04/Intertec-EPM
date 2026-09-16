@@ -231,7 +231,7 @@ export async function setMapping(
 
   // The directory is cached for five minutes and carries the department name,
   // so it would otherwise keep reporting the old one.
-  referenceCache.invalidate('users');
+  referenceCache.invalidatePrefix('users');
 
   return toEpmEmployee(user, profile);
 }
@@ -302,7 +302,7 @@ export async function setCapacity(
   // The directory does not carry capacity, so it does not need invalidating —
   // but it is cached per user id and a create here adds a row that other reads
   // join against, so it is dropped for consistency with the mapping write.
-  referenceCache.invalidate('users');
+  referenceCache.invalidatePrefix('users');
 
   return toEpmEmployee(user, profile);
 }

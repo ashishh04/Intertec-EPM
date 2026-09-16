@@ -15,6 +15,7 @@ export const queryKeys = {
   projects: (params?: { search?: string; status?: string[] }) => ['projects', params ?? {}] as const,
   project: (id: ID) => ['projects', 'detail', id] as const,
   projectMilestones: (id: ID) => ['projects', 'detail', id, 'milestones'] as const,
+  projectChildren: (id: ID) => ['projects', 'detail', id, 'children'] as const,
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,
@@ -38,9 +39,28 @@ export const queryKeys = {
     ['reports', 'executive-insights', filters ?? {}] as const,
   timeSummary: (filters?: ReportFilters) => ['reports', 'time-summary', filters ?? {}] as const,
 
+  /**
+   * Instance settings sections. Cached per section id, because a section is
+   * fetched and written whole and the ids come from the instance rather than
+   * from a list EPM keeps.
+   */
+  adminSettingsSections: ['admin', 'settings', 'sections'] as const,
+  adminSettingsSection: (id: string) => ['admin', 'settings', 'sections', id] as const,
+
+  /**
+   * Administration catalogues. Cached per resource, because a catalogue is
+   * fetched whole — the descriptor and its rows in one reply — and the
+   * resources are the instance's, not a list EPM keeps.
+   */
+  adminCatalogs: ['admin', 'catalog'] as const,
+  adminCatalog: (resource: string) => ['admin', 'catalog', resource] as const,
+
   notifications: ['notifications'] as const,
   documents: (params?: { projectId?: ID; search?: string }) => ['documents', params ?? {}] as const,
   integrationStatus: ['integrations', 'status'] as const,
+  preferences: ['preferences'] as const,
+  /** The token is the whole identity of an invitation; there is no id. */
+  invite: (token: string) => ['invites', token] as const,
 } as const;
 
 /** Root keys used for coarse invalidation after a mutation. */

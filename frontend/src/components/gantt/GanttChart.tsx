@@ -16,6 +16,7 @@ import {
 } from 'date-fns';
 import { Diamond, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -25,7 +26,7 @@ import { usePagination } from '@/hooks/usePagination';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { TASK_STATUS_META, TONE_FILL } from '@/lib/domain';
-import { cn, formatShortDate } from '@/lib/utils';
+import { cn, formatPercent, formatShortDate } from '@/lib/utils';
 import type { ID, Milestone, EpmTask, EpmUser } from '@/types';
 
 type ZoomLevel = 'day' | 'week' | 'month';
@@ -106,9 +107,14 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
       while (index + span < days.length && days[index + span].getMonth() === monthStart.getMonth()) {
         span += 1;
       }
+      // The label is chosen by the band's width in pixels, not its day count,
+      // so a month that only just enters the range at one edge never spills
+      // its name over the next month's. Too narrow for even the short form
+      // and it stays unlabelled; the day scale below still dates it.
+      const width = span * columnWidth;
       bands.push({
-        label: format(monthStart, span > 6 ? 'MMMM yyyy' : 'MMM'),
-        width: span * columnWidth,
+        label: width >= 120 ? format(monthStart, 'MMMM yyyy') : width >= 44 ? format(monthStart, 'MMM') : '',
+        width,
         offset: index * columnWidth,
       });
       index += span;
@@ -118,17 +124,17 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
 
   if (allScheduled.length === 0) {
     return (
-      <div className={cn('rounded-xl border border-border bg-surface', className)}>
+      <Card className={className}>
         <EmptyState
           title="Nothing scheduled yet"
           description="Work packages need a start and due date before they appear on the timeline."
         />
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-border bg-surface', className)}>
+    <Card className={cn('overflow-hidden', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="flex items-center gap-3 text-2xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
@@ -222,7 +228,7 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
                   <span
                     key={`${band.label}-${band.offset}`}
                     style={{ left: band.offset, width: band.width }}
-                    className="absolute flex h-6 items-center border-l border-border px-2 text-2xs font-medium text-foreground"
+                    className="absolute flex h-6 items-center overflow-hidden whitespace-nowrap border-l border-border px-2 text-2xs font-medium text-foreground"
                   >
                     {band.label}
                   </span>
@@ -237,12 +243,12 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
                       key={date.toISOString()}
                       style={{ left: index * columnWidth, width: columnWidth }}
                       className={cn(
-                        'absolute flex h-6 items-center justify-center text-[10px]',
+                        'absolute flex h-6 items-center justify-center text-2xs',
                         isWeekend(date) ? 'text-muted-foreground/50' : 'text-muted-foreground',
                         isSameDay(date, today) && 'font-semibold text-danger',
                       )}
                     >
-                      {showLabel ? format(date, zoom === 'month' ? 'd' : 'd') : ''}
+                      {showLabel ? format(date, 'd') : ''}
                     </span>
                   );
                 })}
@@ -355,7 +361,7 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
                           to={`/tasks/${task.id}`}
                           style={{ left: offset, width }}
                           className={cn(
-                            'absolute top-1/2 flex h-5 -translate-y-1/2 items-center overflow-hidden rounded px-1.5 text-[10px] font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            'absolute top-1/2 flex h-5 -translate-y-1/2 items-center overflow-hidden rounded px-1.5 text-2xs font-medium leading-none text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                             TONE_FILL[tone],
                           )}
                         >
@@ -374,7 +380,7 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
                         <span className="block font-semibold">{task.subject}</span>
                         <span className="block">
                           {formatShortDate(task.startDate)} — {formatShortDate(task.dueDate)} ·{' '}
-                          {task.progress}% complete
+                          {formatPercent(task.progress)} complete
                         </span>
                       </TooltipContent>
                     </Tooltip>
@@ -397,13 +403,13 @@ export function GanttChart({ tasks, users, milestones = [], className }: GanttCh
         itemLabel="scheduled item"
         className="border-t border-border"
       />
-    </div>
+    </Card>
   );
 }
 
 export function GanttChartSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
+    <Card className="overflow-hidden">
       <div className="border-b border-border px-3 py-2.5">
         <Skeleton className="h-4 w-48" />
       </div>
@@ -423,6 +429,6 @@ export function GanttChartSkeleton() {
           ))}
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

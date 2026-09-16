@@ -1,120 +1,178 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/*
+ * Fonts are bundled, not fetched.
+ *
+ * This was an @import from Google's CDN, which made every page load depend on
+ * a third party: a locked-down corporate network renders the app in fallback
+ * faces, and the requests are a GDPR question in the EU because the visitor's
+ * IP reaches Google. Self-hosting removes both, and the weights below are the
+ * ones the design system actually names — adding a weight means adding its
+ * import here.
+ */
+@import '@fontsource/poppins/400.css';
+@import '@fontsource/poppins/500.css';
+@import '@fontsource/poppins/600.css';
+@import '@fontsource/poppins/700.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+@import '@fontsource/instrument-serif/400.css';
+@import '@fontsource/instrument-serif/400-italic.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Intertec Systems brand tokens. Measured from intertecsystems.com rather
+   * than eyeballed: Poppins, the crimson-to-violet gradient, flat white cards
+   * on a hairline border, pill buttons.
+   *
+   * There is one theme. The app is light only — see the note below `:root`.
+   */
   :root {
-    /* ---- EPM light theme ------------------------------------------- */
-    --background: 217 43% 97%;          /* #F7F9FC */
-    --foreground: 220 43% 11%;          /* #101828 */
+    /* ---- Surfaces ---------------------------------------------------- */
+    --background: 240 33% 98%;          /* #F7F7FB — page, a whisper of violet
+                                           so white cards separate from it */
+    --foreground: 0 0% 5%;              /* #0C0C0C — the brand's near-black ink */
 
     --surface: 0 0% 100%;               /* #FFFFFF */
     --surface-elevated: 0 0% 100%;
-    --surface-sunken: 220 33% 98%;
+    --surface-sunken: 252 45% 98%;      /* #F8F7FC */
 
-    --primary: 220 83% 51%;             /* #155EEF */
-    --primary-dark: 220 87% 35%;        /* #0B3FA8 */
+    /* ---- Brand ------------------------------------------------------- */
+    /*
+     * The signature gradient. The site ships #ED2936 as the start stop, but
+     * white 14px/600 over it measures 4.22:1 — under WCAG AA. #E22532 is
+     * indistinguishable side by side and measures 4.62:1, so button labels
+     * stay legible for people reading this app all day.
+     */
+    --brand-from: 356 77% 52%;          /* #E22532 crimson */
+    --brand-to: 275 54% 41%;            /* #7130A1 violet */
+    --brand-gradient: linear-gradient(90deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
+    /* Vertical twin, for tall-and-narrow marks like the active nav rail. A
+       90deg gradient on a 2px-wide bar samples only its first stop and comes
+       out flat crimson. */
+    --brand-gradient-y: linear-gradient(180deg, hsl(var(--brand-from)), hsl(var(--brand-to)));
+    /*
+     * Diagonal twin — the one every filled button uses.
+     *
+     * A 90deg sweep has to fit both stops across the control's width, so on a
+     * 36px icon button it compresses into a smear and on a narrow one it reads
+     * as flat crimson. At 135deg the stops run corner to corner instead: legible
+     * on a square, and on a wide button the diagonal is only a few degrees off
+     * the horizontal, so it still reads as the brand band.
+     */
+    --brand-gradient-diagonal: linear-gradient(
+      135deg,
+      hsl(var(--brand-from)),
+      hsl(var(--brand-to))
+    );
+    /*
+     * Hover darkens both stops rather than dimming the whole button with a
+     * brightness filter: a filter dims the white label too, dropping it under
+     * AA exactly when the pointer is on it. Darker stops move the other way.
+     */
+    --brand-from-dark: 356 77% 43%;     /* #C41C28 */
+    --brand-to-dark: 275 54% 33%;       /* #5A2681 */
+    --brand-gradient-hover: linear-gradient(
+      90deg,
+      hsl(var(--brand-from-dark)),
+      hsl(var(--brand-to-dark))
+    );
+    --brand-gradient-diagonal-hover: linear-gradient(
+      135deg,
+      hsl(var(--brand-from-dark)),
+      hsl(var(--brand-to-dark))
+    );
+
+    /*
+     * Violet — the gradient's end stop — carries every interactive affordance.
+     * The full gradient is reserved for brand moments (hero CTAs, the active
+     * nav rail, KPI numerals, the active tab underline), which keeps crimson
+     * away from --danger and stops red meaning two things at once.
+     */
+    --primary: 275 54% 41%;             /* #7130A1 */
+    --primary-dark: 275 61% 31%;        /* #571F80 */
     --primary-foreground: 0 0% 100%;
-    --primary-soft: 220 83% 96%;
+    --primary-soft: 272 57% 95%;        /* #F4EDFA */
 
-    --accent: 173 82% 39%;              /* #12B8A6 */
+    --accent: 185 81% 29%;              /* #0E7C86 — the brand's deep teal,
+                                           lifted off #004852 for contrast */
     --accent-foreground: 0 0% 100%;
-    --accent-soft: 173 60% 95%;
+    --accent-soft: 184 45% 94%;
+    --accent-strong: 185 81% 24%;       /* text on accent-soft — see --success-strong */
 
-    --highlight: 258 90% 66%;           /* #8B5CF6 */
+    --highlight: 322 64% 47%;           /* #C42B8C — the gradient's midpoint */
     --highlight-foreground: 0 0% 100%;
-    --highlight-soft: 258 90% 96%;
+    --highlight-soft: 324 60% 95%;
+    --highlight-strong: 322 64% 37%;
 
-    --muted: 220 33% 98%;
-    --muted-foreground: 218 15% 46%;    /* #667085 */
+    /* ---- Neutrals ---------------------------------------------------- */
+    --muted: 240 18% 96%;
+    --muted-foreground: 0 0% 43%;       /* #6D6D6D — the brand's body grey */
 
-    --border: 220 18% 91%;              /* #E4E7EC */
-    --input: 220 18% 89%;
-    --ring: 220 83% 51%;
+    --border: 240 15% 92%;              /* #E8E8EE */
+    --input: 240 16% 90%;
+    --ring: var(--primary);
 
+    --neutral: 0 0% 43%;
+    --neutral-soft: 240 11% 95%;
+
+    /* ---- Semantic ---------------------------------------------------- */
+    /*
+     * Each status tone has three jobs and they need different values:
+     *
+     *   base    dots, bars, chart fills, solid badges — vivid, read at a glance
+     *   soft    the badge surface
+     *   strong  text sitting on `soft` or on white
+     *
+     * Without the third, small badge labels fail AA badly: the vivid green
+     * measures 2.49:1 on its own soft surface and the amber 2.10:1. `strong`
+     * is the same hue taken down in lightness until it clears 4.5:1.
+     *
+     * Green and amber are also too light to carry white text on a solid
+     * badge (2.62:1 and 2.35:1), so their `-foreground` is dark ink.
+     */
     --success: 152 82% 39%;             /* #12B76A */
-    --success-foreground: 0 0% 100%;
+    --success-foreground: 0 0% 5%;
     --success-soft: 152 60% 95%;
+    --success-strong: 155 90% 24%;      /* #067446 — 5.43:1 on success-soft */
 
     --warning: 35 92% 51%;              /* #F79009 */
-    --warning-foreground: 0 0% 100%;
+    --warning-foreground: 0 0% 5%;
     --warning-soft: 35 92% 95%;
+    --warning-strong: 22 92% 37%;       /* #B54708 — 4.99:1 on warning-soft */
 
-    --danger: 4 86% 61%;                /* #F04438 */
+    --danger: 4 74% 49%;                /* #D92D20 — deepened so it reads apart
+                                           from the crimson CTA and the magenta */
     --danger-foreground: 0 0% 100%;
-    --danger-soft: 4 86% 96%;
+    --danger-soft: 4 74% 96%;
+    --danger-strong: 4 76% 40%;         /* #B42318 */
 
-    --neutral: 218 15% 46%;
-    --neutral-soft: 220 20% 95%;
-
+    /* ---- Overlays and chrome ----------------------------------------- */
     --popover: 0 0% 100%;
-    --popover-foreground: 220 43% 11%;
+    --popover-foreground: 0 0% 5%;
 
     --sidebar: 0 0% 100%;
-    --sidebar-foreground: 220 43% 11%;
-    --sidebar-muted: 218 15% 46%;
-    --sidebar-active: 220 83% 96%;
-    --sidebar-border: 220 18% 91%;
+    --sidebar-foreground: 0 0% 5%;
+    --sidebar-muted: 0 0% 43%;
+    --sidebar-active: var(--primary-soft);
+    --sidebar-border: 240 15% 92%;
 
-    --radius: 0.75rem;
+    --radius: 0.625rem;                 /* 10px, the site's dominant radius */
     --header-height: 3.5rem;
   }
 
-  .dark {
-    /* ---- EPM dark theme -------------------------------------------- */
-    --background: 220 45% 7%;           /* #0B1220 */
-    --foreground: 210 20% 98%;          /* #F9FAFB */
-
-    --surface: 221 39% 11%;             /* #111827 */
-    --surface-elevated: 220 34% 15%;    /* #172033 */
-    --surface-sunken: 220 45% 9%;
-
-    --primary: 218 100% 65%;            /* #4D8DFF */
-    --primary-dark: 220 83% 51%;
-    --primary-foreground: 220 45% 7%;
-    --primary-soft: 218 60% 18%;
-
-    --accent: 172 66% 50%;              /* #2DD4BF */
-    --accent-foreground: 220 45% 7%;
-    --accent-soft: 172 45% 17%;
-
-    --highlight: 258 90% 72%;
-    --highlight-foreground: 220 45% 7%;
-    --highlight-soft: 258 40% 22%;
-
-    --muted: 220 34% 15%;
-    --muted-foreground: 218 15% 65%;    /* #98A2B3 */
-
-    --border: 218 30% 21%;              /* #243044 */
-    --input: 218 30% 24%;
-    --ring: 218 100% 65%;
-
-    --success: 152 65% 47%;
-    --success-foreground: 220 45% 7%;
-    --success-soft: 152 40% 17%;
-
-    --warning: 35 90% 58%;
-    --warning-foreground: 220 45% 7%;
-    --warning-soft: 35 45% 18%;
-
-    --danger: 4 80% 65%;
-    --danger-foreground: 220 45% 7%;
-    --danger-soft: 4 45% 20%;
-
-    --neutral: 218 15% 65%;
-    --neutral-soft: 218 30% 19%;
-
-    --popover: 220 34% 15%;
-    --popover-foreground: 210 20% 98%;
-
-    --sidebar: 221 39% 11%;
-    --sidebar-foreground: 210 20% 98%;
-    --sidebar-muted: 218 15% 65%;
-    --sidebar-active: 218 45% 18%;
-    --sidebar-border: 218 30% 21%;
-  }
+  /*
+   * There is deliberately no `.dark` block. The brand is a light identity and
+   * the app follows it; `darkMode` is off in tailwind.config.js, so a stray
+   * `dark:` utility does nothing rather than half-working.
+   */
 
   * {
     @apply border-border;
@@ -130,6 +188,19 @@
     text-rendering: optimizeLegibility;
   }
 
+  /*
+   * Poppins is the brand voice, so it takes every heading. Body copy, table
+   * cells and form fields stay on Inter: this app runs a lot of 11-12px text
+   * in tables, the board and the Gantt, where Poppins' wide geometric forms
+   * lose legibility and truncate sooner.
+   */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-[-0.02em];
+  }
+
   /* Visible, consistent focus treatment across the app */
   :focus-visible {
     @apply outline-none ring-2 ring-ring/60 ring-offset-2 ring-offset-background;
@@ -141,10 +212,6 @@
 }
 
 @layer components {
-  .epm-card {
-    @apply rounded-xl border border-border bg-surface shadow-sm;
-  }
-
   /*
    * The scrolling middle of a tall dialog. Keeps the title and the action
    * buttons in place while the fields scroll, so the primary action is never
@@ -180,17 +247,35 @@
 
   /* Section eyebrow used above dashboard blocks */
   .epm-eyebrow {
-    @apply text-2xs font-semibold uppercase tracking-[0.09em] text-muted-foreground;
+    @apply font-display text-2xs font-semibold uppercase tracking-[0.09em] text-muted-foreground;
   }
 
+  /* Identifiers, dates and figures: monospaced with lining, tabular digits */
   .epm-mono {
-    @apply font-mono text-2xs tracking-tight;
+    @apply font-mono text-2xs tabular-nums tracking-tight;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /*
+   * The brand gradient as type — the site's treatment for headline figures.
+   * Falls back to a flat violet, because `background-clip: text` with
+   * `color: transparent` leaves the text invisible where it is unsupported.
+   */
+  .epm-gradient-text {
+    color: hsl(var(--primary));
+    background-image: var(--brand-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+  @supports (-webkit-background-clip: text) or (background-clip: text) {
+    .epm-gradient-text {
+      color: transparent;
+    }
   }
 
   /* Skeleton shimmer, respects reduced motion via the media query below */
@@ -214,5 +299,354 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * The public landing page.
+ *
+ * "/" is the only dark surface in the product. It follows intertecsystems.com,
+ * which runs near-black with the crimson-to-violet sweep over it, while the
+ * signed-in app stays on the light identity. Nothing here is used outside the
+ * landing components, so the two treatments never meet.
+ * ------------------------------------------------------------------------ */
+@layer components {
+  /*
+   * A pane of glass: almost no fill of its own, a short blur so the plate and
+   * the brand glow behind it stay legible, and an inset highlight along the
+   * top edge. The rim comes from ::before rather than a border, because a
+   * border is the same weight all the way round and glass is not.
+   */
+  .liquid-glass {
+    background: rgba(255, 255, 255, 0.01);
+    background-blend-mode: luminosity;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: none;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /*
+   * The lit rim. A vertical gradient laid over the whole pane, then masked to
+   * just the 1.4px ring between the border box and the padding box — so the
+   * top and bottom edges catch light and the sides fade out. `mask-composite`
+   * is spelled twice: `exclude` is the standard, `xor` the -webkit- spelling
+   * WebKit still ships.
+   */
+  .liquid-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.15) 20%,
+      rgba(255, 255, 255, 0) 40%,
+      rgba(255, 255, 255, 0) 60%,
+      rgba(255, 255, 255, 0.15) 80%,
+      rgba(255, 255, 255, 0.45) 100%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /*
+   * The same pane with the brand sweep behind it. Reserved for the moments
+   * that have to read as Intertec rather than as generic glass — the sign-in
+   * card and the closing call to action.
+   */
+  .liquid-glass-brand {
+    background-image: linear-gradient(
+      120deg,
+      hsl(var(--brand-from) / 0.28),
+      hsl(var(--brand-to) / 0.28)
+    );
+  }
+
+  /*
+   * The atmosphere itself: two brand-coloured blooms drifting behind the
+   * content. Cheap — two radial gradients on one element — and paused for
+   * anyone who asked for less motion by the global rule at the end of this
+   * file.
+   */
+  .landing-aurora {
+    background-image:
+      radial-gradient(
+        40rem 24rem at 18% 8%,
+        hsl(var(--brand-from) / 0.16) 0%,
+        transparent 70%
+      ),
+      radial-gradient(
+        44rem 28rem at 82% 42%,
+        hsl(var(--brand-to) / 0.2) 0%,
+        transparent 70%
+      );
+    animation: landing-drift 24s ease-in-out infinite alternate;
+  }
+
+  @keyframes landing-drift {
+    from {
+      transform: translate3d(-2%, -1%, 0) scale(1);
+    }
+    to {
+      transform: translate3d(2%, 2%, 0) scale(1.08);
+    }
+  }
+
+  /* ---- The page's ambient ground ---------------------------------------
+   *
+   * Pure #000 across a whole page reads as unfinished rather than as dark —
+   * there is nothing for the eye to catch between sections. So the landing
+   * page sits on a fixed canvas instead: a near-black with a violet cast, a
+   * slow delivery grid, two brand blooms drifting on different clocks, and a
+   * little grain. Fixed rather than per-section, so scrolling moves the
+   * content through the atmosphere instead of dragging it along.
+   * -------------------------------------------------------------------- */
+
+  .landing-canvas-grid {
+    background-image:
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 92px),
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 92px);
+  }
+
+  /*
+   * Film grain. An feTurbulence tile rather than a bitmap: ~300 bytes, no
+   * request, and it keeps the big soft gradients from banding into visible
+   * steps on an 8-bit panel.
+   */
+  .landing-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+  }
+
+  /* A single soft light. Duration and delay are set per instance. */
+  .landing-bloom {
+    animation: landing-drift ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
+  /* ---- Motion plates ---------------------------------------------------
+   *
+   * The landing page's imagery is the work itself: a schedule resolving, a
+   * capacity grid filling, cards crossing a board. Every plate is built from
+   * these few primitives, animated on transform and opacity only so the whole
+   * page stays on the compositor. Percentages rather than pixels throughout —
+   * the same plate has to hold up at 300px wide inside a card and at 1200px
+   * across the featured frame.
+   *
+   * Each keyframe set ends where it began, so the global reduced-motion rule
+   * lower down (which collapses every animation to its final frame) leaves a
+   * composed still rather than a half-drawn one.
+   * -------------------------------------------------------------------- */
+
+  /* The ground: weeks down the page, days across it. */
+  .epm-plate-grid {
+    background-image:
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 6.25%),
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 12.5%);
+  }
+
+  /* A bar arriving on its track. `transform-origin: left` is set on the
+     element, so the bar grows out of its start date rather than its centre. */
+  @keyframes epm-bar-draw {
+    0% {
+      transform: scaleX(0);
+      opacity: 0;
+    }
+    6% {
+      opacity: 1;
+    }
+    20%,
+    84% {
+      transform: scaleX(1);
+      opacity: 1;
+    }
+    94% {
+      transform: scaleX(1);
+      opacity: 0;
+    }
+    100% {
+      transform: scaleX(0);
+      opacity: 0;
+    }
+  }
+
+  /*
+   * Row labels and figures. These arrive with their bar rather than after it:
+   * a schedule with no names on it reads as a loading skeleton, and holding
+   * them back until the links appear leaves the plate looking unfinished for
+   * a third of every cycle.
+   */
+  @keyframes epm-label-in {
+    0% {
+      opacity: 0;
+    }
+    8%,
+    88% {
+      opacity: 1;
+    }
+    96%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* Dependency elbows and milestones: they only make sense once the bars they
+     join have arrived, so they come in late and leave early. */
+  @keyframes epm-link-in {
+    0%,
+    24% {
+      opacity: 0;
+    }
+    38%,
+    84% {
+      opacity: 1;
+    }
+    92%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /*
+   * The "today" line crossing the plate. The line itself is 1px, so it is the
+   * full-width rail around it that travels — translating a 1px element by 100%
+   * would move it 1px.
+   */
+  @keyframes epm-sweep-x {
+    0% {
+      transform: translateX(0);
+      opacity: 0;
+    }
+    8%,
+    88% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+  }
+
+  /* A capacity cell loading and releasing. */
+  @keyframes epm-cell-pulse {
+    0%,
+    100% {
+      opacity: 0.18;
+      transform: scale(0.86);
+    }
+    45%,
+    70% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  /*
+   * One card taken across three columns and put back at the start. The steps
+   * are in multiples of the card's own width: a column is 30.67% of the plate
+   * and the gap between columns is 4%, which is 13.04% of a column — so one
+   * column over is 113.04%, two is 226.09%.
+   */
+  @keyframes epm-card-travel {
+    0%,
+    12% {
+      transform: translate(0, 0);
+    }
+    28%,
+    46% {
+      transform: translate(113.04%, 10%);
+    }
+    62%,
+    88% {
+      transform: translate(226.09%, -8%);
+    }
+    100% {
+      transform: translate(0, 0);
+    }
+  }
+
+  /* A health ring filling to its figure and holding there. */
+  @keyframes epm-ring-draw {
+    0% {
+      stroke-dashoffset: var(--ring-length);
+    }
+    30%,
+    85% {
+      stroke-dashoffset: var(--ring-offset);
+    }
+    100% {
+      stroke-dashoffset: var(--ring-length);
+    }
+  }
+
+  /* ---- "How it works" --------------------------------------------------
+   *
+   * The three steps are a sequence, so the section says so: a pulse runs along
+   * step one's rule, then step two's, then step three's, on a shared clock the
+   * steps offset themselves into by animation-delay. Both keyframes end
+   * invisible, which is also where the global reduced-motion rule parks them.
+   * -------------------------------------------------------------------- */
+
+  /* The travelling segment. Its rail clips it, so the bright part appears to
+     enter from the left and leave at the right. */
+  @keyframes epm-step-sweep {
+    0% {
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+    8%,
+    52% {
+      opacity: 1;
+    }
+    60%,
+    100% {
+      transform: translateX(220%);
+      opacity: 0;
+    }
+  }
+
+  /* The ring leaving the step's dot as the pulse reaches it. */
+  @keyframes epm-step-ping {
+    0% {
+      transform: scale(1);
+      opacity: 0.8;
+    }
+    45%,
+    100% {
+      transform: scale(4);
+      opacity: 0;
+    }
+  }
+
+  .epm-step-sweep {
+    animation: epm-step-sweep 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .epm-step-ping {
+    animation: epm-step-ping 6s ease-out infinite;
+  }
+
+  /* The hero's timeline ribbons. The row is rendered twice at 200% width, so
+     travelling exactly half of it lands on an identical frame — no seam. */
+  @keyframes epm-drift-x {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .epm-drift-x {
+    animation: epm-drift-x linear infinite;
+    will-change: transform;
   }
 }

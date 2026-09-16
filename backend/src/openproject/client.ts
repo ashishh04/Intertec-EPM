@@ -1,6 +1,7 @@
 import { currentAuth } from '../auth/context.js';
 import { env } from '../config/env.js';
 import { OpenProjectError, EpmError } from '../lib/errors.js';
+import { appLog } from '../lib/log.js';
 import type { HalCollection, HalLink, OpErrorBody } from './types.js';
 
 /**
@@ -16,8 +17,16 @@ const MAX_ATTEMPTS = 3;
 /** OpenProject caps `pageSize`; requesting more silently returns fewer. */
 export const MAX_PAGE_SIZE = 200;
 
-/** Guards against a mis-filtered query walking an entire instance. */
-const DEFAULT_MAX_PAGES = 25;
+/**
+ * Guards against a mis-filtered query walking an entire instance.
+ *
+ * At `MAX_PAGE_SIZE` this allows 20,000 records, which is above what any
+ * caller here legitimately needs and well clear of the sizes that were
+ * silently clipping: memberships grow as projects × people, so an instance
+ * with a hundred projects and twenty-five people each already passed the
+ * previous 2,500.
+ */
+const DEFAULT_MAX_PAGES = 100;
 
 export type FilterOperator =
   | '='
@@ -70,6 +79,14 @@ interface RequestOptions {
   query?: QueryParams;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /**
+   * The path is relative to the instance root rather than `/api/v3`.
+   *
+   * For the EPM-only endpoints the mounted initializer adds under
+   * `/epm_admin/*` (see backend/openproject/README.md). Same credential, same
+   * retries, same error mapping; only the prefix differs.
+   */
+  root?: boolean;
 }
 
 export function buildFilters(filters: OpFilter[]): string {
@@ -132,10 +149,18 @@ export function linkTitle(
   return linkOf(links, key)?.title;
 }
 
+/**
+ * The sentence a failed upstream call shows the user.
+ *
+ * `EpmError.message` is sent to the browser, so nothing here may name the
+ * system behind EPM — white-labelling is the point, and an error is exactly
+ * when a product tends to give itself away. `upstream` carries the real detail
+ * for the log instead.
+ */
 function extractUpstreamMessage(payload: unknown, status: number): string {
   const body = payload as OpErrorBody | undefined;
   const nested = body?._embedded?.errors?.[0]?.message;
-  return body?.message ?? nested ?? `OpenProject responded with ${status}.`;
+  return body?.message ?? nested ?? `The delivery service responded with ${status}.`;
 }
 
 function delayFor(attempt: number, retryAfter: string | null): number {
@@ -169,8 +194,9 @@ export class OpenProjectClient {
     return auth ? `Bearer ${auth.accessToken}` : this.systemAuthorization;
   }
 
-  private url(path: string, query: QueryParams = {}) {
-    const normalized = path.startsWith('/api/v3') ? path : `/api/v3${path.startsWith('/') ? path : `/${path}`}`;
+  private url(path: string, query: QueryParams = {}, root = false) {
+    const slashed = path.startsWith('/') ? path : `/${path}`;
+    const normalized = root || path.startsWith('/api/v3') ? slashed : `/api/v3${slashed}`;
     const url = new URL(`${this.baseUrl}${normalized}`);
 
     for (const [key, value] of Object.entries(query)) {
@@ -190,8 +216,8 @@ export class OpenProjectClient {
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const { method = 'GET', body, query, signal, timeoutMs = env.OPENPROJECT_TIMEOUT_MS } = options;
-    const url = this.url(path, query);
+    const { method = 'GET', body, query, signal, timeoutMs = env.OPENPROJECT_TIMEOUT_MS, root = false } = options;
+    const url = this.url(path, query, root);
     const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
 
     let lastError: unknown;
@@ -210,7 +236,15 @@ export class OpenProjectClient {
             // FormData carries its own multipart content type, including the
             // boundary, which only fetch can generate. Setting one here would
             // produce a body OpenProject cannot parse.
-            ...(body !== undefined && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+            //
+            // Every other write carries it, body or not: OpenProject answers a
+            // bodyless POST with 406 "Missing content-type header", which is
+            // how marking a notification read silently did nothing. A GET is
+            // left alone — a content type on a request with no entity is
+            // meaningless, and some proxies object.
+            ...(!isFormData && (body !== undefined || method !== 'GET')
+              ? { 'Content-Type': 'application/json' }
+              : {}),
           },
           body: body === undefined ? undefined : isFormData ? (body as FormData) : JSON.stringify(body),
         });
@@ -240,7 +274,7 @@ export class OpenProjectClient {
             lastError = error;
             continue;
           }
-          throw EpmError.timeout('OpenProject did not respond in time.');
+          throw EpmError.timeout('The delivery service did not respond in time.');
         }
 
         lastError = error;
@@ -251,7 +285,7 @@ export class OpenProjectClient {
       }
     }
 
-    throw new OpenProjectError(0, 'Unable to reach OpenProject.', { cause: lastError });
+    throw new OpenProjectError(0, 'Unable to reach the delivery service.', { cause: lastError });
   }
 
   /**
@@ -313,8 +347,49 @@ export class OpenProjectClient {
       page += 1;
     }
 
-    return { items, total, truncated: items.length < total };
+    const truncated = items.length < total;
+
+    // Reported here rather than left to each caller. Of the places that walk a
+    // collection, almost none read the flag — so a walk that stopped short
+    // returned a short list that looked complete, and the numbers built on it
+    // were quietly wrong rather than visibly broken. One line in the logs is
+    // the difference between noticing that and not.
+    if (truncated) {
+      appLog.warn(
+        { path, returned: items.length, total, maxPages, pageSize },
+        'Collection walk hit its page limit; the result is incomplete',
+      );
+    }
+
+    return { items, total, truncated };
   }
 }
 
 export const openProject = new OpenProjectClient();
+
+/**
+ * Whether OpenProject will answer right now.
+ *
+ * `/api/v3` is the API root: cheap and present on every version. Any reply
+ * under 500 counts as up, including the 401 an instance with `login_required`
+ * gives an anonymous probe — being refused proves something answered. What
+ * this is really watching for is the 503 OpenProject's own front end returns
+ * for the several minutes Rails takes to boot, which is exactly when traffic
+ * should go elsewhere.
+ *
+ * A short timeout of its own, because a readiness probe that hangs is worse
+ * than one that fails.
+ */
+export async function openProjectReady(): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    const response = await fetch(`${env.OPENPROJECT_BASE_URL}/api/v3`, {
+      signal: AbortSignal.timeout(5_000),
+      headers: { Accept: 'application/hal+json' },
+    });
+    return response.status < 500
+      ? { ok: true }
+      : { ok: false, detail: `responded ${response.status}` };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? error.message : 'unreachable' };
+  }
+}

@@ -5,9 +5,13 @@
 backend/.env
 backend/.env.*
 !backend/.env.example
+backend/SECURITY.md
 
 # Frontend env files are non-secret (VITE_* is bundled into the client) and stay tracked.
+# `.env.production` especially: Vite inlines it at build time, so a build host
+# that cannot see it silently falls back to the localhost values in `.env`.
 !frontend/.env
+!frontend/.env.production
 !frontend/.env.example
 
 node_modules/
@@ -15,6 +19,7 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+
 
 # Prisma
 prisma/*.db
@@ -28,3 +33,16 @@ npm-debug.log*
 
 # Output of `npm run probe` — instance configuration, not secret but not useful in git.
 backend/openproject-profile.json
+
+# Local UI screenshot captures
+.shots/
+
+# Design notes, the acceptance suite and its generated report. Kept out of the
+# repository for now.
+#
+# `docs/` is already tracked, so this rule alone does not untrack it — that
+# needs `git rm --cached -r docs`. `e2e/` holds the Playwright suite itself,
+# not just its output, so nothing here runs in CI while it is ignored.
+docs/
+e2e/
+report/

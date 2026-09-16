@@ -336,3 +336,96 @@ model Notification {
   @@index([recipientId, createdAt])
   @@map("notifications")
 }
+
+/// A person's own settings, in the shape the Settings page renders. One row
+/// per person; absent means the defaults. Kept as JSON because every key is a
+/// switch the UI owns and the only server-side reader is the email worker.
+model UserPreference {
+  openProjectId String   @id
+  data          Json
+  updatedAt     DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+/// Every email EPM intends to send, before and after it is sent.
+///
+/// Writing here is cheap and always succeeds; a worker sends in batches with
+/// retries. A request never waits on the mail provider, and the table is the
+/// audit trail of what went to whom and why.
+model EmailOutbox {
+  id           String    @id @default(cuid())
+  /// OpenProject user id of the recipient. Not a foreign key: OpenProject owns users.
+  recipientId  String
+  toEmail      String
+  /// Template name, e.g. `invite`, `task-assigned`, `digest`.
+  template     String
+  subject      String
+  /// The template's input, so a failed send can be retried or inspected.
+  payload      Json
+  /// `queued` → `sending` → `sent` | `failed`; `cancelled` when a preference
+  /// changed or a digest absorbed it before it went out.
+  status       String    @default("queued")
+  /// `immediate` goes at the next tick; `digest` waits for the daily run.
+  channel      String    @default("immediate")
+  attempts     Int       @default(0)
+  lastError    String?
+  /// The provider's own message id, for tracing a complaint back to a row.
+  providerId   String?
+  /// Prevents the same event mailing the same person twice.
+  dedupeKey    String?
+  scheduledFor DateTime  @default(now())
+  sentAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([recipientId, dedupeKey])
+  @@index([status, scheduledFor])
+  @@index([recipientId, channel, status])
+  @@map("email_outbox")
+}
+
+/// One-time invitation. Only a hash of the token is stored; the link in the
+/// email is the only copy of the token itself.
+model InviteToken {
+  id            String    @id @default(cuid())
+  openProjectId String
+  tokenHash     String    @unique
+  email         String
+  createdBy     String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([openProjectId])
+  @@map("invite_tokens")
+}
+
+/// Pragnya conversations. Owned by the person who asked; nobody else reads them.
+model AssistantConversation {
+  id        String             @id @default(cuid())
+  userId    String
+  title     String
+  messages  AssistantMessage[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([userId, updatedAt])
+  @@map("assistant_conversations")
+}
+
+model AssistantMessage {
+  id             String                @id @default(cuid())
+  conversationId String
+  conversation   AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  /// The tool calls the assistant made to answer, for the "how do you know" chips.
+  toolCalls      Json?
+  /// Token accounting per message, so cost is visible per person and per day.
+  promptTokens   Int                   @default(0)
+  outputTokens   Int                   @default(0)
+  createdAt      DateTime              @default(now())
+
+  @@index([conversationId, createdAt])
+  @@map("assistant_messages")
+}

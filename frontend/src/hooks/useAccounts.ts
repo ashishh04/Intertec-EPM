@@ -86,3 +86,17 @@ export function useDeleteAccount() {
     onSuccess: settle,
   });
 }
+
+/**
+ * A new invitation email. Invalidates the list because the upstream status
+ * can move (a lapsed invitation becomes a live one), not because the row
+ * itself changes shape.
+ */
+export function useResendInvite() {
+  const settle = useAccountInvalidation();
+
+  return useMutation({
+    mutationFn: (id: ID) => accountService.resendInvite(id),
+    onSuccess: settle,
+  });
+}

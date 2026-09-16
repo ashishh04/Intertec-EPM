@@ -10,8 +10,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Sidebar } from './Sidebar';
-import { MOBILE_NAV_ITEMS, NAV_SECTIONS } from '@/config/navigation';
+import { MOBILE_NAV_ITEMS, visibleNavSections } from '@/config/navigation';
 import { useUI } from '@/providers/UIProvider';
+import { useAuth } from '@/providers/AuthProvider';
 import { useUnreadCount } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +38,9 @@ export function MobileBottomNav() {
   const navigate = useNavigate();
   const unread = useUnreadCount();
   const { openTaskDrawer, setMobileNavOpen } = useUI();
+  const { can } = useAuth();
+  // Everything past Overview and Work, filtered the same way as the sidebar.
+  const moreSections = visibleNavSections(can).slice(2);
 
   const isActive = (to: string, matchNested?: boolean) =>
     matchNested ? location.pathname.startsWith(to) : location.pathname === to;
@@ -53,7 +57,7 @@ export function MobileBottomNav() {
         to={item.to}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-medium transition-colors',
+          'relative flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-2xs font-medium transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           active ? 'text-primary' : 'text-muted-foreground',
         )}
@@ -84,7 +88,7 @@ export function MobileBottomNav() {
         type="button"
         onClick={() => openTaskDrawer()}
         aria-label="Create task"
-        className="mx-1 my-1 flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-full bg-primary text-primary-foreground shadow-elevated transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="mx-1 my-1 flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-full bg-brand-diagonal text-white shadow-elevated transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <Plus className="h-5 w-5" />
       </button>
@@ -94,7 +98,7 @@ export function MobileBottomNav() {
 
       <DropdownMenu>
         <DropdownMenuTrigger
-          className="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10px] font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-2xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="More navigation"
         >
           <MoreHorizontal className="h-5 w-5" aria-hidden />
@@ -105,7 +109,7 @@ export function MobileBottomNav() {
             Browse all sections
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          {NAV_SECTIONS.slice(2).map((section) => (
+          {moreSections.map((section) => (
             <div key={section.title}>
               <DropdownMenuLabel>{section.title}</DropdownMenuLabel>
               {section.items.map((item) => (

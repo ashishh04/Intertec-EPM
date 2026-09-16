@@ -12,6 +12,7 @@ export type ErrorCode =
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'
+  | 'GONE'
   | 'VALIDATION_FAILED'
   | 'UPSTREAM_UNAVAILABLE'
   | 'UPSTREAM_ERROR'
@@ -67,12 +68,21 @@ export class EpmError extends Error {
     return new EpmError(404, 'NOT_FOUND', `${what} could not be found.`);
   }
 
+  /** The resource existed and no longer does — a used or expired invitation. */
+  static gone(message: string) {
+    return new EpmError(410, 'GONE', message);
+  }
+
   static validation(message: string, details?: unknown) {
     return new EpmError(422, 'VALIDATION_FAILED', message, { details });
   }
 
   static timeout(message = 'The upstream request timed out.') {
     return new EpmError(504, 'TIMEOUT', message);
+  }
+
+  static unavailable(message = 'The upstream service is unavailable.', cause?: unknown) {
+    return new EpmError(503, 'UPSTREAM_UNAVAILABLE', message, { cause });
   }
 
   static internal(message = 'Something went wrong on our end.', cause?: unknown) {

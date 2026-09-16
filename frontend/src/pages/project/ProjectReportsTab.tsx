@@ -4,6 +4,8 @@ import { AlertTriangle, CheckCircle2, Clock, Gauge } from 'lucide-react';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
 import { SectionHeader } from '@/components/common/PageHeader';
+import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
 import {
   DeliveryTrendChart,
   StatusDistributionChart,
@@ -12,17 +14,27 @@ import {
 import { useDeliveryTrends, useStatusDistribution } from '@/hooks/useReports';
 import { useTasks } from '@/hooks/useTasks';
 import { useUsers } from '@/hooks/useUsers';
-import { daysFromToday, formatHours } from '@/lib/utils';
+import { daysFromToday, formatHours, formatNumber } from '@/lib/utils';
+
+/**
+ * How many work packages the figures are computed from.
+ *
+ * Completed, open, overdue and effort are all summed in the browser from this
+ * one page, so a project larger than this would report short. The notice at
+ * the foot of the tab says when that is the case.
+ */
+const TASK_PAGE_SIZE = 200;
 
 /** Project-scoped delivery reporting. */
 export default function ProjectReportsTab() {
   const { projectId } = useParams();
   const distributionQuery = useStatusDistribution({ projectId });
   const trendsQuery = useDeliveryTrends({ projectId });
-  const tasksQuery = useTasks({ projectId, pageSize: 200 });
+  const tasksQuery = useTasks({ projectId, pageSize: TASK_PAGE_SIZE });
   const { data: users } = useUsers();
 
   const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
+  const total = tasksQuery.data?.total ?? tasks.length;
 
   const stats = useMemo(() => {
     const open = tasks.filter((task) => task.statusCategory !== 'done');
@@ -69,7 +81,7 @@ export default function ProjectReportsTab() {
             <MetricCard
               label="Completed"
               value={stats.completed}
-              support={`of ${tasks.length} work packages`}
+              support={`of ${formatNumber(tasks.length)} work packages`}
               icon={CheckCircle2}
               tone="success"
             />
@@ -92,27 +104,44 @@ export default function ProjectReportsTab() {
         )}
       </div>
 
+      {/* Empty series are drawn by the charts themselves, inside their cards,
+          so the grid keeps its shape. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {distributionQuery.isLoading ? (
-          <ChartCardSkeleton />
-        ) : (
+        <QueryBoundary
+          isLoading={distributionQuery.isLoading}
+          isError={distributionQuery.isError}
+          error={distributionQuery.error}
+          onRetry={() => distributionQuery.refetch()}
+          errorTitle="Unable to load the status distribution"
+          skeleton={<ChartCardSkeleton />}
+        >
           <ChartCard title="Status distribution" description="Where work currently sits">
             <StatusDistributionChart data={distributionQuery.data ?? []} />
           </ChartCard>
-        )}
+        </QueryBoundary>
 
-        {tasksQuery.isLoading ? (
-          <ChartCardSkeleton />
-        ) : (
+        <QueryBoundary
+          isLoading={tasksQuery.isLoading}
+          isError={tasksQuery.isError}
+          error={tasksQuery.error}
+          onRetry={() => tasksQuery.refetch()}
+          errorTitle="Unable to load open work"
+          skeleton={<ChartCardSkeleton />}
+        >
           <ChartCard title="Open work by assignee" description="Active load across the project team">
             <HorizontalBarChart data={byAssignee} tone="accent" />
           </ChartCard>
-        )}
+        </QueryBoundary>
       </div>
 
-      {trendsQuery.isLoading ? (
-        <ChartCardSkeleton height={260} />
-      ) : (
+      <QueryBoundary
+        isLoading={trendsQuery.isLoading}
+        isError={trendsQuery.isError}
+        error={trendsQuery.error}
+        onRetry={() => trendsQuery.refetch()}
+        errorTitle="Unable to load the delivery trend"
+        skeleton={<ChartCardSkeleton height={260} />}
+      >
         <ChartCard
           title="Delivery trend"
           description="Completed vs. created work packages per sprint"
@@ -120,7 +149,14 @@ export default function ProjectReportsTab() {
         >
           <DeliveryTrendChart data={trendsQuery.data ?? []} />
         </ChartCard>
-      )}
+      </QueryBoundary>
+
+      <TruncationNotice
+        shown={tasks.length}
+        total={total}
+        itemLabel="task"
+        affected="The figures above"
+      />
     </div>
   );
 }

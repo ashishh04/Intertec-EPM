@@ -171,7 +171,7 @@ export function TaskDrawer() {
       {/* Centred rather than a side panel: creating a task is a focused,
           self-contained action, and every other create surface here is a
           dialog. A drawer also fought the page underneath for attention. */}
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-[40rem]">
         <DialogHeader>
           <DialogTitle>Create task</DialogTitle>
           <DialogDescription>
@@ -180,7 +180,7 @@ export function TaskDrawer() {
         </DialogHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
+          <div className="epm-dialog-body epm-scroll -mr-1 space-y-3 py-1 pr-2">
             <div className="space-y-1.5">
               <Label htmlFor="task-subject" required>
                 Title
@@ -206,7 +206,7 @@ export function TaskDrawer() {
               <Label htmlFor="task-description">Description</Label>
               <Textarea
                 id="task-description"
-                rows={4}
+                rows={3}
                 placeholder="Acceptance criteria, links and context for whoever picks this up."
                 invalid={Boolean(errors.description)}
                 {...register('description')}
@@ -214,7 +214,7 @@ export function TaskDrawer() {
               {errors.description ? <FieldError>{errors.description.message}</FieldError> : null}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2">
               <FormSelect
                 id="task-project"
                 label="Project"

@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, LayoutList, Plus, SquareKanban, Target } from 'lucide-react';
-import { PageHeader } from '@/components/common/PageHeader';
+import { PageHeader, SectionHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Pagination } from '@/components/common/Pagination';
+import { TableCard } from '@/components/common/DataTable';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
 import { FilterBar } from '@/components/tasks/FilterBar';
 import { TaskListSkeleton, TaskRow } from '@/components/tasks/TaskRow';
 import { KanbanBoard, KanbanBoardSkeleton } from '@/components/board/KanbanBoard';
@@ -20,11 +22,20 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
-import { pluralize } from '@/lib/utils';
+import { daysFromToday, formatNumber, pluralize } from '@/lib/utils';
 import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, TaskStatusCategory } from '@/types';
 import { toast } from 'sonner';
 
 type ViewMode = 'list' | 'board';
+
+/**
+ * How much of the personal queue loads at once.
+ *
+ * The buckets are grouped in the browser from this one page, so a queue
+ * longer than this would report short counts. The notice under the list says
+ * when that happens and lets the reader pull the rest.
+ */
+const PAGE_SIZE = 200;
 
 const SECTIONS: { key: NonNullable<TaskFilters['bucket']>; title: string; hint: string }[] = [
   { key: 'overdue', title: 'Overdue', hint: 'Past their committed date' },
@@ -46,7 +57,7 @@ export default function MyWorkPage() {
   const [filters, setFilters] = useState<TaskFilters>({
     assigneeId: searchParams.get('assignee') ?? undefined,
     bucket: (searchParams.get('bucket') as TaskFilters['bucket']) ?? undefined,
-    pageSize: 200,
+    pageSize: PAGE_SIZE,
     sortBy: 'dueDate',
     sortDir: 'asc',
   });
@@ -71,11 +82,9 @@ export default function MyWorkPage() {
   );
 
   const tasks = tasksQuery.data?.items ?? [];
+  const total = tasksQuery.data?.total ?? tasks.length;
 
   const grouped = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const buckets: Record<string, EpmTask[]> = {
       overdue: [],
       today: [],
@@ -92,9 +101,11 @@ export default function MyWorkPage() {
         buckets.upcoming.push(task);
         continue;
       }
-      const due = new Date(`${task.dueDate}T00:00:00`);
-      if (due < today) buckets.overdue.push(task);
-      else if (due.getTime() === today.getTime()) buckets.today.push(task);
+      // Calendar days, so a task due later today is "today", not "upcoming".
+      // An unparseable date lands in upcoming rather than being dropped.
+      const delta = daysFromToday(task.dueDate);
+      if (delta !== null && delta < 0) buckets.overdue.push(task);
+      else if (delta === 0) buckets.today.push(task);
       else buckets.upcoming.push(task);
     }
 
@@ -123,7 +134,7 @@ export default function MyWorkPage() {
         meta={
           tasksQuery.data ? (
             <Badge tone="neutral" size="sm">
-              {tasksQuery.data.total} {pluralize(tasksQuery.data.total, 'item')}
+              {formatNumber(tasksQuery.data.total)} {pluralize(tasksQuery.data.total, 'item')}
             </Badge>
           ) : null
         }
@@ -188,16 +199,16 @@ export default function MyWorkPage() {
           </Card>
         }
       >
-        {view === 'board' ? (
-          <KanbanBoard
-            tasks={tasks}
-            users={users}
-            onStatusChange={handleStatusChange}
-            onCreate={(status) => openTaskDrawer({ status, assigneeId: user?.id })}
-          />
-        ) : (
-          <div className="space-y-5">
-            {visibleSections.map((section) => {
+        <div className="space-y-5">
+          {view === 'board' ? (
+            <KanbanBoard
+              tasks={tasks}
+              users={users}
+              onStatusChange={handleStatusChange}
+              onCreate={(status) => openTaskDrawer({ status, assigneeId: user?.id })}
+            />
+          ) : (
+            visibleSections.map((section) => {
               const items = grouped[section.key] ?? [];
               if (items.length === 0 && filters.bucket !== section.key) return null;
 
@@ -212,9 +223,26 @@ export default function MyWorkPage() {
                   resetKey={`${debouncedSearch}|${filters.projectId ?? ''}|${filters.sprintId ?? ''}`}
                 />
               );
-            })}
-          </div>
-        )}
+            })
+          )}
+
+          {/* Renders only when the queue is showing a subset, so the bucket
+              counts are never quietly short. */}
+          <TruncationNotice
+            shown={tasks.length}
+            total={total}
+            itemLabel="task"
+            affected="The bucket counts"
+            step={PAGE_SIZE}
+            loading={tasksQuery.isFetching}
+            onLoadMore={() =>
+              setFilters((current) => ({
+                ...current,
+                pageSize: (current.pageSize ?? PAGE_SIZE) + PAGE_SIZE,
+              }))
+            }
+          />
+        </div>
       </QueryBoundary>
     </div>
   );
@@ -245,38 +273,41 @@ function WorkSection({
 
   return (
     <section className="space-y-2">
-      <div className="flex items-baseline gap-2">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        <span className="font-mono text-2xs text-muted-foreground">{tasks.length}</span>
-        <span className="text-2xs text-muted-foreground">· {hint}</span>
-      </div>
+      <SectionHeader
+        title={title}
+        description={`${formatNumber(tasks.length)} ${pluralize(tasks.length, 'task')} · ${hint}`}
+      />
 
-      <Card className="overflow-hidden">
-        {tasks.length === 0 ? (
-          <EmptyState size="inline" icon={Target} title={`Nothing ${title.toLowerCase()}`} />
-        ) : (
-          <>
-            <div className="divide-y divide-border">
-              {paged.items.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  project={projects.get(task.projectId)}
-                  assignee={task.assigneeId ? users.get(task.assigneeId) : undefined}
-                />
-              ))}
-            </div>
+      <TableCard
+        footer={
+          tasks.length > 0 ? (
             <Pagination
               page={paged.page}
               pageSize={paged.pageSize}
               total={paged.total}
               onPageChange={paged.setPage}
+              onPageSizeChange={paged.setPageSize}
+              pageSizeOptions={[8, 16, 32]}
               itemLabel="task"
-              className="border-t border-border"
             />
-          </>
+          ) : undefined
+        }
+      >
+        {tasks.length === 0 ? (
+          <EmptyState size="inline" icon={Target} title={`Nothing ${title.toLowerCase()}`} />
+        ) : (
+          <div className="divide-y divide-border">
+            {paged.items.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                project={projects.get(task.projectId)}
+                assignee={task.assigneeId ? users.get(task.assigneeId) : undefined}
+              />
+            ))}
+          </div>
         )}
-      </Card>
+      </TableCard>
     </section>
   );
 }

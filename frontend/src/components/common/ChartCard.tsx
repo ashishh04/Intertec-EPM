@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface ChartCardProps {
@@ -15,6 +16,10 @@ interface ChartCardProps {
 /**
  * Wrapper for every chart on the platform. Animates in when it enters the
  * viewport, once, so dashboards feel alive without becoming distracting.
+ *
+ * Built on `Card` with the compact header so a chart's title row is the same
+ * one a table or list uses. The motion wrapper is the section landmark and
+ * sits outside the card, so the card itself stays a plain surface.
  */
 function ChartCard({ title, description, actions, height = 240, className, children }: ChartCardProps) {
   return (
@@ -23,36 +28,33 @@ function ChartCard({ title, description, actions, height = 240, className, child
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: '-60px' }}
       transition={{ duration: 0.35, ease: [0.32, 0.72, 0, 1] }}
-      className={cn('rounded-xl border border-border bg-surface shadow-sm', className)}
+      className={cn('min-w-0', className)}
     >
-      <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
-          {description ? (
-            <p className="mt-0.5 text-2xs text-muted-foreground">{description}</p>
-          ) : null}
+      <Card className="h-full">
+        <CardHeader variant="compact" actions={actions}>
+          <CardTitle>{title}</CardTitle>
+          {description ? <CardDescription className="text-2xs">{description}</CardDescription> : null}
+        </CardHeader>
+        <div className="p-3" style={{ height }}>
+          {children}
         </div>
-        {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
-      </div>
-      <div className="p-3" style={{ height }}>
-        {children}
-      </div>
+      </Card>
     </motion.section>
   );
 }
 
-function ChartCardSkeleton({ height = 240 }: { height?: number }) {
+function ChartCardSkeleton({ height = 240, className }: { height?: number; className?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-surface">
-      <div className="border-b border-border px-4 py-3">
+    <Card className={className} aria-hidden>
+      <CardHeader variant="compact">
         <Skeleton className="h-4 w-40" />
-      </div>
+      </CardHeader>
       <div className="flex items-end gap-2 p-4" style={{ height }}>
         {[60, 80, 45, 92, 70, 100, 55].map((value, index) => (
           <Skeleton key={index} className="flex-1" style={{ height: `${value}%` }} />
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
 

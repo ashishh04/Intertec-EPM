@@ -14,6 +14,8 @@ import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { EmptyState } from '@/components/common/EmptyState';
+import { TableCard, TableSkeleton } from '@/components/common/DataTable';
 import {
   DeliveryTrendChart,
   StatusDistributionChart,
@@ -21,7 +23,6 @@ import {
   VelocityChart,
 } from '@/components/charts/EpmCharts';
 import { Card } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -37,7 +38,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { HEALTH_MATRIX_LABEL, HEALTH_META, TONE_FILL, TONE_TEXT } from '@/lib/domain';
-import { cn } from '@/lib/utils';
+import { cn, formatLongDate } from '@/lib/utils';
 import type { HealthLevel } from '@/types';
 
 /** Executive view: portfolio health, delivery confidence and the risk matrix. */
@@ -174,78 +175,101 @@ export default function AnalyticsPage() {
           error={insightsQuery.error}
           onRetry={() => insightsQuery.refetch()}
           errorTitle="Unable to load portfolio health"
-          skeleton={<Skeleton className="h-72 w-full rounded-xl" />}
+          skeleton={<TableSkeleton columns={5} rows={6} />}
+          isEmpty={matrixPage.total === 0}
+          empty={
+            <Card>
+              <EmptyState
+                icon={Gauge}
+                title="No projects to assess"
+                description="The matrix fills in once projects exist in the portfolio."
+              />
+            </Card>
+          }
         >
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="min-w-48">Project</TableHead>
-                    <TableHead>Schedule</TableHead>
-                    <TableHead>Scope</TableHead>
-                    <TableHead>Resources</TableHead>
-                    <TableHead>Overall</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {matrixPage.items.map((row) => (
-                    <TableRow key={row.projectId} interactive>
-                      <TableCell>
-                        <Link
-                          to={`/projects/${row.projectId}`}
-                          className="flex items-center gap-2 font-medium text-foreground hover:text-primary"
-                        >
-                          <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                            {row.identifier}
-                          </span>
-                          {row.projectName}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <HealthCell level={row.schedule} />
-                      </TableCell>
-                      <TableCell>
-                        <HealthCell level={row.scope} />
-                      </TableCell>
-                      <TableCell>
-                        <HealthCell level={row.resources} />
-                      </TableCell>
-                      <TableCell>
-                        <HealthCell level={row.overall} emphasis />
-                      </TableCell>
-                    </TableRow>
+          <TableCard
+            footer={
+              <>
+                {/* The pager draws the divider itself, so nothing is doubled
+                    when it renders nothing for a single page. */}
+                <Pagination
+                  page={matrixPage.page}
+                  pageSize={matrixPage.pageSize}
+                  total={matrixPage.total}
+                  onPageChange={matrixPage.setPage}
+                  itemLabel="project"
+                  className="border-b border-border"
+                />
+                <div className="flex flex-wrap items-center gap-4 px-3 py-2 text-2xs text-muted-foreground">
+                  {(['healthy', 'warning', 'critical'] as HealthLevel[]).map((level) => (
+                    <span key={level} className="flex items-center gap-1.5">
+                      <span
+                        className={cn('h-2 w-2 rounded-full', TONE_FILL[HEALTH_META[level].tone])}
+                        aria-hidden
+                      />
+                      {HEALTH_MATRIX_LABEL[level]} — {HEALTH_META[level].label}
+                    </span>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            <Pagination
-              page={matrixPage.page}
-              pageSize={matrixPage.pageSize}
-              total={matrixPage.total}
-              onPageChange={matrixPage.setPage}
-              itemLabel="project"
-              className="border-t border-border"
-            />
-
-            <div className="flex flex-wrap items-center gap-4 border-t border-border px-3 py-2 text-2xs text-muted-foreground">
-              {(['healthy', 'warning', 'critical'] as HealthLevel[]).map((level) => (
-                <span key={level} className="flex items-center gap-1.5">
-                  <span className={cn('h-2 w-2 rounded-full', TONE_FILL[HEALTH_META[level].tone])} aria-hidden />
-                  {HEALTH_MATRIX_LABEL[level]} — {HEALTH_META[level].label}
-                </span>
-              ))}
-            </div>
-          </Card>
+                </div>
+              </>
+            }
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-48">Project</TableHead>
+                  <TableHead>Schedule</TableHead>
+                  <TableHead>Scope</TableHead>
+                  <TableHead>Resources</TableHead>
+                  <TableHead>Overall</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {matrixPage.items.map((row) => (
+                  <TableRow key={row.projectId} interactive>
+                    <TableCell>
+                      <Link
+                        to={`/projects/${row.projectId}`}
+                        className="flex items-center gap-2 font-medium text-foreground hover:text-primary"
+                      >
+                        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs text-muted-foreground">
+                          {row.identifier}
+                        </span>
+                        {row.projectName}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <HealthCell level={row.schedule} />
+                    </TableCell>
+                    <TableCell>
+                      <HealthCell level={row.scope} />
+                    </TableCell>
+                    <TableCell>
+                      <HealthCell level={row.resources} />
+                    </TableCell>
+                    <TableCell>
+                      <HealthCell level={row.overall} emphasis />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableCard>
         </QueryBoundary>
       </section>
 
       {/* Trends */}
       <section className="grid gap-4 lg:grid-cols-3">
-        {trendsQuery.isLoading ? (
-          <ChartCardSkeleton height={260} />
-        ) : (
+        {/* Empty series are drawn by the charts themselves, inside their
+            cards, so the grid keeps its shape. */}
+        <QueryBoundary
+          isLoading={trendsQuery.isLoading}
+          isError={trendsQuery.isError}
+          error={trendsQuery.error}
+          onRetry={() => trendsQuery.refetch()}
+          errorTitle="Unable to load delivery throughput"
+          skeleton={<ChartCardSkeleton height={260} className="lg:col-span-2" />}
+        >
           <ChartCard
             title="Delivery throughput"
             description="Completed vs. created work packages"
@@ -254,24 +278,34 @@ export default function AnalyticsPage() {
           >
             <DeliveryTrendChart data={trendsQuery.data ?? []} />
           </ChartCard>
-        )}
+        </QueryBoundary>
 
-        {distributionQuery.isLoading ? (
-          <ChartCardSkeleton height={260} />
-        ) : (
+        <QueryBoundary
+          isLoading={distributionQuery.isLoading}
+          isError={distributionQuery.isError}
+          error={distributionQuery.error}
+          onRetry={() => distributionQuery.refetch()}
+          errorTitle="Unable to load work distribution"
+          skeleton={<ChartCardSkeleton height={260} />}
+        >
           <ChartCard title="Work distribution" description="Portfolio-wide status mix" height={260}>
             <StatusDistributionChart data={distributionQuery.data ?? []} />
           </ChartCard>
-        )}
+        </QueryBoundary>
       </section>
 
-      {trendsQuery.isLoading ? (
-        <ChartCardSkeleton height={240} />
-      ) : (
+      <QueryBoundary
+        isLoading={trendsQuery.isLoading}
+        isError={trendsQuery.isError}
+        error={trendsQuery.error}
+        onRetry={() => trendsQuery.refetch()}
+        errorTitle="Unable to load velocity"
+        skeleton={<ChartCardSkeleton height={240} />}
+      >
         <ChartCard title="Velocity" description="Story points delivered per sprint" height={240}>
           <VelocityChart data={trendsQuery.data ?? []} />
         </ChartCard>
-      )}
+      </QueryBoundary>
 
       {/* Historical -------------------------------------------------------- */}
       <SectionHeader
@@ -280,8 +314,9 @@ export default function AnalyticsPage() {
           hasHistory
             ? // The last snapshot's date is what tells someone whether capture
               // is actually running. Read from coverage the API already returns.
-              `Recorded snapshots, ${history?.firstSnapshot} to ${history?.lastSnapshot}` +
-              ` · last capture ${history?.lastSnapshot}`
+              `Recorded snapshots, ${formatLongDate(history?.firstSnapshot)} to ` +
+              `${formatLongDate(history?.lastSnapshot)} · last capture ` +
+              formatLongDate(history?.lastSnapshot)
             : 'Recorded snapshots. History begins at the first capture.'
         }
         actions={

@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Minus, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, formatPercent } from '@/lib/utils';
 import {
   HEALTH_META,
   PROJECT_STATUS_META,
@@ -203,7 +203,7 @@ export function TrendChip({
     <span className={cn('inline-flex items-center gap-1 text-2xs font-medium', className)}>
       <span className={cn('inline-flex items-center gap-0.5', TONE_TEXT[tone])}>
         <Icon className="h-3 w-3" aria-hidden />
-        {direction === 'flat' ? 'No change' : `${Math.abs(changePct)}%`}
+        {direction === 'flat' ? 'No change' : formatPercent(Math.abs(changePct))}
       </span>
       {periodLabel ? <span className="text-muted-foreground">{periodLabel}</span> : null}
     </span>

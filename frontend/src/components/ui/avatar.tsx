@@ -3,18 +3,29 @@ import * as AvatarPrimitive from '@radix-ui/react-avatar';
 import { cn } from '@/lib/utils';
 import type { AvatarAccent } from '@/types';
 
+/*
+ * The `AvatarAccent` keys are colour literals from the API and are persisted
+ * per user, so they stay as they are — but after the Intertec re-skin they no
+ * longer describe what you see: `blue` paints violet and `teal` paints the
+ * brand's deep teal. Read them as slot names, not colours.
+ *
+ * Initials are 11-12px on a soft surface, so the text takes the `-strong` step
+ * for the same reason `TONE_SOFT` does in lib/domain.ts.
+ */
 const ACCENT_CLASS: Record<AvatarAccent, string> = {
-  blue: 'bg-primary-soft text-primary-dark dark:text-primary',
-  teal: 'bg-accent-soft text-accent',
-  violet: 'bg-highlight-soft text-highlight',
-  amber: 'bg-warning-soft text-warning',
-  rose: 'bg-danger-soft text-danger',
+  blue: 'bg-primary-soft text-primary-dark',
+  teal: 'bg-accent-soft text-accent-strong',
+  violet: 'bg-highlight-soft text-highlight-strong',
+  amber: 'bg-warning-soft text-warning-strong',
+  rose: 'bg-danger-soft text-danger-strong',
   slate: 'bg-neutral-soft text-muted-foreground',
 };
 
 const SIZE_CLASS = {
-  xs: 'h-5 w-5 text-[9px]',
-  sm: 'h-6 w-6 text-[10px]',
+  // The smallest face drops its line height instead of using a size off the
+  // type scale; two initials still fit at 11px inside 20px.
+  xs: 'h-5 w-5 text-2xs leading-none',
+  sm: 'h-6 w-6 text-2xs',
   default: 'h-8 w-8 text-xs',
   lg: 'h-10 w-10 text-sm',
   xl: 'h-16 w-16 text-lg',

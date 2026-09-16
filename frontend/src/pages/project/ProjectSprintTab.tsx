@@ -2,17 +2,26 @@ import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Timer } from 'lucide-react';
-import { SprintSummary, SprintSummarySkeleton } from '@/components/dashboard/SprintSummary';
+import { SprintSummary, SprintSummaryEmpty, SprintSummarySkeleton } from '@/components/dashboard/SprintSummary';
 import { KanbanBoard, KanbanBoardSkeleton } from '@/components/board/KanbanBoard';
 import { SectionHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TruncationNotice } from '@/components/common/TruncationNotice';
+import { SprintWorkList } from '@/components/sprints/SprintWorkList';
 import { Card } from '@/components/ui/card';
 import { useActiveSprint } from '@/hooks/useSprints';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
 import type { ID, TaskStatusCategory } from '@/types';
+
+/**
+ * How many of the sprint's work packages load at once. A sprint board needs
+ * the whole set to drag between columns, so it loads in one go; a sprint
+ * rarely holds more than this, and the notice under the board says if it does.
+ */
+const SPRINT_PAGE_SIZE = 200;
 
 /** The active sprint as it applies to this project. */
 export default function ProjectSprintTab() {
@@ -25,10 +34,11 @@ export default function ProjectSprintTab() {
   const tasksQuery = useTasks({
     projectId,
     sprintId: sprintQuery.data?.id,
-    pageSize: 200,
+    pageSize: SPRINT_PAGE_SIZE,
   });
 
   const tasks = useMemo(() => tasksQuery.data?.items ?? [], [tasksQuery.data]);
+  const total = tasksQuery.data?.total ?? tasks.length;
 
   const handleStatusChange = (taskId: ID, status: TaskStatusCategory) => {
     updateTask.mutate(
@@ -46,10 +56,13 @@ export default function ProjectSprintTab() {
     <div className="space-y-5">
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="lg:col-span-1">
-          {sprintQuery.isLoading || !sprintQuery.data ? (
+          {/* Loading, a running sprint, or none — see DashboardPage. */}
+          {sprintQuery.isPending ? (
             <SprintSummarySkeleton />
-          ) : (
+          ) : sprintQuery.data ? (
             <SprintSummary sprint={sprintQuery.data} />
+          ) : (
+            <SprintSummaryEmpty />
           )}
         </div>
 
@@ -85,18 +98,30 @@ export default function ProjectSprintTab() {
               </Card>
             }
           >
-            <KanbanBoard
-              tasks={tasks}
-              users={users}
-              onStatusChange={handleStatusChange}
-              onCreate={(status) =>
-                openTaskDrawer({ projectId, status, sprintId: sprintQuery.data?.id })
-              }
-              columns={['todo', 'in_progress', 'review', 'done']}
-            />
+            <div className="space-y-3">
+              <KanbanBoard
+                tasks={tasks}
+                users={users}
+                onStatusChange={handleStatusChange}
+                onCreate={(status) =>
+                  openTaskDrawer({ projectId, status, sprintId: sprintQuery.data?.id })
+                }
+                columns={['todo', 'in_progress', 'review', 'done']}
+              />
+              <TruncationNotice
+                shown={tasks.length}
+                total={total}
+                itemLabel="task"
+                affected="The column counts"
+              />
+            </div>
           </QueryBoundary>
         </div>
       </div>
+
+      {tasks.length > 0 && sprintQuery.data ? (
+        <SprintWorkList tasks={tasks} users={users} resetKey={`${projectId}|${sprintQuery.data.id}`} />
+      ) : null}
     </div>
   );
 }

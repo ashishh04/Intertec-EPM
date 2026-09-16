@@ -1,57 +1,24 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
-import {
-  ArrowRight,
-  Eye,
-  EyeOff,
-  GitBranch,
-  Layers,
-  ShieldAlert,
-  ShieldCheck,
-  TrendingUp,
-} from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label, FieldHint } from '@/components/ui/label';
-import { EpmLogo, EpmMark } from '@/components/common/EpmLogo';
+import { AuthBackdrop } from '@/components/common/AuthBackdrop';
+import { EpmMark } from '@/components/common/EpmLogo';
+import { safeDestination } from '@/lib/navigation';
 import { useAuth } from '@/providers/AuthProvider';
-import { APP_DESCRIPTOR, APP_NAME, ORG_NAME, env } from '@/config/env';
-
-const PILLARS = [
-  {
-    icon: Layers,
-    title: 'Portfolio in one view',
-    body: 'Every project, sprint and dependency in a single operating picture.',
-  },
-  {
-    icon: TrendingUp,
-    title: 'Delivery intelligence',
-    body: 'Velocity, health and risk surfaced before they become escalations.',
-  },
-  {
-    icon: GitBranch,
-    title: 'Connected to your tools',
-    body: 'Work packages stay in sync with the delivery systems your teams already use.',
-  },
-];
-
-const DEFAULT_DESTINATION = '/dashboard';
+import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
 
 /**
- * Where to land after a successful sign-in. RequireAuth stores the path the
- * user actually asked for, so a deep link survives the trip through /login —
- * but only a same-site absolute path is honoured, so a crafted `from` cannot
- * turn this form into an open redirect.
+ * Sign-in. Credentials are verified by the EPM backend; none are kept here.
+ *
+ * One column, centred on the brand band. There is a single decision to make on
+ * this screen, so nothing shares the page with it — the split layout this
+ * replaced spent half the viewport re-stating what the landing page already
+ * says to someone who has plainly already decided to sign in.
  */
-function safeDestination(from: unknown): string {
-  if (typeof from !== 'string') return DEFAULT_DESTINATION;
-  if (!from.startsWith('/') || from.startsWith('//')) return DEFAULT_DESTINATION;
-  if (from === '/login') return DEFAULT_DESTINATION;
-  return from;
-}
-
-/** Sign-in. Credentials are verified by the EPM backend; none are kept here. */
 export default function LoginPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
@@ -77,7 +44,7 @@ export default function LoginPage() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!username.trim() || !password) {
-      setFailure('Enter your username and password.');
+      setFailure('Enter your username or email, and your password.');
       return;
     }
 
@@ -103,76 +70,31 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[1fr_minmax(0,34rem)]">
-      {/* ---- Brand panel ------------------------------------------------- */}
-      <section className="relative hidden overflow-hidden bg-primary-dark p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.16]"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.9) 0.5px, transparent 0.5px), radial-gradient(circle at 70% 60%, rgba(255,255,255,0.6) 0.5px, transparent 0.5px)',
-            backgroundSize: '28px 28px, 44px 44px',
-          }}
-          aria-hidden
-        />
-
-        <motion.div {...rise()} className="relative">
-          <Link to="/" className="inline-flex items-center gap-3 rounded-lg" aria-label="EPM home">
-            <EpmMark className="h-9 w-9" />
-            <span>
-              <span className="block text-sm font-semibold tracking-tight">{APP_NAME}</span>
-              <span className="block text-2xs text-primary-foreground/70">{ORG_NAME}</span>
+    <AuthBackdrop>
+      <main className="relative flex flex-1 flex-col items-center justify-center gap-8 px-5 py-12">
+        <motion.div {...rise()}>
+          <Link
+            to="/"
+            className="flex flex-col items-center gap-3 rounded-lg text-white"
+            aria-label={`${APP_NAME} home`}
+          >
+            <EpmMark className="h-11 w-11" monochrome />
+            <span className="text-center">
+              <span className="block font-display text-base font-semibold tracking-tight">
+                {APP_NAME}
+              </span>
+              <span className="block text-2xs text-white/80">{APP_DESCRIPTOR}</span>
             </span>
           </Link>
         </motion.div>
 
-        <motion.div {...rise(0.08)} className="relative max-w-xl space-y-9">
-          <div className="space-y-3">
-            <h1 className="text-balance text-4xl font-semibold leading-[1.12] tracking-tight">
-              The connection point between projects, people and delivery.
-            </h1>
-            <p className="text-sm text-primary-foreground/75">{APP_DESCRIPTOR}</p>
-          </div>
-
-          <ul className="space-y-5">
-            {PILLARS.map((pillar) => (
-              <li key={pillar.title} className="flex gap-3.5">
-                <span
-                  className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/10"
-                  aria-hidden
-                >
-                  <pillar.icon className="h-4 w-4" />
-                </span>
-                <div>
-                  <p className="text-sm font-medium">{pillar.title}</p>
-                  <p className="mt-1 max-w-md text-xs leading-relaxed text-primary-foreground/70">
-                    {pillar.body}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </motion.div>
-
-        <p className="relative text-2xs text-primary-foreground/60">
-          Internal platform · {ORG_NAME} · Authorised users only
-        </p>
-      </section>
-
-      {/* ---- Sign-in panel ----------------------------------------------- */}
-      <section className="flex items-center justify-center bg-background px-5 py-10 sm:px-10">
-        <motion.div {...rise()} className="w-full max-w-sm space-y-6">
-          <div className="lg:hidden">
-            <Link to="/" className="inline-block rounded-lg" aria-label="EPM home">
-              <EpmLogo variant="full" showDescriptor />
-            </Link>
-          </div>
-
+        <motion.div
+          {...rise(0.08)}
+          className="w-full max-w-md space-y-6 rounded-2xl border border-white/60 bg-surface p-7 shadow-floating sm:p-8"
+        >
           <div className="space-y-1.5">
-            <h2 className="text-xl font-semibold tracking-tight">Sign in to {APP_NAME}</h2>
-            <p className="text-xs text-muted-foreground">
-              Use your {ORG_NAME} account to continue.
-            </p>
+            <h1 className="text-xl font-semibold tracking-tight">Sign in to {APP_NAME}</h1>
+            <p className="text-xs text-muted-foreground">Use your {ORG_NAME} account to continue.</p>
           </div>
 
           {failure ? (
@@ -188,15 +110,15 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={submit} noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="login-username" required>
-                Username
+                Username or email
               </Label>
               <Input
                 id="login-username"
-                autoComplete="username"
+                autoComplete="username email"
                 autoFocus
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="Your work username"
+                placeholder="Your work username or email"
                 invalid={Boolean(failure)}
                 className="h-11"
               />
@@ -249,11 +171,7 @@ export default function LoginPage() {
                 <FieldHint>
                   Passwords are reset by IT support. Contact the service desk to regain access.
                 </FieldHint>
-              ) : (
-                <FieldHint>
-                  Your password is verified on the server and is never stored in this browser.
-                </FieldHint>
-              )}
+              ) : null}
             </div>
 
             <Button type="submit" size="lg" className="h-11 w-full" loading={pending}>
@@ -262,21 +180,6 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-surface p-3">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
-            <p className="text-2xs leading-relaxed text-muted-foreground">
-              Sessions are issued by the {APP_NAME} backend; no credentials or API tokens are held
-              in the frontend.
-              {!env.isProduction ? (
-                <>
-                  {' '}
-                  This build runs on{' '}
-                  <span className="font-medium text-foreground">{env.appEnv}</span> data.
-                </>
-              ) : null}
-            </p>
-          </div>
-
           <Link
             to="/"
             className="inline-block rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
@@ -284,7 +187,11 @@ export default function LoginPage() {
             ← Back to overview
           </Link>
         </motion.div>
-      </section>
-    </div>
+      </main>
+
+      <p className="relative pb-8 text-center text-2xs text-white/80">
+        Internal platform · {ORG_NAME} · Authorised users only
+      </p>
+    </AuthBackdrop>
   );
 }

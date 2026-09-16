@@ -34,9 +34,18 @@ import { PriorityBadge, StatusBadge, TypeBadge } from '@/components/common/Statu
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
-import { Skeleton } from '@/components/ui/skeleton';
+import { TableCard, TableSkeleton } from '@/components/common/DataTable';
 import { ALL_TASK_PRIORITIES, ALL_TASK_STATUSES, TASK_PRIORITY_META, TASK_STATUS_META } from '@/lib/domain';
-import { cn, describeDueDate, formatHours, pluralize } from '@/lib/utils';
+import {
+  cn,
+  describeDueDate,
+  formatHours,
+  formatLongDate,
+  formatNumber,
+  formatPercent,
+  formatShortDate,
+  pluralize,
+} from '@/lib/utils';
 import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, UpdateTaskInput } from '@/types';
 
 type ColumnKey =
@@ -97,6 +106,9 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
   'assignee',
   'dueDate',
 ];
+
+/** Figures are right-aligned so the digits line up down the column. */
+const NUMERIC_COLUMNS = new Set<ColumnKey>(['estimate', 'spent', 'progress', 'storyPoints']);
 
 export interface TaskTableProps {
   tasks: EpmTask[];
@@ -244,155 +256,170 @@ export function TaskTable({
     return onSortChange(null, 'asc');
   };
 
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-      {/* Toolbar: bulk actions replace the default controls while rows are selected */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-        {selected.size > 0 ? (
-          <>
-            <div className="flex items-center gap-2 text-xs">
-              <ListChecks className="h-3.5 w-3.5 text-primary" aria-hidden />
-              <span className="font-medium">
-                {selected.size} {pluralize(selected.size, 'task')} selected
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-                Clear
+  // Toolbar: bulk actions replace the default controls while rows are selected.
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+      {selected.size > 0 ? (
+        <>
+          <div className="flex items-center gap-2 text-xs">
+            <ListChecks className="h-3.5 w-3.5 text-primary" aria-hidden />
+            <span className="font-medium">
+              {formatNumber(selected.size)} {pluralize(selected.size, 'task')} selected
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary">
+                  Change status
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Set status</DropdownMenuLabel>
+                {ALL_TASK_STATUSES.map((status) => (
+                  <DropdownMenuItem
+                    key={status}
+                    onSelect={() => {
+                      onBulkUpdate?.(selectedIds, { status });
+                      setSelected(new Set());
+                    }}
+                  >
+                    {TASK_STATUS_META[status].label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary">
+                  Priority
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Set priority</DropdownMenuLabel>
+                {ALL_TASK_PRIORITIES.map((priority) => (
+                  <DropdownMenuItem
+                    key={priority}
+                    onSelect={() => {
+                      onBulkUpdate?.(selectedIds, { priority });
+                      setSelected(new Set());
+                    }}
+                  >
+                    {TASK_PRIORITY_META[priority].label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary">
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Assign
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+                <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                {[...users.values()].map((user) => (
+                  <DropdownMenuItem
+                    key={user.id}
+                    onSelect={() => {
+                      onBulkUpdate?.(selectedIds, { assigneeId: user.id });
+                      setSelected(new Set());
+                    }}
+                  >
+                    {user.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {onBulkDelete ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-danger hover:bg-danger-soft hover:text-danger"
+                onClick={() => {
+                  onBulkDelete(selectedIds);
+                  setSelected(new Set());
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
               </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="secondary">
-                    Change status
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Set status</DropdownMenuLabel>
-                  {ALL_TASK_STATUSES.map((status) => (
-                    <DropdownMenuItem
-                      key={status}
-                      onSelect={() => {
-                        onBulkUpdate?.(selectedIds, { status });
-                        setSelected(new Set());
-                      }}
-                    >
-                      {TASK_STATUS_META[status].label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="secondary">
-                    Priority
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Set priority</DropdownMenuLabel>
-                  {ALL_TASK_PRIORITIES.map((priority) => (
-                    <DropdownMenuItem
-                      key={priority}
-                      onSelect={() => {
-                        onBulkUpdate?.(selectedIds, { priority });
-                        setSelected(new Set());
-                      }}
-                    >
-                      {TASK_PRIORITY_META[priority].label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="secondary">
-                    <UserPlus className="h-3.5 w-3.5" />
-                    Assign
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-                  <DropdownMenuLabel>Assign to</DropdownMenuLabel>
-                  {[...users.values()].map((user) => (
-                    <DropdownMenuItem
-                      key={user.id}
-                      onSelect={() => {
-                        onBulkUpdate?.(selectedIds, { assigneeId: user.id });
-                        setSelected(new Set());
-                      }}
-                    >
-                      {user.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {onBulkDelete ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-danger hover:bg-danger-soft hover:text-danger"
-                  onClick={() => {
-                    onBulkDelete(selectedIds);
-                    setSelected(new Set());
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
+            ) : null}
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="px-1 text-2xs text-muted-foreground">
+            {total === 0 ? 'No results' : `${formatNumber(total)} ${pluralize(total, 'task')}`}
+          </p>
+          <div className="flex items-center gap-1.5">
+            {/* Hidden when a query owns the columns — two pickers editing the
+                same thing, only one of which is saved, invites confusion. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" className={cn(controlledColumns && 'hidden')}>
+                  <Columns3 className="h-3.5 w-3.5" />
+                  Columns
                 </Button>
-              ) : null}
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="px-1 text-2xs text-muted-foreground">
-              {total === 0 ? 'No results' : `${total} ${pluralize(total, 'task')}`}
-            </p>
-            <div className="flex items-center gap-1.5">
-              {/* Hidden when a query owns the columns — two pickers editing the
-                  same thing, only one of which is saved, invites confusion. */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost" className={cn(controlledColumns && 'hidden')}>
-                    <Columns3 className="h-3.5 w-3.5" />
-                    Columns
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {(Object.keys(COLUMN_LABEL) as ColumnKey[])
-                    .filter((column) => !(hideProjectColumn && column === 'project'))
-                    .map((column) => (
-                      <DropdownMenuCheckboxItem
-                        key={column}
-                        checked={visibleColumns.includes(column)}
-                        disabled={column === 'subject'}
-                        onCheckedChange={(checked) =>
-                          setVisibleColumns((current) =>
-                            checked
-                              ? [...current, column]
-                              : current.filter((item) => item !== column),
-                          )
-                        }
-                      >
-                        {COLUMN_LABEL[column]}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {(Object.keys(COLUMN_LABEL) as ColumnKey[])
+                  .filter((column) => !(hideProjectColumn && column === 'project'))
+                  .map((column) => (
+                    <DropdownMenuCheckboxItem
+                      key={column}
+                      checked={visibleColumns.includes(column)}
+                      disabled={column === 'subject'}
+                      onCheckedChange={(checked) =>
+                        setVisibleColumns((current) =>
+                          checked
+                            ? [...current, column]
+                            : current.filter((item) => item !== column),
+                        )
+                      }
+                    >
+                      {COLUMN_LABEL[column]}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-              {onExport ? (
-                <Button size="sm" variant="ghost" onClick={onExport}>
-                  <Download className="h-3.5 w-3.5" />
-                  Export
-                </Button>
-              ) : null}
-            </div>
-          </>
-        )}
-      </div>
+            {onExport ? (
+              <Button size="sm" variant="ghost" onClick={onExport}>
+                <Download className="h-3.5 w-3.5" />
+                Export
+              </Button>
+            ) : null}
+          </div>
+        </>
+      )}
+    </div>
+  );
 
+  const footer =
+    total > 0 ? (
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        pageSizeOptions={[15, 25, 50, 100]}
+        itemLabel="task"
+      />
+    ) : undefined;
+
+  return (
+    <TableCard toolbar={toolbar} footer={footer}>
       {tasks.length === 0 ? (
         <EmptyState
           title="No tasks found"
@@ -400,219 +427,197 @@ export function TaskTable({
           action={emptyAction}
         />
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10 pr-0">
-                  <Checkbox
-                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
-                    onCheckedChange={toggleAll}
-                    aria-label="Select all tasks on this page"
-                  />
-                </TableHead>
-                {columns.map((column) => {
-                  const sortKey = sortableColumns.has(column) ? column : undefined;
-                  const isSorted = sortKey !== undefined && sortBy === column;
-                  return (
-                    <TableHead
-                      key={column}
-                      aria-sort={
-                        isSorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined
-                      }
-                      className={cn(column === 'subject' && 'min-w-64')}
-                    >
-                      {sortKey ? (
-                        <button
-                          type="button"
-                          onClick={() => handleSort(column)}
-                          className="inline-flex items-center gap-1 rounded transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          {COLUMN_LABEL[column]}
-                          {isSorted ? (
-                            sortDir === 'asc' ? (
-                              <ArrowUp className="h-3 w-3" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3 w-3" aria-hidden />
-                            )
-                          ) : (
-                            <ChevronsUpDown className="h-3 w-3 opacity-40" aria-hidden />
-                          )}
-                        </button>
-                      ) : (
-                        COLUMN_LABEL[column]
-                      )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            </TableHeader>
-
-            <TableBody>
-              {rows.map((row) => {
-                if (row.kind === 'group') {
-                  const { group } = row;
-                  return (
-                    <TableRow key={`group-${group.value ?? '__none__'}`} className="bg-muted/50">
-                      <TableCell colSpan={columns.length + 1} className="py-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-foreground">
-                            {/* An unset attribute is a real group, not a failure
-                                to look one up, so it says so plainly. */}
-                            {group.value ?? 'None'}
-                          </span>
-                          <Badge tone="neutral" size="sm">
-                            {group.count}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                }
-
-                const { task } = row;
-                const project = projects.get(task.projectId);
-                const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
-                const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
-                const isSelected = selected.has(task.id);
-
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10 pr-0">
+                <Checkbox
+                  checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all tasks on this page"
+                />
+              </TableHead>
+              {columns.map((column) => {
+                const sortKey = sortableColumns.has(column) ? column : undefined;
+                const isSorted = sortKey !== undefined && sortBy === column;
                 return (
-                  <TableRow key={task.id} data-state={isSelected ? 'selected' : undefined}>
-                    <TableCell className="pr-0">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleOne(task.id)}
-                        aria-label={`Select ${task.key}`}
-                      />
-                    </TableCell>
-
-                    {columns.map((column) => (
-                      <TableCell key={column}>
-                        {column === 'key' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
-                        ) : column === 'subject' ? (
-                          <Link
-                            to={`/tasks/${task.id}`}
-                            className="font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
-                          >
-                            {task.subject}
-                          </Link>
-                        ) : column === 'project' ? (
-                          <span className="text-muted-foreground">{project?.name ?? '—'}</span>
-                        ) : column === 'type' ? (
-                          <TypeBadge type={task.type} label={task.typeRef.name} />
-                        ) : column === 'status' ? (
-                          <StatusBadge
-                            status={task.statusCategory}
-                            label={task.status.name}
-                            size="sm"
-                          />
-                        ) : column === 'priority' ? (
-                          <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
-                        ) : column === 'assignee' ? (
-                          <div className="flex items-center gap-1.5">
-                            <UserAvatarWithTooltip user={assignee} size="xs" />
-                            <span className="truncate text-muted-foreground">
-                              {assignee?.name ?? 'Unassigned'}
-                            </span>
-                          </div>
-                        ) : column === 'dueDate' ? (
-                          <span
-                            className={cn(
-                              'font-mono text-2xs',
-                              due.tone === 'overdue'
-                                ? 'font-medium text-danger'
-                                : due.tone === 'today'
-                                  ? 'font-medium text-warning'
-                                  : 'text-muted-foreground',
-                            )}
-                          >
-                            {due.label}
-                          </span>
-                        ) : column === 'estimate' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {formatHours(task.estimatedHours)}
-                          </span>
-                        ) : column === 'author' ? (
-                          <div className="flex items-center gap-1.5">
-                            <UserAvatarWithTooltip user={users.get(task.authorId)} size="xs" />
-                            <span className="truncate text-muted-foreground">
-                              {users.get(task.authorId)?.name ?? '—'}
-                            </span>
-                          </div>
-                        ) : column === 'startDate' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {task.startDate ?? '—'}
-                          </span>
-                        ) : column === 'spent' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {formatHours(task.spentHours)}
-                          </span>
-                        ) : column === 'progress' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {task.progress}%
-                          </span>
-                        ) : column === 'storyPoints' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {task.storyPoints ?? '—'}
-                          </span>
-                        ) : column === 'version' ? (
-                          <span className="truncate text-muted-foreground">
-                            {task.version ?? '—'}
-                          </span>
-                        ) : column === 'createdAt' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {task.createdAt.slice(0, 10)}
-                          </span>
-                        ) : column === 'updatedAt' ? (
-                          <span className="font-mono text-2xs text-muted-foreground">
-                            {task.updatedAt.slice(0, 10)}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                  <TableHead
+                    key={column}
+                    numeric={NUMERIC_COLUMNS.has(column)}
+                    aria-sort={
+                      isSorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined
+                    }
+                    className={cn(column === 'subject' && 'min-w-64')}
+                  >
+                    {sortKey ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(column)}
+                        className="inline-flex items-center gap-1 rounded transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {COLUMN_LABEL[column]}
+                        {isSorted ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp className="h-3 w-3" aria-hidden />
+                          ) : (
+                            <ArrowDown className="h-3 w-3" aria-hidden />
+                          )
+                        ) : (
+                          <ChevronsUpDown className="h-3 w-3 opacity-40" aria-hidden />
+                        )}
+                      </button>
+                    ) : (
+                      COLUMN_LABEL[column]
+                    )}
+                  </TableHead>
                 );
               })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+            </TableRow>
+          </TableHeader>
 
-      {total > 0 ? (
-        <Pagination
-          page={page}
-          pageSize={pageSize}
-          total={total}
-          onPageChange={onPageChange}
-          onPageSizeChange={onPageSizeChange}
-          pageSizeOptions={[15, 25, 50, 100]}
-          itemLabel="task"
-          className="border-t border-border"
-        />
-      ) : null}
-    </div>
+          <TableBody>
+            {rows.map((row) => {
+              if (row.kind === 'group') {
+                const { group } = row;
+                return (
+                  <TableRow key={`group-${group.value ?? '__none__'}`} className="bg-muted/50">
+                    <TableCell colSpan={columns.length + 1} className="py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-foreground">
+                          {/* An unset attribute is a real group, not a failure
+                              to look one up, so it says so plainly. */}
+                          {group.value ?? 'None'}
+                        </span>
+                        <Badge tone="neutral" size="sm">
+                          {formatNumber(group.count)}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+
+              const { task } = row;
+              const project = projects.get(task.projectId);
+              const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
+              const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
+              const isSelected = selected.has(task.id);
+
+              return (
+                <TableRow key={task.id} data-state={isSelected ? 'selected' : undefined}>
+                  <TableCell className="pr-0">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleOne(task.id)}
+                      aria-label={`Select ${task.key}`}
+                    />
+                  </TableCell>
+
+                  {columns.map((column) => (
+                    <TableCell key={column} numeric={NUMERIC_COLUMNS.has(column)}>
+                      {column === 'key' ? (
+                        <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
+                      ) : column === 'subject' ? (
+                        <Link
+                          to={`/tasks/${task.id}`}
+                          className="font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
+                        >
+                          {task.subject}
+                        </Link>
+                      ) : column === 'project' ? (
+                        <span className="text-muted-foreground">{project?.name ?? '—'}</span>
+                      ) : column === 'type' ? (
+                        <TypeBadge type={task.type} label={task.typeRef.name} />
+                      ) : column === 'status' ? (
+                        <StatusBadge
+                          status={task.statusCategory}
+                          label={task.status.name}
+                          size="sm"
+                        />
+                      ) : column === 'priority' ? (
+                        <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
+                      ) : column === 'assignee' ? (
+                        <div className="flex items-center gap-1.5">
+                          <UserAvatarWithTooltip user={assignee} size="xs" />
+                          <span className="truncate text-muted-foreground">
+                            {assignee?.name ?? 'Unassigned'}
+                          </span>
+                        </div>
+                      ) : column === 'dueDate' ? (
+                        <span
+                          className={cn(
+                            'font-mono text-2xs',
+                            due.tone === 'overdue'
+                              ? 'font-medium text-danger'
+                              : due.tone === 'today'
+                                ? 'font-medium text-warning'
+                                : 'text-muted-foreground',
+                          )}
+                        >
+                          {due.label}
+                        </span>
+                      ) : column === 'estimate' ? (
+                        <span className="text-muted-foreground">
+                          {formatHours(task.estimatedHours)}
+                        </span>
+                      ) : column === 'author' ? (
+                        <div className="flex items-center gap-1.5">
+                          <UserAvatarWithTooltip user={users.get(task.authorId)} size="xs" />
+                          <span className="truncate text-muted-foreground">
+                            {users.get(task.authorId)?.name ?? '—'}
+                          </span>
+                        </div>
+                      ) : column === 'startDate' ? (
+                        <DateCell value={task.startDate} />
+                      ) : column === 'spent' ? (
+                        <span className="text-muted-foreground">
+                          {formatHours(task.spentHours)}
+                        </span>
+                      ) : column === 'progress' ? (
+                        <span className="text-muted-foreground">
+                          {formatPercent(task.progress)}
+                        </span>
+                      ) : column === 'storyPoints' ? (
+                        <span className="text-muted-foreground">
+                          {task.storyPoints === undefined || task.storyPoints === null
+                            ? '—'
+                            : formatNumber(task.storyPoints)}
+                        </span>
+                      ) : column === 'version' ? (
+                        <span className="truncate text-muted-foreground">
+                          {task.version ?? '—'}
+                        </span>
+                      ) : column === 'createdAt' ? (
+                        <DateCell value={task.createdAt} />
+                      ) : column === 'updatedAt' ? (
+                        <DateCell value={task.updatedAt} />
+                      ) : null}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </TableCard>
   );
 }
 
-export function TaskTableSkeleton({ rows = 8 }: { rows?: number }) {
+/** A date column: short in the cell, the full date on hover. */
+function DateCell({ value }: { value?: string | null }) {
+  if (!value) return <span className="font-mono text-2xs text-muted-foreground">—</span>;
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface">
-      <div className="border-b border-border px-3 py-2.5">
-        <Skeleton className="h-3 w-40" />
-      </div>
-      <div className="divide-y divide-border">
-        {Array.from({ length: rows }).map((_, index) => (
-          <div key={index} className="flex items-center gap-4 px-3 py-3">
-            <Skeleton className="h-4 w-4 rounded" />
-            <Skeleton className="h-3 w-14" />
-            <Skeleton className="h-3 flex-1" />
-            <Skeleton className="h-5 w-20 rounded-md" />
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="h-6 w-6 rounded-full" />
-          </div>
-        ))}
-      </div>
-    </div>
+    <span className="font-mono text-2xs text-muted-foreground" title={formatLongDate(value)}>
+      {formatShortDate(value)}
+    </span>
   );
+}
+
+/**
+ * Loading stand-in with the default column set plus the selection checkbox,
+ * so the real table lands without the page jumping.
+ */
+export function TaskTableSkeleton({ rows = 8, columns }: { rows?: number; columns?: number }) {
+  return <TableSkeleton rows={rows} columns={(columns ?? DEFAULT_COLUMNS.length) + 1} />;
 }

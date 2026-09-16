@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/services/api/client';
 import type { EpmUser, ID, Permission, PermissionMap } from '@/types';
 import { useCurrentUser } from '@/hooks/useUsers';
+import { clearPersistedCache, reconcilePersistedCacheOwner } from '@/lib/queryPersister';
 
 /**
  * Session and authorisation state.
@@ -111,9 +112,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch(() => undefined)
       .finally(() => {
         queryClient.clear();
+        // `clear()` empties memory; this empties the copy on disk. Without it
+        // the next person to open this browser would restore the previous
+        // user's projects and tasks before their own session was checked.
+        clearPersistedCache();
         window.location.assign('/login');
       });
   }, [queryClient]);
+
+  /*
+   * Sign-out clears the persisted cache, but a session can also end by expiry
+   * or by the tab being closed — neither of which runs that path. So the cache
+   * records who it belongs to, and the moment the signed-in user is known a
+   * mismatch discards it and refetches.
+   */
+  useEffect(() => {
+    if (!me?.id) return;
+    if (reconcilePersistedCacheOwner(String(me.id))) {
+      queryClient.clear();
+    }
+  }, [me?.id, queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {
     const global = me?.permissions;
