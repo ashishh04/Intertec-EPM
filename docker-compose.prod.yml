@@ -27,6 +27,24 @@ services:
     environment:
       OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:?set a real secret}
       OPENPROJECT_HOST__NAME: ${EPM_DOMAIN:?set the domain}
+      # The public hostname above is what OpenProject puts in generated URLs, so
+      # it has to be the real domain. But it also becomes Rails' `config.hosts`
+      # allowlist, and the backend reaches this container as `http://openproject`
+      # on the internal network — a Host header that does not match, which the
+      # host authorization middleware answers with a bare 400 "Invalid host_name
+      # configuration" on *every* API call.
+      #
+      # Worth knowing how that fails: /ready calls openProjectReady(), which
+      # treats anything under 500 as healthy, so a stack in this state reports
+      # itself ready while nothing that touches OpenProject works at all.
+      #
+      # localhost is here for reaching the admin UI through an SSH tunnel, since
+      # this container is deliberately not published.
+      #
+      # JSON, not a comma-separated list. This is an array setting, and a bare
+      # `a,b,c` is read as one element containing commas — which matches no host
+      # and fails exactly as if the variable had never been set.
+      OPENPROJECT_ADDITIONAL__HOST__NAMES: '["openproject", "localhost", "localhost:8080"]'
       OPENPROJECT_HTTPS: "true"
       OPENPROJECT_DEFAULT__LANGUAGE: en
       # Behind Caddy, so the addresses it sees are the proxy's.
@@ -84,9 +102,35 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
+      # Implicit TLS. Unset it follows the port, which is right for 465 and 587
+      # both; set it only for a provider that disagrees.
+      SMTP_SECURE: ${SMTP_SECURE}
       RESEND_API_KEY: ${RESEND_API_KEY}
       EPM_EMAIL_WORKER_ENABLED: ${EPM_EMAIL_WORKER_ENABLED:-true}
       OPENPROJECT_WEBHOOK_SECRET: ${OPENPROJECT_WEBHOOK_SECRET}
+      # The bootstrap administrator list. A fresh database has no grant rows and
+      # no UI writes the first one, so without this nobody holds an EPM-owned
+      # permission and the deployment cannot be administered at all. Carrying a
+      # database over hides that; starting clean does not.
+      EPM_ADMIN_USER_IDS: ${EPM_ADMIN_USER_IDS}
+      # Every scheduler is off unless told otherwise, which is the right default
+      # for a test run and the wrong one for a deployment — so a production
+      # stack has to name the ones it wants. Snapshots are worth defaulting on
+      # here: trend history can only be built forwards, never backfilled.
+      EPM_ANALYTICS_SNAPSHOT_ENABLED: ${EPM_ANALYTICS_SNAPSHOT_ENABLED:-true}
+      EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES: ${EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES:-1440}
+      EPM_DUE_REMINDER_ENABLED: ${EPM_DUE_REMINDER_ENABLED}
+      EPM_DUE_REMINDER_HOUR_UTC: ${EPM_DUE_REMINDER_HOUR_UTC}
+      EPM_DUE_REMINDER_DAYS: ${EPM_DUE_REMINDER_DAYS}
+      EPM_EMAIL_DIGEST_HOUR_UTC: ${EPM_EMAIL_DIGEST_HOUR_UTC:-6}
+      # The assistant. Left unset it reports itself unavailable rather than
+      # refusing to start, so a stack without Bedrock credentials is a feature
+      # short rather than broken.
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       # Readiness, not liveness: this one fails while the database or
       # OpenProject is unreachable, which is what "do not send traffic" means.

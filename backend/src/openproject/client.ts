@@ -14,6 +14,23 @@ import type { HalCollection, HalLink, OpErrorBody } from './types.js';
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 const MAX_ATTEMPTS = 3;
 
+/*
+ * Sent on every request to OpenProject, and not optional in a deployment.
+ *
+ * OpenProject runs with OPENPROJECT_HTTPS=true, because it is reached over TLS
+ * by the people using it. That makes it answer any request it believes arrived
+ * over plain HTTP with a 301 to the https form of the same URL. We reach it
+ * inside the compose network as `http://openproject`, so every call is exactly
+ * that kind of request — and the redirect points at `https://openproject`,
+ * where nothing is listening, so fetch does not fail cleanly with a status but
+ * throws outright.
+ *
+ * Saying the hop in front of us already terminated TLS, which is true — Caddy
+ * did — makes OpenProject answer rather than redirect. This is the same header
+ * a reverse proxy would set, and OpenProject is configured to trust it.
+ */
+const FORWARDED_HEADERS = { 'X-Forwarded-Proto': 'https' } as const;
+
 /** OpenProject caps `pageSize`; requesting more silently returns fewer. */
 export const MAX_PAGE_SIZE = 200;
 
@@ -231,6 +248,7 @@ export class OpenProjectClient {
           method,
           signal: composed,
           headers: {
+            ...FORWARDED_HEADERS,
             Authorization: this.authorization,
             Accept: 'application/hal+json',
             // FormData carries its own multipart content type, including the
@@ -300,7 +318,7 @@ export class OpenProjectClient {
 
     return fetch(this.url(path), {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers: { Authorization: this.authorization, Accept: '*/*' },
+      headers: { ...FORWARDED_HEADERS, Authorization: this.authorization, Accept: '*/*' },
     });
   }
 
@@ -384,9 +402,20 @@ export async function openProjectReady(): Promise<{ ok: boolean; detail?: string
   try {
     const response = await fetch(`${env.OPENPROJECT_BASE_URL}/api/v3`, {
       signal: AbortSignal.timeout(5_000),
-      headers: { Accept: 'application/hal+json' },
+      headers: { ...FORWARDED_HEADERS, Accept: 'application/hal+json' },
     });
-    return response.status < 500
+
+    /*
+     * 2xx is the healthy answer; 401 and 403 are too, because an unauthenticated
+     * probe being refused still proves OpenProject is up and speaking HAL.
+     *
+     * Everything else is not ready, and the previous `status < 500` is why this
+     * is spelled out. A misconfigured host allowlist answers every single API
+     * call with 400, and a stack in that state passed readiness and reported
+     * itself healthy while nothing touching OpenProject worked — no sign-in, no
+     * projects, no tasks. A check that cannot fail is not a check.
+     */
+    return response.ok || response.status === 401 || response.status === 403
       ? { ok: true }
       : { ok: false, detail: `responded ${response.status}` };
   } catch (error) {

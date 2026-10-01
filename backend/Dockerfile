@@ -25,6 +25,16 @@
 # ---------------------------------------------------------------- build
 FROM node:22-slim AS build
 
+# openssl in the build stage too, and not for TLS: `prisma generate` chooses its
+# query engine by detecting the OpenSSL version present, and with no libssl
+# installed it settles on debian-openssl-1.1.x. The runtime stage below does
+# install libssl3, so the client generated here would be the wrong binary and
+# the first query would fail with the engine missing — long after the build
+# reported success.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Prisma's postinstall needs the schema present, so it is copied with the
@@ -65,10 +75,15 @@ RUN for i in 1 2 3; do \
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/package.json ./package.json
+# Owned by the user that will run them. Without --chown these arrive as root,
+# and `prisma migrate deploy` in the entrypoint then cannot write to
+# node_modules/@prisma/engines, where the CLI unpacks the engine binaries on
+# first use — so the container crash-loops on start with a permissions error
+# that reads like a broken install rather than a file ownership problem.
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/prisma ./prisma
+COPY --from=build --chown=node:node /app/package.json ./package.json
 
 # Unprivileged: the image has no reason to run as root, and `node` already
 # exists in the base image.

@@ -14,6 +14,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  // `native` covers a developer's own machine. The Debian target is named
+  // explicitly for the image, whose runtime is node:22-slim with libssl3, so
+  // that the engine that ships does not depend on detection having gone the
+  // right way during the build.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
