@@ -1,3 +1,4 @@
+import { referenceCache } from '../lib/cache.js';
 import { openProject } from '../openproject/client.js';
 import { applyEpmGrants } from './grants.js';
 import {
@@ -55,7 +56,66 @@ function projectOf(capability: OpCapability): string | undefined {
  * everything degrades the UI to read-only; letting the error propagate would
  * take down the session entirely, and guessing would be worse than both.
  */
+/**
+ * How long a permission set is reused before being read again.
+ *
+ * Permissions were being fetched on *every* authenticated request: `guard`
+ * caches them on the request object, which covers one handler asking twice but
+ * nothing beyond it. A dashboard load is fourteen requests, so it was fourteen
+ * `/capabilities` round trips for an answer that had not changed — the single
+ * largest avoidable cost in the product, and worst exactly when the instance is
+ * slow and every round trip hurts.
+ *
+ * A minute is short enough that a permission change is felt almost immediately,
+ * and `forgetPermissions` below shortens it to nothing for the case that
+ * actually matters: the person who just created a project expecting to be able
+ * to edit it.
+ */
+const PERMISSION_TTL_MS = 60_000;
+
+/** Cache key prefix. Shared with `forgetPermissions`, so the two cannot drift. */
+const permissionKey = (userId: string) => `permissions:${userId}`;
+
+/**
+ * Drops a person's cached permissions.
+ *
+ * Called after any successful write, for the caller. Creating a project grants
+ * the creator rights on it, and waiting out the TTL to discover that is the one
+ * staleness anybody would actually notice.
+ */
+export function forgetPermissions(userId: string): void {
+  referenceCache.invalidate(permissionKey(userId));
+}
+
 export async function loadPermissions(
+  userId: string,
+  signal?: AbortSignal,
+): Promise<EffectivePermissions> {
+  try {
+    return await referenceCache.get(
+      permissionKey(userId),
+      () => readPermissions(userId, signal),
+      PERMISSION_TTL_MS,
+    );
+  } catch {
+    /*
+     * Upstream could not be asked, so this person's permissions are unknown.
+     *
+     * Degrading to "EPM grants only" is the long-standing behaviour and is the
+     * safe direction — it denies rather than invents. What matters here is that
+     * it is **not cached**: a rejected loader stores nothing, so one failed
+     * capabilities read costs one request rather than locking the person out of
+     * everything for the life of the cache entry. Caching the degraded set was a
+     * real regression when this cache was introduced; it turned a momentary
+     * upstream timeout into a minute of 403s.
+     */
+    const global = emptyPermissions();
+    await applyEpmGrants(userId, global).catch(() => undefined);
+    return { global, byProject: new Map() };
+  }
+}
+
+async function readPermissions(
   userId: string,
   signal?: AbortSignal,
 ): Promise<EffectivePermissions> {
@@ -66,20 +126,17 @@ export async function loadPermissions(
   // not depend on OpenProject and should not be lost when it is unreachable.
   await applyEpmGrants(userId, global);
 
-  let items: OpCapability[] = [];
-  try {
-    const response = await openProject.getAll<OpCapability>(
-      '/capabilities',
-      {
-        filters: [{ field: 'principal', operator: '=', values: [userId] }],
-        pageSize: 200,
-      },
-      { signal },
-    );
-    items = response.items;
-  } catch {
-    return { global, byProject };
-  }
+  // Allowed to throw, and must: the caller distinguishes "no permissions" from
+  // "could not find out", and only the first is worth remembering.
+  const response = await openProject.getAll<OpCapability>(
+    '/capabilities',
+    {
+      filters: [{ field: 'principal', operator: '=', values: [userId] }],
+      pageSize: 200,
+    },
+    { signal },
+  );
+  const items = response.items;
 
   for (const capability of items) {
     const action = actionOf(capability);

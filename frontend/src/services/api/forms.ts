@@ -87,8 +87,18 @@ export class ApiFormRepository {
     return apiClient.post<FormResult>('/forms/memberships', { payload });
   }
 
-  timeEntryForm(payload?: Record<string, unknown>): Promise<FormResult> {
-    return apiClient.post<FormResult>('/forms/time-entries', { payload });
+  /**
+   * Schema for logging time, with the activities this project allows.
+   *
+   * A work package implies its project, so either scope is enough. The call
+   * also answers whether this person may log time at all — EPM has no
+   * capability for it, so OpenProject decides and refuses with its own reason.
+   */
+  timeEntryForm(
+    scope: { projectId?: ID; workPackageId?: ID } = {},
+    payload?: Record<string, unknown>,
+  ): Promise<FormResult> {
+    return apiClient.post<FormResult>('/forms/time-entries', { ...scope, payload });
   }
 }
 
@@ -106,6 +116,82 @@ export function writableFields(schema: FormResult['schema']): [string, SchemaFie
       );
     })
     .sort(([, a], [, b]) => (a.attributeGroup ?? '').localeCompare(b.attributeGroup ?? ''));
+}
+
+export interface AllowedValue {
+  id: ID;
+  name: string;
+  href: string;
+}
+
+/** The trailing id of a HAL self link. */
+export function idFromHref(href?: string): string | undefined {
+  return href?.split('/').filter(Boolean).pop();
+}
+
+/**
+ * The options a schema field offers, when it carries them inline.
+ *
+ * Three shapes, all of which appear on this instance:
+ *
+ * - **embedded** — the full resources. Their href is at `_links.self.href`,
+ *   *not* a top-level `href`. Reading the wrong one produced a bare id where a
+ *   link was required: saving a project status sent `on_track` and upstream
+ *   answered "a link like /api/v3/project_statuses/:id is expected".
+ * - **an array of links** — href and title directly.
+ * - **a single link to fetch** — not handled here; `assignee`, `responsible`
+ *   and a project's `parent` are all this kind. See `allowedValuesHref`.
+ */
+export function allowedValuesOf(field: SchemaField): AllowedValue[] | undefined {
+  const embedded = field._embedded?.allowedValues;
+  if (embedded?.length) {
+    return embedded
+      .map((value) => {
+        const record = value as unknown as {
+          id?: unknown;
+          name?: string;
+          value?: string;
+          href?: string;
+          _links?: { self?: { href?: string } };
+        };
+        const href = record._links?.self?.href ?? record.href;
+        const id = record.id !== undefined ? String(record.id) : idFromHref(href);
+        // A custom option labels itself `value`; everything else uses `name`.
+        // Requiring `name` dropped every option of a list custom field, which
+        // is why "EPM Test Severity" rendered as an empty dropdown.
+        const label = record.name ?? record.value;
+        return id && label && href ? { id, name: label, href } : undefined;
+      })
+      .filter((value): value is AllowedValue => Boolean(value));
+  }
+
+  const linked = field._links?.allowedValues;
+  if (Array.isArray(linked) && linked.length) {
+    return linked
+      .map((link) => {
+        const id = idFromHref(link.href);
+        return id ? { id, name: link.title ?? id, href: link.href } : undefined;
+      })
+      .filter((value): value is AllowedValue => Boolean(value));
+  }
+
+  return undefined;
+}
+
+/** The href to fetch options from, where the schema offers one instead. */
+export function allowedValuesHref(field: SchemaField): string | undefined {
+  const linked = field._links?.allowedValues as { href?: string } | undefined;
+  if (!linked || Array.isArray(linked)) return undefined;
+  return typeof linked.href === 'string' ? linked.href : undefined;
+}
+
+/** One writable field off a form, when the schema defines it. */
+export function schemaField(
+  form: FormResult | undefined,
+  name: string,
+): SchemaField | undefined {
+  const field = form?.schema?.[name];
+  return field && typeof field === 'object' ? (field as SchemaField) : undefined;
 }
 
 /** Full-fidelity work package writes, bypassing the normalized task model. */

@@ -7,6 +7,7 @@ import { persistOptions, PERSIST_MAX_AGE } from './lib/queryPersister';
 import { App } from './App';
 import { AuthProvider } from './providers/AuthProvider';
 import { UIProvider } from './providers/UIProvider';
+import { PreferenceEffects } from './providers/PreferenceEffects';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import './index.css';
@@ -43,7 +44,12 @@ createRoot(document.getElementById('root')!).render(
         <UIProvider>
           <TooltipProvider delayDuration={300} skipDelayDuration={200}>
             <BrowserRouter>
-              <App />
+              {/* Inside the router so a preference change repaints the routes,
+                  and inside AuthProvider because the preferences it reads are
+                  the signed-in person's. */}
+              <PreferenceEffects>
+                <App />
+              </PreferenceEffects>
             </BrowserRouter>
             <Toaster />
           </TooltipProvider>

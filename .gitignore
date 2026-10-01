@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+# The production template, which holds no secret and is the thing a deployment
+# host is told to copy. Without this negation `.env.*` above swallows it and it
+# never reaches the repository at all.
+!.env.prod.example
 backend/.env
 backend/.env.*
 !backend/.env.example
@@ -37,16 +41,30 @@ backend/openproject-profile.json
 # Local UI screenshot captures
 .shots/
 
-# Design notes, the acceptance suite and its generated report. Kept out of the
-# repository for now.
+# Working material: design notes, the acceptance suite and its report, the plan,
+# the user guide. Kept out of the repository for now.
 #
-# `docs/` is already tracked, so this rule alone does not untrack it — that
-# needs `git rm --cached -r docs`. `e2e/` holds the Playwright suite itself,
-# not just its output, so nothing here runs in CI while it is ignored.
+# `docs/` is already tracked, so this rule alone does not untrack it — ignoring a
+# path git already follows changes nothing. That needs `git rm --cached -r docs`,
+# which unstages it without deleting your copy. The others have never been
+# committed, so the rule is enough on its own.
+#
+# `e2e/` holds the Playwright suite itself, not just its output, so nothing here
+# runs in CI while it is ignored.
 docs/
 e2e/
 report/
+project-plan/
+user-guide/
+
+# Archives, including the docs.zip and e2e.zip in the root. e2e.zip alone is
+# 11 MB, and a repository is the wrong place for a snapshot of a directory it
+# already ignores.
+*.zip
 
 # Private keys. Never in the repository.
 *.ppk
 *.pem
+
+# HyperFrames video projects — captures and renders are hundreds of MB.
+videos/

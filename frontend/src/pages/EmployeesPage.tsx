@@ -14,7 +14,7 @@ import {
 import { TableCard, TableSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { AccountDialog } from '@/components/employees/AccountDialog';
-import { CapacityDialog } from '@/components/employees/CapacityDialog';
+import { StaffingDialog } from '@/components/employees/StaffingDialog';
 import { MappingDialog } from '@/components/employees/MappingDialog';
 import { ListToolbar, ResultCount, SearchInput } from '@/components/common/ListToolbar';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -50,7 +50,8 @@ import { usePagination } from '@/hooks/usePagination';
 import { useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import type { Tone } from '@/lib/domain';
-import { formatNumber } from '@/lib/utils';
+import { formatCurrency, formatNumber } from '@/lib/utils';
+import { env } from '@/config/env';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmEmployee } from '@/services/api/employees';
 import type { AccountStatus, EpmAccount } from '@/types';
@@ -110,7 +111,7 @@ export default function EmployeesPage() {
 
   const [editing, setEditing] = useState<EpmEmployee>();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [capacityOpen, setCapacityOpen] = useState(false);
+  const [staffingOpen, setStaffingOpen] = useState(false);
 
   // Account management is a separate permission from placing people, and the
   // directory upstream is admin-only — so this is fetched only when the caller
@@ -186,9 +187,9 @@ export default function EmployeesPage() {
     setDialogOpen(true);
   };
 
-  const openCapacity = (employee: EpmEmployee) => {
+  const openStaffing = (employee: EpmEmployee) => {
     setEditing(employee);
-    setCapacityOpen(true);
+    setStaffingOpen(true);
   };
 
   const items = employees.data ?? [];
@@ -297,6 +298,7 @@ export default function EmployeesPage() {
                 <TableHead>Department</TableHead>
                 <TableHead>Team</TableHead>
                 <TableHead numeric>Capacity</TableHead>
+                <TableHead numeric>Rate</TableHead>
                 {mayManageAccounts ? <TableHead>Account</TableHead> : null}
                 {mayManage || mayManageAccounts ? <TableHead className="w-44" /> : null}
               </TableRow>
@@ -357,6 +359,22 @@ export default function EmployeesPage() {
                     <span className="text-muted-foreground">/wk</span>
                   </TableCell>
 
+                  {/* Absent rather than zero: nobody has costed this person, and
+                      Time & Costs reports their hours as uncosted rather than
+                      pricing them at nothing. */}
+                  <TableCell numeric>
+                    {employee.hourlyRate === undefined ? (
+                      <span className="text-muted-foreground" title="Not costed">
+                        &mdash;
+                      </span>
+                    ) : (
+                      <>
+                        {formatCurrency(employee.hourlyRate, env.currency, 2)}
+                        <span className="text-muted-foreground">/h</span>
+                      </>
+                    )}
+                  </TableCell>
+
                   {mayManageAccounts ? (
                     <TableCell>
                       {/* Absent rather than guessed: someone who is in the
@@ -397,10 +415,10 @@ export default function EmployeesPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              aria-label={`Set capacity for ${employee.name}`}
-                              onClick={() => openCapacity(employee)}
+                              aria-label={`Set staffing for ${employee.name}`}
+                              onClick={() => openStaffing(employee)}
                             >
-                              Capacity
+                              Staffing
                             </Button>
                           </>
                         ) : null}
@@ -480,7 +498,7 @@ export default function EmployeesPage() {
       </QueryBoundary>
 
       <MappingDialog open={dialogOpen} onOpenChange={setDialogOpen} employee={editing} />
-      <CapacityDialog open={capacityOpen} onOpenChange={setCapacityOpen} employee={editing} />
+      <StaffingDialog open={staffingOpen} onOpenChange={setStaffingOpen} employee={editing} />
       <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} account={editingAccount} />
 
       {/* Deletion is permanent and OpenProject processes it in the background,

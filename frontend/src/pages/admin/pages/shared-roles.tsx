@@ -41,10 +41,23 @@ export function isEditableRole(role: Pick<AdminRole, 'kind'>): boolean {
 }
 
 /**
- * Mirrors OpenProject's `setable_permissions`: a global role may hold the
- * global permissions, a project role the rest.
+ * Which permissions a kind of role may hold.
+ *
+ * The instance answers this: `grantTo` is read from the same role contract
+ * that validates a create, so what the form offers and what a create accepts
+ * cannot drift.
+ *
+ * The fallback below is what this used to do on its own, and it was wrong in
+ * one direction. "Not global" is not the same as "grantable to a project
+ * role": `view_project_query` and `edit_project_query` belong to a project
+ * query role and to nothing else, so the form offered them under Project,
+ * "Check all" selected them, and every submission came back "These permissions
+ * cannot be given to this role". It stays only so an instance running an older
+ * copy of the plugin degrades to the previous behaviour rather than showing an
+ * empty form.
  */
 export function permissionAppliesTo(permission: AdminPermission, kind: AdminRoleKind): boolean {
+  if (permission.grantTo) return permission.grantTo.includes(kind);
   if (kind === 'global') return permission.global;
   if (kind === 'project') return !permission.global;
   return false;

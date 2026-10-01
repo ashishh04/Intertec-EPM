@@ -24,17 +24,15 @@ import {
 import {
   ALL_TASK_PRIORITIES,
   ALL_TASK_STATUSES,
-  ALL_TASK_TYPES,
   TASK_PRIORITY_META,
   TASK_STATUS_META,
-  TASK_TYPE_META,
 } from '@/lib/domain';
 import { useUI } from '@/providers/UIProvider';
 import { useProjects } from '@/hooks/useProjects';
-import { useUsers } from '@/hooks/useUsers';
+import { useProjectAssignees, useProjectTypes } from '@/hooks/useCatalog';
 import { useSprints } from '@/hooks/useSprints';
 import { useCreateTask, useTasks } from '@/hooks/useTasks';
-import type { CreateTaskInput, TaskPriority, TaskStatusCategory, TaskType } from '@/types';
+import type { CreateTaskInput, TaskPriority, TaskStatusCategory } from '@/types';
 
 const NONE = '__none__';
 
@@ -46,7 +44,9 @@ const schema = z
       .min(4, 'Give the task a title of at least 4 characters.')
       .max(140, 'Keep the title under 140 characters.'),
     description: z.string().max(4000, 'Description is too long.').optional(),
-    type: z.string().min(1, 'Select a work package type.'),
+    // A native OpenProject type id, not an EPM category: only the project
+    // knows which types it enables.
+    typeId: z.string().min(1, 'Select a work package type.'),
     status: z.string().min(1, 'Select a status.'),
     priority: z.string().min(1, 'Select a priority.'),
     projectId: z.string().min(1, 'Select the project this work belongs to.'),
@@ -74,7 +74,7 @@ type FormValues = z.infer<typeof schema>;
 const DEFAULTS: FormValues = {
   subject: '',
   description: '',
-  type: 'task',
+  typeId: '',
   status: 'todo',
   priority: 'medium',
   projectId: '',
@@ -95,7 +95,6 @@ const DEFAULTS: FormValues = {
 export function TaskDrawer() {
   const { taskDrawerOpen, taskDrawerPrefill, closeTaskDrawer } = useUI();
   const { data: projects } = useProjects();
-  const { data: users } = useUsers();
   const { data: sprints } = useSprints();
   const createTask = useCreateTask();
 
@@ -109,6 +108,20 @@ export function TaskDrawer() {
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: DEFAULTS });
 
   const projectId = watch('projectId');
+  const typeId = watch('typeId');
+  const assigneeId = watch('assigneeId');
+
+  /*
+   * Types and assignees are asked of the project, not the instance.
+   *
+   * A project enables a subset of the instance's types and admits a subset of
+   * its people. Offering the full lists let a user pick a combination
+   * OpenProject then refused — "Type is not set to one of the allowed values"
+   * for Feature and Bug, and "The chosen user is not allowed to be 'Assignee'
+   * for this work package" for anyone outside the project.
+   */
+  const { data: projectTypes } = useProjectTypes(projectId || undefined);
+  const { data: assignees } = useProjectAssignees(projectId || undefined);
 
   // Parent candidates are scoped to the selected project.
   const { data: parentCandidates } = useTasks({
@@ -132,11 +145,41 @@ export function TaskDrawer() {
     } as FormValues);
   }, [taskDrawerOpen, taskDrawerPrefill, projects, reset]);
 
+  /*
+   * Hold the type to something this project actually enables.
+   *
+   * Switching project changes the permitted set, so a type chosen under the
+   * previous one can become invalid without the user touching the field. The
+   * project's default is preferred, falling back to the first it offers.
+   */
+  useEffect(() => {
+    if (!taskDrawerOpen || !projectTypes) return;
+    if (projectTypes.some((type) => type.id === typeId)) return;
+
+    const fallback = projectTypes.find((type) => type.isDefault) ?? projectTypes[0];
+    setValue('typeId', fallback?.id ?? '', { shouldValidate: Boolean(typeId) });
+  }, [taskDrawerOpen, projectTypes, typeId, setValue]);
+
+  /*
+   * An assignee the project will not accept cannot stay selected.
+   *
+   * My Work opens this dialog pre-assigned to the signed-in person, who is not
+   * necessarily a member of the default project — which is how a create ended
+   * in "The chosen user is not allowed to be 'Assignee' for this work package".
+   * Falling back to Unassigned keeps the form submittable and visibly honest
+   * about what changed.
+   */
+  useEffect(() => {
+    if (!taskDrawerOpen || !assignees) return;
+    if (!assigneeId || assigneeId === NONE) return;
+    if (!assignees.some((person) => person.id === assigneeId)) setValue('assigneeId', NONE);
+  }, [taskDrawerOpen, assignees, assigneeId, setValue]);
+
   const onSubmit = handleSubmit(async (values) => {
     const input: CreateTaskInput = {
       subject: values.subject.trim(),
       description: values.description?.trim() || undefined,
-      type: values.type as TaskType,
+      typeId: values.typeId,
       status: values.status as TaskStatusCategory,
       priority: values.priority as TaskPriority,
       projectId: values.projectId,
@@ -233,12 +276,13 @@ export function TaskDrawer() {
                 id="task-type"
                 label="Type"
                 required
-                value={watch('type')}
-                onChange={(value) => setValue('type', value, { shouldValidate: true })}
-                error={errors.type?.message}
-                options={ALL_TASK_TYPES.map((type) => ({
-                  value: type,
-                  label: TASK_TYPE_META[type].label,
+                value={watch('typeId')}
+                onChange={(value) => setValue('typeId', value, { shouldValidate: true })}
+                error={errors.typeId?.message}
+                placeholder={projectId ? 'Select a type' : 'Select a project first'}
+                options={(projectTypes ?? []).map((type) => ({
+                  value: type.id,
+                  label: type.name,
                 }))}
               />
 
@@ -273,9 +317,13 @@ export function TaskDrawer() {
                 label="Assignee"
                 value={watch('assigneeId') ?? NONE}
                 onChange={(value) => setValue('assigneeId', value)}
+                hint={projectId ? undefined : 'Select a project first.'}
                 options={[
                   { value: NONE, label: 'Unassigned' },
-                  ...(users ?? []).map((user) => ({ value: user.id, label: user.name })),
+                  ...(assignees ?? []).map((person) => ({
+                    value: person.id,
+                    label: person.name,
+                  })),
                 ]}
               />
 

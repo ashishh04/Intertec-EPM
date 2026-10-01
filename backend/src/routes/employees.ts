@@ -7,8 +7,10 @@ import {
   listEmployees,
   setCapacity,
   setMapping,
+  setRate,
   type CapacityInput,
   type MappingInput,
+  type RateInput,
 } from '../domain/employees.js';
 
 /**
@@ -75,6 +77,22 @@ export const employeeRoutes: FastifyPluginAsync = async (app) => {
       await guard.require(request, 'employees:manage');
 
       return setCapacity(request.params.id, request.body ?? {}, requestSignal(request));
+    },
+  );
+
+  /**
+   * Sets the internal hourly rate the Time & Costs report prices hours at.
+   *
+   * Same permission as capacity and for the same reason: both are staffing
+   * attributes of a person, set by whoever does staffing. Sending `null`
+   * clears it, which means "not costed" rather than "costs nothing".
+   */
+  app.patch<{ Params: { id: string }; Body: RateInput }>(
+    '/employees/:id/rate',
+    async (request) => {
+      await guard.require(request, 'employees:manage');
+
+      return setRate(request.params.id, request.body ?? {}, requestSignal(request));
     },
   );
 };

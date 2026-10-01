@@ -20,6 +20,12 @@ export interface EpmEmployee {
   team?: { id: ID; name: string; active: boolean };
   /** Hours available per week. Always a number; 40 when nothing has been set. */
   hoursCapacity: number;
+  /**
+   * Internal cost of an hour of this person's time, in the instance currency.
+   * Absent when nobody has costed them, which the Time & Costs report reports
+   * as uncosted hours rather than as free ones.
+   */
+  hourlyRate?: number;
 }
 
 /**
@@ -62,6 +68,14 @@ export class ApiEmployeeRepository {
    */
   setCapacity(id: ID, hoursCapacity: number): Promise<EpmEmployee> {
     return apiClient.patch<EpmEmployee>(`/employees/${id}/capacity`, { hoursCapacity });
+  }
+
+  /**
+   * The internal hourly rate the Time & Costs report prices this person's hours
+   * at. `null` clears it, which is not the same as a rate of zero.
+   */
+  setRate(id: ID, hourlyRate: number | null): Promise<EpmEmployee> {
+    return apiClient.patch<EpmEmployee>(`/employees/${id}/rate`, { hourlyRate });
   }
 
   /** People mapped to a team. Membership is EPM's, never an OpenProject group. */

@@ -30,7 +30,15 @@ import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiAdminRepository } from './api/admin';
 import { ApiPreferenceRepository } from './api/preferences';
+import { ApiSessionRepository } from './api/sessions';
+import {
+  ApiMeetingRepository,
+  ApiNewsRepository,
+  ApiWikiRepository,
+} from './api/collaboration-modules';
 import { ApiInviteRepository } from './api/invites';
+import { ApiPlaceholderPersonRepository } from './api/placeholder-people';
+import { ApiTimeEntryRepository } from './api/time-entries';
 import { ApiRelationRepository, ApiWatcherRepository } from './api/collaboration';
 import {
   ApiFormRepository,
@@ -95,7 +103,26 @@ export const adminService = new ApiAdminRepository();
 /** The signed-in person's own settings. EPM-owned; nothing here reaches OpenProject. */
 export const preferenceService = new ApiPreferenceRepository();
 
+/** Where this person is signed in. EPM-owned: sessions are rows in its database. */
+export const sessionService = new ApiSessionRepository();
+
+/**
+ * The collaboration modules.
+ *
+ * EPM's own records outright, not a view of anything upstream: OpenProject has
+ * meetings, news and a wiki, and publishes no API v3 resource for any of them.
+ */
+export const meetingService = new ApiMeetingRepository();
+export const newsService = new ApiNewsRepository();
+export const wikiService = new ApiWikiRepository();
+
 /** Invitations, for the person accepting one. Public: no session exists yet. */
 export const inviteService = new ApiInviteRepository();
+
+/** Planned headcount that has no OpenProject account yet. EPM's own records. */
+export const placeholderPersonService = new ApiPlaceholderPersonRepository();
+
+/** Logged time. Authorised by OpenProject at the point of the write. */
+export const timeEntryService = new ApiTimeEntryRepository();
 
 export type { EpmRepositories } from './repositories';

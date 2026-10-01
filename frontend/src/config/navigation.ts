@@ -1,13 +1,17 @@
 import {
   BarChart3,
   Bell,
+  BookOpen,
+  CalendarClock,
   CalendarDays,
+  Coins,
   FileText,
   FolderKanban,
   GanttChartSquare,
   Gauge,
   LayoutDashboard,
   ListTodo,
+  Megaphone,
   Plug,
   Settings,
   ShieldCheck,
@@ -60,6 +64,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Work',
     items: [
       { label: 'My Work', to: '/my-work', icon: ListTodo },
+      { label: 'My Time', to: '/my-time', icon: Timer },
       { label: 'Projects', to: '/projects', icon: FolderKanban, matchNested: true },
       { label: 'Tasks', to: '/tasks', icon: SquareKanban },
       { label: 'Calendar', to: '/calendar', icon: CalendarDays },
@@ -76,12 +81,18 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Insights',
-    items: [{ label: 'Reports', to: '/reports', icon: FileText }],
+    items: [
+      { label: 'Reports', to: '/reports', icon: FileText },
+      { label: 'Time & Costs', to: '/time-and-costs', icon: Coins },
+    ],
   },
   {
     title: 'Collaboration',
     items: [
       { label: 'Teams', to: '/teams', icon: Users, matchNested: true },
+      { label: 'Meetings', to: '/meetings', icon: CalendarClock, matchNested: true },
+      { label: 'News', to: '/news', icon: Megaphone },
+      { label: 'Wiki', to: '/wiki', icon: BookOpen, matchNested: true },
       { label: 'Documents', to: '/documents', icon: FileText },
     ],
   },
@@ -155,24 +166,34 @@ export const PROJECT_TABS = [
   { label: 'Gantt', segment: 'gantt' },
   { label: 'Team', segment: 'team' },
   { label: 'Documents', segment: 'documents' },
+  { label: 'Meetings', segment: 'meetings' },
+  { label: 'News', segment: 'news' },
+  { label: 'Wiki', segment: 'wiki' },
   { label: 'Activity', segment: 'activity' },
   { label: 'Reports', segment: 'reports' },
 ] as const;
 
 /**
- * Settings categories. `group` splits the page the way OpenProject does: the `account` group
- * is identical for everyone, the `administration` group exists only for
- * administrators.
+ * Settings categories. `group` splits the page the way OpenProject does: the
+ * `account` group is identical for everyone, the `administration` group exists
+ * only for administrators.
+ *
+ * Security sits in the account group, not administration. It used to be the
+ * other way round, which put the one page where a person changes their own
+ * password and ends a session on a lost laptop behind an administrator check —
+ * so most of the workforce could not reach either.
  */
 export const SETTINGS_SECTIONS = [
   { id: 'profile', label: 'Profile', group: 'account' },
+  { id: 'locale', label: 'Language & region', group: 'account' },
+  { id: 'schedule', label: 'Schedule', group: 'account' },
   { id: 'appearance', label: 'Appearance', group: 'account' },
   { id: 'notifications', label: 'Notifications', group: 'account' },
+  { id: 'security', label: 'Security', group: 'account' },
   { id: 'workspace', label: 'Workspace', group: 'administration' },
   { id: 'projects', label: 'Projects', group: 'administration' },
   { id: 'teams', label: 'Teams', group: 'administration' },
   { id: 'integrations', label: 'Integrations', group: 'administration' },
-  { id: 'security', label: 'Security', group: 'administration' },
   { id: 'api', label: 'API', group: 'administration' },
 ] as const;
 

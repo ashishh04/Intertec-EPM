@@ -11,8 +11,10 @@ import {
   computeHealth,
   effectiveHealth,
   getProjectAggregates,
+  listProjects,
   loadHealthOverrides,
 } from '../mapping/projects.js';
+import { addDays } from '../lib/dates.js';
 import type { OpActivity, OpProject, OpWorkPackage } from '../openproject/types.js';
 import type {
   ActivityEntry,
@@ -27,12 +29,6 @@ async function count(filters: OpFilter[], signal: AbortSignal): Promise<number> 
     .getCollection<unknown>('/work_packages', { filters, pageSize: 1 }, signal)
     .catch(() => ({ total: 0 }));
   return collection.total ?? 0;
-}
-
-function addDays(date: string, days: number): string {
-  const value = new Date(`${date}T00:00:00Z`);
-  value.setUTCDate(value.getUTCDate() + days);
-  return value.toISOString().slice(0, 10);
 }
 
 /**
@@ -104,6 +100,55 @@ async function recordSnapshots(values: Record<string, number>, scopeUserId: stri
   );
 }
 
+/**
+ * The most recent activity on one work package.
+ *
+ * Two bounded requests, not a walk. The obvious implementation reads every page
+ * of the activity collection and keeps the last element, which is what this
+ * replaced — and the cost of that is invisible until it is not: a work package
+ * with 500 activities on it costs five upstream requests by itself, and the feed
+ * does this for twenty work packages at once. A long-running project's dashboard
+ * was therefore slower than a new one's, for no reason a reader could see.
+ *
+ * Instead: one request for the total, then one for the single element at the end.
+ * Two requests whatever the history, and the second is skipped entirely when the
+ * first page already holds everything — which is the common case.
+ *
+ * Failure is absence, not an error. A missing activity costs the feed an actor
+ * name; it should never cost the reader the page.
+ */
+async function lastActivity(
+  workPackageId: string,
+  signal: AbortSignal,
+): Promise<OpActivity | undefined> {
+  const path = `/work_packages/${workPackageId}/activities`;
+
+  const first = await openProject
+    .getCollection<OpActivity>(path, { pageSize: ACTIVITY_PAGE }, signal)
+    .catch(() => null);
+  if (!first) return undefined;
+
+  const elements = first._embedded?.elements ?? [];
+  const total = first.total ?? elements.length;
+
+  // Everything fits: the last element of this page is the last activity.
+  if (total <= elements.length) return elements[elements.length - 1];
+
+  // `offset` is a 1-based page number, so the final page of a one-per-page
+  // collection is page `total`.
+  const last = await openProject
+    .getCollection<OpActivity>(path, { offset: total, pageSize: 1 }, signal)
+    .catch(() => null);
+
+  return last?._embedded?.elements?.[0] ?? elements[elements.length - 1];
+}
+
+/**
+ * How much of an activity collection is read before falling back to a second
+ * request. Sized so the overwhelming majority of work packages need only one.
+ */
+const ACTIVITY_PAGE = 100;
+
 export const dashboardRoutes: FastifyPluginAsync = async (app) => {
   app.get('/dashboard/metrics', async (request) => {
     const signal = requestSignal(request);
@@ -126,9 +171,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const [me, catalog, projects, aggregates, overrides] = await Promise.all([
       getCurrentUser(signal),
       getCatalog(signal),
-      openProject
-        .getAll<OpProject>('/projects', { pageSize: 100 }, { signal })
-        .catch(() => ({ items: [] as OpProject[] })),
+      listProjects(signal),
       getProjectAggregates(signal),
       loadHealthOverrides(),
     ]);
@@ -165,7 +208,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
           : Promise.resolve(0),
       ]);
 
-    const active = projects.items.filter((project) => project.active);
+    const active = projects.filter((project) => project.active);
     // Pins are honoured here too, so this count agrees with what the project
     // pages show rather than contradicting them.
     const atRisk = active.filter((project) => {
@@ -242,15 +285,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
       const entries = await Promise.all(
         (recent._embedded?.elements ?? []).map(async (workPackage): Promise<ActivityEntry> => {
-          const activities = await openProject
-            .getAll<OpActivity>(
-              `/work_packages/${workPackage.id}/activities`,
-              { pageSize: 100 },
-              { signal },
-            )
-            .catch(() => ({ items: [] as OpActivity[] }));
-
-          const latest = activities.items[activities.items.length - 1];
+          const latest = await lastActivity(String(workPackage.id), signal);
           const actorLink = latest?._links?.user;
           const actorHref = Array.isArray(actorLink) ? actorLink[0]?.href : actorLink?.href;
           const commented = (latest?.comment?.raw ?? '').trim().length > 0;

@@ -32,6 +32,7 @@ function catalog(resource: string): LazyExoticComponent<ComponentType> {
 }
 
 export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>> = {
+  enterprise: lazy(() => import('./EnterprisePage')),
   'users/settings': lazy(() => import('./UsersSettingsPage')),
   'users/users': lazy(() => import('./UsersPage')),
   'users/placeholder-users': lazy(() => import('./PlaceholderUsersPage')),

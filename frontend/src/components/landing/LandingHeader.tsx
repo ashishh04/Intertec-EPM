@@ -17,6 +17,8 @@ const SECTIONS = [
   { href: '#platform', label: 'Platform' },
   { href: '#capabilities', label: 'Capabilities' },
   { href: '#how-it-works', label: 'How it works' },
+  { href: '#integrations', label: 'Integrations' },
+  { href: '#faq', label: 'FAQ' },
   { href: '#security', label: 'Security' },
 ];
 

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Textarea } from '@/components/ui/input';
 import { Label, FieldError, FieldHint } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -11,7 +11,15 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { writableFields, type SchemaField, type FormResult } from '@/services/api/forms';
+import { durationToNumber, durationUnitFor, numberToDuration } from '@/lib/duration';
+import {
+  allowedValuesHref,
+  allowedValuesOf,
+  idFromHref,
+  writableFields,
+  type SchemaField,
+  type FormResult,
+} from '@/services/api/forms';
 import { useAllowedValues } from '@/hooks/useCatalog';
 
 /** Sentinel for "no value", since a select cannot hold an empty string. */
@@ -36,6 +44,12 @@ interface SchemaFormProps {
   only?: string[];
   /** Never render these, e.g. a project fixed by context. */
   exclude?: string[];
+  /**
+   * Render OpenProject's own attribute groups as headed sections — People,
+   * Estimates and progress, Details, and any group an administrator has added.
+   * Off by default: a short curated form reads better as one list.
+   */
+  grouped?: boolean;
   className?: string;
 }
 
@@ -48,72 +62,6 @@ function hrefOf(value: unknown): string | undefined {
   return undefined;
 }
 
-function idFromHref(href?: string): string | undefined {
-  return href?.split('/').filter(Boolean).pop();
-}
-
-interface AllowedValue {
-  id: string;
-  name: string;
-  href: string;
-}
-
-/**
- * The options a field offers, when the schema carries them.
- *
- * Three shapes, all of which appear on this instance:
- *
- * - **embedded** — the full resources. Their href is at `_links.self.href`,
- *   *not* a top-level `href`. Reading the wrong one produced a bare id where a
- *   link was required: saving a project status sent `on_track` and upstream
- *   answered "a link like /api/v3/project_statuses/:id is expected".
- * - **an array of links** — href and title directly.
- * - **a single link to fetch** — handled by the caller, not here; `assignee`,
- *   `responsible` and a project's `parent` are all this kind.
- */
-function allowedValuesOf(field: SchemaField): AllowedValue[] | undefined {
-  const embedded = field._embedded?.allowedValues;
-  if (embedded?.length) {
-    return embedded
-      .map((value) => {
-        const record = value as unknown as {
-          id?: unknown;
-          name?: string;
-          value?: string;
-          href?: string;
-          _links?: { self?: { href?: string } };
-        };
-        const href = record._links?.self?.href ?? record.href;
-        const id = record.id !== undefined ? String(record.id) : idFromHref(href);
-        // A custom option labels itself `value`; everything else uses `name`.
-        // Requiring `name` dropped every option of a list custom field, which
-        // is why "EPM Test Severity" rendered as an empty dropdown.
-        const label = record.name ?? record.value;
-        return id && label && href ? { id, name: label, href } : undefined;
-      })
-      .filter((value): value is AllowedValue => Boolean(value));
-  }
-
-  const linked = field._links?.allowedValues;
-  if (Array.isArray(linked) && linked.length) {
-    return linked
-      .map((link) => {
-        const id = idFromHref(link.href);
-        return id ? { id, name: link.title ?? id, href: link.href } : undefined;
-      })
-      .filter((value): value is AllowedValue => Boolean(value));
-  }
-
-  return undefined;
-}
-
-/** The href to fetch options from, where the schema offers one instead. */
-function allowedValuesHref(field: SchemaField): string | undefined {
-  const linked = field._links?.allowedValues as { href?: string } | undefined;
-  if (!linked || Array.isArray(linked)) return undefined;
-  return typeof linked.href === 'string' ? linked.href : undefined;
-}
-
 /** A resource value's own label, for showing what is set without a picker. */
 function titleOf(value: unknown): string | undefined {
   if (value && typeof value === 'object') {
@@ -121,6 +69,84 @@ function titleOf(value: unknown): string | undefined {
     return record.title ?? record.name;
   }
   return undefined;
+}
+
+/**
+ * A duration, collected as a number and stored as ISO 8601.
+ *
+ * The unit is the attribute's, not a constant: a work package's `duration` is
+ * working days and everything else here is hours of effort. Asking for the ISO
+ * string and hinting "e.g. PT8H" at both meant a perfectly reasonable
+ * "PT1H30M" typed into `duration` truncated to zero days, and OpenProject
+ * answered "Duration must be greater than 0" without ever saying it wanted
+ * days.
+ *
+ * The text is held locally while it is being typed. Round-tripping every
+ * keystroke through the ISO form ate the decimal point — "7." is not a number,
+ * so it normalised back to "7" and the field could not be made to say 7.5. A
+ * value that changes underneath us (a server default, a reset) is still
+ * adopted; only what the user is in the middle of typing is left alone.
+ */
+function DurationField({
+  id,
+  attribute,
+  value,
+  invalid,
+  onChange,
+}: {
+  id: string;
+  attribute: string;
+  value: unknown;
+  invalid: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  const unit = durationUnitFor(attribute);
+  const external = durationToNumber(value, unit);
+
+  const [text, setText] = useState(() => (external == null ? '' : String(external)));
+  const known = useRef(external);
+
+  useEffect(() => {
+    if (external === known.current) return;
+    known.current = external;
+    setText(external == null ? '' : String(external));
+  }, [external]);
+
+  const handle = (next: string) => {
+    setText(next);
+
+    const parsed = next.trim() === '' ? NaN : Number(next);
+    const iso = Number.isFinite(parsed) ? (numberToDuration(parsed, unit) ?? null) : null;
+
+    // Remember what we just sent, so the echo does not count as an outside
+    // change and overwrite the half-typed text above.
+    known.current = durationToNumber(iso, unit);
+    onChange(iso);
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          inputMode="decimal"
+          placeholder={unit === 'days' ? '3' : '7.5'}
+          value={text}
+          aria-invalid={invalid}
+          aria-describedby={`${id}-unit`}
+          onChange={(event) => handle(event.target.value)}
+        />
+        <span id={`${id}-unit`} className="shrink-0 text-xs text-muted-foreground">
+          {unit === 'days' ? 'working days' : 'hours'}
+        </span>
+      </div>
+      <FieldHint>
+        {unit === 'days'
+          ? 'Whole working days on the schedule.'
+          : 'Hours of effort. Quarters are fine, e.g. 7.5.'}
+      </FieldHint>
+    </>
+  );
 }
 
 /**
@@ -210,6 +236,7 @@ export function SchemaForm({
   isLoading,
   only,
   exclude,
+  grouped,
   className,
 }: SchemaFormProps) {
   const fields = useMemo(() => {
@@ -242,179 +269,216 @@ export function SchemaForm({
 
   if (!form) return null;
 
-  return (
-    <div className={cn('space-y-4', className)}>
-      {fields.map(([name, field]) => {
-        const error = errors[name];
-        const links = values._links as Record<string, unknown> | undefined;
-        const raw = values[name] ?? links?.[name];
-        const options = allowedValuesOf(field);
+  const renderField = ([name, field]: [string, SchemaField]) => {
+    const error = errors[name];
+    const links = values._links as Record<string, unknown> | undefined;
+    const raw = values[name] ?? links?.[name];
+    const options = allowedValuesOf(field);
 
-        // Options the schema publishes as a link rather than inline. Fetched
-        // through the backend, which is why `assignee`, `responsible` and a
-        // project's `parent` are pickers now instead of text boxes showing
-        // "[object Object]".
-        const fetchHref = options ? undefined : allowedValuesHref(field);
-        if (fetchHref) {
-          return (
-            <FetchedSelect
-              key={name}
-              name={name}
-              field={field}
-              error={error}
-              href={fetchHref}
-              value={raw}
-              onChange={onChange}
+    // Options the schema publishes as a link rather than inline. Fetched
+    // through the backend, which is why `assignee`, `responsible` and a
+    // project's `parent` are pickers now instead of text boxes showing
+    // "[object Object]".
+    const fetchHref = options ? undefined : allowedValuesHref(field);
+    if (fetchHref) {
+      return (
+        <FetchedSelect
+          key={name}
+          name={name}
+          field={field}
+          error={error}
+          href={fetchHref}
+          value={raw}
+          onChange={onChange}
+        />
+      );
+    }
+
+    // Anything with an enumerated set renders as a select, whatever its
+    // type — status, type, priority, version, category, user, custom option.
+    if (options?.length) {
+      const current = idFromHref(hrefOf(raw)) ?? (raw == null ? '' : String(raw));
+      return (
+        <FieldRow key={name} name={name} field={field} error={error}>
+          <Select
+            value={current}
+            onValueChange={(next) => {
+              const chosen = options.find((option) => option.id === next);
+              onChange(name, chosen ? { href: chosen.href } : next);
+            }}
+          >
+            <SelectTrigger id={`schema-${name}`} aria-invalid={Boolean(error)}>
+              <SelectValue placeholder={`Select ${field.name.toLowerCase()}`} />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldRow>
+      );
+    }
+
+    switch (field.type) {
+      case 'Boolean':
+        return (
+          // The same toggle row as every other switch in the product, so a
+          // schema-driven boolean does not look like a stray control.
+          <div
+            key={name}
+            className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3"
+          >
+            <div className="min-w-0">
+              <Label htmlFor={`schema-${name}`} required={field.required}>
+                {field.name}
+              </Label>
+              {error ? <FieldError className="mt-0.5">{error}</FieldError> : null}
+            </div>
+            <Switch
+              id={`schema-${name}`}
+              checked={Boolean(raw)}
+              onCheckedChange={(checked) => onChange(name, checked)}
             />
-          );
-        }
+          </div>
+        );
 
-        // Anything with an enumerated set renders as a select, whatever its
-        // type — status, type, priority, version, category, user, custom option.
-        if (options?.length) {
-          const current = idFromHref(hrefOf(raw)) ?? (raw == null ? '' : String(raw));
+      case 'Formattable': {
+        const text =
+          raw && typeof raw === 'object' && 'raw' in raw
+            ? String((raw as { raw?: string }).raw ?? '')
+            : String(raw ?? '');
+        return (
+          <FieldRow key={name} name={name} field={field} error={error}>
+            <Textarea
+              id={`schema-${name}`}
+              rows={4}
+              value={text}
+              aria-invalid={Boolean(error)}
+              onChange={(event) => onChange(name, { raw: event.target.value })}
+            />
+          </FieldRow>
+        );
+      }
+
+      case 'Integer':
+      case 'Float':
+        return (
+          <FieldRow key={name} name={name} field={field} error={error}>
+            <Input
+              id={`schema-${name}`}
+              type="number"
+              value={raw == null ? '' : String(raw)}
+              aria-invalid={Boolean(error)}
+              onChange={(event) =>
+                onChange(name, event.target.value === '' ? null : Number(event.target.value))
+              }
+            />
+          </FieldRow>
+        );
+
+      case 'Date':
+      case 'DateTime':
+        return (
+          <FieldRow key={name} name={name} field={field} error={error}>
+            <Input
+              id={`schema-${name}`}
+              type="date"
+              value={raw ? String(raw).slice(0, 10) : ''}
+              aria-invalid={Boolean(error)}
+              onChange={(event) => onChange(name, event.target.value || null)}
+            />
+          </FieldRow>
+        );
+
+      /*
+       * Collected as a number, stored as ISO 8601.
+       *
+       * The unit is the field's, not a constant: a work package's
+       * `duration` is working days and everything else here is hours.
+       * Asking for the ISO string and hinting "e.g. PT8H" at both meant a
+       * perfectly reasonable "PT1H30M" typed into `duration` truncated to
+       * zero days, and OpenProject answered "Duration must be greater
+       * than 0" with no indication that the field wanted days.
+       */
+      case 'Duration':
+        return (
+          <FieldRow key={name} name={name} field={field} error={error}>
+            <DurationField
+              id={`schema-${name}`}
+              attribute={name}
+              value={raw}
+              invalid={Boolean(error)}
+              onChange={(next) => onChange(name, next)}
+            />
+          </FieldRow>
+        );
+
+      default: {
+        // A resource value is a link, and `String()` on one gives
+        // "[object Object]". Where the schema offered no way to pick — a
+        // work package parent, for instance — show what is set and say it
+        // is not editable here, rather than inviting an edit that would
+        // send nonsense.
+        if (raw !== null && typeof raw === 'object') {
           return (
             <FieldRow key={name} name={name} field={field} error={error}>
-              <Select
-                value={current}
-                onValueChange={(next) => {
-                  const chosen = options.find((option) => option.id === next);
-                  onChange(name, chosen ? { href: chosen.href } : next);
-                }}
-              >
-                <SelectTrigger id={`schema-${name}`} aria-invalid={Boolean(error)}>
-                  <SelectValue placeholder={`Select ${field.name.toLowerCase()}`} />
-                </SelectTrigger>
-                <SelectContent>
-                  {options.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {option.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                id={`schema-${name}`}
+                readOnly
+                value={titleOf(raw) ?? 'Set elsewhere'}
+                className="text-muted-foreground"
+              />
+              <FieldHint>Not editable here.</FieldHint>
             </FieldRow>
           );
         }
 
-        switch (field.type) {
-          case 'Boolean':
-            return (
-              // The same toggle row as every other switch in the product, so a
-              // schema-driven boolean does not look like a stray control.
-              <div
-                key={name}
-                className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <Label htmlFor={`schema-${name}`} required={field.required}>
-                    {field.name}
-                  </Label>
-                  {error ? <FieldError className="mt-0.5">{error}</FieldError> : null}
-                </div>
-                <Switch
-                  id={`schema-${name}`}
-                  checked={Boolean(raw)}
-                  onCheckedChange={(checked) => onChange(name, checked)}
-                />
-              </div>
-            );
+        return (
+          <FieldRow key={name} name={name} field={field} error={error}>
+            <Input
+              id={`schema-${name}`}
+              value={raw == null ? '' : String(raw)}
+              aria-invalid={Boolean(error)}
+              onChange={(event) => onChange(name, event.target.value)}
+            />
+          </FieldRow>
+        );
+      }
+    }
+  };
 
-          case 'Formattable': {
-            const text =
-              raw && typeof raw === 'object' && 'raw' in raw
-                ? String((raw as { raw?: string }).raw ?? '')
-                : String(raw ?? '');
-            return (
-              <FieldRow key={name} name={name} field={field} error={error}>
-                <Textarea
-                  id={`schema-${name}`}
-                  rows={4}
-                  value={text}
-                  aria-invalid={Boolean(error)}
-                  onChange={(event) => onChange(name, { raw: event.target.value })}
-                />
-              </FieldRow>
-            );
-          }
+  if (!grouped) {
+    return <div className={cn('space-y-4', className)}>{fields.map(renderField)}</div>;
+  }
 
-          case 'Integer':
-          case 'Float':
-            return (
-              <FieldRow key={name} name={name} field={field} error={error}>
-                <Input
-                  id={`schema-${name}`}
-                  type="number"
-                  value={raw == null ? '' : String(raw)}
-                  aria-invalid={Boolean(error)}
-                  onChange={(event) =>
-                    onChange(name, event.target.value === '' ? null : Number(event.target.value))
-                  }
-                />
-              </FieldRow>
-            );
+  /*
+   * OpenProject's own grouping, in its own order.
+   *
+   * The schema names the group each attribute belongs to — People, Estimates
+   * and progress, Details, and anything an administrator has added — so the
+   * full view reads the way the same work package reads upstream instead of
+   * as one long undifferentiated column. Fields with no group (custom ones
+   * often have none) collect at the end under "Other".
+   */
+  const groups: { label: string; fields: [string, SchemaField][] }[] = [];
+  for (const entry of fields) {
+    const label = entry[1].attributeGroup?.trim() || 'Other';
+    const existing = groups.find((group) => group.label === label);
+    if (existing) existing.fields.push(entry);
+    else groups.push({ label, fields: [entry] });
+  }
 
-          case 'Date':
-          case 'DateTime':
-            return (
-              <FieldRow key={name} name={name} field={field} error={error}>
-                <Input
-                  id={`schema-${name}`}
-                  type="date"
-                  value={raw ? String(raw).slice(0, 10) : ''}
-                  aria-invalid={Boolean(error)}
-                  onChange={(event) => onChange(name, event.target.value || null)}
-                />
-              </FieldRow>
-            );
-
-          case 'Duration':
-            return (
-              <FieldRow key={name} name={name} field={field} error={error}>
-                <Input
-                  id={`schema-${name}`}
-                  placeholder="e.g. PT8H"
-                  value={raw == null ? '' : String(raw)}
-                  aria-invalid={Boolean(error)}
-                  onChange={(event) => onChange(name, event.target.value || null)}
-                />
-                <FieldHint>ISO 8601 duration, e.g. PT8H for eight hours.</FieldHint>
-              </FieldRow>
-            );
-
-          default: {
-            // A resource value is a link, and `String()` on one gives
-            // "[object Object]". Where the schema offered no way to pick — a
-            // work package parent, for instance — show what is set and say it
-            // is not editable here, rather than inviting an edit that would
-            // send nonsense.
-            if (raw !== null && typeof raw === 'object') {
-              return (
-                <FieldRow key={name} name={name} field={field} error={error}>
-                  <Input
-                    id={`schema-${name}`}
-                    readOnly
-                    value={titleOf(raw) ?? 'Set elsewhere'}
-                    className="text-muted-foreground"
-                  />
-                  <FieldHint>Not editable here.</FieldHint>
-                </FieldRow>
-              );
-            }
-
-            return (
-              <FieldRow key={name} name={name} field={field} error={error}>
-                <Input
-                  id={`schema-${name}`}
-                  value={raw == null ? '' : String(raw)}
-                  aria-invalid={Boolean(error)}
-                  onChange={(event) => onChange(name, event.target.value)}
-                />
-              </FieldRow>
-            );
-          }
-        }
-      })}
+  return (
+    <div className={cn('space-y-6', className)}>
+      {groups.map((group) => (
+        <section key={group.label} className="space-y-4">
+          <h3 className="epm-eyebrow border-b border-border pb-1.5">{group.label}</h3>
+          {group.fields.map(renderField)}
+        </section>
+      ))}
     </div>
   );
 }

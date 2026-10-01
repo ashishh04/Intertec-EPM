@@ -35,6 +35,7 @@ await app.register(
         const context: ToolContext = { app: inner, request, userId: request.auth?.userId ?? '' };
         const runs: Array<Record<string, unknown>> = [];
         let firstProject: string | undefined;
+        let firstMeeting: string | undefined;
 
         const samples: Array<[string, Record<string, unknown>]> = [
           ['list_tasks', { bucket: 'overdue', assignee: 'me', limit: 5 }],
@@ -45,17 +46,34 @@ await app.register(
           ['get_sprint', {}],
           ['dashboard_metrics', {}],
           ['list_people', { search: 'admin' }],
+          ['list_meetings', { window: 'all', limit: 5 }],
+          ['get_meeting', {}], // placeholder, filled with a real id below
+          ['list_news', { limit: 5 }],
+          ['search_wiki', {}],
+          ['time_summary', { from: '2026-09-01', to: '2026-09-30', groupBy: 'project' }],
         ];
 
         for (const [name, sampleArgs] of samples) {
           const tool = findTool(name);
           assert.ok(tool, `tool ${name} exists`);
-          const args = name === 'get_project' && firstProject ? { name: firstProject } : sampleArgs;
+          // Two tools need an id the run before them discovered. Without it they
+          // are a placeholder, and a ToolError for a missing id would pass while
+          // proving nothing.
+          const args =
+            name === 'get_project' && firstProject
+              ? { name: firstProject }
+              : name === 'get_meeting' && firstMeeting
+                ? { id: firstMeeting }
+                : sampleArgs;
           try {
             const value = await tool.execute(context, args);
             const json = capResult(value);
             if (name === 'list_projects' && Array.isArray(value) && value.length > 0) {
               firstProject = (value[0] as { name: string }).name;
+            }
+            if (name === 'list_meetings') {
+              const meetings = (value as { meetings?: { id: string }[] }).meetings;
+              if (meetings?.length) firstMeeting = meetings[0]!.id;
             }
             runs.push({
               tool: name,

@@ -81,9 +81,12 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
     'No delete action exists in the capabilities vocabulary. Resolved per record from the work package\'s `delete` HAL link at enforcement time.',
   'sprint:manage':
     'No versions action exists. Resolved per project from the project\'s version-creation affordance.',
-  'time:view': 'No time_entries action exists in the capabilities vocabulary.',
-  'time:log': 'No time_entries action exists in the capabilities vocabulary.',
-  'document:upload': 'No documents action exists in the capabilities vocabulary.',
+  'time:view':
+    'No time_entries action exists in the capabilities vocabulary. Resolved per project at enforcement time: the time entry routes forward the token and OpenProject applies `view_time_entries` itself.',
+  'time:log':
+    'No time_entries action exists in the capabilities vocabulary. Resolved per project at enforcement time: `POST /forms/time-entries` and the time entry writes are authorised by OpenProject, which applies `log_time` and answers with its own reason.',
+  'document:upload':
+    'No documents action exists in the capabilities vocabulary. Resolved at enforcement time: the upload creates an OpenProject attachment, which OpenProject authorises against the project itself.',
   'groups:manage': 'No groups action exists in the capabilities vocabulary.',
   // Still unmapped from OpenProject, and deliberately so — nothing upstream
   // implies it. It is granted from EPM's own `epm_permission_grants` instead,

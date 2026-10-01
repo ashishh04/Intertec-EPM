@@ -68,6 +68,15 @@ export class EpmError extends Error {
     return new EpmError(404, 'NOT_FOUND', `${what} could not be found.`);
   }
 
+  /**
+   * The request clashes with what is already there — a duplicate name, or an
+   * action that has already been taken. Distinct from a validation failure:
+   * the request is well formed and would have worked a moment ago.
+   */
+  static conflict(message: string) {
+    return new EpmError(409, 'CONFLICT', message);
+  }
+
   /** The resource existed and no longer does — a used or expired invitation. */
   static gone(message: string) {
     return new EpmError(410, 'GONE', message);

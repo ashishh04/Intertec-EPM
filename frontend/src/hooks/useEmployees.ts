@@ -31,6 +31,23 @@ export function useEmployees(filters: EmployeeFilters = {}) {
   });
 }
 
+/**
+ * One person's mapping, capacity and rate.
+ *
+ * Readable by any signed-in caller, like the list — `/employees/:id` carries no
+ * permission, because the directory behind it is already open and the overlay
+ * adds a department, a team and a number of hours. Used by My time tracking to
+ * know what a week is measured against.
+ */
+export function useEmployee(id?: ID) {
+  return useQuery({
+    queryKey: employeeKeys.detail(id ?? 'unknown'),
+    queryFn: () => employeeService.get(id!),
+    enabled: Boolean(id),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useTeamMembers(teamId?: ID) {
   return useQuery({
     queryKey: employeeKeys.teamMembers(teamId ?? 'unknown'),
@@ -60,6 +77,17 @@ function useEmployeeInvalidation() {
     void client.invalidateQueries({ queryKey: queryKeys.users });
     void client.invalidateQueries({ queryKey: queryKeys.currentUser });
   };
+}
+
+/** Sets an internal hourly rate, or clears it with `null`. */
+export function useSetRate() {
+  const settle = useEmployeeInvalidation();
+
+  return useMutation({
+    mutationFn: ({ id, hourlyRate }: { id: ID; hourlyRate: number | null }) =>
+      employeeService.setRate(id, hourlyRate),
+    onSuccess: settle,
+  });
 }
 
 export function useSetMapping() {

@@ -52,6 +52,35 @@ async function countsByProject(
   return counts;
 }
 
+/**
+ * Every project the caller can see.
+ *
+ * One cached read, shared by everything that needs the list — and that is most
+ * of the product: the task routes alone walked `/projects` six different ways to
+ * turn a project id into an identifier, once per request, and the dashboard and
+ * reports each walked it again. On an instance with a few hundred projects that
+ * is the single most repeated upstream call in the system, for a list that
+ * changes when somebody creates a project and not otherwise.
+ *
+ * On `aggregateCache` rather than `referenceCache` deliberately: that cache is
+ * cleared wholesale after any successful write, which is exactly the moment this
+ * list can change. So a newly created project appears on the next read rather
+ * than up to a TTL later.
+ */
+export function listProjects(signal?: AbortSignal): Promise<OpProject[]> {
+  return aggregateCache.get(userScopedKey('projects:all'), async () => {
+    const projects = await openProject
+      .getAll<OpProject>('/projects', { pageSize: 200 }, { signal })
+      .catch(() => ({ items: [] as OpProject[] }));
+    return projects.items;
+  });
+}
+
+/** Project id → identifier, for the task key shown throughout the UI. */
+export async function projectIdentifiers(signal?: AbortSignal): Promise<Map<string, string>> {
+  return new Map((await listProjects(signal)).map((p) => [String(p.id), p.identifier]));
+}
+
 export interface ProjectAggregates {
   total: Map<string, number>;
   completed: Map<string, number>;

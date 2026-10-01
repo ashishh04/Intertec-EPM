@@ -7,7 +7,6 @@ import {
   Lock,
   RotateCcw,
   Server,
-  ShieldCheck,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FactList } from '@/components/common/FactList';
@@ -18,7 +17,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label, FieldHint } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -27,6 +25,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { LocaleSettings } from '@/components/settings/LocaleSettings';
+import { NotificationSettings } from '@/components/settings/NotificationSettings';
+import { ScheduleSettings } from '@/components/settings/ScheduleSettings';
+import { SecuritySettings } from '@/components/settings/SecuritySettings';
+import { ToggleRow } from '@/components/settings/SettingsRows';
 import { SETTINGS_SECTIONS, isAdministrator, type SettingsSectionId } from '@/config/navigation';
 import { useAuth } from '@/providers/AuthProvider';
 import { usePreferences, type Preferences } from '@/hooks/usePreferences';
@@ -177,69 +180,11 @@ export default function SettingsPage() {
             </Card>
           ) : null}
 
-          {section === 'notifications' ? (
-            <>
-              <Card>
-                <CardHeader variant="compact">
-                  <CardTitle>In-app</CardTitle>
-                  <CardDescription>What appears in your notifications feed.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="divide-y divide-border">
-                    {NOTIFICATION_ROWS.map((row) => (
-                      <ToggleRow
-                        key={row.key}
-                        id={`notify-${row.key}`}
-                        label={row.label}
-                        hint={row.hint}
-                        checked={preferences.notifications[row.key]}
-                        onCheckedChange={(checked) => update('notifications', row.key, checked)}
-                      />
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+          {section === 'notifications' ? <NotificationSettings /> : null}
 
-              {/* Email has its own card and its own master switch: it reaches
-                  the person while EPM is closed, so opting out of all of it
-                  has to be one movement rather than five. */}
-              <Card>
-                <CardHeader variant="compact">
-                  <CardTitle>Email</CardTitle>
-                  <CardDescription>
-                    What EPM sends to {user?.email ? user.email : 'your work email'}.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="divide-y divide-border">
-                    <ToggleRow
-                      id="email-enabled"
-                      label="Send me email"
-                      hint="Off means no email of any kind."
-                      checked={preferences.email.enabled}
-                      onCheckedChange={(checked) => update('email', 'enabled', checked)}
-                    />
-                    {EMAIL_ROWS.map((row) => (
-                      <ToggleRow
-                        key={row.key}
-                        id={`email-${row.key}`}
-                        label={row.label}
-                        hint={row.hint}
-                        checked={preferences.email[row.key]}
-                        disabled={!preferences.email.enabled}
-                        onCheckedChange={(checked) => update('email', row.key, checked)}
-                      />
-                    ))}
-                    <div className="px-4 py-2.5">
-                      <FieldHint>
-                        One summary a day, at 06:00 UTC, for everything not sent immediately.
-                      </FieldHint>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
-          ) : null}
+          {section === 'locale' ? <LocaleSettings /> : null}
+
+          {section === 'schedule' ? <ScheduleSettings /> : null}
 
           {section === 'workspace' ? (
             <Card>
@@ -413,29 +358,7 @@ export default function SettingsPage() {
             </Card>
           ) : null}
 
-          {section === 'security' ? (
-            <Card>
-              <CardHeader variant="compact">
-                <CardTitle>Security</CardTitle>
-                <CardDescription>Authentication and session policy.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4 p-4">
-                <Alert tone="neutral" icon={ShieldCheck}>
-                  Authentication, authorisation and API credentials are handled entirely by the
-                  EPM backend. No tokens or secrets are ever stored in the browser.
-                </Alert>
-
-                <FactList
-                  facts={[
-                    { label: 'Single sign-on', value: 'Microsoft Entra ID' },
-                    { label: 'Multi-factor authentication', value: 'Enforced by policy' },
-                    { label: 'Session lifetime', value: '8 hours' },
-                    { label: 'API credentials', value: 'Server-side only' },
-                  ]}
-                />
-              </CardContent>
-            </Card>
-          ) : null}
+          {section === 'security' ? <SecuritySettings /> : null}
 
           {section === 'api' ? (
             <Card>
@@ -465,57 +388,6 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-/**
- * Copy for each notification switch, keyed by the preference it drives. The
- * Profile page renders a subset of the same keys, so the two never disagree.
- */
-const NOTIFICATION_ROWS: {
-  key: keyof Preferences['notifications'];
-  label: string;
-  hint: string;
-}[] = [
-  { key: 'mentions', label: 'Mentions', hint: 'When someone mentions you in a comment.' },
-  { key: 'assigned', label: 'Assignments', hint: 'When work is assigned to you.' },
-  { key: 'dueReminders', label: 'Deadline reminders', hint: 'Two days before a due date.' },
-  {
-    key: 'statusChanges',
-    label: 'Project updates',
-    hint: 'Status and health changes on your projects.',
-  },
-  { key: 'digest', label: 'Daily digest', hint: 'A morning summary, in your notifications feed.' },
-];
-
-/**
- * The per-type email switches. The master switch above them is separate, and
- * every one of these is inert while it is off.
- */
-const EMAIL_ROWS: {
-  key: Exclude<keyof Preferences['email'], 'enabled'>;
-  label: string;
-  hint: string;
-}[] = [
-  { key: 'assigned', label: 'Assignments', hint: 'When work is assigned to you.' },
-  { key: 'mentions', label: 'Mentions', hint: 'When someone mentions you in a comment.' },
-  {
-    key: 'membership',
-    label: 'Project access',
-    hint: 'When you are added to a project.',
-  },
-  {
-    key: 'updates',
-    label: 'Updates to my work',
-    hint: 'Status and field changes on work you are assigned to or watch.',
-  },
-  {
-    key: 'dueReminders',
-    label: 'Deadline reminders',
-    // The window is configured on the backend, so the hint describes the shape
-    // rather than a number this page cannot know.
-    hint: 'A daily list of anything overdue or falling due shortly.',
-  },
-  { key: 'digest', label: 'Daily digest', hint: 'A morning summary of what needs attention.' },
-];
 
 /**
  * The part of a person's identity they own.
@@ -662,32 +534,5 @@ function ProfileForm() {
         ) : null}
       </div>
     </form>
-  );
-}
-
-function ToggleRow({
-  id,
-  label,
-  hint,
-  checked,
-  disabled,
-  onCheckedChange,
-}: {
-  id: string;
-  label: string;
-  hint: string;
-  checked: boolean;
-  /** Inert, and reads as such, because a switch above it is off. */
-  disabled?: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <div className={cn('min-w-0 space-y-0.5', disabled && 'opacity-60')}>
-        <Label htmlFor={id}>{label}</Label>
-        <FieldHint>{hint}</FieldHint>
-      </div>
-      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
-    </div>
   );
 }

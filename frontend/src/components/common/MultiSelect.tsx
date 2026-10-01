@@ -78,7 +78,20 @@ export function MultiSelect({
           aria-expanded={open}
           aria-label={label}
           disabled={disabled}
-          className={cn('h-8 justify-between gap-1.5 font-normal', className)}
+          /*
+           * Full width and the Button's own height, so a label above it sits
+           * above it. The trigger is a Button, which is `inline-flex`: left to
+           * shrink-wrap, it flows inline beside the `<label>` that precedes it
+           * and the field reads as "Invite [control]" on one line while every
+           * other field in the form is stacked. `w-full` is what ComboSelect
+           * does for the same reason.
+           *
+           * The height is deliberately not pinned here. Toolbar call sites pass
+           * `h-8` alongside their width, as every other control in a filter row
+           * already does; a form gets the default h-9 and matches the inputs
+           * either side of it.
+           */
+          className={cn('w-full justify-between gap-1.5 font-normal', className)}
         >
           <span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
             {selected.length === 0 ? (

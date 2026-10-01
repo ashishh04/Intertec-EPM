@@ -1,0 +1,21 @@
+# What the image build must not see.
+#
+# Without this file `COPY . .` sweeps the whole directory into the build
+# context: a node_modules built for Windows, the filled-in `.env` with every
+# production secret in it, and the local `dist`. The first makes the build slow
+# and can shadow the Linux modules installed inside the image; the second puts
+# credentials into a build layer for no reason; the third can be stale.
+node_modules
+dist
+.env
+.env.*
+!.env.example
+
+# The OpenProject initializers are built into their own image — see
+# openproject/Dockerfile. They are Ruby and this image is Node.
+openproject
+
+.git
+.gitignore
+*.log
+npm-debug.log*

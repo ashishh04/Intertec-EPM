@@ -39,6 +39,20 @@ services:
       OPENPROJECT_HOST__NAME: ${OPENPROJECT_HOST__NAME:-localhost:8080}
       OPENPROJECT_HTTPS: ${OPENPROJECT_HTTPS:-false}
       OPENPROJECT_DEFAULT__LANGUAGE: en
+      # Concurrency.
+      #
+      # The image defaults to two Puma workers, which is the single hardest
+      # limit on how fast EPM can feel: one page load fans out to roughly thirty
+      # upstream calls, and with two workers they queue behind each other. On a
+      # cold cache that queueing — not the work itself — was most of a 27-second
+      # page load, and it pushed the project Tasks tab past the browser's
+      # timeout entirely.
+      #
+      # Four workers on a machine with four or more cores costs about 400 MB
+      # each and removes most of the queueing. Lower it on a small host; there is
+      # no point setting it above the core count.
+      OPENPROJECT_WEB_WORKERS: ${OPENPROJECT_WEB_WORKERS:-4}
+      OPENPROJECT_WEB_MAX__THREADS: ${OPENPROJECT_WEB_MAX__THREADS:-8}
     volumes:
       - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/pgdata:/var/openproject/pgdata
       - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/assets:/var/openproject/assets

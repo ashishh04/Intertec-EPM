@@ -138,7 +138,7 @@ function ValueControl({
             name: value.name ?? candidates.find((c) => c.id === value.id)?.name ?? value.id,
           }))}
           onChange={(values) => onChange(values.map((v) => ({ id: v.id, name: v.name })))}
-          className="w-64"
+          className="h-8 w-64"
         />
       );
     }

@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart3,
+  BookOpen,
+  CalendarClock,
   CalendarDays,
+  Clock,
+  Coins,
   FileText,
   FolderKanban,
   LayoutDashboard,
   ListPlus,
+  Megaphone,
   ListTodo,
   Loader2,
   Settings,
@@ -148,6 +153,13 @@ export function CommandPalette() {
             <ListTodo />
             Open my work
           </CommandItem>
+          <CommandItem
+            value="my time timesheet log hours"
+            onSelect={() => run(() => navigate('/my-time'))}
+          >
+            <Clock />
+            Open my timesheet
+          </CommandItem>
           <CommandItem value="current sprint agile" onSelect={() => run(() => navigate('/agile'))}>
             <Timer />
             Open current sprint
@@ -155,6 +167,13 @@ export function CommandPalette() {
           <CommandItem value="reports" onSelect={() => run(() => navigate('/reports'))}>
             <FileText />
             Open reports
+          </CommandItem>
+          <CommandItem
+            value="time and costs cost report hours spend"
+            onSelect={() => run(() => navigate('/time-and-costs'))}
+          >
+            <Coins />
+            Open time and costs
           </CommandItem>
           <CommandItem value="analytics insights" onSelect={() => run(() => navigate('/analytics'))}>
             <BarChart3 />
@@ -277,6 +296,30 @@ export function CommandPalette() {
           <CommandItem value="documents" onSelect={() => run(() => navigate('/documents'))}>
             <FileText />
             Documents
+          </CommandItem>
+          {/* The collaboration modules belong here too. A palette that knows
+              about every page but the three newest is a palette people stop
+              trusting to find things. */}
+          <CommandItem
+            value="meetings agenda minutes"
+            onSelect={() => run(() => navigate('/meetings'))}
+          >
+            <CalendarClock />
+            Meetings
+          </CommandItem>
+          <CommandItem
+            value="news announcements"
+            onSelect={() => run(() => navigate('/news'))}
+          >
+            <Megaphone />
+            News
+          </CommandItem>
+          <CommandItem
+            value="wiki documentation handbook pages"
+            onSelect={() => run(() => navigate('/wiki'))}
+          >
+            <BookOpen />
+            Wiki
           </CommandItem>
         </CommandGroup>
       </CommandList>

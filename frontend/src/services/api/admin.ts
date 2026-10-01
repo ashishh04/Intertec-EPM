@@ -61,6 +61,23 @@ export interface AdminPermission {
   explanation: string | null;
   /** True when the permission is grantable to a global role. */
   global: boolean;
+  /**
+   * The role kinds this permission may actually be given to, as the instance's
+   * own role contract reports them. Older instances that predate this field
+   * omit it; see `permissionAppliesTo` for the fallback.
+   */
+  grantTo?: AdminRoleKind[];
+}
+
+/**
+ * Enterprise-gated features, keyed by feature name (`placeholderUsers`).
+ *
+ * Asked before offering the action rather than discovered by attempting it:
+ * on a Community instance creating a placeholder user can only ever fail.
+ */
+export interface AdminEnterprise {
+  active: boolean;
+  allows: Record<string, boolean>;
 }
 
 export interface AdminPermissionModule {
@@ -279,6 +296,10 @@ export class ApiAdminRepository {
   // Roles and permissions
 
   /** The permission catalogue, grouped by module in the instance's order. */
+  getEnterprise(): Promise<AdminEnterprise> {
+    return apiClient.get<AdminEnterprise>('/admin/enterprise');
+  }
+
   getPermissions(): Promise<AdminPermissionModule[]> {
     return apiClient.get<AdminPermissionModule[]>('/admin/permissions');
   }

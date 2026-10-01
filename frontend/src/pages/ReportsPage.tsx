@@ -5,6 +5,9 @@ import {
   Clock,
   Download,
   FolderKanban,
+  Printer,
+  Sheet,
+  Table2,
   Gauge,
   TrendingUp,
   Users,
@@ -40,7 +43,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { InfoTooltip } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { downloadCsv, type CsvValue } from '@/lib/csv';
+import { downloadXlsx } from '@/lib/xlsx';
 import {
   Select,
   SelectContent,
@@ -168,26 +178,158 @@ export default function ReportsPage() {
     />
   );
 
+  /**
+   * The report on screen, as rows.
+   *
+   * Built from the same arrays the tables render, so an export cannot disagree
+   * with what the reader is looking at — which is the failure mode of exporting
+   * from a second query. Each report has its own shape; the switch is what makes
+   * one Export button serve all of them.
+   */
+  const exportSheet = (): { name: string; headers: CsvValue[]; rows: CsvValue[][] } | null => {
+    const range = `${filters.from ?? 'start'}-to-${filters.to ?? 'today'}`;
+
+    switch (report) {
+      case 'status':
+        return {
+          name: `project-status-${range}`,
+          headers: ['Project', 'Code', 'Status', 'Health', 'Progress %', 'Start', 'Due'],
+          rows: projects.map((project) => [
+            project.name,
+            project.identifier,
+            PROJECT_STATUS_META[project.status].label,
+            project.health.overall,
+            project.progress,
+            project.startDate ?? null,
+            project.dueDate ?? null,
+          ]),
+        };
+      case 'team':
+        return {
+          name: `team-performance-${range}`,
+          headers: ['Team', 'Code', 'Department', 'Lead', 'Members', 'Capacity (h/week)'],
+          rows: (teamsQuery.data ?? []).map((team) => [
+            team.name,
+            team.code,
+            team.department?.name ?? null,
+            team.lead?.name ?? null,
+            team.memberCount,
+            team.capacityHours,
+          ]),
+        };
+      case 'overdue':
+        return {
+          name: `overdue-work-${range}`,
+          headers: ['Key', 'Subject', 'Project', 'Status', 'Priority', 'Due', 'Days late'],
+          rows: overdue.map((task) => [
+            task.key,
+            task.subject,
+            projects.find((project) => project.id === task.projectId)?.name ?? task.projectId,
+            task.status.name,
+            task.priorityRef.name,
+            task.dueDate ?? null,
+            // Negative days from today, read as lateness — the figure the table
+            // shows, rather than the raw signed number.
+            Math.abs(daysFromToday(task.dueDate) ?? 0),
+          ]),
+        };
+      case 'time':
+        return {
+          name: `time-tracking-${range}`,
+          headers: ['Person', 'Hours logged', 'Billable hours'],
+          rows: (timeQuery.data ?? []).map((entry) => [
+            users?.find((user) => user.id === entry.userId)?.name ?? entry.userId,
+            entry.hoursLogged,
+            entry.hoursBillable,
+          ]),
+        };
+      case 'completion':
+        return {
+          name: `task-completion-${range}`,
+          headers: ['Status', 'Tasks'],
+          rows: (distributionQuery.data ?? []).map((slice) => [slice.status, slice.count]),
+        };
+      case 'velocity':
+      case 'trends':
+        return {
+          name: `${report === 'velocity' ? 'sprint-velocity' : 'delivery-trends'}-${range}`,
+          headers: ['Period', 'Completed', 'Created', 'Velocity (points)'],
+          rows: (trendsQuery.data ?? []).map((point) => [
+            point.period,
+            point.completed,
+            point.created,
+            point.velocity,
+          ]),
+        };
+      default:
+        return null;
+    }
+  };
+
+  const exportAs = (format: 'xlsx' | 'csv') => {
+    const sheet = exportSheet();
+    if (!sheet || sheet.rows.length === 0) return;
+
+    if (format === 'csv') {
+      downloadCsv(`${sheet.name}.csv`, sheet.headers, sheet.rows);
+      return;
+    }
+
+    downloadXlsx(`${sheet.name}.xlsx`, {
+      sheetName: REPORTS.find((item) => item.value === report)?.label ?? 'Report',
+      headers: sheet.headers,
+      rows: sheet.rows,
+    });
+  };
+
   return (
     <div className="space-y-5">
       <PageHeader
         title="Reports"
         description="Delivery reporting across projects, teams and time."
         actions={
-          // Export is a backend job that is not wired up yet. A disabled button
-          // that says why is more honest than one that looks live and toasts.
-          // The span exists because a disabled button emits no pointer events,
-          // so the tooltip would never open on it directly.
-          <InfoTooltip label="Export is prepared on the EPM backend and is not available yet">
-            <span className="inline-flex" tabIndex={0}>
-              <Button variant="secondary" size="sm" disabled>
+          /*
+           * Exported from the browser, not prepared on the backend.
+           *
+           * This used to be a disabled button explaining that export was a
+           * backend job nobody had built. It did not need to be: the rows are
+           * already here, and exporting the rendered data is strictly more
+           * correct than a second query that can disagree with the screen.
+           */
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" size="sm">
                 <Download className="h-3.5 w-3.5" />
                 Export
               </Button>
-            </span>
-          </InfoTooltip>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => exportAs('xlsx')}>
+                <Sheet className="h-3.5 w-3.5" />
+                Excel workbook (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => exportAs('csv')}>
+                <Table2 className="h-3.5 w-3.5" />
+                Comma-separated (.csv)
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => window.print()}>
+                <Printer className="h-3.5 w-3.5" />
+                Print or save as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         }
       />
+
+      {/* Only on paper: which report this is, and over what. */}
+      <div className="epm-print-only mb-4 border-b border-border pb-3">
+        <h2 className="font-display text-base font-bold">
+          {REPORTS.find((item) => item.value === report)?.label}
+        </h2>
+        <p className="text-2xs text-muted-foreground">
+          {filters.from ?? 'the beginning'} to {filters.to ?? 'today'}
+        </p>
+      </div>
 
       {/* Filters */}
       <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">

@@ -176,6 +176,10 @@ export function WorkPackageDialog({
               isLoading={form.isLoading}
               // Chosen above; rendering them again would let the two disagree.
               exclude={['project', 'type']}
+              // OpenProject's own sections — People, Estimates and progress,
+              // Details — because this is the whole record and forty fields in
+              // one column is a wall rather than a form.
+              grouped
             />
           ) : null}
 

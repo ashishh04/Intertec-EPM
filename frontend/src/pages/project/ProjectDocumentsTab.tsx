@@ -11,7 +11,7 @@ import { SectionHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Card } from '@/components/ui/card';
-import { useDocuments, useUploadDocument } from '@/hooks/useDocuments';
+import { documentDownloadUrl, useDocuments, useUploadDocument } from '@/hooks/useDocuments';
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import type { ID, EpmProject } from '@/types';
@@ -58,8 +58,10 @@ export default function ProjectDocumentsTab() {
           resetKey={projectId}
           users={users}
           projects={projectsById}
+          // Streamed back through EPM, and always as a download — see the note
+          // on the same action in DocumentsPage.
           onOpen={(document) =>
-            toast('Preview is not implemented yet', { description: document.name })
+            window.open(documentDownloadUrl(document.id), '_blank', 'noopener,noreferrer')
           }
         />
       </QueryBoundary>
@@ -68,11 +70,14 @@ export default function ProjectDocumentsTab() {
         pending={upload.isPending}
         onUpload={(file) =>
           upload.mutate(
-            { ...file, projectId },
+            { file, projectId },
             {
               onSuccess: (created) =>
                 toast.success('Document uploaded', { description: created.name }),
-              onError: () => toast.error('Unable to upload the document'),
+              onError: (error) =>
+                toast.error('Unable to upload the document', {
+                  description: error instanceof Error ? error.message : undefined,
+                }),
             },
           )
         }

@@ -1,0 +1,139 @@
+# EPM, whole stack, from published images. Nothing is built here.
+#
+#   docker compose -f docker-compose.deploy.yml --env-file .env.prod pull
+#   docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
+#
+# This file and .env.prod are the only two files the host needs. There is no
+# checkout, no node_modules, no toolchain and no build: every image comes from
+# Docker Hub, including OpenProject, which carries the EPM initializers baked in
+# (see backend/openproject/Dockerfile). Contrast docker-compose.prod.yml, which
+# builds from source on the host and is the right file when you are changing the
+# code on the machine itself.
+#
+# Four services on one internal network, and only Caddy is published. Postgres
+# and OpenProject are reachable by service name from inside and by nothing at all
+# from outside, which is why the security group only needs 80 and 443.
+#
+# EPM_IMAGE_TAG pins the release. Leave it at a version — `latest` makes
+# `docker compose up -d` after a `pull` ambiguous about what is running, and
+# makes rolling back a guess.
+
+name: epm
+
+services:
+  # ------------------------------------------------------------ OpenProject
+  # The system EPM wraps. Not published: EPM is the only thing that talks to it,
+  # over the internal network.
+  openproject:
+    image: ${EPM_IMAGE_NAMESPACE:?set your Docker Hub namespace}/epm-openproject:${EPM_IMAGE_TAG:?set the release tag}
+    container_name: openproject
+    restart: unless-stopped
+    environment:
+      OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:?set a real secret}
+      OPENPROJECT_HOST__NAME: ${EPM_DOMAIN:?set the domain}
+      OPENPROJECT_HTTPS: "true"
+      OPENPROJECT_DEFAULT__LANGUAGE: en
+      # Behind Caddy, so the addresses it sees are the proxy's.
+      OPENPROJECT_RAILS__RELATIVE__URL__ROOT: ""
+    volumes:
+      # Bind mounts rather than named volumes: these hold the instance database
+      # and every attachment, and a path you can point at a mounted disk is a
+      # path you can snapshot.
+      - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/pgdata:/var/openproject/pgdata
+      - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/assets:/var/openproject/assets
+    networks: [epm]
+
+  # ------------------------------------------------------------ EPM database
+  postgres:
+    # Official image, nothing of ours in it, so it is pulled straight from the
+    # library rather than rebuilt under our namespace.
+    image: postgres:17-alpine
+    container_name: epm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-epm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real password}
+      POSTGRES_DB: ${POSTGRES_DB:-epm}
+    volumes:
+      - epm-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-epm} -d ${POSTGRES_DB:-epm}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [epm]
+
+  # ------------------------------------------------------------ EPM backend
+  # Applies pending Prisma migrations on start, then serves. Safe to restart.
+  backend:
+    image: ${EPM_IMAGE_NAMESPACE}/epm-backend:${EPM_IMAGE_TAG}
+    container_name: epm-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      # Service names, not localhost: each container has its own loopback.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-epm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-epm}?schema=public
+      OPENPROJECT_BASE_URL: http://openproject
+      OPENPROJECT_API_KEY: ${OPENPROJECT_API_KEY:?set the instance API key}
+      OPENPROJECT_OAUTH_CLIENT_ID: ${OPENPROJECT_OAUTH_CLIENT_ID}
+      OPENPROJECT_OAUTH_CLIENT_SECRET: ${OPENPROJECT_OAUTH_CLIENT_SECRET}
+      SESSION_SECRET: ${SESSION_SECRET:?set a 32+ character secret}
+      # Same origin as the app, because Caddy proxies /api on the one domain.
+      CORS_ORIGIN: https://${EPM_DOMAIN}
+      APP_BASE_URL: https://${EPM_DOMAIN}
+      # Mail. Leave the SMTP block empty to fall back to Resend, or both empty
+      # to log instead of sending.
+      EMAIL_FROM: ${EMAIL_FROM}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      EPM_EMAIL_WORKER_ENABLED: ${EPM_EMAIL_WORKER_ENABLED:-true}
+      OPENPROJECT_WEBHOOK_SECRET: ${OPENPROJECT_WEBHOOK_SECRET}
+    healthcheck:
+      # Readiness, not liveness: this one fails while the database or OpenProject
+      # is unreachable, which is what "do not send traffic" means.
+      test: ['CMD-SHELL', 'node -e "fetch(\"http://127.0.0.1:8000/ready\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks: [epm]
+
+  # ------------------------------------------------------------ Caddy + SPA
+  # The only published service. Terminates TLS, serves the built frontend, and
+  # proxies /api to the backend on the same origin.
+  #
+  # The image carries no domain: the bundle calls /api relative to whatever
+  # origin served it, and Caddy learns the hostname from EPM_DOMAIN at start. So
+  # this tag is not specific to a deployment and moving domains is an env change,
+  # not a rebuild.
+  web:
+    image: ${EPM_IMAGE_NAMESPACE}/epm-web:${EPM_IMAGE_TAG}
+    container_name: epm-web
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      EPM_DOMAIN: ${EPM_DOMAIN:?set the domain}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # Certificates survive a recreate; without this Caddy re-issues on every
+      # deploy and will meet Let's Encrypt's rate limit.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [epm]
+
+volumes:
+  epm-pgdata:
+  caddy-data:
+  caddy-config:
+
+networks:
+  epm:

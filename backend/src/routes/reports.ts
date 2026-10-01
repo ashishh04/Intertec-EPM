@@ -9,6 +9,7 @@ import {
   computeHealth,
   effectiveHealth,
   getProjectAggregates,
+  listProjects,
   loadHealthOverrides,
 } from '../mapping/projects.js';
 import { durationToHours } from '../lib/duration.js';
@@ -182,13 +183,11 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
     const today = new Date().toISOString().slice(0, 10);
 
     const [projects, aggregates] = await Promise.all([
-      openProject
-        .getAll<OpProject>('/projects', { pageSize: 100 }, { signal })
-        .catch(() => ({ items: [] as OpProject[] })),
+      listProjects(signal),
       getProjectAggregates(signal),
     ]);
 
-    const active = projects.items.filter((project) => project.active);
+    const active = projects.filter((project) => project.active);
 
     // Pins are honoured, so a report never disagrees with the project page it
     // summarises.

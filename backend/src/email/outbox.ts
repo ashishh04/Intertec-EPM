@@ -1,9 +1,10 @@
 import { Prisma } from '@prisma/client';
 
 import { prisma } from '../db/prisma.js';
+import { today } from '../lib/dates.js';
 import type { UserPreferences } from '../types/epm.js';
 import { emailLog } from './log.js';
-import { getPreferences } from './preferences.js';
+import { getPreferences, notificationsPaused, outOfOffice } from './preferences.js';
 import { resolveEmail } from './recipients.js';
 import { renderTemplate, type TemplateName, type TemplatePayloads } from './templates/index.js';
 
@@ -40,7 +41,16 @@ export interface EnqueueInput<Name extends TemplateName = TemplateName> {
   gate?: keyof UserPreferences['email'];
 }
 
-export type EnqueueOutcome = 'queued' | 'duplicate' | 'no-address' | 'opted-out' | 'error';
+export type EnqueueOutcome =
+  | 'queued'
+  | 'duplicate'
+  | 'no-address'
+  | 'opted-out'
+  /** Inside the recipient's notification pause window. */
+  | 'paused'
+  /** A scheduled nudge, and the recipient is out of office. */
+  | 'away'
+  | 'error';
 
 /**
  * Writes one row, or explains why not. Never throws: mail is a side effect of
@@ -62,6 +72,32 @@ export async function enqueueEmail<Name extends TemplateName>(
     if (!preferences.email.enabled || (input.gate && !preferences.email[input.gate])) {
       emailLog.debug({ ...context, gate: input.gate ?? 'enabled' }, 'Email skipped: turned off in preferences');
       return 'opted-out';
+    }
+
+    /*
+     * Paused, or away.
+     *
+     * Two different windows with deliberately different reach. A pause is "stop
+     * contacting me", so it holds everything — nothing is queued, which also
+     * means nothing arrives in a burst when the window ends, because the worker
+     * only ever sends rows that exist.
+     *
+     * Being out of office is narrower. It stops the scheduled nudges — deadline
+     * reminders and the daily digest — because a prompt to act today is useless
+     * to somebody who is not working today. It does not stop an invitation, a
+     * mention or being assigned something: those are people trying to reach this
+     * person, and a colleague's message is not the system's noise.
+     */
+    const day = today();
+    if (notificationsPaused(preferences, day)) {
+      emailLog.debug(context, 'Email skipped: notifications are paused');
+      return 'paused';
+    }
+
+    const scheduled = input.channel === 'digest' || input.gate === 'dueReminders';
+    if (scheduled && outOfOffice(preferences, day)) {
+      emailLog.debug(context, 'Email skipped: the recipient is out of office');
+      return 'away';
     }
 
     // Rendered now only for the subject, which the row carries so the outbox

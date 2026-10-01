@@ -1,0 +1,160 @@
+# Builds the three EPM images and pushes them to Docker Hub.
+#
+# The point of this workflow is that nothing is ever built on the deployment
+# host, or on a laptop. Push a tag, wait, then on the server:
+#
+#   docker compose -f docker-compose.deploy.yml --env-file .env.prod pull
+#   docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
+#
+# Trigger it either way:
+#
+#   git tag v1.0.0 && git push origin v1.0.0     # tag -> images 1.0.0 + latest
+#   Actions -> Release images -> Run workflow     # any ref, tag you choose
+#
+# Two things to set under Settings -> Secrets and variables -> Actions. Note
+# which tab each one goes on:
+#
+#   Variables tab:
+#     DOCKERHUB_USERNAME   your Docker Hub account name, which is also the
+#                          namespace the images publish under. A variable rather
+#                          than a secret deliberately: an account name is not
+#                          confidential, and as a secret it is masked out of the
+#                          logs, leaving every build line reading `***/epm-web`.
+#
+#   Secrets tab:
+#     DOCKERHUB_TOKEN      a Docker Hub access token with Read & Write, from
+#                          hub.docker.com -> Account settings -> Personal access
+#                          tokens. Not your password: a token can be revoked
+#                          without changing how you sign in anywhere else.
+
+name: Release images
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to publish (e.g. 1.0.0)'
+        required: true
+        type: string
+      latest:
+        description: 'Also move the `latest` tag to this build'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  # The one check that cannot run inside a build context. `npm run build` in the
+  # backend verifies its copy of the domain models still matches
+  # frontend/src/types/index.ts, which means reading across both directories — a
+  # path that does not exist in an image built from ./backend alone. So the
+  # backend's Dockerfile runs `build:image`, which skips it, and the check runs
+  # here, where the whole repository is present. A drift means the API is about
+  # to return a shape the UI does not expect, so it blocks the release.
+  contract:
+    name: Domain model contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Backend domain models match the frontend contract
+        working-directory: backend
+        run: npm run types:check
+
+  images:
+    name: ${{ matrix.image }}
+    needs: contract
+    runs-on: ubuntu-latest
+    strategy:
+      # One failure should not cancel a sibling that is most of the way through
+      # a multi-gigabyte push.
+      fail-fast: false
+      matrix:
+        include:
+          - image: epm-backend
+            context: ./backend
+          - image: epm-web
+            context: ./frontend
+          # OpenProject plus the four EPM initializers. Large — most of the
+          # first push is the upstream base — but after that only the thin
+          # layer holding the initializers changes.
+          - image: epm-openproject
+            context: ./backend/openproject
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Said plainly here rather than as a login failure three steps down, which
+      # reads as a credentials problem and sends you to the wrong place. The
+      # usual cause is DOCKERHUB_USERNAME having been added on the Secrets tab
+      # instead of the Variables tab.
+      - name: Check the registry is configured
+        env:
+          NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$NAMESPACE" ]; then
+            echo "::error::Repository variable DOCKERHUB_USERNAME is not set."
+            echo "::error::Settings -> Secrets and variables -> Actions -> Variables tab."
+            exit 1
+          fi
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Repository secret DOCKERHUB_TOKEN is not set."
+            echo "::error::Settings -> Secrets and variables -> Actions -> Secrets tab."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Sign in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.latest }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          # amd64 only. Building the Node images for arm64 under emulation takes
+          # far longer than it is worth while every host is x86; add arm64 here
+          # when one is not.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache in the Actions cache, so a release that changes only the
+          # frontend does not reinstall the backend's dependencies.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: What was published
+        run: |
+          echo "### ${{ matrix.image }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

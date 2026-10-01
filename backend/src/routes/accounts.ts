@@ -452,15 +452,22 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'users:manage');
     const account = await accountOf(request, id);
 
-    requireAffordance(
-      account,
-      'delete',
-      'Deleting people is not enabled on this instance, so this person can only be deactivated.',
-    );
-
+    // Before the affordance, not after. Deleting yourself is refused because of
+    // who is asking, which is true whatever the instance permits — checking the
+    // affordance first answered "deletion is switched off here" to an
+    // administrator on an instance where it is switched on, and said nothing at
+    // all about the part that can never be allowed.
     if (id === request.auth?.userId) {
       throw EpmError.badRequest('You cannot delete your own account.');
     }
+
+    requireAffordance(
+      account,
+      'delete',
+      'Deleting people is switched off for this instance. Turn on "Users deletable by admins" ' +
+        'in Administration → Users and permissions → User settings to allow it, or lock ' +
+        'the account instead to revoke access without removing the record.',
+    );
 
     await openProject.request<void>(`/users/${id}`, {
       method: 'DELETE',

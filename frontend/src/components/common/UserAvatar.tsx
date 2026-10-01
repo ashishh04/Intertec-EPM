@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage, type AvatarSize } from '@/components/ui/avatar';
 import { env } from '@/config/env';
+import { usePreferences } from '@/hooks/usePreferences';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { EpmUser, UserStatus } from '@/types';
@@ -32,14 +33,24 @@ interface UserAvatarProps {
   className?: string;
 }
 
-/** Initials-based avatar, used whenever a user has no avatar image. */
+/**
+ * Initials-based avatar, used whenever a user has no avatar image.
+ *
+ * "Show avatars" off means the photo, not the avatar: the initials disc stays,
+ * because it is what carries the accessible name and what keeps a dense row from
+ * collapsing when a face is removed. What the switch actually turns off is
+ * downloading and rendering people's photographs — which is the thing somebody
+ * asks for when they ask for fewer faces in a list.
+ */
 function UserAvatar({ user, size = 'default', showStatus = false, className }: UserAvatarProps) {
+  const { preferences } = usePreferences();
   const label = user ? user.name : 'Unassigned';
+  const showPhoto = preferences.appearance.showAvatars;
 
   return (
     <span className={cn('relative inline-flex shrink-0', className)}>
       <Avatar size={size}>
-        {user?.avatarUrl ? <AvatarImage src={avatarSrc(user.avatarUrl)} alt="" /> : null}
+        {user?.avatarUrl && showPhoto ? <AvatarImage src={avatarSrc(user.avatarUrl)} alt="" /> : null}
         <AvatarFallback accent={user?.accent ?? 'slate'}>
           {user?.initials ?? '–'}
           <span className="sr-only">{label}</span>

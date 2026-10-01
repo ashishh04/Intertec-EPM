@@ -1,0 +1,3 @@
+# Only the initializers belong in this image.
+README.md
+docker-compose.openproject.yml

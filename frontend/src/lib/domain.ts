@@ -4,6 +4,7 @@ import type {
   DocumentKind,
   HealthLevel,
   NotificationCategory,
+  NotificationReason,
   ProjectStatus,
   SprintState,
   TaskPriority,
@@ -154,6 +155,26 @@ export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, StateMeta>
   project_update: { label: 'Project Update', tone: 'accent' },
   deadline: { label: 'Deadline', tone: 'warning' },
   system: { label: 'System', tone: 'neutral' },
+};
+
+/**
+ * Why each notification exists, in the reader's words.
+ *
+ * Reasons, not categories: this is what somebody filtering their feed thinks in —
+ * "show me only what I was mentioned in" — and it matches the switches in Settings
+ * one for one, so turning a filter's subject off in Settings makes that filter
+ * empty rather than leaving the two describing different things.
+ */
+export const NOTIFICATION_REASON_META: Record<NotificationReason, StateMeta> = {
+  mentioned: { label: 'Mentioned', tone: 'highlight' },
+  assignee: { label: 'Assignee', tone: 'primary' },
+  accountable: { label: 'Accountable', tone: 'primary' },
+  watcher: { label: 'Watcher', tone: 'accent' },
+  dateAlert: { label: 'Date alert', tone: 'warning' },
+  reminder: { label: 'Reminder', tone: 'warning' },
+  shared: { label: 'Shared', tone: 'highlight' },
+  commented: { label: 'Activity', tone: 'accent' },
+  epm: { label: 'Project update', tone: 'neutral' },
 };
 
 /* -------------------------------------------------------------------------- */

@@ -9,9 +9,9 @@ import { AuthBackdrop } from '@/components/common/AuthBackdrop';
 import { EpmMark } from '@/components/common/EpmLogo';
 import { useAuth } from '@/providers/AuthProvider';
 import { usePasswordPolicy } from '@/hooks/useUsers';
+import { passwordRuleRows, passwordSatisfies } from '@/lib/password';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/config/env';
-import type { PasswordRule } from '@/types';
 
 /**
  * Shown instead of the application when someone still holds the password an
@@ -25,31 +25,6 @@ import type { PasswordRule } from '@/types';
  * Signing out is deliberately still available. Trapping someone in a screen
  * with no way back is worse than letting them leave and return.
  */
-
-/**
- * What a password has to contain.
- *
- * Built from the policy the instance serves, never from a list written here: a
- * hard-coded copy drifts the moment an administrator changes the setting, and
- * then shows a rule nobody enforces or hides one that is. The same policy is
- * applied by the backend before the change is forwarded, so this is a preview
- * of the real check rather than a second, separate one.
- */
-const RULE_LABELS: Record<PasswordRule, string> = {
-  lowercase: 'A lowercase letter',
-  uppercase: 'An uppercase letter',
-  numeric: 'A number',
-  special: 'A symbol',
-};
-
-const RULE_TESTS: Record<PasswordRule, (value: string) => boolean> = {
-  lowercase: (value) => /[a-z]/.test(value),
-  uppercase: (value) => /[A-Z]/.test(value),
-  numeric: (value) => /\d/.test(value),
-  // Anything that is not a letter, a digit or whitespace — broader than a fixed
-  // list, which would reject symbols people legitimately use.
-  special: (value) => /[^A-Za-z0-9\s]/.test(value),
-};
 
 /** Blocks paste, drop and the clipboard shortcuts that bypass a paste handler. */
 const noPaste = {
@@ -69,34 +44,14 @@ export default function SetPasswordPage() {
 
   const { data: policy } = usePasswordPolicy();
 
-  const results = useMemo(() => {
-    if (!policy) return [];
-
-    const rows: { id: string; label: string; ok: boolean }[] = [];
-    if (policy.minLength > 0) {
-      rows.push({
-        id: 'length',
-        label: `At least ${policy.minLength} characters`,
-        ok: password.length >= policy.minLength,
-      });
-    }
-    for (const rule of policy.activeRules) {
-      rows.push({ id: rule, label: RULE_LABELS[rule], ok: RULE_TESTS[rule](password) });
-    }
-    return rows;
-  }, [policy, password]);
+  const results = useMemo(() => passwordRuleRows(policy, password), [policy, password]);
 
   /**
    * Long enough, and enough of the character rules met. Counted rather than
    * "all of them", so a policy of "any 3 of 4" is honoured as written — the
    * same arithmetic the backend does.
    */
-  const allMet = useMemo(() => {
-    if (!policy) return false;
-    if (password.length < policy.minLength) return false;
-    const met = policy.activeRules.filter((rule) => RULE_TESTS[rule](password)).length;
-    return met >= policy.minAdheredRules;
-  }, [policy, password]);
+  const allMet = useMemo(() => passwordSatisfies(policy, password), [policy, password]);
   const matches = password.length > 0 && password === confirmation;
 
   const submit = async (event: React.FormEvent) => {

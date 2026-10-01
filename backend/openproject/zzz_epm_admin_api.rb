@@ -11,6 +11,10 @@
 #
 #   GET    /epm_admin/settings/users   the users-settings object
 #   PATCH  /epm_admin/settings/users   partial object -> updated object
+#   GET    /epm_admin/enterprise       Enterprise-gated features this instance allows
+#   PATCH  /epm_admin/days/week       which weekdays are working days
+#   POST   /epm_admin/days/non_working  add a public holiday
+#   DELETE /epm_admin/days/non_working/:id
 #   GET    /epm_admin/permissions      modules with their settable permissions
 #   GET    /epm_admin/roles            every role with its permissions
 #   POST   /epm_admin/roles            { name, global, copyWorkflowFromRoleId?, permissions }
@@ -52,6 +56,11 @@ Rails.application.config.to_prepare do
       "WorkPackageRole" => "work_package",
       "ProjectQueryRole" => "project_query"
     }.freeze
+
+    # Enterprise-gated features EPM offers a button for. Anything listed here
+    # is reported by `GET /epm_admin/enterprise` so the UI can disable the
+    # button with a reason rather than let the action fail.
+    EPM_ENTERPRISE_FEATURES = %i[placeholder_users].freeze
 
     # camelCase name in the JSON <-> Setting name, and how each is written.
     SETTINGS = {
@@ -112,10 +121,116 @@ Rails.application.config.to_prepare do
       render json: users_settings
     end
 
+    # ------------------------------------------------------------- enterprise
+
+    # Which Enterprise-gated features this instance may use.
+    #
+    # OpenProject publishes no API for this, and the only other way to find out
+    # is to attempt the action and read the refusal — which is what placeholder
+    # users did: a form that could be filled in completely and then always
+    # failed on a Community instance. Asked once, up front, so the UI can say
+    # so instead of inviting the attempt.
+    def enterprise
+      allows = EPM_ENTERPRISE_FEATURES.to_h do |feature|
+        [feature.to_s.camelize(:lower), enterprise_allows?(feature)]
+      end
+
+      render json: { active: enterprise_active?, allows: allows }
+    end
+
     # ------------------------------------------------------------- permissions
 
     def permissions
       render json: permission_modules
+    end
+
+    # ------------------------------------------------------------------- days
+
+    # Working days and public holidays.
+    #
+    # API v3 publishes `/days/week` and `/days/non_working` read-only — a write
+    # to either is a 404 on 15.5.1 — while OpenProject's own administration
+    # edits them happily under Calendars and dates. So the reads stay on API v3
+    # and the writes come through here, which is the same division this file
+    # already makes for users settings, roles and the catalogue.
+    #
+    # Both go through Settings::UpdateService rather than touching `Setting`
+    # directly, because changing either reschedules every work package that
+    # depends on it: the service runs OpenProject's validation and enqueues
+    # `WorkPackages::ApplyWorkingDaysChangeJob`. Writing the column by hand
+    # would change the calendar and leave every existing date untouched.
+
+    WEEKDAY_NAMES = %w[Monday Tuesday Wednesday Thursday Friday Saturday Sunday].freeze
+
+    def update_week_days
+      given = json_body["days"]
+      unless given.is_a?(Array) && given.all? { |d| d.is_a?(Hash) }
+        return render json: { message: "days must be an array of { day, working }." },
+                      status: :unprocessable_entity
+      end
+
+      working = Array(Setting.working_days).map(&:to_i).to_set
+
+      given.each do |entry|
+        day = entry["day"].to_i
+        unless (1..7).cover?(day)
+          return render json: { message: "#{entry['day'].inspect} is not a day of the week (1 is Monday, 7 is Sunday)." },
+                        status: :unprocessable_entity
+        end
+
+        entry["working"] ? working.add(day) : working.delete(day)
+      end
+
+      if working.empty?
+        return render json: { message: "At least one day of the week has to be a working day." },
+                      status: :unprocessable_entity
+      end
+
+      call = Settings::UpdateService.new(user: User.current).call(working_days: working.to_a.sort)
+      return render_failure(call) unless call.success?
+
+      render json: week_days_json
+    end
+
+    def create_non_working_day
+      body = json_body
+      name = body["name"].to_s.strip
+
+      parsed = begin
+        Date.iso8601(body["date"].to_s)
+      rescue ArgumentError, TypeError
+        nil
+      end
+
+      return render json: { message: "date must be a calendar date, e.g. 2026-12-25." }, status: :unprocessable_entity if parsed.nil?
+      return render json: { message: "A name is required." }, status: :unprocessable_entity if name.blank?
+
+      if NonWorkingDay.exists?(date: parsed)
+        return render json: { message: "#{parsed.iso8601} is already a non-working day." },
+                      status: :unprocessable_entity
+      end
+
+      # The record, not a setting. OpenProject has no `non_working_days`
+      # setting — its own Calendars and dates form edits `NonWorkingDay` rows
+      # directly — so `Settings::UpdateService` raises "There's no setting
+      # named non_working_days" if asked. The reschedule the form would have
+      # triggered is requested separately below.
+      day = NonWorkingDay.new(date: parsed, name: name)
+      unless day.save
+        return render json: { message: day.errors.full_messages.join(", ").presence || "The date was refused." },
+                      status: :unprocessable_entity
+      end
+
+      apply_non_working_days_change(added: [parsed])
+      render json: non_working_day_json(day), status: :created
+    end
+
+    def destroy_non_working_day
+      day = NonWorkingDay.find(params[:id])
+      removed = day.date
+      day.destroy!
+      apply_non_working_days_change(removed: [removed])
+      head :no_content
     end
 
     # ------------------------------------------------------------------- roles
@@ -299,6 +414,26 @@ Rails.application.config.to_prepare do
       end
     end
 
+    # ------------------------------------------------------------ enterprise
+
+    # Both guarded: `EnterpriseToken` is core, but its shape has moved between
+    # releases and an administration page must not 500 because a token helper
+    # was renamed. Unknown means "not allowed", which is the safe answer.
+    # `!!` because these answer nil rather than false on a Community instance,
+    # and the contract says boolean: a JSON null reads as "unknown" to the
+    # caller, which is a third state the UI would have to handle for no reason.
+    def enterprise_active?
+      defined?(EnterpriseToken) ? !!EnterpriseToken.active? : false
+    rescue StandardError
+      false
+    end
+
+    def enterprise_allows?(feature)
+      defined?(EnterpriseToken) ? !!EnterpriseToken.allows_to?(feature) : false
+    rescue StandardError
+      false
+    end
+
     # ----------------------------------------------------------- permissions
 
     # RolesController#visible_permissions grouped as RolesHelper#group_permissions_by_module
@@ -307,6 +442,7 @@ Rails.application.config.to_prepare do
     def permission_modules
       visible = OpenProject::AccessControl.permissions.reject(&:public?).select(&:visible?)
       module_names = OpenProject::AccessControl.sorted_module_names(include_disabled: false)
+      grantable = assignable_by_kind
 
       visible.group_by { |p| p.project_module.to_s }.slice(*module_names).map do |mod, perms|
         {
@@ -317,10 +453,46 @@ Rails.application.config.to_prepare do
               name: p.name.to_s,
               label: I18n.t("permission_#{p.name}", default: p.name.to_s.humanize),
               explanation: I18n.t("permission_#{p.name}_explanation", default: nil).presence,
-              global: p.global?
+              global: p.global?,
+              grantTo: grantable.select { |_kind, names| names.include?(p.name.to_s) }.keys
             }
           end
         }
+      end
+    end
+
+    # The role classes a permission may belong to, keyed by the kind name the
+    # API reports. A class missing from this edition is skipped rather than
+    # raising, so the catalogue still answers.
+    def role_probes
+      {
+        "project" => "ProjectRole",
+        "global" => "GlobalRole",
+        "work_package" => "WorkPackageRole",
+        "project_query" => "ProjectQueryRole"
+      }
+    end
+
+    # Which permissions each kind of role may hold.
+    #
+    # Read from the same contract `permission_names` validates against, so what
+    # the catalogue offers and what a create will accept cannot drift. Deriving
+    # it from `global?` instead was close but wrong: `view_project_query` and
+    # `edit_project_query` are not global, and are not grantable to a project
+    # role either, so a form that offered them under "Project" refused every
+    # submission with "These permissions cannot be given to this role".
+    def assignable_by_kind
+      @assignable_by_kind ||= role_probes.each_with_object({}) do |(kind, class_name), acc|
+        klass = class_name.safe_constantize
+        next if klass.nil?
+
+        acc[kind] = Roles::BaseContract
+          .new(klass.new, User.current)
+          .assignable_permissions
+          .map { |permission| permission.name.to_s }
+          .to_set
+      rescue StandardError => e
+        Rails.logger.warn("[epm_admin] assignable permissions for #{class_name}: #{e.message}")
       end
     end
 
@@ -331,6 +503,38 @@ Rails.application.config.to_prepare do
       else
         I18n.t("permission_header_for_project_module_#{mod}", default: [:"project_module_#{mod}", mod.humanize])
       end
+    end
+
+    # ------------------------------------------------------------------ days
+
+    def week_days_json
+      working = Array(Setting.working_days).map(&:to_i)
+      (1..7).map do |day|
+        { day: day, name: WEEKDAY_NAMES[day - 1], working: working.include?(day) }
+      end
+    end
+
+    def non_working_day_json(day)
+      { id: day.id.to_s, date: day.date.iso8601, name: day.name }
+    end
+
+    # Rescheduling is what makes a calendar change mean anything: a new public
+    # holiday has to push the work that fell on it.
+    #
+    # Requested rather than assumed. The job's signature is internal and has
+    # moved between releases, so a failure to enqueue is logged and the write
+    # still stands — the calendar is correct either way, and refusing the
+    # change because the follow-up could not be scheduled would be worse.
+    def apply_non_working_days_change(added: [], removed: [])
+      return unless defined?(WorkPackages::ApplyWorkingDaysChangeJob)
+
+      WorkPackages::ApplyWorkingDaysChangeJob.perform_later(
+        user_id: User.current.id,
+        previous_working_days: Array(Setting.working_days),
+        previous_non_working_days: (NonWorkingDay.pluck(:date) - added + removed).map(&:to_s)
+      )
+    rescue StandardError => e
+      Rails.logger.warn("[epm_admin] could not enqueue the calendar reschedule: #{e.message}")
     end
 
     # ----------------------------------------------------------------- roles
@@ -399,9 +603,13 @@ Rails.application.routes.prepend do
   scope "epm_admin", controller: "epm_admin", format: false, defaults: { format: :json } do
     get "settings/users", action: :settings_users
     patch "settings/users", action: :update_settings_users
+    get "enterprise", action: :enterprise
     get "permissions", action: :permissions
     get "roles", action: :roles
     post "roles", action: :create_role
+    patch "days/week", action: :update_week_days
+    post "days/non_working", action: :create_non_working_day
+    delete "days/non_working/:id", action: :destroy_non_working_day, constraints: { id: /\d+/ }
     patch "roles/:id", action: :update_role, constraints: { id: /\d+/ }
     delete "roles/:id", action: :destroy_role, constraints: { id: /\d+/ }
   end

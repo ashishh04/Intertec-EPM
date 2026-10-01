@@ -22,27 +22,73 @@ export function toDate(value?: string | Date | null): Date | null {
   return isValid(date) ? date : null;
 }
 
+/**
+ * How dates are written, and on which clock.
+ *
+ * A module-level value rather than a parameter on every call, because these
+ * helpers are called from a few hundred places — threading a preference through
+ * all of them would mean a hook in every leaf component that renders a date,
+ * including the ones that are not components at all. `PreferenceEffects` sets
+ * this from the person's saved settings on load and on change.
+ *
+ * The trade is that a change does not re-render on its own. That is handled
+ * where it is set: the provider bumps a key that remounts the app's routes, so
+ * the whole interface repaints once with the new format instead of each call
+ * site subscribing to a preference it does not otherwise care about.
+ */
+type DatePattern = { short: string; long: string; weekday: string; time: string };
+
+const DATE_PATTERNS: Record<'system' | 'iso' | 'dmy' | 'mdy', DatePattern> = {
+  // `system` is the product's own house style rather than the browser's locale
+  // strings: it is the format every screenshot and every piece of copy was
+  // written against, and it reads the same everywhere.
+  system: { short: 'MMM d', long: 'd MMM yyyy', weekday: 'EEEE, d MMMM yyyy', time: 'd MMM yyyy' },
+  iso: { short: 'MM-dd', long: 'yyyy-MM-dd', weekday: 'EEEE, yyyy-MM-dd', time: 'yyyy-MM-dd' },
+  dmy: { short: 'dd/MM', long: 'dd/MM/yyyy', weekday: 'EEEE, dd/MM/yyyy', time: 'dd/MM/yyyy' },
+  mdy: { short: 'MM/dd', long: 'MM/dd/yyyy', weekday: 'EEEE, MM/dd/yyyy', time: 'MM/dd/yyyy' },
+};
+
+let activePattern: DatePattern = DATE_PATTERNS.system;
+let activeClock: '24h' | '12h' = '24h';
+
+/** Applies the person's format choices. Called by `PreferenceEffects`. */
+export function setDateConventions(options: {
+  dateFormat: keyof typeof DATE_PATTERNS;
+  timeFormat: '24h' | '12h';
+}): void {
+  activePattern = DATE_PATTERNS[options.dateFormat] ?? DATE_PATTERNS.system;
+  activeClock = options.timeFormat;
+}
+
 /** "Aug 30" — the default compact date used across lists and cards. */
 export function formatShortDate(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, 'MMM d') : '—';
+  return date ? format(date, activePattern.short) : '—';
 }
 
 /** "30 Aug 2026" — used in headers and detail panels. */
 export function formatLongDate(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, 'd MMM yyyy') : '—';
+  return date ? format(date, activePattern.long) : '—';
 }
 
 /** "Monday, 30 August 2026" — used where a single date is the subject. */
 export function formatWeekdayDate(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, 'EEEE, d MMMM yyyy') : '—';
+  return date ? format(date, activePattern.weekday) : '—';
+}
+
+/** A time of day on its own, e.g. "14:05" or "2:05 pm". */
+export function formatTime(value?: string | Date | null): string {
+  const date = toDate(value);
+  if (!date) return '—';
+  return format(date, activeClock === '24h' ? 'HH:mm' : 'h:mm a');
 }
 
 export function formatDateTime(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, 'd MMM yyyy, HH:mm') : '—';
+  if (!date) return '—';
+  return `${format(date, activePattern.time)}, ${formatTime(date)}`;
 }
 
 /** "10 minutes ago" */
@@ -109,11 +155,20 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat('en-US').format(value);
 }
 
-export function formatCurrency(value: number): string {
+/**
+ * A money figure in the instance's currency.
+ *
+ * The code is a parameter because EPM is deployed per organisation and the
+ * backend reports which one it quotes rates in; hard-coding it here would
+ * print dollars over dirhams. Whole units by default — a cost report reads in
+ * thousands, and cents in it are noise — with `digits` for the odd place that
+ * needs them.
+ */
+export function formatCurrency(value: number, currency = 'USD', digits = 0): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
+    currency,
+    maximumFractionDigits: digits,
   }).format(value);
 }
 

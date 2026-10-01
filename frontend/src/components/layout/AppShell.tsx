@@ -80,14 +80,19 @@ export function AppShell() {
         Skip to main content
       </a>
 
-      <div className="hidden h-full lg:block">
+      {/* `epm-no-print` on the shell furniture: none of it is part of the
+          document somebody prints or saves as a PDF, and left in it would take a
+          column of the page and print the navigation as a list. */}
+      <div className="epm-no-print hidden h-full lg:block">
         <Sidebar />
       </div>
 
       <MobileNavSheet />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopHeader />
+        <div className="epm-no-print">
+          <TopHeader />
+        </div>
 
         {/*
           `relative` is load-bearing, not decoration.
@@ -126,10 +131,12 @@ export function AppShell() {
         </main>
       </div>
 
-      <MobileBottomNav />
-      <CommandPalette />
-      <TaskDrawer />
-      {featureFlags.pragnya ? <PragnyaWidget /> : null}
+      <div className="epm-no-print">
+        <MobileBottomNav />
+        <CommandPalette />
+        <TaskDrawer />
+        {featureFlags.pragnya ? <PragnyaWidget /> : null}
+      </div>
     </div>
   );
 }

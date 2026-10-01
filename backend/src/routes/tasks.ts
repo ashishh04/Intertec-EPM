@@ -5,11 +5,13 @@ import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
+import { addDays } from '../lib/dates.js';
 import { hoursToDuration } from '../lib/duration.js';
-import { openProject, type OpFilter, type SortDirection } from '../openproject/client.js';
+import { idFromHref, openProject, type OpFilter, type SortDirection } from '../openproject/client.js';
 import { getCatalog } from '../mapping/catalog.js';
+import { projectIdentifiers } from '../mapping/projects.js';
 import { expandIds, toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
-import type { OpProject } from '../openproject/types.js';
+import type { HalLinks, OpProject } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
 
 /**
@@ -27,6 +29,8 @@ const csv = (value: unknown) =>
 const listQuery = z.object({
   projectId: z.string().optional(),
   assigneeId: z.string().optional(),
+  authorId: z.string().optional(),
+  watcherId: z.string().optional(),
   status: z.preprocess(csv, z.array(z.string()).optional()),
   priority: z.preprocess(csv, z.array(z.string()).optional()),
   type: z.preprocess(csv, z.array(z.string()).optional()),
@@ -47,12 +51,7 @@ const OP_SORT_FIELD: Record<string, string> = {
   priority: 'priority',
 };
 
-async function projectIdentifiers(signal: AbortSignal): Promise<Map<string, string>> {
-  const projects = await openProject
-    .getAll<OpProject>('/projects', { pageSize: 100 }, { signal })
-    .catch(() => ({ items: [] as OpProject[] }));
-  return new Map(projects.items.map((project) => [String(project.id), project.identifier]));
-}
+
 
 function bucketFilters(bucket: string | undefined, today: string): OpFilter[] {
   switch (bucket) {
@@ -64,12 +63,20 @@ function bucketFilters(bucket: string | undefined, today: string): OpFilter[] {
     case 'today':
       return [
         { field: 'status', operator: 'o', values: [] },
-        { field: 'dueDate', operator: '=', values: [today] },
+        // A one-day `<>d` window, not `=`. OpenProject's date filters have no
+        // equality operator, and answered "Finish date Operator is not set to
+        // one of the allowed values" — which reached the dashboard as "Unable
+        // to load your work" for every caller, whatever their data.
+        { field: 'dueDate', operator: '<>d', values: [today, today] },
       ];
     case 'upcoming':
       return [
         { field: 'status', operator: 'o', values: [] },
-        { field: 'dueDate', operator: '>t-', values: ['0'] },
+        // Open-ended from today forward. `>t-` with 0 read as "less than zero
+        // days ago", an empty window, so this bucket could only ever be empty.
+        // An absent bound is how the client expresses "no end", as the due
+        // reminder scheduler does.
+        { field: 'dueDate', operator: '<>d', values: [addDays(today, 1), ''] },
       ];
     case 'completed':
       return [{ field: 'status', operator: 'c', values: [] }];
@@ -100,6 +107,21 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     }
     if (query.assigneeId) {
       filters.push({ field: 'assignee', operator: '=', values: [query.assigneeId] });
+    }
+    /*
+     * Author and watcher.
+     *
+     * Both are OpenProject filters on the work package collection, and both
+     * exist here for the dashboard: "work I raised" and "work I am following"
+     * are the two questions a personal overview asks that assignment cannot
+     * answer. Neither widens what a caller can see — the collection is already
+     * scoped to their permissions, and these narrow it further.
+     */
+    if (query.authorId) {
+      filters.push({ field: 'author', operator: '=', values: [query.authorId] });
+    }
+    if (query.watcherId) {
+      filters.push({ field: 'watcher', operator: '=', values: [query.watcherId] });
     }
     if (query.sprintId) {
       filters.push({ field: 'version', operator: '=', values: [query.sprintId] });
@@ -149,6 +171,75 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     );
 
     return toEpmTask(workPackage, catalog, identifiers);
+  });
+
+  /**
+   * Where this work package sits in the tree: its ancestors and its children.
+   *
+   * Served separately from the task itself so the detail page renders without
+   * waiting on it, and so a list view pays nothing for it. Two upstream reads
+   * whatever the depth — the ancestor ids come off the work package's own
+   * `ancestors` links and are fetched in one batch, and children are a single
+   * filtered query.
+   */
+  app.get<{ Params: { id: string } }>('/tasks/:id/hierarchy', async (request) => {
+    const { id } = request.params;
+    const signal = requestSignal(request);
+
+    const [catalog, identifiers] = await Promise.all([
+      getCatalog(signal),
+      projectIdentifiers(signal),
+    ]);
+
+    const workPackage = await openProject.request<WorkPackageWithPoints>(
+      `/work_packages/${id}`,
+      { signal },
+    );
+
+    const links = workPackage._links as HalLinks | undefined;
+    const ancestorLinks = Array.isArray(links?.ancestors) ? links.ancestors : [];
+    // Root first, as OpenProject orders them; the breadcrumb reads that way.
+    const ancestorIds = ancestorLinks
+      .map((link) => idFromHref(link.href))
+      .filter((value): value is string => Boolean(value));
+
+    const byId = async (ids: string[]) =>
+      ids.length === 0
+        ? []
+        : (
+            await openProject.getCollection<WorkPackageWithPoints>(
+              '/work_packages',
+              { filters: [{ field: 'id', operator: '=', values: ids }], pageSize: ids.length },
+              signal,
+            )
+          )._embedded?.elements ?? [];
+
+    const [ancestorPackages, childCollection] = await Promise.all([
+      byId(ancestorIds),
+      openProject.getCollection<WorkPackageWithPoints>(
+        '/work_packages',
+        {
+          filters: [{ field: 'parent', operator: '=', values: [id] }],
+          sortBy: [['id', 'asc']],
+          pageSize: 200,
+        },
+        signal,
+      ),
+    ]);
+
+    // A filtered read comes back in the instance's own order, so the ancestor
+    // chain is restored from the link order rather than trusted to survive.
+    const ancestorsById = new Map(ancestorPackages.map((item) => [String(item.id), item]));
+    const ancestors = ancestorIds
+      .map((ancestorId) => ancestorsById.get(ancestorId))
+      .filter((item): item is WorkPackageWithPoints => Boolean(item))
+      .map((item) => toEpmTask(item, catalog, identifiers));
+
+    const children = (childCollection._embedded?.elements ?? []).map((item) =>
+      toEpmTask(item, catalog, identifiers),
+    );
+
+    return { ancestors, children };
   });
 
   app.post<{ Body: Record<string, unknown> }>('/tasks', async (request, reply) => {
@@ -326,6 +417,20 @@ function buildWorkPackageBody(
   if (typeof input.parentId === 'string') {
     links.parent = { href: `/api/v3/work_packages/${input.parentId}` };
   }
+
+  /*
+   * A sprint is an OpenProject version.
+   *
+   * The task composer has always offered the field and `EpmTask` has always
+   * read it back, but nothing here wrote it — so choosing a sprint, or opening
+   * the composer from a sprint board that prefills one, silently produced a
+   * backlog item. Null clears it, as with the assignee.
+   */
+  if (typeof input.sprintId === 'string' && input.sprintId !== '') {
+    if (!/^\d+$/.test(input.sprintId)) throw EpmError.badRequest('That sprint is not valid.');
+    links.version = { href: `/api/v3/versions/${input.sprintId}` };
+  }
+  if (input.sprintId === null) links.version = { href: null };
 
   if (Object.keys(links).length > 0) body._links = links;
   return body;

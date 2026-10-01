@@ -42,6 +42,7 @@ export const adminKeys = {
   news: ['admin', 'news'] as const,
   versions: ['admin', 'versions'] as const,
   usersSettings: ['admin', 'settings', 'users'] as const,
+  enterprise: ['admin', 'enterprise'] as const,
   permissions: ['admin', 'permissions'] as const,
   // Defined in lib/queryKeys.ts with the rest of the app's keys, and re-exposed
   // here so every admin hook still reaches for one object.
@@ -401,6 +402,21 @@ export function useDeletePlaceholderUser() {
 }
 
 // Roles and permissions
+
+/**
+ * Which Enterprise-gated features this instance may use.
+ *
+ * Instance configuration, so cached like the rest of this module. Read before
+ * offering an action that would otherwise be refused after the user has filled
+ * the form in.
+ */
+export function useAdminEnterprise() {
+  return useQuery({
+    queryKey: adminKeys.enterprise,
+    queryFn: () => adminService.getEnterprise(),
+    ...ADMIN_DATA,
+  });
+}
 
 /** The permission catalogue, grouped by module. Changes only with the instance's version. */
 export function useAdminPermissions() {

@@ -4,12 +4,17 @@ import { env } from '../config/env.js';
 import type { ChatTool } from './bedrock.js';
 import type {
   DashboardMetrics,
+  EpmMeeting,
+  EpmNewsPost,
   EpmProject,
   EpmSprint,
   EpmTask,
   EpmUser,
+  EpmWikiPage,
   Paginated,
   TeamMemberWorkload,
+  TimeReport,
+  WikiTreeNode,
 } from '../types/epm.js';
 
 /**
@@ -496,6 +501,321 @@ const listPeople: ToolDefinition = {
   },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Collaboration and time                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** An instant as a sentence can hold it: "Tue 6 Oct 2026, 15:00-16:30 UTC". */
+function meetingWhen(meeting: EpmMeeting): string {
+  const starts = new Date(meeting.startsAt);
+  const ends = new Date(meeting.endsAt);
+  if (Number.isNaN(starts.getTime())) return meeting.startsAt;
+
+  const day = starts.toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+  const clock = (value: Date) =>
+    value.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+
+  // UTC named explicitly. The model has no idea what zone the reader is in, and
+  // a bare "15:00" for a meeting is the one number nobody can afford to misread.
+  return Number.isNaN(ends.getTime())
+    ? `${day}, ${clock(starts)} UTC`
+    : `${day}, ${clock(starts)}-${clock(ends)} UTC`;
+}
+
+function trimMeeting(meeting: EpmMeeting) {
+  return {
+    id: meeting.id,
+    title: meeting.title,
+    when: meetingWhen(meeting),
+    startsAt: meeting.startsAt,
+    durationMinutes: meeting.durationMinutes,
+    state: meeting.state,
+    location: meeting.location || null,
+    // Null, not "Organisation-wide": a string here would be read back as the
+    // name of a project. Absence is the fact, and the model can word it.
+    project: meeting.projectName ?? null,
+    organiser: meeting.createdByName ?? null,
+    invited: meeting.participants.length,
+    // Only meaningful once a meeting has happened. Before that it is zero for
+    // every meeting, which reads as "nobody came" rather than "not yet".
+    attended: meeting.state === 'held' ? meeting.participants.filter((p) => p.attended).length : null,
+    hasAgenda: Boolean(meeting.agenda),
+    hasMinutes: Boolean(meeting.minutes),
+  };
+}
+
+const listMeetings: ToolDefinition = {
+  name: 'list_meetings',
+  description:
+    'Meetings in EPM: what is scheduled, what has already happened, who was invited and whether ' +
+    'minutes exist. Use it for any question about meetings or what is coming up. Defaults to ' +
+    'upcoming. Returns summaries only - call get_meeting for an agenda or minutes.',
+  parameters: {
+    type: 'object',
+    properties: {
+      window: {
+        type: 'string',
+        enum: ['upcoming', 'past', 'all'],
+        description: 'Default upcoming. Past reads most recent first.',
+      },
+      state: { type: 'string', enum: ['planned', 'held', 'cancelled'] },
+      projectId: { type: 'string', description: 'Only meetings for this project.' },
+      participantId: {
+        type: 'string',
+        description: "A user id from list_people. For 'my meetings', pass the caller's own id.",
+      },
+      limit: { type: 'number', description: 'Up to 25. Default 10.' },
+    },
+    additionalProperties: false,
+  },
+  label(args) {
+    const window = str(args.window) ?? 'upcoming';
+    if (window === 'past') return 'Looked up past meetings';
+    if (window === 'all') return 'Looked up meetings';
+    return 'Looked up upcoming meetings';
+  },
+  async execute(context, args) {
+    const limit = limitOf(args.limit, 10);
+    const page = await callApi<Paginated<EpmMeeting>>(context, '/meetings', {
+      window: str(args.window) ?? 'upcoming',
+      state: str(args.state),
+      projectId: str(args.projectId),
+      participantId: str(args.participantId),
+      pageSize: String(limit),
+    });
+
+    return {
+      total: page.total,
+      meetings: page.items.slice(0, limit).map(trimMeeting),
+    };
+  },
+};
+
+const getMeeting: ToolDefinition = {
+  name: 'get_meeting',
+  description:
+    'One meeting in full: its agenda, its minutes once they are written, and who was invited ' +
+    'against who actually attended. Needs an id from list_meetings.',
+  parameters: {
+    type: 'object',
+    properties: { id: { type: 'string', description: 'Meeting id from list_meetings.' } },
+    required: ['id'],
+    additionalProperties: false,
+  },
+  label(args) {
+    const id = str(args.id);
+    return id ? `Opened meeting ${id}` : 'Opened a meeting';
+  },
+  async execute(context, args) {
+    const id = str(args.id);
+    if (!id) throw new ToolError('A meeting id is required.');
+
+    const meeting = await callApi<EpmMeeting>(context, `/meetings/${encodeURIComponent(id)}`);
+    return {
+      ...trimMeeting(meeting),
+      agenda: meeting.agenda || null,
+      minutes: meeting.minutes || null,
+      participants: meeting.participants.map((person) => ({
+        // Absent for anyone the caller cannot read, and left absent rather than
+        // filled with an id the model would read out as if it were a name.
+        name: person.name ?? null,
+        invited: person.invited,
+        attended: person.attended,
+      })),
+    };
+  },
+};
+
+const listNews: ToolDefinition = {
+  name: 'list_news',
+  description:
+    'Announcements posted in EPM, newest first. Use it for "what is the latest news" or any ' +
+    'question about announcements. Drafts are never returned.',
+  parameters: {
+    type: 'object',
+    properties: {
+      projectId: { type: 'string', description: 'Only announcements for this project.' },
+      limit: { type: 'number', description: 'Up to 25. Default 10.' },
+    },
+    additionalProperties: false,
+  },
+  label() {
+    return 'Looked up announcements';
+  },
+  async execute(context, args) {
+    const limit = limitOf(args.limit, 10);
+    const page = await callApi<Paginated<EpmNewsPost>>(context, '/news', {
+      projectId: str(args.projectId),
+      pageSize: String(limit),
+    });
+
+    return {
+      total: page.total,
+      news: page.items.slice(0, limit).map((post) => ({
+        id: post.id,
+        title: post.title,
+        summary: post.summary || null,
+        project: post.projectName ?? null,
+        author: post.authorName ?? null,
+        publishedAt: post.publishedAt ?? null,
+      })),
+    };
+  },
+};
+
+/** The wiki tree nests; searching it does not. */
+function flattenWiki(nodes: WikiTreeNode[]): { slug: string; title: string }[] {
+  const flat: { slug: string; title: string }[] = [];
+  const walk = (list: WikiTreeNode[]) => {
+    for (const node of list) {
+      flat.push({ slug: node.slug, title: node.title });
+      if (node.children?.length) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return flat;
+}
+
+/** How much of a page comes back: enough to answer from, not the whole thing. */
+const WIKI_EXCERPT = 600;
+
+/** Pages whose body is fetched per search. Each one is its own round trip. */
+const WIKI_FETCH_CAP = 3;
+
+const searchWiki: ToolDefinition = {
+  name: 'search_wiki',
+  description:
+    'Searches wiki page titles and returns the start of each page that matches. Use it for ' +
+    '"what does the wiki say about X", process questions and written-down decisions. Only ' +
+    'titles are matched, not body text, so try a short topic word. Full page: /wiki/{slug}.',
+  parameters: {
+    type: 'object',
+    properties: {
+      search: { type: 'string', description: 'Matched against page titles.' },
+      projectId: {
+        type: 'string',
+        description: "Omit for the organisation wiki; pass a project id for that project's.",
+      },
+    },
+    additionalProperties: false,
+  },
+  label(args) {
+    const search = str(args.search);
+    return search ? `Searched the wiki for ${quote(search)}` : 'Looked up the wiki';
+  },
+  async execute(context, args) {
+    const projectId = str(args.projectId);
+    const tree = await callApi<WikiTreeNode[]>(context, '/wiki/tree', { projectId });
+    const pages = flattenWiki(tree);
+
+    const search = str(args.search)?.toLowerCase();
+    const matching = search ? pages.filter((p) => p.title.toLowerCase().includes(search)) : pages;
+
+    // Nothing matched: the titles that do exist are more use than an empty
+    // answer, because the model can suggest the nearest one.
+    if (matching.length === 0) {
+      return { matches: 0, pages: [], availableTitles: pages.slice(0, ROW_CAP).map((p) => p.title) };
+    }
+
+    // Bodies for the first few only. The tree already carries every title, so a
+    // broad match still answers "which pages exist" without fetching them all.
+    const fetched = await Promise.all(
+      matching.slice(0, WIKI_FETCH_CAP).map(async (page) => {
+        const full = await callApi<EpmWikiPage>(context, '/wiki/page', {
+          slug: page.slug,
+          projectId,
+        }).catch(() => undefined);
+        const body = full?.body ?? '';
+        return {
+          slug: page.slug,
+          title: page.title,
+          excerpt: body.length > WIKI_EXCERPT ? `${body.slice(0, WIKI_EXCERPT)}...` : body || null,
+          updatedBy: full?.updatedByName ?? null,
+        };
+      }),
+    );
+
+    return {
+      matches: matching.length,
+      pages: fetched,
+      otherTitles: matching.slice(WIKI_FETCH_CAP, ROW_CAP).map((p) => p.title),
+    };
+  },
+};
+
+const timeSummary: ToolDefinition = {
+  name: 'time_summary',
+  description:
+    'Hours logged over a date range, grouped, with what they cost. Use it for "how much time ' +
+    'went on X", "what have we spent", timesheet and cost questions. Cost is partial by design: ' +
+    'hours belonging to somebody with no hourly rate count as hours but are left out of the ' +
+    'money, and the result says how many those were. Report that gap rather than hiding it.',
+  parameters: {
+    type: 'object',
+    properties: {
+      from: { type: 'string', description: 'Start date, YYYY-MM-DD. Required.' },
+      to: { type: 'string', description: 'End date, YYYY-MM-DD. Required.' },
+      groupBy: {
+        type: 'string',
+        enum: ['project', 'user', 'activity', 'workPackage', 'week', 'day'],
+        description: 'Default project.',
+      },
+      projectId: { type: 'string' },
+      userId: { type: 'string', description: 'A user id from list_people.' },
+    },
+    required: ['from', 'to'],
+    additionalProperties: false,
+  },
+  label(args) {
+    const from = str(args.from);
+    const to = str(args.to);
+    const by = str(args.groupBy) ?? 'project';
+    return from && to ? `Summed logged time ${from} to ${to} by ${by}` : 'Summed logged time';
+  },
+  async execute(context, args) {
+    const from = str(args.from);
+    const to = str(args.to);
+    if (!from || !to) throw new ToolError('A from and a to date are both required, as YYYY-MM-DD.');
+
+    const report = await callApi<TimeReport>(context, '/time-entries/report', {
+      from,
+      to,
+      groupBy: str(args.groupBy) ?? 'project',
+      projectId: str(args.projectId),
+      userId: str(args.userId),
+    });
+
+    return {
+      from: report.from,
+      to: report.to,
+      groupedBy: report.groupBy,
+      totalHours: report.totalHours,
+      // Null rather than 0 when nothing in range was costed, matching the API:
+      // zero is a real cost, and "nobody has a rate" is not zero.
+      totalCost: report.totalCost ?? null,
+      currency: report.currency,
+      hoursWithoutRate: report.hoursWithoutRate,
+      // The range held more entries than one report may read, so every figure
+      // here is a floor. Carried through because a partial total presented as a
+      // whole one is worse than no total at all.
+      truncated: report.truncated,
+      rows: report.rows.slice(0, ROW_CAP).map((row) => ({
+        label: row.label,
+        hours: row.hours,
+        entries: row.entries,
+        cost: row.cost ?? null,
+        hoursWithoutRate: row.hoursWithoutRate,
+      })),
+    };
+  },
+};
+
 export const TOOLS: readonly ToolDefinition[] = [
   listTasks,
   getProject,
@@ -504,6 +824,11 @@ export const TOOLS: readonly ToolDefinition[] = [
   getSprint,
   dashboardMetrics,
   listPeople,
+  listMeetings,
+  getMeeting,
+  listNews,
+  searchWiki,
+  timeSummary,
 ];
 
 const byName = new Map(TOOLS.map((tool) => [tool.name, tool]));

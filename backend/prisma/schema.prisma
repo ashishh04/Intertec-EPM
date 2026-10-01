@@ -22,6 +22,47 @@ datasource db {
 }
 
 /// Per-user attributes with no OpenProject column, and where a person sits in
+/// A named stand-in for someone who does not have an account yet.
+///
+/// EPM's own record, not OpenProject's. Upstream has placeholder users too, but
+/// creating one needs an Enterprise licence, so on a Community instance the
+/// feature simply does not exist — and a planner still has to be able to say
+/// "a second backend engineer, starting in March" before that person is hired.
+///
+/// What it can do is bounded by what EPM owns, and the boundary is real: a
+/// placeholder belongs to a team and a department and carries weekly capacity,
+/// so headcount that is planned but not yet filled shows up in team workload
+/// and portfolio capacity. It cannot be a work package assignee — OpenProject
+/// requires a principal it knows for that, which is the part the licence gates.
+/// `convert` is the way out: it creates the real account and carries the team,
+/// department and capacity across.
+model PlaceholderPerson {
+  id            String      @id @default(cuid())
+  /// Unique regardless of case, enforced by a functional index on LOWER(name)
+  /// in the migration. `@unique` is deliberately absent, as on Team and
+  /// Department, so the plain index is not recreated alongside it.
+  name          String
+  /// Free text: "Backend engineer, Q2 start". What this placeholder is for.
+  note          String?
+  departmentId  String?
+  departmentRef Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  teamId        String?
+  team          Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  /// Weekly capacity in hours, matching UserProfile so the two sum together.
+  hoursCapacity Float       @default(40)
+  /// Set when the placeholder has been turned into a real account, with the
+  /// OpenProject id it became. Kept rather than deleted so the planning history
+  /// still resolves, and excluded from the active list.
+  convertedTo   String?
+  convertedAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([departmentId])
+  @@index([teamId])
+  @@map("placeholder_people")
+}
+
 /// EPM's org structure.
 ///
 /// This is the EPM-side employee record. It is keyed by the OpenProject user id
@@ -43,6 +84,14 @@ model UserProfile {
   team          Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// Weekly capacity in hours, backing TeamMemberWorkload.hoursCapacity.
   hoursCapacity Float    @default(40)
+  /// Internal cost of an hour of this person's time, in the instance currency.
+  ///
+  /// EPM's own field. OpenProject keeps hourly rates in its costs module, which
+  /// publishes no API v3 resource for them — there is nothing to read and
+  /// nothing to write — so the Time & Costs report has no cost figure at all
+  /// without this. Nullable on purpose: "not costed" is a real state, and the
+  /// report says how many hours it applies to rather than treating them as free.
+  hourlyRate    Float?
   /// Set when an administrator created this account with a starting password
   /// they chose. Cleared the moment the person sets their own.
   ///
@@ -222,6 +271,7 @@ model Department {
   updatedAt   DateTime @updatedAt
 
   teams       Team[]
+  placeholders PlaceholderPerson[]
   members     UserProfile[]
 
   /// The list route filters on this by default.
@@ -255,6 +305,7 @@ model Team {
   updatedAt    DateTime    @updatedAt
 
   members      UserProfile[]
+  placeholders PlaceholderPerson[]
 
   @@index([departmentId])
   @@index([active])
@@ -428,4 +479,141 @@ model AssistantMessage {
 
   @@index([conversationId, createdAt])
   @@map("assistant_messages")
+}
+
+/// -------------------------------------------------------------------------
+/// Collaboration
+/// -------------------------------------------------------------------------
+///
+/// Meetings, news and wiki pages. All three exist in OpenProject and none of
+/// them is reachable: its meetings, news and wiki modules are HTML controllers
+/// with no API v3 resource behind them, so there is nothing to read, nothing to
+/// write, and no id to overlay. That makes these EPM's own records outright —
+/// the only tables here that own their content rather than annotating something
+/// upstream.
+///
+/// `projectId` is an OpenProject project id, or null for an organisation-wide
+/// record. Deliberately not a foreign key, for the same reason nothing else
+/// here is: OpenProject owns projects, and copying them in to satisfy a
+/// constraint would make this database a second, staler directory of them.
+
+/// A scheduled meeting, with its agenda and, afterwards, its minutes.
+model Meeting {
+  id        String  @id @default(cuid())
+  title     String
+  /// Null for an organisation-wide meeting.
+  projectId String?
+  location  String?
+  /// Start instant. A meeting happens at a moment, unlike a work package, which
+  /// falls on a day — so this is a timestamp rather than a date.
+  startsAt  DateTime
+  /// Length in minutes, not an end instant: a meeting is scheduled as "Tuesday
+  /// at ten for an hour", and storing the end would make the duration derived
+  /// from two values that can be edited apart.
+  durationMinutes Int @default(60)
+  /// Markdown. The agenda is written before, the minutes after; both are on the
+  /// meeting rather than in separate records because neither is useful alone.
+  agenda    String?
+  minutes   String?
+  /// planned | held | cancelled. A string rather than an enum, matching how
+  /// every other status in this database is stored — a new state must not need a
+  /// migration.
+  state     String  @default("planned")
+  /// OpenProject user id of whoever scheduled it.
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants MeetingParticipant[]
+
+  @@index([projectId])
+  @@index([startsAt])
+  @@map("meetings")
+}
+
+/// Somebody invited to a meeting, and whether they turned up.
+model MeetingParticipant {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  /// OpenProject user id. Names resolve through the cached directory at read time.
+  userId    String
+  /// Invited and attended are independent: somebody can attend without being
+  /// invited, and the minutes have to be able to say so.
+  invited   Boolean @default(true)
+  attended  Boolean @default(false)
+
+  @@unique([meetingId, userId])
+  @@index([userId])
+  @@map("meeting_participants")
+}
+
+/// An announcement, for a project or for the organisation.
+model NewsPost {
+  id        String  @id @default(cuid())
+  title     String
+  /// One-line standfirst shown in the list. Optional: a short post is its own summary.
+  summary   String?
+  /// Markdown.
+  body      String
+  projectId String?
+  authorId  String
+  /// Null while it is a draft. Publishing is what makes it visible to anybody
+  /// but its author, so this is the state rather than a separate flag.
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([publishedAt])
+  @@map("news_posts")
+}
+
+/// A wiki page, in a tree, with every past version kept.
+model WikiPage {
+  id        String  @id @default(cuid())
+  /// URL-safe, and unique within its project — enforced by two partial indexes
+  /// in the migration, because Postgres treats NULLs as distinct and a plain
+  /// unique on (projectId, slug) would therefore not constrain the
+  /// organisation-wide pages at all.
+  slug      String
+  title     String
+  /// Markdown.
+  body      String
+  projectId String?
+  /// Parent page, for the navigation tree. Cleared rather than cascaded when a
+  /// parent is deleted: losing a section should not silently delete everything
+  /// written under it.
+  parentId  String?
+  parent    WikiPage?  @relation("WikiTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  WikiPage[] @relation("WikiTree")
+  /// Who saved the current version.
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  revisions WikiRevision[]
+
+  @@index([projectId])
+  @@index([parentId])
+  @@map("wiki_pages")
+}
+
+/// One saved version of a wiki page.
+///
+/// Written before each edit, holding what the page said *before* it — so the
+/// newest revision is the previous version and the page itself is current. That
+/// is what makes "restore" a plain copy rather than an arithmetic replay.
+model WikiRevision {
+  id        String   @id @default(cuid())
+  pageId    String
+  page      WikiPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  /// Who made the edit that produced this snapshot of the previous text.
+  authorId  String
+  createdAt DateTime @default(now())
+
+  @@index([pageId, createdAt])
+  @@map("wiki_revisions")
 }

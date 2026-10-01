@@ -1,9 +1,12 @@
 import type { FastifyBaseLogger } from 'fastify';
 
 import { env } from '../config/env.js';
+import { prisma } from '../db/prisma.js';
 import { enqueueEmail } from '../email/outbox.js';
+import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
 import type { DueItem } from '../email/templates/task-due.js';
+import { addDays, localDayAndHour, today, weekdayOf } from '../lib/dates.js';
 import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpWorkPackage } from '../openproject/types.js';
 
@@ -14,6 +17,14 @@ import type { OpWorkPackage } from '../openproject/types.js';
  * is late or nearly late is small compared with the number of people who might
  * own some of it, and asking once keeps this to a single upstream read however
  * many staff there are.
+ *
+ * *When* each person hears about it is theirs, though. The sweep runs hourly and
+ * asks, per recipient, whether this is the hour they chose, in their timezone, on
+ * a weekday they chose. A single server-wide hour cannot be right for a
+ * workforce spread across zones: 07:00 UTC is a reasonable prompt in London and
+ * the middle of the night in Sydney. `EPM_DUE_REMINDER_HOUR_UTC` stays the
+ * default for anyone who has not chosen, and is then read in their zone — so it
+ * still means a sensible local morning rather than one fixed instant.
  *
  * Like the analytics scheduler, it runs **outside any request**, which is how
  * it authenticates — the OpenProject client falls back to the configured
@@ -27,7 +38,7 @@ import type { OpWorkPackage } from '../openproject/types.js';
 
 /** How long after startup the first sweep may run. */
 const FIRST_RUN_DELAY_MS = 60_000;
-/** The timer ticks hourly; the sweep itself only acts in its configured hour. */
+/** The timer ticks hourly; each recipient is only mailed in their own hour. */
 const TICK_MS = 60 * 60_000;
 
 export interface DueReminderScheduler {
@@ -45,16 +56,6 @@ export interface DueReminderOptions {
   tickMs?: number;
   firstRunDelayMs?: number;
   timeoutMs?: number;
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function addDays(day: string, days: number): string {
-  const date = new Date(`${day}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
 
 /**
@@ -103,24 +104,48 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
   let firstRun: NodeJS.Timeout | undefined;
   let started = false;
   let running = false;
-  /** The day a sweep last completed, so an hourly tick acts once. */
-  let lastSweptDay = '';
+
+  /**
+   * Whether anybody at all could be due a reminder.
+   *
+   * The sweep is hourly now, and its upstream read is the expensive part. This
+   * asks the cheap question first — one local query over the stored preference
+   * rows — so an instance where everyone has turned deadline email off costs a
+   * database round trip each hour instead of walking every open work package.
+   *
+   * It deliberately does not try to narrow by hour. Zones run from UTC-12 to
+   * UTC+14, so during any given hour every possible local hour is the current
+   * hour somewhere, and a filter on that would rule out nothing while looking
+   * like it did.
+   */
+  async function anybodyExpectsAReminder(): Promise<boolean> {
+    const rows = await prisma.userPreference.findMany({ select: { data: true } }).catch(() => null);
+
+    // Unable to ask: sweep anyway. A missed reminder is worse than a wasted read.
+    if (rows === null) return true;
+
+    // Anyone with no row is on the defaults, and the defaults have reminders on.
+    // An empty table therefore means everybody wants one. Only an instance where
+    // every person has a row and every row opts out is quiet.
+    if (rows.length === 0) return true;
+
+    return rows.some((row) => {
+      const email = (row.data as { email?: { enabled?: unknown; dueReminders?: unknown } }).email;
+      return email?.enabled !== false && email?.dueReminders !== false;
+    });
+  }
 
   async function tick(force = false): Promise<number> {
-    const day = today();
-
-    if (!force) {
-      if (new Date().getUTCHours() !== env.EPM_DUE_REMINDER_HOUR_UTC) return 0;
-      if (lastSweptDay === day) return 0;
-    }
-
     if (running) {
       log.warn('Due reminder sweep skipped: the previous one is still running');
       return 0;
     }
 
+    if (!force && !(await anybodyExpectsAReminder())) return 0;
+
     running = true;
     const startedAt = Date.now();
+    const day = today();
 
     try {
       const workPackages = await load(AbortSignal.timeout(timeoutMs));
@@ -144,11 +169,45 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
       }
 
       let queued = 0;
+      /** Recipients whose reminder hour simply is not now. Logged, not a problem. */
+      let waiting = 0;
+
       for (const [assigneeId, items] of byAssignee) {
+        /*
+         * The clock check comes first, and cheapest-first within it.
+         *
+         * Both of these are local reads; `resolveRecipient` below is an upstream
+         * HTTP call. Since the sweep now runs every hour, all but one tick in
+         * twenty-four ends here for any given person — so doing the expensive
+         * lookup before the check would mean twenty-four times the upstream
+         * traffic to send exactly the same mail.
+         *
+         * `force` skips the clock entirely, which is the manual and test path: a
+         * sweep can then be exercised without waiting for the right hour.
+         */
+        const [preferences, zone] = await Promise.all([
+          getPreferences(assigneeId).catch(() => undefined),
+          timezoneOf(assigneeId),
+        ]);
+        if (!preferences) continue;
+
+        const local = localDayAndHour(zone);
+
+        if (!force) {
+          if (local.hour !== preferences.email.reminderHour) {
+            waiting += 1;
+            continue;
+          }
+          if (!preferences.email.reminderDays.includes(weekdayOf(local.day))) continue;
+        }
+
         const recipient = await resolveRecipient(assigneeId).catch(() => undefined);
         if (!recipient) continue;
 
         // Soonest first within each group, which is the order they need doing.
+        // Overdue is judged against the server's day rather than theirs: a due
+        // date is a plain calendar day on the work package, so whether it has
+        // passed is a fact about the work, not about who is reading.
         const overdue = items.filter((item) => item.dueDate < day).sort(byDueDate);
         const soon = items.filter((item) => item.dueDate >= day).sort(byDueDate);
         if (overdue.length === 0 && soon.length === 0) continue;
@@ -163,18 +222,23 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
             url: `${env.APP_BASE_URL}/my-work`,
           },
           channel: 'immediate',
-          // Once a day per person. A second sweep on the same day is a no-op
-          // rather than a second email.
-          dedupeKey: `due:${assigneeId}:${day}`,
+          /*
+           * Once per person per *local* day.
+           *
+           * Keyed on the recipient's own date rather than the server's, which is
+           * what makes "once a day" mean once a day to them. With a server date,
+           * somebody in Auckland would be mailed twice on the UTC day that
+           * straddles two of theirs, and skipped on the next.
+           */
+          dedupeKey: `due:${assigneeId}:${local.day}`,
           gate: 'dueReminders',
         });
 
         if (outcome === 'queued') queued += 1;
       }
 
-      lastSweptDay = day;
       log.info(
-        { day, people: byAssignee.size, queued, ms: Date.now() - startedAt },
+        { day, people: byAssignee.size, queued, waiting, ms: Date.now() - startedAt },
         'Due reminder sweep finished',
       );
       return queued;
@@ -190,6 +254,25 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
     return a.dueDate.localeCompare(b.dueDate);
   }
 
+  /**
+   * A person's timezone, as EPM knows it.
+   *
+   * OpenProject holds the authoritative value in `/users/me/preferences`, which
+   * only that person can read — so it is useless to a scheduler running as the
+   * service. EPM mirrors it into `UserProfile.timezone` whenever somebody saves
+   * their profile, and that mirror is what this reads.
+   *
+   * Unknown falls back to UTC inside `localDayAndHour`, which applies the
+   * configured hour as a UTC hour — exactly the old behaviour, and the right
+   * answer for somebody who has never told us where they are.
+   */
+  async function timezoneOf(userId: string): Promise<string | undefined> {
+    const profile = await prisma.userProfile
+      .findUnique({ where: { openProjectId: userId }, select: { timezone: true } })
+      .catch(() => null);
+    return profile?.timezone ?? undefined;
+  }
+
   return {
     start() {
       if (started) {
@@ -200,7 +283,11 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
       firstRun = setTimeout(() => void tick(), firstRunDelayMs);
       timer = setInterval(() => void tick(), tickMs);
       log.info(
-        { hourUtc: env.EPM_DUE_REMINDER_HOUR_UTC, days: env.EPM_DUE_REMINDER_DAYS },
+        {
+          defaultHour: env.EPM_DUE_REMINDER_HOUR_UTC,
+          horizonDays: env.EPM_DUE_REMINDER_DAYS,
+          tickMs,
+        },
         'Due reminder scheduler started',
       );
     },

@@ -103,6 +103,12 @@ export interface QueryOverrides {
   offset?: number;
   pageSize?: number;
   showSums?: boolean;
+  /**
+   * Return the page as a tree: parents before children, with any ancestor
+   * needed to reach a matching row pulled in even when it does not match the
+   * filter itself.
+   */
+  showHierarchies?: boolean;
 }
 
 /** Serializes filter instances into the JSON OpenProject expects. */

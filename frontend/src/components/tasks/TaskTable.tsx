@@ -110,6 +110,33 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
 /** Figures are right-aligned so the digits line up down the column. */
 const NUMERIC_COLUMNS = new Set<ColumnKey>(['estimate', 'spent', 'progress', 'storyPoints']);
 
+/**
+ * How deep each row sits, counted only through parents present on this page.
+ *
+ * A page is a window on the tree, so a child whose parent was not returned is
+ * a root here — indenting it under an ancestor that is not on screen would
+ * claim a structure the reader cannot see. Asking upstream for hierarchy mode
+ * is what keeps those parents in the page; this only measures what arrived.
+ *
+ * The walk is bounded by the row count, so a cycle in the data cannot hang it.
+ */
+function hierarchyDepths(tasks: EpmTask[]): Map<ID, number> {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const depths = new Map<ID, number>();
+
+  for (const task of tasks) {
+    let depth = 0;
+    let parentId = task.parentId;
+    while (parentId && byId.has(parentId) && depth < tasks.length) {
+      depth += 1;
+      parentId = byId.get(parentId)?.parentId;
+    }
+    depths.set(task.id, depth);
+  }
+
+  return depths;
+}
+
 export interface TaskTableProps {
   tasks: EpmTask[];
   projects: Map<ID, EpmProject>;
@@ -148,6 +175,14 @@ export interface TaskTableProps {
    */
   columns?: string[];
   emptyAction?: { label: string; onClick: () => void };
+  /**
+   * Indent rows under a parent that is also on this page.
+   *
+   * Paired with the query's own hierarchy mode, which is what puts those
+   * parents there. Off means a flat list, which is what grouping and a sorted
+   * view want — a tree and a sort order are different claims about the rows.
+   */
+  showHierarchy?: boolean;
 }
 
 /**
@@ -170,6 +205,7 @@ export function TaskTable({
   onBulkDelete,
   onExport,
   hideProjectColumn = false,
+  showHierarchy = false,
   columns: controlledColumns,
   sortable,
   groups,
@@ -196,6 +232,11 @@ export function TaskTable({
       (column) => visibleColumns.includes(column) && !(hideProjectColumn && column === 'project'),
     );
   }, [controlledColumns, visibleColumns, hideProjectColumn]);
+
+  const depths = useMemo(
+    () => (showHierarchy ? hierarchyDepths(tasks) : new Map<ID, number>()),
+    [showHierarchy, tasks],
+  );
 
   /**
    * The body's rows: either a flat list, or group headers interleaved with the
@@ -502,6 +543,7 @@ export function TaskTable({
               const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
               const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
               const isSelected = selected.has(task.id);
+              const depth = showHierarchy ? (depths.get(task.id) ?? 0) : 0;
 
               return (
                 <TableRow key={task.id} data-state={isSelected ? 'selected' : undefined}>
@@ -518,12 +560,23 @@ export function TaskTable({
                       {column === 'key' ? (
                         <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
                       ) : column === 'subject' ? (
-                        <Link
-                          to={`/tasks/${task.id}`}
-                          className="font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
-                        >
-                          {task.subject}
-                        </Link>
+                        <span className="flex min-w-0 items-center">
+                          {/* One rule per level, so the depth is countable
+                              rather than guessed at from the offset. */}
+                          {Array.from({ length: depth }, (_, level) => (
+                            <span
+                              key={level}
+                              aria-hidden
+                              className="mr-2 h-4 w-3 shrink-0 border-l border-border"
+                            />
+                          ))}
+                          <Link
+                            to={`/tasks/${task.id}`}
+                            className="truncate font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
+                          >
+                            {task.subject}
+                          </Link>
+                        </span>
                       ) : column === 'project' ? (
                         <span className="text-muted-foreground">{project?.name ?? '—'}</span>
                       ) : column === 'type' ? (

@@ -110,6 +110,28 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
         body: { timeZone: timezone },
         signal: requestSignal(request),
       });
+
+      /*
+       * Mirrored into EPM's own profile row, after upstream accepted it.
+       *
+       * Not a second source of truth — reads still prefer the instance — but a
+       * copy the *server* can reach. `/users/me/preferences` is only readable by
+       * the person it belongs to, so a background job has no way to ask where
+       * anybody is, and the deadline reminder has to know: it decides, per
+       * recipient, whether the hour they chose has arrived where they are.
+       *
+       * Written after the upstream call on purpose, so a value the instance
+       * rejects never reaches this column. Failure here is swallowed: the
+       * person's timezone is saved either way, and the worst case is a reminder
+       * that falls back to UTC for them.
+       */
+      await prisma.userProfile
+        .upsert({
+          where: { openProjectId: userId },
+          create: { openProjectId: userId, timezone },
+          update: { timezone },
+        })
+        .catch(() => undefined);
     }
 
     // Both the directory listing and this person's own record are cached.

@@ -14,6 +14,7 @@ import { describeEmailProvider, useEmailLogger } from './email/index.js';
 import { useAppLogger } from './lib/log.js';
 import { disconnectPrisma, prismaReady } from './db/prisma.js';
 import { EpmError } from './lib/errors.js';
+import { forgetPermissions } from './auth/capabilities.js';
 import { registerAuth } from './auth/hook.js';
 import { SESSION_COOKIE } from './auth/oauth.js';
 import { registerRequestSignal } from './lib/request-signal.js';
@@ -218,6 +219,13 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (request.method === 'GET' || request.method === 'HEAD') return;
     if (reply.statusCode >= 400) return;
     aggregateCache.clear();
+
+    // The caller's permissions go with them. Creating a project grants the
+    // creator rights on it, and those are cached for a minute — long enough
+    // that the new project's buttons would stay disabled with no explanation.
+    // Only this caller's entry: a write by one person does not change anybody
+    // else's permissions except through membership, which the TTL covers.
+    if (request.auth) forgetPermissions(request.auth.userId);
   });
 
   await app.register(registerRoutes, { prefix: env.API_PREFIX });

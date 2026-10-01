@@ -132,6 +132,14 @@ const schema = z.object({
     .string()
     .optional()
     .transform((value) => value === 'true'),
+  /*
+   * The default hour a deadline reminder goes out, 0-23.
+   *
+   * Still named UTC because that is what it means for anybody whose timezone
+   * EPM does not know: the sweep falls back to UTC then. For everyone else it is
+   * read in their own zone, and each person can override it in Settings — so
+   * this is the instance default rather than a global instant.
+   */
   EPM_DUE_REMINDER_HOUR_UTC: z.preprocess(
     (value) => (value === undefined || value === '' ? undefined : value),
     z.coerce.number().int().min(0).max(23).default(7),
@@ -145,6 +153,20 @@ const schema = z.object({
 
   // Shared secret OpenProject signs webhook deliveries with.
   OPENPROJECT_WEBHOOK_SECRET: z.string().optional(),
+
+  /*
+   * The currency internal hourly rates are quoted in.
+   *
+   * Configuration rather than a read from upstream: OpenProject keeps
+   * `costs_currency` in its costs module and publishes no API v3 resource for
+   * it, so there is nothing to ask. An ISO 4217 code, because the frontend
+   * formats it with `Intl.NumberFormat` and that is what it accepts.
+   */
+  EPM_CURRENCY: z
+    .string()
+    .default('AED')
+    .refine((value) => /^[A-Za-z]{3}$/.test(value), 'EPM_CURRENCY must be a three-letter ISO 4217 code.')
+    .transform((value) => value.toUpperCase()),
 
   // --- Assistant ------------------------------------------------------------
   // Claude in Amazon Bedrock. A region and a model are needed for Pragnya to

@@ -1,11 +1,17 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import { prisma } from '../db/prisma.js';
+import { getPreferences } from '../email/preferences.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, linkId } from '../openproject/client.js';
 import type { OpNotification } from '../openproject/types.js';
-import type { EpmNotification, NotificationCategory } from '../types/epm.js';
+import type {
+  EpmNotification,
+  NotificationCategory,
+  NotificationReason,
+  UserPreferences,
+} from '../types/epm.js';
 
 /**
  * Notifications, from two places.
@@ -40,6 +46,86 @@ const CATEGORY_BY_REASON: Record<string, NotificationCategory> = {
   shared: 'system',
 };
 
+/**
+ * Which notification switch governs each upstream reason.
+ *
+ * Separate from `CATEGORY_BY_REASON` on purpose: that map decides how an item is
+ * *displayed*, and several reasons share one display category while being
+ * different things to opt out of. "Someone mentioned you" and "a date you watch
+ * is approaching" both want their own switch; both being `deadline` or both
+ * being `project_update` on screen does not change that.
+ *
+ * A reason with no entry here is always shown. That is the safe direction for
+ * something that arrives from upstream: a reason added by an OpenProject upgrade
+ * appears until EPM is taught what switch it belongs under, rather than being
+ * silently swallowed by a preference nobody set.
+ */
+const SWITCH_BY_REASON: Record<string, keyof UserPreferences['notifications']> = {
+  mentioned: 'mentions',
+  assigned: 'assigned',
+  // Accountable is a different relationship from assigned — one person does the
+  // work, another answers for it — and OpenProject models it separately, so it
+  // gets its own switch rather than riding on assignment.
+  responsible: 'accountable',
+  watched: 'watcher',
+  shared: 'shared',
+  created: 'participating',
+  commented: 'participating',
+  processed: 'participating',
+  prioritized: 'participating',
+  scheduled: 'dateAlerts',
+  dateAlert: 'dateAlerts',
+  dateAlertStartDate: 'dateAlerts',
+  dateAlertDueDate: 'dateAlerts',
+  // An explicit reminder somebody set, which is what the deadline-reminder
+  // switch means. Distinct from a date alert: that fires off a field on the work
+  // package, this off a reminder a person asked for.
+  reminder: 'dueReminders',
+};
+
+/**
+ * The reason EPM reports for each upstream reason.
+ *
+ * A narrowing rather than a rename: OpenProject distinguishes three flavours of
+ * date alert and several kinds of "something about this changed", and a reader
+ * filtering their feed does not. What survives is the set of relationships people
+ * actually think in — mentioned, assigned, accountable, watching, dates,
+ * reminders, shared — which is also the set the switches are written against, so
+ * the filter chips and the settings cannot disagree.
+ */
+const REASON_BY_UPSTREAM: Record<string, NotificationReason> = {
+  mentioned: 'mentioned',
+  assigned: 'assignee',
+  responsible: 'accountable',
+  watched: 'watcher',
+  shared: 'shared',
+  commented: 'commented',
+  created: 'commented',
+  processed: 'commented',
+  prioritized: 'commented',
+  scheduled: 'dateAlert',
+  dateAlert: 'dateAlert',
+  dateAlertStartDate: 'dateAlert',
+  dateAlertDueDate: 'dateAlert',
+  reminder: 'reminder',
+};
+
+/**
+ * Whether a switch is on, for the switches that are plain booleans.
+ *
+ * `pause` is an object in the same record, so the lookup is narrowed rather
+ * than cast: a non-boolean switch means "not something this gates", which is
+ * the always-show answer.
+ */
+function switchedOn(
+  preferences: UserPreferences,
+  key: keyof UserPreferences['notifications'] | undefined,
+): boolean {
+  if (!key) return true;
+  const value = preferences.notifications[key];
+  return typeof value === 'boolean' ? value : true;
+}
+
 /** Marks an id as EPM's, so the two sources stay distinguishable. */
 const EPM_PREFIX = 'epm:';
 
@@ -51,7 +137,7 @@ export const notificationRoutes: FastifyPluginAsync = async (app) => {
     const signal = requestSignal(request);
     const recipientId = request.auth?.userId ?? '';
 
-    const [upstream, own] = await Promise.all([
+    const [upstream, own, preferences] = await Promise.all([
       openProject
         .getAll<OpNotification>('/notifications', { pageSize: 100 }, { signal })
         .catch(() => ({ items: [] as OpNotification[] })),
@@ -63,6 +149,12 @@ export const notificationRoutes: FastifyPluginAsync = async (app) => {
           take: 100,
         })
         .catch(() => []),
+      // The feed is where the notification switches finally take effect. They
+      // cannot be applied at the source — OpenProject creates its own
+      // notifications and has no idea what EPM's settings say — so the filter
+      // is here, on the read. An item someone turned off is therefore not
+      // destroyed, and turning the switch back on reveals it again.
+      getPreferences(recipientId),
     ]);
 
     const fromUpstream = upstream.items.map((notification): EpmNotification => {
@@ -75,6 +167,10 @@ export const notificationRoutes: FastifyPluginAsync = async (app) => {
       return {
         id: String(notification.id),
         category: CATEGORY_BY_REASON[notification.reason] ?? 'system',
+        // An unmapped upstream reason reports as `reminder` rather than being
+        // dropped: it is a real notification, and the feed showing it under a
+        // slightly broad heading beats the feed not showing it.
+        reason: REASON_BY_UPSTREAM[notification.reason] ?? 'reminder',
         title: notification.subject ?? 'Notification',
         body: notification.message?.raw ?? '',
         actorId: linkId(notification._links, 'actor'),
@@ -89,6 +185,9 @@ export const notificationRoutes: FastifyPluginAsync = async (app) => {
       (notification): EpmNotification => ({
         id: `${EPM_PREFIX}${notification.id}`,
         category: notification.category as NotificationCategory,
+        // EPM's own: health transitions, capacity changes, capture failures.
+        // None of them has an upstream reason, and none is about a work package.
+        reason: 'epm',
         title: notification.title,
         body: notification.body,
         // An EPM route. Never an OpenProject URL — that is what `link` exists
@@ -100,7 +199,16 @@ export const notificationRoutes: FastifyPluginAsync = async (app) => {
       }),
     );
 
-    return [...fromEpm, ...fromUpstream].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+    const wanted = upstream.items
+      .map((notification, index) => ({ notification, mapped: fromUpstream[index]! }))
+      .filter(({ notification }) => switchedOn(preferences, SWITCH_BY_REASON[notification.reason]))
+      .map(({ mapped }) => mapped);
+
+    // EPM's own are all project and staffing changes, which is what
+    // `statusChanges` covers; there is no upstream reason to key them off.
+    const ownWanted = preferences.notifications.statusChanges ? fromEpm : [];
+
+    return [...ownWanted, ...wanted].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   });
 
   app.patch<{ Body: { ids?: string[] } }>('/notifications/read', async (request, reply) => {

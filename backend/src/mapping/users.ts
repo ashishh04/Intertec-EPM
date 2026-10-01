@@ -66,12 +66,28 @@ export function toEpmUser(
     // whether someone is online, so it is not reported as presence.
     status: 'offline',
     timezone: options.timezone ?? options.overlay?.timezone ?? '',
+    // Only ever on the person's own record: `/principals` does not publish it,
+    // so this is empty for everybody in the directory listing — which is right,
+    // because nothing shows another person's language.
+    language: principal.language ?? '',
     accent: accentFor(id),
   };
 }
 
-/** Project roles per user, derived from memberships. */
-async function loadRoles(signal?: AbortSignal): Promise<Map<string, string>> {
+/**
+ * Project roles per user, derived from memberships.
+ *
+ * Cached, because it walks the whole membership collection and is needed by both
+ * the directory and the signed-in person's own record — so it was being fetched
+ * twice over on pages that show both, and once more on every subsequent request.
+ * Keyed under `users`, so the invalidation the profile write already performs
+ * clears it along with everything else derived from the directory.
+ */
+function loadRoles(signal?: AbortSignal): Promise<Map<string, string>> {
+  return referenceCache.get(userScopedKey('users:roles'), () => readRoles(signal), 5 * 60_000);
+}
+
+async function readRoles(signal?: AbortSignal): Promise<Map<string, string>> {
   const memberships = await openProject.getAll<OpMembership>(
     '/memberships',
     { pageSize: MAX_PAGE_SIZE },
@@ -136,7 +152,20 @@ async function myPreferences(signal?: AbortSignal): Promise<{ timeZone?: string 
     .catch(() => ({}));
 }
 
-export async function getCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
+/**
+ * The signed-in person's own record.
+ *
+ * Cached for a minute. This is four upstream calls — the account, its
+ * preferences, the EPM overlay and the membership walk — and it was being made
+ * afresh on every request that needed to know who is asking, which is most of
+ * them. Under the `users` prefix, so saving a profile clears it immediately and
+ * the person sees their own change rather than waiting out the TTL.
+ */
+export function getCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
+  return referenceCache.get(userScopedKey('users:me'), () => readCurrentUser(signal), 60_000);
+}
+
+async function readCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
   const [me, preferences] = await Promise.all([
     openProject.request<OpPrincipal>('/users/me', { signal }),
     myPreferences(signal),

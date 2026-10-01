@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { notifyCommentAdded } from '../domain/collaboration-notifications.js';
 import { EpmError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
 import { requestSignal } from '../lib/request-signal.js';
@@ -157,8 +158,26 @@ export const commentRoutes: FastifyPluginAsync = async (app) => {
         signal,
       });
 
+      const names = await authorNames(signal);
+      const comment = toEpmComment(created, names);
+
+      /*
+       * Tell the people involved, and whoever was named.
+       *
+       * Not awaited. The comment is saved and the writer should see it land; a
+       * fan-out over the watcher list must not sit between them and the reply,
+       * and a mail failure must not turn a saved comment into an error.
+       */
+      void notifyCommentAdded({
+        workPackageId: id,
+        commentId: comment.id,
+        body,
+        authorId: request.auth?.userId ?? '',
+        authorName: comment.author.name,
+      });
+
       reply.code(201);
-      return toEpmComment(created, await authorNames(signal));
+      return comment;
     },
   );
 

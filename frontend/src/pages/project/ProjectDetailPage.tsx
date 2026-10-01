@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { MemberDialog } from '@/components/projects/MemberDialog';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
-import { invalidationGroups } from '@/lib/queryKeys';
+import { exceptDetailOf, invalidationGroups } from '@/lib/queryKeys';
 import { projectWriteService } from '@/services';
 import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
 import { cn } from '@/lib/utils';
@@ -78,12 +78,35 @@ export default function ProjectDetailPage() {
     try {
       await verbs[pendingAction].run();
       toast.success(verbs[pendingAction].done);
-      for (const key of invalidationGroups.projectWrite) {
-        await queryClient.invalidateQueries({ queryKey: key });
-      }
       setPendingAction(undefined);
-      // A deleted project has no page left to be on.
-      if (pendingAction === 'delete') navigate('/projects');
+
+      // A deleted project has no page left to be on. `replace`, so the back
+      // button does not return to a URL that now 404s.
+      const deletedId = pendingAction === 'delete' ? project.id : undefined;
+      if (deletedId) navigate('/projects', { replace: true });
+
+      /*
+       * Refresh everything a project write touches — except the project that has
+       * just been deleted.
+       *
+       * `projectWrite` invalidates `['projects']`, and this page's own detail
+       * query is `['projects', 'detail', id]` — underneath it. So a plain
+       * invalidation refetched the record that had just been removed, got a 404,
+       * and painted "Unable to load project" over the page. The navigation above
+       * could not save it: these were awaited first, so the error state rendered
+       * before the route changed.
+       *
+       * `exceptDetailOf` is the fix, and it does not depend on timing — see the
+       * note on it for why reordering alone would not have been enough.
+       */
+      await Promise.all(
+        invalidationGroups.projectWrite.map((key) =>
+          queryClient.invalidateQueries({
+            queryKey: key,
+            predicate: deletedId ? exceptDetailOf('projects', deletedId) : undefined,
+          }),
+        ),
+      );
     } catch (error) {
       toast.error('That could not be done', {
         description: error instanceof Error ? error.message : undefined,

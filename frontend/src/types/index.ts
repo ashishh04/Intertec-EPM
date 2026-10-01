@@ -49,6 +49,13 @@ export interface EpmUser {
   avatarUrl?: string;
   status: UserStatus;
   timezone: string;
+  /**
+   * The account's language, as an instance locale code. Empty when the person
+   * has never chosen one, in which case the instance default applies — which is
+   * why this is not defaulted to `en` here: a value would claim a choice nobody
+   * made and would override the instance setting for everybody.
+   */
+  language: string;
   /** Deterministic accent used for the generated initials avatar. */
   accent: AvatarAccent;
 }
@@ -417,10 +424,33 @@ export interface EpmTask {
   updatedAt: ISODate;
 }
 
+/**
+ * Where a work package sits in the tree.
+ *
+ * `ancestors` is ordered root first, so it renders straight into a breadcrumb.
+ * Both sides are the full task so a row can show status, type and assignee
+ * without a second lookup.
+ */
+export interface TaskHierarchy {
+  ancestors: EpmTask[];
+  children: EpmTask[];
+}
+
 export interface CreateTaskInput {
   subject: string;
   description?: string;
-  type: TaskType;
+  /**
+   * A category, which is lossy: EPM picks a representative OpenProject type
+   * for it, and that type may not be one the project enables. Prefer `typeId`.
+   */
+  type?: TaskType;
+  /**
+   * The instance's own type id, taking precedence over `type`. A project only
+   * enables a subset of the instance's types, so a picker that offers the
+   * category union can name one this project refuses — which is how "Feature"
+   * and "Bug" came back as "Type is not set to one of the allowed values".
+   */
+  typeId?: ID;
   /**
    * Written as a category, which is lossy: EPM picks a representative
    * OpenProject status for it. The full-fidelity path is the schema-driven
@@ -455,6 +485,10 @@ export type UpdateTaskInput = Partial<CreateTaskInput> & {
 export interface TaskFilters {
   projectId?: ID;
   assigneeId?: ID;
+  /** Who raised it. The dashboard's "created by me" widget is this filter. */
+  authorId?: ID;
+  /** Who is following it, not who owns it. */
+  watcherId?: ID;
   status?: TaskStatusCategory[];
   priority?: TaskPriority[];
   type?: TaskType[];
@@ -528,9 +562,35 @@ export type NotificationCategory =
   | 'deadline'
   | 'system';
 
+/**
+ * Why a notification exists, as distinct from how it is displayed.
+ *
+ * `NotificationCategory` above groups items for the eye — a colour and a label —
+ * and several reasons legitimately share one category. The reason is the thing
+ * people actually opt in and out of: "somebody mentioned me" and "a date I watch
+ * is approaching" are both worth their own switch, and both being `deadline` or
+ * `project_update` on screen does not change that.
+ *
+ * The names follow OpenProject's own vocabulary, because it is the source for
+ * every reason but the last: `epm` marks a notification EPM raised itself, for
+ * events upstream has no concept of.
+ */
+export type NotificationReason =
+  | 'mentioned'
+  | 'assignee'
+  | 'accountable'
+  | 'watcher'
+  | 'dateAlert'
+  | 'reminder'
+  | 'shared'
+  | 'commented'
+  | 'epm';
+
 export interface EpmNotification {
   id: ID;
   category: NotificationCategory;
+  /** Why it was raised. Drives the per-reason switches and the feed's filters. */
+  reason: NotificationReason;
   title: string;
   body: string;
   actorId?: ID;
@@ -560,6 +620,165 @@ export interface EpmDocument {
   sizeBytes: number;
   updatedAt: ISODate;
   shared: boolean;
+  /**
+   * What this caller may do with it, read from the affordances OpenProject
+   * publishes on the attachment rather than from a role. There is no
+   * `document:delete` in the capabilities vocabulary to check against, so the
+   * instance is the only authority — and it is stricter than any mapping would
+   * be: whoever uploaded a file may remove it where a reader may not.
+   */
+  can: { delete: boolean };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Time entries                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Logged time, as OpenProject stores it.
+ *
+ * Hours are a number here and an ISO-8601 duration upstream; the conversion is
+ * the backend's. `can` is read from the entry's own affordances rather than
+ * from a role — OpenProject decides per entry, and it is stricter than any
+ * mapping: a person may log their own time and still not edit someone else's.
+ */
+export interface EpmTimeEntry {
+  id: ID;
+  hours: number;
+  spentOn: ISODate;
+  comment?: string;
+  projectId: ID;
+  projectName?: string;
+  workPackageId?: ID;
+  workPackageSubject?: string;
+  userId: ID;
+  activityId?: ID;
+  activityName?: string;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  can: { update: boolean; delete: boolean };
+}
+
+export interface TimeEntryFilters {
+  projectId?: ID;
+  workPackageId?: ID;
+  /**
+   * A person's id, or the literal `me`.
+   *
+   * Use `me` for "my own time". A numeric id is validated by OpenProject against
+   * the principals the caller can see, and somebody who belongs to no project is
+   * not in their own visible set — so asking for their own timesheet by id is
+   * refused, while `me` always resolves.
+   */
+  userId?: ID | 'me';
+  /** Inclusive `spentOn` bounds. */
+  from?: ISODate;
+  to?: ISODate;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * A time entry to write.
+ *
+ * Either a project or a work package is required — a work package implies its
+ * project, so naming both is allowed but only the work package is needed.
+ */
+export interface CreateTimeEntryInput {
+  projectId?: ID;
+  workPackageId?: ID;
+  hours: number;
+  spentOn: ISODate;
+  comment?: string;
+  /** From the time entry form's allowed activities. */
+  activityId?: ID;
+}
+
+export type UpdateTimeEntryInput = Partial<CreateTimeEntryInput>;
+
+/** How a time report groups its rows. */
+export type TimeReportGrouping = 'user' | 'project' | 'activity' | 'workPackage' | 'week' | 'day';
+
+export interface TimeReportFilters {
+  /** Inclusive `spentOn` bounds. Both are required — an unbounded report would
+      read every entry the instance holds. */
+  from: ISODate;
+  to: ISODate;
+  projectId?: ID;
+  userId?: ID;
+  groupBy?: TimeReportGrouping;
+}
+
+export interface TimeReportRow {
+  /** The grouped value's id, or the bucket key for `week` and `day`. */
+  key: string;
+  label: string;
+  hours: number;
+  /** Absent when no hour in the row has a rate behind it. */
+  cost?: number;
+  /** Hours in this row that no rate applies to, so a total can say so. */
+  hoursWithoutRate: number;
+  entries: number;
+}
+
+/**
+ * Logged time, aggregated.
+ *
+ * Grouping happens on the server because the range can hold thousands of
+ * entries and the browser only needs the totals. `hoursWithoutRate` is
+ * reported rather than hidden: a cost figure that quietly omits half the
+ * hours is worse than one that says what it left out.
+ */
+export interface TimeReport {
+  from: ISODate;
+  to: ISODate;
+  groupBy: TimeReportGrouping;
+  totalHours: number;
+  /** Absent when nothing in range has a rate. */
+  totalCost?: number;
+  hoursWithoutRate: number;
+  currency: string;
+  rows: TimeReportRow[];
+  /** Daily totals across the whole range, for the trend chart. */
+  byDay: { date: ISODate; hours: number }[];
+  /** True when the range held more entries than one report may read. */
+  truncated: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Placeholder people                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A named stand-in for a role that is planned but not yet filled.
+ *
+ * EPM's own record. OpenProject has the same idea and gates creating one behind
+ * an Enterprise licence, so this exists independently of it — which also fixes
+ * the boundary: a placeholder counts toward team and portfolio capacity, and
+ * cannot be a work package assignee, because only OpenProject can decide who is
+ * assignable and it will not accept someone it has never heard of.
+ */
+export interface EpmPlaceholderPerson {
+  id: ID;
+  name: string;
+  /** What the placeholder is for, e.g. "Backend engineer, Q2 start". */
+  note?: string;
+  department?: { id: ID; name: string; active: boolean };
+  team?: { id: ID; name: string; active: boolean };
+  hoursCapacity: number;
+  /** Set once the placeholder has become a real account. */
+  convertedToUserId?: ID;
+  convertedAt?: ISODate;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+export interface PlaceholderPersonInput {
+  name: string;
+  note?: string;
+  departmentId?: ID | null;
+  teamId?: ID | null;
+  hoursCapacity?: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -684,6 +903,11 @@ export interface IntegrationStatus {
  * between browsers and so the email worker can honour them without a browser
  * being open. The shape is deliberately the one the Settings page renders.
  */
+/** Three-letter weekday keys, Monday first. Used by schedules and reminders. */
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+
+export const WEEKDAYS: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
 export interface UserPreferences {
   notifications: {
     assigned: boolean;
@@ -691,6 +915,34 @@ export interface UserPreferences {
     statusChanges: boolean;
     dueReminders: boolean;
     digest: boolean;
+    /**
+     * Anything on work this person is involved in — raised it, or has commented
+     * on it — rather than only work aimed at them. Being the assignee, the
+     * accountable person or a watcher each has its own switch below, because
+     * those are different relationships to a piece of work and people want them
+     * separately.
+     */
+    participating: boolean;
+    /** Named as accountable for the work, which is not the same as assigned it. */
+    accountable: boolean;
+    /** Following work without owning it. */
+    watcher: boolean;
+    /** Work or a project shared directly with them. */
+    shared: boolean;
+    /** A start or finish date coming up on work they are involved in. */
+    dateAlerts: boolean;
+    /**
+     * Suspends notifications and email between two dates, inclusive.
+     *
+     * A window rather than a switch, because the thing people actually want is
+     * "I am away next week" set before they leave. With `enabled` on and no
+     * dates it pauses indefinitely, which is the switch.
+     */
+    pause: {
+      enabled: boolean;
+      from?: ISODate;
+      to?: ISODate;
+    };
   };
   email: {
     /** Master switch. Off means no email of any kind, including invites resent later. */
@@ -704,6 +956,34 @@ export interface UserPreferences {
     dueReminders: boolean;
     /** One summary a day for everything not sent immediately. */
     digest: boolean;
+    /**
+     * Hour of the day the reminder sweep and the digest may reach this person,
+     * 0-23, in their own timezone.
+     *
+     * Their timezone, not the server's: a reminder that lands at 07:00 UTC
+     * arrives at 11:00 in Dubai and 02:00 in New York, and a deadline prompt
+     * that wakes people is worse than none.
+     */
+    reminderHour: number;
+    /**
+     * Weekdays reminders go out on. Empty means never, which is a legitimate
+     * way to keep the switch on but stop the mail.
+     */
+    reminderDays: Weekday[];
+    /*
+     * Everything that is not a work package.
+     *
+     * Separate switches because they are separate streams with different rhythms:
+     * an announcement is occasional and usually wanted, a wiki edit can be
+     * constant and usually is not. Folding them into `updates` would have meant
+     * one switch governing "the field on my task changed" and "somebody fixed a
+     * typo on a wiki page", which nobody wants to answer at once.
+     */
+    news: boolean;
+    wiki: boolean;
+    meetings: boolean;
+    documents: boolean;
+    comments: boolean;
   };
   appearance: {
     compactTables: boolean;
@@ -714,9 +994,96 @@ export interface UserPreferences {
     startOfWeek: 'monday' | 'sunday';
     timeFormat: '24h' | '12h';
   };
+  /**
+   * Language and regional formatting.
+   *
+   * `language` is the instance's own code (`en`, `de`, …) and is written through
+   * to OpenProject, which owns what it will accept. `dateFormat` is EPM's: it
+   * decides how every date in the interface is written, and `system` means the
+   * browser's locale rather than a format chosen here.
+   */
+  locale: {
+    language: string;
+    dateFormat: 'system' | 'iso' | 'dmy' | 'mdy';
+  };
+  /**
+   * When this person works, and when they are away.
+   *
+   * Distinct from the weekly capacity on their employee record, which is an
+   * administrator's figure used for team totals. This is the person's own
+   * declaration: which days their week covers, and whether they are currently
+   * out — both of which EPM honours rather than merely displays. Timesheet days
+   * outside the working week are marked as such, and nothing is emailed to
+   * someone who is away.
+   */
+  availability: {
+    workingDays: Weekday[];
+    /** Their normal day length, for reading a timesheet against. */
+    hoursPerDay: number;
+    outOfOffice: {
+      enabled: boolean;
+      from?: ISODate;
+      to?: ISODate;
+      /** Shown to colleagues on their profile, e.g. "Back on the 12th". */
+      note?: string;
+    };
+  };
   workspace: {
     landingPage: 'dashboard' | 'my-work' | 'projects';
   };
+  /**
+   * The Overview page, as this person has arranged it.
+   *
+   * A list rather than a set of switches, because order is half the point: the
+   * widget someone put first is the one they came to read. The ids are the
+   * frontend's widget catalogue — an unknown id is skipped on render, so a
+   * layout saved before a widget was retired still opens.
+   */
+  dashboard: {
+    widgets: DashboardWidgetPlacement[];
+  };
+}
+
+/** How wide a widget sits on the Overview grid. */
+export type DashboardWidgetWidth = 'half' | 'full';
+
+export interface DashboardWidgetPlacement {
+  /** An id from the frontend's widget catalogue. */
+  id: string;
+  /**
+   * Overrides the widget's natural width. Absent means the catalogue's default,
+   * so a widget whose default changes does not have to migrate every layout.
+   */
+  width?: DashboardWidgetWidth;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Sessions                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One signed-in browser.
+ *
+ * Named apart from `EpmSession`, which is the signed-in person and their
+ * permissions. This is the row behind a cookie.
+ *
+ * EPM's sessions are server-side rows, so this is the real list rather than a
+ * reconstruction: the browser only ever holds an opaque id. No token is ever
+ * included — the record carries when the session was opened, when it was last
+ * used and what it says it is, which is everything needed to recognise it and
+ * nothing that would let it be replayed.
+ */
+export interface EpmBrowserSession {
+  id: ID;
+  /** True for the session making the request, which cannot be revoked here. */
+  current: boolean;
+  createdAt: ISODate;
+  lastSeenAt: ISODate;
+  expiresAt: ISODate;
+  /** Parsed from the user agent, e.g. "Chrome on Windows". Best effort. */
+  device: string;
+  /** The raw user agent, for a person who wants to be certain. */
+  userAgent?: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -892,3 +1259,189 @@ export interface PasswordPolicy {
   minAdheredRules: number;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Collaboration: meetings, news and the wiki                                  */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * These three differ from everything above in one important way: they are EPM's
+ * own records rather than a normalised view of an OpenProject resource. All three
+ * modules exist upstream and none is reachable — OpenProject serves meetings,
+ * news and wiki pages from HTML controllers with no API v3 resource behind them —
+ * so there is no upstream shape to mirror here and no id to overlay.
+ *
+ * They live in this file rather than one of their own because this file is the
+ * contract: `npm run types:check` on the backend compares it byte for byte with
+ * its mirror, and a second file would sit outside that check.
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Shared                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What the caller may do to a record.
+ *
+ * Reported per record rather than inferred from a permission, because the answer
+ * depends on the record: its author may edit their own meeting in a project
+ * where they may not touch anybody else's. The UI offers what this says and the
+ * backend enforces the same rule independently.
+ */
+export interface RecordAbilities {
+  update: boolean;
+  delete: boolean;
+}
+
+/** Where a collaboration record lives: one project, or the whole organisation. */
+export interface CollaborationScope {
+  /** Absent for an organisation-wide record. */
+  projectId?: ID;
+  /** Resolved for display. Absent when the record is organisation-wide. */
+  projectName?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Meetings                                                                   */
+/* -------------------------------------------------------------------------- */
+
+export type MeetingState = 'planned' | 'held' | 'cancelled';
+
+export interface MeetingParticipant {
+  /** OpenProject user id. */
+  userId: ID;
+  /** Resolved from the directory. Absent for somebody the caller cannot read. */
+  name?: string;
+  invited: boolean;
+  /** Independent of `invited`: somebody can attend a meeting nobody invited them to. */
+  attended: boolean;
+}
+
+export interface EpmMeeting extends CollaborationScope {
+  id: ID;
+  title: string;
+  location?: string;
+  /** Start instant. A meeting happens at a moment, not on a day. */
+  startsAt: ISODate;
+  durationMinutes: number;
+  /** Derived from `startsAt` and the duration, so the two cannot disagree. */
+  endsAt: ISODate;
+  state: MeetingState;
+  /** Markdown, written before the meeting. */
+  agenda?: string;
+  /** Markdown, written after it. */
+  minutes?: string;
+  createdBy: ID;
+  createdByName?: string;
+  participants: MeetingParticipant[];
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  can: RecordAbilities;
+}
+
+export interface MeetingFilters {
+  projectId?: ID;
+  /** `upcoming` is from now on; `past` is everything before. */
+  window?: 'upcoming' | 'past' | 'all';
+  state?: MeetingState;
+  /** Only meetings this person is a participant of. */
+  participantId?: ID;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface MeetingInput {
+  title: string;
+  projectId?: ID;
+  location?: string;
+  startsAt: ISODate;
+  durationMinutes: number;
+  agenda?: string;
+  minutes?: string;
+  state?: MeetingState;
+  /** The full participant list. Sending it replaces whatever was there. */
+  participantIds?: ID[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* News                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface EpmNewsPost extends CollaborationScope {
+  id: ID;
+  title: string;
+  summary?: string;
+  /** Markdown. */
+  body: string;
+  authorId: ID;
+  authorName?: string;
+  /** Absent while it is a draft, which only its author and administrators see. */
+  publishedAt?: ISODate;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  can: RecordAbilities;
+}
+
+export interface NewsFilters {
+  projectId?: ID;
+  /** Drafts are only ever the caller's own, whatever this asks for. */
+  includeDrafts?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface NewsInput {
+  title: string;
+  projectId?: ID;
+  summary?: string;
+  body: string;
+  /** True publishes it now; false returns it to a draft. */
+  published?: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Wiki                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface EpmWikiPage extends CollaborationScope {
+  id: ID;
+  /** URL-safe, and unique within its project. Part of the page's address. */
+  slug: string;
+  title: string;
+  /** Markdown. */
+  body: string;
+  parentId?: ID;
+  updatedBy: ID;
+  updatedByName?: string;
+  /** How many past versions exist, so the history tab can say whether to open. */
+  revisionCount: number;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  can: RecordAbilities;
+}
+
+/** A page in the navigation tree, without its body. */
+export interface WikiTreeNode {
+  id: ID;
+  slug: string;
+  title: string;
+  children: WikiTreeNode[];
+}
+
+export interface WikiRevision {
+  id: ID;
+  /** What the page said before the edit that produced this record. */
+  title: string;
+  body: string;
+  authorId: ID;
+  authorName?: string;
+  createdAt: ISODate;
+}
+
+export interface WikiPageInput {
+  title: string;
+  body: string;
+  projectId?: ID;
+  parentId?: ID;
+  /** Derived from the title when absent. Changing it changes the page's address. */
+  slug?: string;
+}

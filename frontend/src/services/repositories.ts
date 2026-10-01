@@ -9,6 +9,7 @@ import type {
   ActivityEntry,
   CalendarEvent,
   CreateTaskInput,
+  TaskHierarchy,
   DashboardMetrics,
   DeliveryTrendPoint,
   ExecutiveInsights,
@@ -48,6 +49,7 @@ export interface ProjectRepository {
 export interface TaskRepository {
   getTasks(filters?: TaskFilters): Promise<Paginated<EpmTask>>;
   getTask(id: ID): Promise<EpmTask>;
+  getHierarchy(id: ID): Promise<TaskHierarchy>;
   createTask(input: CreateTaskInput): Promise<EpmTask>;
   updateTask(input: UpdateTaskInput): Promise<EpmTask>;
   bulkUpdate(ids: ID[], patch: Partial<UpdateTaskInput>): Promise<EpmTask[]>;
@@ -116,7 +118,9 @@ export interface NotificationRepository {
 
 export interface DocumentRepository {
   getDocuments(params?: { projectId?: ID; search?: string }): Promise<EpmDocument[]>;
-  uploadDocument(file: { name: string; sizeBytes: number; projectId?: ID }): Promise<EpmDocument>;
+  uploadDocument(file: File, options?: { projectId?: ID; shared?: boolean }): Promise<EpmDocument>;
+  deleteDocument(documentId: ID): Promise<void>;
+  downloadUrl(documentId: ID): string;
 }
 
 export interface IntegrationRepository {

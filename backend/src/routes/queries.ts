@@ -39,6 +39,19 @@ import type { EpmTask } from '../types/epm.js';
  *     work packages costs one upstream request rather than two.
  */
 
+/**
+ * A boolean from a query string.
+ *
+ * Not `z.coerce.boolean()`, which is `Boolean(value)` and so answers `true` for
+ * every non-empty string — including `"false"`. That turned "group these rows
+ * and do not draw the hierarchy" into "group them and draw it too", and
+ * OpenProject refused the pair with "Display mode is mutually exclusive with
+ * group by 'project'".
+ */
+const booleanish = z
+  .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+  .transform((value) => value === true || value === 'true' || value === '1');
+
 const listQuery = z.object({
   projectId: z.string().optional(),
 });
@@ -51,8 +64,17 @@ const runQuery = z.object({
   groupBy: z.string().optional(),
   offset: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(200).optional(),
-  showSums: z.coerce.boolean().optional(),
-  includeSubprojects: z.coerce.boolean().optional(),
+  showSums: booleanish.optional(),
+  /**
+   * Return the rows as a tree rather than a flat list.
+   *
+   * OpenProject orders the page parent-before-child and pulls in any ancestor
+   * needed to reach a matching row, even where that ancestor does not match the
+   * filter itself. That is what makes a filtered list still readable as a
+   * breakdown rather than as orphaned leaves.
+   */
+  showHierarchies: booleanish.optional(),
+  includeSubprojects: booleanish.optional(),
   timestamps: z.string().optional(),
   /** Comma-separated column ids; sent upstream as repeated `columns[]`. */
   columns: z.string().optional(),
@@ -67,6 +89,17 @@ function upstreamParams(query: z.infer<typeof runQuery>): QueryParams {
   if (query.offset !== undefined) params.offset = String(query.offset);
   if (query.pageSize !== undefined) params.pageSize = String(query.pageSize);
   if (query.showSums !== undefined) params.showSums = String(query.showSums);
+
+  /*
+   * Grouping wins over the tree.
+   *
+   * OpenProject refuses the pair outright — "Display mode is mutually exclusive
+   * with group by 'project'" — and a saved view that already has hierarchy on
+   * carries it into a grouped run unless it is turned off explicitly. Deciding
+   * it here means no caller can produce the combination, whatever it asks for.
+   */
+  const hierarchy = query.groupBy ? false : query.showHierarchies;
+  if (hierarchy !== undefined) params.showHierarchies = String(hierarchy);
   if (query.includeSubprojects !== undefined) {
     params.includeSubprojects = String(query.includeSubprojects);
   }
@@ -176,34 +209,86 @@ async function runAndNormalize(
  * so the whole set is fetched once and cached. A filter whose title cannot be
  * read keeps the humanised fallback rather than failing the request.
  */
+/** In flight per scope, so a burst of requests warms the titles once. */
+const titleWarmups = new Set<string>();
+
+/**
+ * How many title lookups run at once.
+ *
+ * There is no collection endpoint for filters — `/queries/filters` is a 404, and
+ * each title lives in its own resource — so this is genuinely one request per
+ * filter. Six at a time keeps the warm-up from saturating an OpenProject that is
+ * serving real requests at the same time.
+ */
+const TITLE_CONCURRENCY = 6;
+
+/**
+ * Upgrades filter names from the instance's own labels, without blocking on it.
+ *
+ * This used to fetch all of them and wait: 47 filters on project 2, one request
+ * each, against an OpenProject running two Puma workers — 21 seconds, over the
+ * browser's 20-second timeout. The request then failed, so the cache was never
+ * populated, so the *next* attempt did exactly the same thing. The Tasks tab
+ * could not be opened at all.
+ *
+ * What the titles actually buy is the administrator's name for a custom field —
+ * "Sprint points" instead of "Custom field 3". Everything else already humanises
+ * correctly from its id. That is worth having and is not worth a page load, so:
+ * cached titles are applied immediately, and when there are none the schema goes
+ * out with humanised names while the real ones are fetched in the background.
+ * The next open has them.
+ */
 async function applyTitles(
   filters: QueryFilterSchema[],
   scope: string,
-  signal: AbortSignal,
+  _signal: AbortSignal,
 ): Promise<void> {
   // Keyed by scope: the project-scoped set includes custom fields the global
   // set does not, and a shared key would leave them with the fallback name.
-  const titles = await referenceCache.get(userScopedKey(`query-filter-titles:${scope}`), async () => {
-    const entries = await Promise.all(
-      filters.map(async (filter) => {
-        const resource = await openProject
-          .request<{ _links?: { self?: { title?: string } } }>(
-            `/queries/filters/${filter.id}`,
-            { signal },
-          )
-          .catch(() => null);
+  const key = userScopedKey(`query-filter-titles:${scope}`);
+  const cached = referenceCache.peek<Record<string, string>>(key);
 
-        return [filter.id, resource?._links?.self?.title] as const;
-      }),
-    );
-
-    return Object.fromEntries(entries.filter((entry): entry is [string, string] => Boolean(entry[1])));
-  });
-
-  for (const filter of filters) {
-    const title = (titles as Record<string, string>)[filter.id];
-    if (title) filter.name = title;
+  if (cached) {
+    for (const filter of filters) {
+      const title = cached[filter.id];
+      if (title) filter.name = title;
+    }
+    return;
   }
+
+  if (titleWarmups.has(key)) return;
+  titleWarmups.add(key);
+
+  /*
+   * Deliberately not awaited, and deliberately without the request's signal:
+   * the request is about to finish and aborting its signal would cancel the
+   * warm-up with it, leaving the cache empty and the next request in exactly
+   * the same position.
+   */
+  void (async () => {
+    try {
+      const ids = filters.map((filter) => filter.id);
+      const titles: Record<string, string> = {};
+
+      for (let at = 0; at < ids.length; at += TITLE_CONCURRENCY) {
+        const batch = ids.slice(at, at + TITLE_CONCURRENCY);
+        const resolved = await Promise.all(
+          batch.map(async (id) => {
+            const resource = await openProject
+              .request<{ _links?: { self?: { title?: string } } }>(`/queries/filters/${id}`)
+              .catch(() => null);
+            return [id, resource?._links?.self?.title] as const;
+          }),
+        );
+
+        for (const [id, title] of resolved) if (title) titles[id] = title;
+      }
+
+      referenceCache.set(key, titles);
+    } finally {
+      titleWarmups.delete(key);
+    }
+  })();
 }
 
 

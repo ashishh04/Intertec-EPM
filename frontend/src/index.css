@@ -650,3 +650,116 @@
     will-change: transform;
   }
 }
+
+/*
+ * Appearance preferences, applied from the document root.
+ *
+ * `PreferenceEffects` sets `data-density` and `data-motion` on <html> from the
+ * person's saved settings, and these two rules are what make those settings do
+ * something. Done in CSS rather than by threading a prop through every table and
+ * every animated element: the alternative is several hundred call sites reading
+ * a preference they otherwise have no interest in.
+ */
+@layer utilities {
+  /* Compact tables: one step less vertical padding in every cell, which is
+     roughly three more rows per screen without changing type size. */
+  [data-density='compact'] td {
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+  }
+
+  [data-density='compact'] th {
+    height: 2rem;
+  }
+
+  /*
+   * Reduced motion. Not `display: none` on anything and not a transition of
+   * zero — 0.01ms, so a transitionend listener still fires and nothing waiting
+   * on one hangs. Scroll behaviour goes with it: a smooth scroll is motion too.
+   */
+  [data-motion='reduced'] *,
+  [data-motion='reduced'] *::before,
+  [data-motion='reduced'] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Print, which is also how a report becomes a PDF.
+ *
+ * Every browser can save a page as PDF, and its engine already knows how to
+ * paginate, hyphenate and embed fonts — so a print stylesheet gets a better
+ * result than a bundled PDF library, at no download cost, and it prints properly
+ * as a bonus. What it needs is for the application furniture to get out of the
+ * way and for the content to be given the page.
+ *
+ * `epm-print-only` and `epm-no-print` are the two hooks a page uses: a heading
+ * block that exists only on paper, and controls that exist only on screen.
+ */
+@media print {
+  /* Chrome and Safari drop background colours by default, which turns every
+     status pill into white text on white. This asks for them back; the user can
+     still refuse in the print dialogue. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html,
+  body {
+    background: #fff;
+  }
+
+  /* The shell: sidebar, header, mobile bar, assistant, toasts. None of it is
+     part of the document, and all of it would otherwise take a column of the
+     page or print as a stray block. */
+  .epm-no-print,
+  [data-print='hide'] {
+    display: none !important;
+  }
+
+  .epm-print-only {
+    display: block !important;
+  }
+
+  /* The content area is scrolled and height-bounded on screen; on paper it has
+     to be allowed to run as long as it is. */
+  .epm-scroll,
+  [class*='overflow-'] {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* Cards become plain ruled blocks: shadows print as grey smudges, and a card
+     split across a page break reads as two broken ones. */
+  [class*='rounded-'] {
+    box-shadow: none !important;
+  }
+
+  table {
+    break-inside: auto;
+  }
+
+  tr,
+  img {
+    break-inside: avoid;
+  }
+
+  /* A table running over a page repeats its header, which is the whole reason
+     thead exists and is what makes a long export readable on paper. */
+  thead {
+    display: table-header-group;
+  }
+
+  @page {
+    margin: 14mm;
+  }
+}
+
+/* The counterpart: print-only blocks are hidden on screen. */
+.epm-print-only {
+  display: none;
+}

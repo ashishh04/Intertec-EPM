@@ -1,0 +1,23 @@
+# What the image build must not see.
+#
+# The `.env*` exclusions are the load-bearing ones. Vite reads `.env`,
+# `.env.local` and `.env.production` from the project directory during
+# `vite build`, and all three exist here with local values: `.env.local` sets
+# VITE_APP_ENV=development and `.env.production` names an example.com host.
+# Any of them reaching the build context makes the bundle depend on which
+# developer's working copy it was built from. Excluded, the build depends only
+# on the build arguments and the defaults in src/config/env.ts.
+node_modules
+dist
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+*.log
+npm-debug.log*
+
+# Local screenshot captures and bundle audits.
+.shots
+stats.html

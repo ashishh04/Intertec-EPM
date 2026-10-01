@@ -21,6 +21,15 @@ import type { UserPreferences } from '@/types';
 
 export type Preferences = UserPreferences;
 
+/** The working week EPM assumes before anyone says otherwise. */
+const DEFAULT_WORKING_DAYS: Preferences['availability']['workingDays'] = [
+  'mon',
+  'tue',
+  'wed',
+  'thu',
+  'fri',
+];
+
 export const DEFAULT_PREFERENCES: Preferences = {
   notifications: {
     assigned: true,
@@ -28,6 +37,12 @@ export const DEFAULT_PREFERENCES: Preferences = {
     statusChanges: true,
     dueReminders: true,
     digest: false,
+    participating: true,
+    accountable: true,
+    watcher: true,
+    shared: true,
+    dateAlerts: true,
+    pause: { enabled: false },
   },
   email: {
     enabled: true,
@@ -37,6 +52,15 @@ export const DEFAULT_PREFERENCES: Preferences = {
     updates: false,
     dueReminders: true,
     digest: true,
+    // The backend's own default comes from its configuration, so this is only
+    // the value the very first paint shows before the server answers.
+    reminderHour: 8,
+    reminderDays: DEFAULT_WORKING_DAYS,
+    news: true,
+    wiki: false,
+    meetings: true,
+    documents: false,
+    comments: true,
   },
   appearance: {
     compactTables: false,
@@ -49,6 +73,27 @@ export const DEFAULT_PREFERENCES: Preferences = {
   },
   workspace: {
     landingPage: 'dashboard',
+  },
+  locale: {
+    language: '',
+    dateFormat: 'system',
+  },
+  availability: {
+    workingDays: DEFAULT_WORKING_DAYS,
+    hoursPerDay: 8,
+    outOfOffice: { enabled: false },
+  },
+  // Mirrors the backend default, so first paint from local storage shows the
+  // same Overview the server is about to confirm.
+  dashboard: {
+    widgets: [
+      { id: 'kpis' },
+      { id: 'my-work' },
+      { id: 'sprint' },
+      { id: 'project-health' },
+      { id: 'delivery-trends' },
+      { id: 'activity' },
+    ],
   },
 };
 
@@ -67,6 +112,9 @@ function merge(stored: Partial<Preferences> | null | undefined): Preferences {
     appearance: { ...DEFAULT_PREFERENCES.appearance, ...stored?.appearance },
     workweek: { ...DEFAULT_PREFERENCES.workweek, ...stored?.workweek },
     workspace: { ...DEFAULT_PREFERENCES.workspace, ...stored?.workspace },
+    locale: { ...DEFAULT_PREFERENCES.locale, ...stored?.locale },
+    availability: { ...DEFAULT_PREFERENCES.availability, ...stored?.availability },
+    dashboard: { ...DEFAULT_PREFERENCES.dashboard, ...stored?.dashboard },
   };
 }
 
@@ -95,7 +143,7 @@ function writeLocal(next: Preferences) {
 // an early reply would briefly undo a later toggle.
 let saving = 0;
 
-export function usePreferences() {
+export function usePreferences(options: { enabled?: boolean } = {}) {
   const client = useQueryClient();
 
   const query = useQuery({
@@ -105,6 +153,15 @@ export function usePreferences() {
       writeLocal(merged);
       return merged;
     },
+    /*
+     * Signed out there is no record to read and the request 401s — which the
+     * api client answers by navigating to /login. Every caller below the
+     * router is behind RequireAuth and leaves this alone; PreferenceEffects
+     * renders above it, on the public pages too, and is the one that passes
+     * the gate. Without it the landing page redirects to the sign-in form
+     * before anyone has read a word of it.
+     */
+    enabled: options.enabled ?? true,
     // The stored copy paints instantly; `isLoading` stays true until the
     // server has actually answered, which is what callers want to know.
     placeholderData: readLocal,

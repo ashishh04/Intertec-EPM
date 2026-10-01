@@ -127,6 +127,7 @@ function PageContent({ area, page }: { area: AdminArea; page: AdminPage }) {
         title={page.label}
         description={page.description}
         enterprise={page.enterprise}
+        managedAt={page.managedAt}
       />
     );
   }

@@ -38,10 +38,19 @@ npm run dev               # http://localhost:5173
 
 ### Environment
 
-| Variable            | Default                     | Meaning                                                    |
-| ------------------- | --------------------------- | ---------------------------------------------------------- |
-| `VITE_API_BASE_URL` | `http://localhost:8000/api` | Base URL of the **EPM backend** — never an OpenProject URL |
-| `VITE_APP_ENV`      | `development`               | Drives the environment badge in the header                  |
+| Variable            | Default                                      | Meaning                                                    |
+| ------------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| `VITE_API_BASE_URL` | `http://localhost:8000/api`, or `/api` in a production build | Base URL of the **EPM backend** — never an OpenProject URL |
+| `VITE_APP_ENV`      | `development`                                | Drives the environment badge in the header                  |
+
+Vite inlines both at build time, so they are compile-time values: a running
+container cannot be given different ones.
+
+The production default is relative on purpose. `/api` resolves against whatever
+origin served the page, and Caddy proxies it there to the backend, so the bundle
+— and the image built from it — is independent of the domain it is deployed to.
+Set `VITE_API_BASE_URL` only when the backend is on a *different* origin from the
+app, and expect the resulting build to be specific to that address.
 
 ---
 

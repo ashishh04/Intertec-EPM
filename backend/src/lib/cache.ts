@@ -45,6 +45,24 @@ export class TtlCache {
     return promise;
   }
 
+  /**
+   * The cached value, or undefined — never a fetch.
+   *
+   * For the case where the caller can do something useful without the value and
+   * only wants it if it is already there. `get` cannot serve that: it would fetch
+   * and, if the loader is slow, make the caller wait for exactly the thing they
+   * said they could do without.
+   */
+  peek<T>(key: string): T | undefined {
+    const entry = this.entries.get(key);
+    return entry && entry.expiresAt > Date.now() ? (entry.value as T) : undefined;
+  }
+
+  /** Stores a value computed elsewhere, e.g. by a background warm-up. */
+  set<T>(key: string, value: T, ttlMs = this.defaultTtlMs) {
+    this.entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+
   invalidate(key: string) {
     this.entries.delete(key);
   }

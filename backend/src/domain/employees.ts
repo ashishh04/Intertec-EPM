@@ -30,6 +30,8 @@ export interface EpmEmployee {
   department?: { id: string; name: string; active: boolean };
   team?: { id: string; name: string; active: boolean };
   hoursCapacity: number;
+  /** Internal cost of an hour. Absent when nobody has costed this person. */
+  hourlyRate?: number;
 }
 
 export interface MappingInput {
@@ -41,10 +43,20 @@ export interface CapacityInput {
   hoursCapacity?: unknown;
 }
 
+export interface RateInput {
+  /** `null` clears the rate, which is not the same as setting it to zero. */
+  hourlyRate?: unknown;
+}
+
 /** Hours in a week. A physical bound on capacity, not a policy one. */
 const CAPACITY_MAX = 168;
 /** Applied to anyone with no profile row, and the schema's own default. */
 export const CAPACITY_DEFAULT = 40;
+/**
+ * A sanity bound on an hourly rate, not a policy one. It exists so a stray
+ * keystroke cannot turn a report into a number nobody can read.
+ */
+const RATE_MAX = 100_000;
 
 export interface EmployeeFilters {
   departmentId?: string;
@@ -83,6 +95,9 @@ function toEpmEmployee(user: EpmUser, profile: ProfileWithRefs | undefined): Epm
     // The schema default, applied here too so an unmapped person reports the
     // same capacity the workload endpoint would assume for them.
     hoursCapacity: profile?.hoursCapacity ?? CAPACITY_DEFAULT,
+    // Nullable upstream of here, and stays absent rather than becoming 0: a
+    // person nobody has costed is not a person who works for nothing.
+    hourlyRate: profile?.hourlyRate ?? undefined,
   };
 }
 
@@ -307,6 +322,58 @@ export async function setCapacity(
   return toEpmEmployee(user, profile);
 }
 
+/**
+ * Validates an hourly rate.
+ *
+ * `null` is a value here, unlike capacity: clearing a rate means "not costed",
+ * and the Time & Costs report treats that differently from a rate of zero —
+ * zero prices the hours at nothing, absent excludes them from the total and
+ * says how many were excluded.
+ */
+function validateRate(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw EpmError.badRequest('An hourly rate must be a number.');
+  }
+  if (value < 0) throw EpmError.badRequest('An hourly rate cannot be negative.');
+  if (value > RATE_MAX) {
+    throw EpmError.badRequest(`An hourly rate cannot exceed ${RATE_MAX}.`);
+  }
+
+  // Currency resolution. Rates are quoted per hour, so cents are meaningful
+  // where quarter-hours were not.
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Sets a person's internal hourly rate.
+ *
+ * Its own route for the same reason capacity has one: the mapping write sends
+ * department and team as a unit, and a rate edit must not be able to clear a
+ * person's placement. Nobody is notified — unlike a capacity change, this is a
+ * finance attribute rather than something that changes the person's week.
+ */
+export async function setRate(
+  id: string,
+  input: RateInput,
+  signal: AbortSignal,
+): Promise<EpmEmployee> {
+  const users = await getUsers(signal);
+  const user = users.find((candidate) => candidate.id === id);
+  if (!user) throw EpmError.notFound('That employee');
+
+  const hourlyRate = validateRate(input.hourlyRate);
+
+  const profile = await prisma.userProfile.upsert({
+    where: { openProjectId: id },
+    create: { openProjectId: id, hourlyRate },
+    update: { hourlyRate },
+    include: { departmentRef: true, team: true },
+  });
+
+  return toEpmEmployee(user, profile);
+}
+
 /** People mapped to a team, for the team detail view. */
 export async function listTeamMembers(teamId: string, signal: AbortSignal): Promise<EpmEmployee[]> {
   const team = await prisma.team.findUnique({ where: { id: teamId }, select: { id: true } });
@@ -348,10 +415,19 @@ export async function rollups(signal: AbortSignal): Promise<{
   byTeam: Map<string, Rollup>;
   byDepartment: Map<string, Rollup>;
 }> {
-  const [users, profiles] = await Promise.all([
+  const [users, profiles, placeholders] = await Promise.all([
     getUsers(signal).catch(() => []),
     prisma.userProfile.findMany({
       select: { openProjectId: true, teamId: true, departmentId: true, hoursCapacity: true },
+    }),
+    // Planned headcount that has no account yet. Counted here because that is
+    // the whole point of a placeholder: a team that is two people short should
+    // read as short, not as fully staffed with an invisible gap. Converted ones
+    // are excluded — by then the capacity is on the real person's profile and
+    // counting both would double it.
+    prisma.placeholderPerson.findMany({
+      where: { convertedTo: null },
+      select: { teamId: true, departmentId: true, hoursCapacity: true },
     }),
   ]);
 
@@ -371,6 +447,13 @@ export async function rollups(signal: AbortSignal): Promise<{
 
     if (profile.teamId) add(byTeam, profile.teamId, profile.hoursCapacity);
     if (profile.departmentId) add(byDepartment, profile.departmentId, profile.hoursCapacity);
+  }
+
+  for (const placeholder of placeholders) {
+    if (placeholder.teamId) add(byTeam, placeholder.teamId, placeholder.hoursCapacity);
+    if (placeholder.departmentId) {
+      add(byDepartment, placeholder.departmentId, placeholder.hoursCapacity);
+    }
   }
 
   // Float addition leaves 37.5 + 37.5 + 0.1 looking like 75.10000000000001.

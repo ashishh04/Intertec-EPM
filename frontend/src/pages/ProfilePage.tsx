@@ -29,10 +29,13 @@ import type { ID, EpmProject } from '@/types';
  * flipping one in either place is reflected in the other. The in-app rows and
  * the one email master switch; the per-type email choices stay in Settings.
  */
+/** Keys of `T` whose value is a boolean, so a switch cannot be bound to an object. */
+type BooleanKeys<T> = { [K in keyof T]: T[K] extends boolean ? K : never }[keyof T];
+
 type ProfileToggle =
   | {
       section: 'notifications';
-      key: keyof Preferences['notifications'];
+      key: BooleanKeys<Preferences['notifications']>;
       label: string;
       hint: string;
     }

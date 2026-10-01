@@ -6,6 +6,7 @@ import type {
   EpmTask,
   Paginated,
   TaskFilters,
+  TaskHierarchy,
   UpdateTaskInput,
 } from '@/types';
 
@@ -15,6 +16,8 @@ export class ApiTaskRepository implements TaskRepository {
     return apiClient.get<Paginated<EpmTask>>('/tasks', {
       projectId: filters.projectId,
       assigneeId: filters.assigneeId,
+      authorId: filters.authorId,
+      watcherId: filters.watcherId,
       status: filters.status,
       priority: filters.priority,
       type: filters.type,
@@ -30,6 +33,11 @@ export class ApiTaskRepository implements TaskRepository {
 
   getTask(id: ID): Promise<EpmTask> {
     return apiClient.get<EpmTask>(`/tasks/${id}`);
+  }
+
+  /** Ancestors (root first) and direct children. */
+  getHierarchy(id: ID): Promise<TaskHierarchy> {
+    return apiClient.get<TaskHierarchy>(`/tasks/${id}/hierarchy`);
   }
 
   createTask(input: CreateTaskInput): Promise<EpmTask> {

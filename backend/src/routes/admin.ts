@@ -107,6 +107,13 @@ export interface AdminPermission {
   explanation: string | null;
   /** Grantable to global roles (and only to them). */
   global: boolean;
+  /**
+   * The role kinds this permission may actually be given to, read from the
+   * same contract that validates a role write. `global` alone does not answer
+   * it: `view_project_query` is neither global nor grantable to a project
+   * role, and offering it under "Project" made every create fail.
+   */
+  grantTo: AdminRoleKind[];
 }
 
 export interface AdminPermissionModule {
@@ -117,6 +124,18 @@ export interface AdminPermissionModule {
 }
 
 export type AdminRoleKind = 'project' | 'global' | 'work_package' | 'project_query';
+
+/**
+ * Enterprise-gated features, answered before the caller attempts one.
+ *
+ * `allows` is keyed by feature: `placeholderUsers` is false on a Community
+ * instance, and a UI that knows that can say so instead of offering a form
+ * whose only outcome is a refusal.
+ */
+export interface AdminEnterprise {
+  active: boolean;
+  allows: Record<string, boolean>;
+}
 
 export interface AdminRole {
   id: string;
@@ -368,36 +387,6 @@ async function all<T>(request: FastifyRequest, path: string): Promise<T[]> {
   return items;
 }
 
-/**
- * Turns an upstream refusal of a calendar write into an answer that is true.
- *
- * A 422 becomes EPM's own validation error, message intact: OpenProject's
- * message is the one that says *which* day or date it refused and why.
- *
- * A 404 is not "no such day". OpenProject's API documentation describes
- * `PATCH /days/week`, `POST /days/non_working` and `DELETE /days/non_working`,
- * but the server mounts only the reads for them (checked against 15.5.1:
- * `lib/api/v3/days/week_api.rb` and `non_working_days_api.rb` define `get`
- * alone), so a write to those paths falls through to the API's not-found
- * handler. Reported as 501 rather than 404 because the calendar exists — it is
- * the operation the instance does not offer — and the message says where the
- * change can still be made.
- */
-function rethrowWriteFailure(what: string): (error: unknown) => never {
-  return (error) => {
-    if (error instanceof OpenProjectError) {
-      if (error.upstreamStatus === 422) throw EpmError.validation(error.message);
-      if (error.upstreamStatus === 404) {
-        throw new EpmError(
-          501,
-          'UPSTREAM_ERROR',
-          `This OpenProject version does not allow ${what} to be changed through its API. Change it in OpenProject's own administration under Calendars and dates.`,
-        );
-      }
-    }
-    throw error;
-  };
-}
 
 /**
  * A call to the EPM-only endpoints the initializer mounts under `/epm_admin`.
@@ -409,15 +398,26 @@ function rethrowWriteFailure(what: string): (error: unknown) => never {
  * means for this caller: 422 is a refused change, 404 a missing role, and
  * 403 says the caller manages users but is not an instance administrator,
  * which is the one case `users:manage` cannot tell apart on its own.
+ *
+ * `missing` names what a 404 was looking for. It is per call because this
+ * helper serves roles, sections, catalogues, settings and the Enterprise
+ * check: a fixed message had every one of them answer "That role could not be
+ * found", so a mistyped section id reported a missing role.
  */
 async function instance<T>(
   request: FastifyRequest,
   path: string,
-  options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown } = {},
+  options: {
+    method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    body?: unknown;
+    missing?: string;
+  } = {},
 ): Promise<T> {
+  const { missing = 'That resource', ...upstream } = options;
+
   try {
     return await openProject.request<T>(`/epm_admin${path}`, {
-      ...options,
+      ...upstream,
       root: true,
       signal: requestSignal(request),
     });
@@ -425,7 +425,7 @@ async function instance<T>(
     if (error instanceof OpenProjectError) {
       if (error.upstreamStatus === 422) throw EpmError.validation(error.message);
       if (error.upstreamStatus === 403) throw EpmError.forbidden(error.message);
-      if (error.upstreamStatus === 404) throw EpmError.notFound('That role');
+      if (error.upstreamStatus === 404) throw EpmError.notFound(missing);
     }
     throw error;
   }
@@ -649,7 +649,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { resource: string } }>('/admin/catalog/:resource', async (request) => {
     await guard.require(request, 'users:manage');
-    return instance<AdminCatalog>(request, `/catalog/${encodeURIComponent(request.params.resource)}`);
+    return instance<AdminCatalog>(request, `/catalog/${encodeURIComponent(request.params.resource)}`, {
+      missing: 'That catalogue',
+    });
   });
 
   app.post<{ Params: { resource: string }; Body: unknown }>(
@@ -713,7 +715,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { id: string } }>('/admin/sections/:id', async (request) => {
     await guard.require(request, 'users:manage');
-    return instance<AdminSettingsSection>(request, `/sections/${encodeURIComponent(request.params.id)}`);
+    return instance<AdminSettingsSection>(request, `/sections/${encodeURIComponent(request.params.id)}`, {
+      missing: 'That settings section',
+    });
   });
 
   /**
@@ -728,7 +732,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       return instance<AdminSettingsSection>(
         request,
         `/sections/${encodeURIComponent(request.params.id)}`,
-        { method: 'PATCH', body },
+        { method: 'PATCH', body, missing: 'That settings section' },
       );
     },
   );
@@ -755,6 +759,14 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return instance<AdminPermissionModule[]>(request, '/permissions');
   });
 
+  /* --------------------------------------------------------------- enterprise */
+
+  /** Which Enterprise-gated features this instance may use. */
+  app.get('/admin/enterprise', async (request): Promise<AdminEnterprise> => {
+    await guard.require(request, 'users:manage');
+    return instance<AdminEnterprise>(request, '/enterprise');
+  });
+
   /* -------------------------------------------------------------------- roles */
 
   app.get('/admin/roles', async (request): Promise<AdminRole[]> => {
@@ -779,7 +791,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       if (!/^\d+$/.test(id)) throw EpmError.notFound('That role');
       const body = roleUpdateBody.parse(request.body ?? {});
 
-      return instance<AdminRole>(request, `/roles/${id}`, { method: 'PATCH', body });
+      return instance<AdminRole>(request, `/roles/${id}`, { method: 'PATCH', body, missing: 'That role' });
     },
   );
 
@@ -788,7 +800,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params;
     if (!/^\d+$/.test(id)) throw EpmError.notFound('That role');
 
-    await instance<void>(request, `/roles/${id}`, { method: 'DELETE' });
+    await instance<void>(request, `/roles/${id}`, { method: 'DELETE', missing: 'That role' });
     reply.code(204);
   });
 
@@ -984,15 +996,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'users:manage');
     const { days } = weekDaysBody.parse(request.body ?? {});
 
-    await openProject
-      .request<unknown>('/days/week', {
-        method: 'PATCH',
-        body: { _embedded: { elements: days.map(({ day, working }) => ({ day, working })) } },
-        signal: requestSignal(request),
-      })
-      .catch(rethrowWriteFailure('working days'));
-
-    return weekDays(request);
+    // Through the instance plugin, not API v3: `PATCH /api/v3/days/week` is a
+    // 404 on 15.5.1 — the collection is published read-only — while
+    // OpenProject's own administration edits it under Calendars and dates.
+    // The plugin goes through Settings::UpdateService, so the work packages
+    // that depend on the calendar are rescheduled rather than left stale.
+    return instance<AdminWeekDay[]>(request, '/days/week', {
+      method: 'PATCH',
+      body: { days: days.map(({ day, working }) => ({ day, working })) },
+      missing: 'The working week',
+    });
   });
 
   app.get('/admin/non-working-days', async (request): Promise<AdminNonWorkingDay[]> => {
@@ -1007,16 +1020,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       await guard.require(request, 'users:manage');
       const { name, date } = nonWorkingDayBody.parse(request.body ?? {});
 
-      const created = await openProject
-        .request<OpNonWorkingDay>('/days/non_working', {
-          method: 'POST',
-          body: { name, date },
-          signal: requestSignal(request),
-        })
-        .catch(rethrowWriteFailure('non-working days'));
+      // Same reason as the working week above: API v3 reads these and refuses
+      // to write them, so the write goes through the instance plugin.
+      const created = await instance<AdminNonWorkingDay>(request, '/days/non_working', {
+        method: 'POST',
+        body: { name, date },
+        missing: 'That non-working day',
+      });
 
       reply.code(201);
-      return toNonWorkingDay(created);
+      return created;
     },
   );
 
@@ -1027,12 +1040,10 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       if (!/^\d+$/.test(id)) throw EpmError.notFound('That non-working day');
 
-      await openProject
-        .request<void>(`/days/non_working/${id}`, {
-          method: 'DELETE',
-          signal: requestSignal(request),
-        })
-        .catch(rethrowWriteFailure('non-working days'));
+      await instance<void>(request, `/days/non_working/${id}`, {
+        method: 'DELETE',
+        missing: 'That non-working day',
+      });
 
       reply.code(204);
     },

@@ -1,4 +1,4 @@
-import type { ID, ReportFilters, TaskFilters } from '@/types';
+import type { ID, ReportFilters, TaskFilters, TimeEntryFilters, TimeReportFilters } from '@/types';
 
 /**
  * Centralized TanStack Query keys.
@@ -19,6 +19,7 @@ export const queryKeys = {
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,
+  taskHierarchy: (id: ID) => ['tasks', 'detail', id, 'hierarchy'] as const,
 
   teams: ['teams'] as const,
   team: (id: ID) => ['teams', id] as const,
@@ -38,6 +39,10 @@ export const queryKeys = {
   executiveInsights: (filters?: ReportFilters) =>
     ['reports', 'executive-insights', filters ?? {}] as const,
   timeSummary: (filters?: ReportFilters) => ['reports', 'time-summary', filters ?? {}] as const,
+
+  timeEntries: (filters?: TimeEntryFilters) => ['time-entries', filters ?? {}] as const,
+  /** Under `time-entries` so logging time invalidates the report with the list. */
+  timeReport: (filters: TimeReportFilters) => ['time-entries', 'report', filters] as const,
 
   /**
    * Instance settings sections. Cached per section id, because a section is
@@ -65,7 +70,23 @@ export const queryKeys = {
 
 /** Root keys used for coarse invalidation after a mutation. */
 export const invalidationGroups = {
-  taskWrite: [['tasks'], ['dashboard'], ['activity'], ['projects'], ['reports']],
+  // `queries` is load-bearing: a project's Tasks tab renders from a saved view
+  // (`['queries', 'run', ...]`), not from `['tasks']`. Without it a bulk edit
+  // reported "Updated 1 task" and the row kept showing the old value until the
+  // page was reloaded.
+  // `catalog/work-package-options` is the permitted-transition set, which the
+  // status it was read against has just invalidated. Named precisely rather
+  // than clearing `catalog`, which holds instance reference data no task write
+  // can change.
+  taskWrite: [
+    ['tasks'],
+    ['queries'],
+    ['catalog', 'work-package-options'],
+    ['dashboard'],
+    ['activity'],
+    ['projects'],
+    ['reports'],
+  ],
   // `current-user` carries the per-project permission map, and it is fetched
   // once per session with `staleTime: Infinity`. Creating a project grants the
   // creator rights on it, so without this the new project's buttons stay
@@ -74,3 +95,24 @@ export const invalidationGroups = {
   projectWrite: [['projects'], ['dashboard'], ['activity'], ['reports'], ['current-user']],
   notificationWrite: [['notifications']],
 } as const;
+
+/**
+ * A predicate that spares one record's detail query from an invalidation.
+ *
+ * Deleting a record and refreshing its collection is the ordinary pattern, and it
+ * has a trap: a detail query lives *under* its collection's key —
+ * `['projects', 'detail', id]` beneath `['projects']` — so the same invalidation
+ * refetches the record that has just been removed. The request 404s and the page
+ * paints "Unable to load" over a successful delete, which reads as the delete
+ * having failed.
+ *
+ * Navigating away first does not fix it: nothing guarantees React has committed
+ * the unmount before the invalidation runs. Excluding the key does, whatever the
+ * timing.
+ *
+ * Pass it alongside a `queryKey` filter; TanStack applies both.
+ */
+export function exceptDetailOf(root: string, id: ID) {
+  return (query: { queryKey: readonly unknown[] }) =>
+    !(query.queryKey[0] === root && query.queryKey[1] === 'detail' && query.queryKey[2] === id);
+}

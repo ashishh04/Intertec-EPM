@@ -14,6 +14,11 @@ import { AboutSection } from '@/components/landing/AboutSection';
 import { FeaturedTimelineSection } from '@/components/landing/FeaturedTimelineSection';
 import { PhilosophySection } from '@/components/landing/PhilosophySection';
 import { CapabilitiesSection } from '@/components/landing/CapabilitiesSection';
+import { RolesSection } from '@/components/landing/RolesSection';
+import { IntegrationsSection } from '@/components/landing/IntegrationsSection';
+import { FaqSection } from '@/components/landing/FaqSection';
+import { ScrollProgress } from '@/components/landing/ScrollProgress';
+import { BackToTop } from '@/components/landing/BackToTop';
 import { useLandingMotion } from '@/components/landing/useLandingMotion';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
 
@@ -108,6 +113,7 @@ export default function LandingPage() {
 
   return (
     <div className="relative min-h-screen">
+      <ScrollProgress />
       <LandingCanvas />
       <LandingHeader />
 
@@ -219,6 +225,7 @@ export default function LandingPage() {
         <PhilosophySection />
         <LandingRule />
         <CapabilitiesSection />
+        <RolesSection />
 
         {/* ---- The product itself ---------------------------------------- */}
         <section className="overflow-hidden px-6 pb-28 md:pb-40">
@@ -303,6 +310,14 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <LandingRule />
+
+        <IntegrationsSection />
+
+        <LandingRule />
+
+        <FaqSection />
+
         {/* ---- Security & trust ------------------------------------------ */}
         <section id="security" className="overflow-hidden scroll-mt-24 px-6 pb-28 md:pb-40">
           <motion.div
@@ -371,6 +386,8 @@ export default function LandingPage() {
           </ul>
         </div>
       </footer>
+
+      <BackToTop />
     </div>
   );
 }

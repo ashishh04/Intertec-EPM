@@ -1,12 +1,19 @@
-# EPM frontend.
+# EPM frontend: the built bundle, served by Caddy.
 #
-# The result is a directory of static files; Caddy serves them. Nothing here
-# runs at request time.
+# The image is domain-agnostic on purpose. Vite inlines its environment at build
+# time, so anything named here is frozen into the bundle — and an image with a
+# hostname baked in can only ever be deployed to that hostname, which defeats
+# pulling a published image. src/config/env.ts therefore resolves the API to the
+# relative path `/api` in production, which the browser takes as the origin that
+# served the page. Caddy, below, proxies `/api` on that origin to the backend.
 #
-# `VITE_API_BASE_URL` is a build argument, not an environment variable, because
-# Vite inlines it into the bundle at build time. A container started with a
-# different value would ignore it — changing the backend address means
-# rebuilding this image, not restarting it.
+# The domain is supplied at *run* time instead, as EPM_DOMAIN, which is all the
+# Caddyfile needs in order to request a certificate. So the same image tag runs
+# on staging and production, and moving a deployment is an env change.
+#
+# VITE_API_BASE_URL is still accepted, for the one arrangement the relative path
+# cannot express: a backend on a different origin. Passing it ties the resulting
+# image to that address — do not pass it for the standard single-host deploy.
 
 # ---------------------------------------------------------------- build
 FROM node:22-slim AS build
@@ -18,14 +25,13 @@ RUN npm ci
 
 COPY . .
 
-ARG VITE_API_BASE_URL
+ARG VITE_API_BASE_URL=""
 ARG VITE_APP_ENV=production
+ARG VITE_CURRENCY=AED
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_APP_ENV=$VITE_APP_ENV
+ENV VITE_CURRENCY=$VITE_CURRENCY
 
-# Fails rather than building if the API address is missing — see
-# src/config/env.ts. A bundle that silently points at localhost is the one
-# failure mode worth stopping the build for.
 RUN npm run build
 
 # ---------------------------------------------------------------- runtime

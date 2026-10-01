@@ -38,35 +38,35 @@ function eachDay(start: string, end: string): string[] {
   return days;
 }
 
-async function buildSprint(version: OpVersion, signal: AbortSignal): Promise<EpmSprint> {
+type SprintWorkPackage = OpWorkPackage & { storyPoints?: number | null };
+
+/**
+ * Everything a sprint needs that does not come from its version record.
+ *
+ * Passed in rather than fetched, which is the whole point of the rewrite below:
+ * this used to fetch its own work packages and run its own two database queries,
+ * so listing sprints cost one upstream walk and two round trips *per sprint*.
+ */
+interface SprintContext {
+  catalog: Awaited<ReturnType<typeof getCatalog>>;
+  workPackages: SprintWorkPackage[];
+  overlay: { goal: string | null; committedPoints: number | null } | null;
+  samples: { sampledOn: Date; remainingPoints: number }[];
+}
+
+function buildSprint(version: OpVersion, context: SprintContext): EpmSprint {
   const id = String(version.id);
   const today = new Date().toISOString().slice(0, 10);
-  const catalog = await getCatalog(signal);
-
-  const workPackages = await openProject
-    .getAll<OpWorkPackage & { storyPoints?: number | null }>(
-      '/work_packages',
-      { filters: [{ field: 'version', operator: '=', values: [id] }], pageSize: 100 },
-      { signal },
-    )
-    .catch(() => ({ items: [] as (OpWorkPackage & { storyPoints?: number | null })[] }));
+  const { catalog, overlay, samples } = context;
 
   let committed = 0;
   let completed = 0;
-  for (const workPackage of workPackages.items) {
+  for (const workPackage of context.workPackages) {
     const points = typeof workPackage.storyPoints === 'number' ? workPackage.storyPoints : 0;
     committed += points;
     const statusId = linkId(workPackage._links, 'status');
     if (statusId && catalog.statusById.get(statusId)?.epm === 'done') completed += points;
   }
-
-  const [overlay, samples] = await Promise.all([
-    optional(() => prisma.sprintProfile.findUnique({ where: { openProjectId: id } }), null),
-    optional(
-      () => prisma.burndownSample.findMany({ where: { sprintId: id }, orderBy: { sampledOn: 'asc' } }),
-      [],
-    ),
-  ]);
 
   const committedPoints = overlay?.committedPoints ?? committed;
   const start = version.startDate ?? today;
@@ -114,13 +114,97 @@ async function buildSprint(version: OpVersion, signal: AbortSignal): Promise<Epm
  * the caller's permissions; invalidated on any sprint write so a new or
  * completed sprint appears immediately rather than after the TTL.
  */
+/** The context for one sprint, for the write paths that return a single record. */
+async function contextFor(version: OpVersion, signal: AbortSignal): Promise<SprintContext> {
+  const id = String(version.id);
+
+  const [catalog, work, overlay, samples] = await Promise.all([
+    getCatalog(signal),
+    openProject
+      .getAll<SprintWorkPackage>(
+        '/work_packages',
+        { filters: [{ field: 'version', operator: '=', values: [id] }], pageSize: 200 },
+        { signal },
+      )
+      .catch(() => ({ items: [] as SprintWorkPackage[] })),
+    optional(() => prisma.sprintProfile.findUnique({ where: { openProjectId: id } }), null),
+    optional(
+      () => prisma.burndownSample.findMany({ where: { sprintId: id }, orderBy: { sampledOn: 'asc' } }),
+      [],
+    ),
+  ]);
+
+  return { catalog, workPackages: work.items, overlay, samples };
+}
+
 async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
   return aggregateCache.get(userScopedKey('sprints'), async () => {
     const versions = await openProject
       .getAll<OpVersion>('/versions', { pageSize: 100 }, { signal })
       .catch(() => ({ items: [] as OpVersion[] }));
 
-    return Promise.all(versions.items.map((version) => buildSprint(version, signal)));
+    if (versions.items.length === 0) return [];
+    const ids = versions.items.map((version) => String(version.id));
+
+    /*
+     * Four reads for the whole list, whatever its length.
+     *
+     * This used to be one upstream walk and two database round trips *per
+     * sprint*, fired together — so an instance with a dozen sprints opened
+     * thirty-six connections to answer one request, and the page took as long as
+     * the slowest of them. With OpenProject running two Puma workers they simply
+     * queued, which is why this was the slowest endpoint in the product.
+     *
+     * The work packages come back in one query filtered on every version id at
+     * once, and the two overlay tables in one `IN` each. Grouping then happens in
+     * memory, where it costs nothing.
+     */
+    const [catalog, all, overlays, samples] = await Promise.all([
+      getCatalog(signal),
+      openProject
+        .getAll<SprintWorkPackage>(
+          '/work_packages',
+          { filters: [{ field: 'version', operator: '=', values: ids }], pageSize: 200 },
+          { signal },
+        )
+        .catch(() => ({ items: [] as SprintWorkPackage[] })),
+      optional(() => prisma.sprintProfile.findMany({ where: { openProjectId: { in: ids } } }), []),
+      optional(
+        () =>
+          prisma.burndownSample.findMany({
+            where: { sprintId: { in: ids } },
+            orderBy: { sampledOn: 'asc' },
+          }),
+        [],
+      ),
+    ]);
+
+    const workByVersion = new Map<string, SprintWorkPackage[]>();
+    for (const workPackage of all.items) {
+      const versionId = linkId(workPackage._links, 'version');
+      if (!versionId) continue;
+      const bucket = workByVersion.get(versionId);
+      if (bucket) bucket.push(workPackage);
+      else workByVersion.set(versionId, [workPackage]);
+    }
+
+    const overlayById = new Map(overlays.map((row) => [row.openProjectId, row]));
+    const samplesById = new Map<string, { sampledOn: Date; remainingPoints: number }[]>();
+    for (const sample of samples) {
+      const bucket = samplesById.get(sample.sprintId);
+      if (bucket) bucket.push(sample);
+      else samplesById.set(sample.sprintId, [sample]);
+    }
+
+    return versions.items.map((version) => {
+      const id = String(version.id);
+      return buildSprint(version, {
+        catalog,
+        workPackages: workByVersion.get(id) ?? [],
+        overlay: overlayById.get(id) ?? null,
+        samples: samplesById.get(id) ?? [],
+      });
+    });
   });
 }
 
@@ -254,7 +338,14 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
         signal,
       });
 
-      return buildSprint(updated, signal);
+      /*
+       * One sprint, built the same way the list builds them.
+       *
+       * The context is assembled here rather than fetched inside `buildSprint`,
+       * which is what keeps the list to a fixed number of queries. For a single
+       * sprint the same four reads are simply scoped to one id.
+       */
+      return buildSprint(updated, await contextFor(updated, signal));
     },
   );
 

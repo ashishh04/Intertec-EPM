@@ -17,7 +17,11 @@ services:
   # The system EPM wraps. Not published: EPM is the only thing that talks to
   # it, over the internal network.
   openproject:
-    image: openproject/openproject:15
+    # Built from the same Dockerfile the published image comes from, so this
+    # file and docker-compose.deploy.yml load the EPM initializers the same way.
+    build:
+      context: ./backend/openproject
+    image: ${EPM_IMAGE_NAMESPACE:-epm-local}/epm-openproject:${EPM_IMAGE_TAG:-dev}
     container_name: openproject
     restart: unless-stopped
     environment:
@@ -30,12 +34,6 @@ services:
     volumes:
       - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/pgdata:/var/openproject/pgdata
       - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/assets:/var/openproject/assets
-      # The EPM patches. Read-only: nothing in the container should rewrite
-      # them, and sign-in depends on the first one.
-      - ./backend/openproject/zzz_epm_password_grant.rb:/app/config/initializers/zzz_epm_password_grant.rb:ro
-      - ./backend/openproject/zzz_epm_admin_api.rb:/app/config/initializers/zzz_epm_admin_api.rb:ro
-      - ./backend/openproject/zzz_epm_admin_settings.rb:/app/config/initializers/zzz_epm_admin_settings.rb:ro
-      - ./backend/openproject/zzz_epm_admin_catalog.rb:/app/config/initializers/zzz_epm_admin_catalog.rb:ro
     networks: [epm]
 
   # ------------------------------------------------------------ EPM database
@@ -60,6 +58,7 @@ services:
   backend:
     build:
       context: ./backend
+    image: ${EPM_IMAGE_NAMESPACE:-epm-local}/epm-backend:${EPM_IMAGE_TAG:-dev}
     container_name: epm-backend
     restart: unless-stopped
     depends_on:
@@ -105,9 +104,8 @@ services:
     build:
       context: ./frontend
       args:
-        # Same origin as the site, so the bundle calls /api on itself.
-        VITE_API_BASE_URL: https://${EPM_DOMAIN}/api
         VITE_APP_ENV: production
+    image: ${EPM_IMAGE_NAMESPACE:-epm-local}/epm-web:${EPM_IMAGE_TAG:-dev}
     container_name: epm-web
     restart: unless-stopped
     depends_on: [backend]

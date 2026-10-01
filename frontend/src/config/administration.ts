@@ -43,6 +43,12 @@ export interface AdminPage {
    * bug for as long as nobody says why.
    */
   enterprise?: true;
+  /**
+   * Where a `managed` setting is actually changed, as a path through the
+   * OpenProject administration. Without it the page can only say "not here",
+   * which is the half of the answer nobody needed.
+   */
+  managedAt?: string;
   /** One sentence on what this page controls. */
   description: string;
 }
@@ -339,8 +345,12 @@ export const ADMIN_AREAS: AdminArea[] = [
       {
         id: 'ldap',
         label: 'LDAP authentication',
-        enterprise: true,
+        // Not Enterprise. LDAP is in the free edition; it is `managed` here only
+        // because OpenProject 15 exposes no API for it — `/api/v3/ldap_auth_sources`
+        // is a 404. Marking it Enterprise told administrators to buy a licence
+        // for something they already have.
         kind: 'managed',
+        managedAt: 'Authentication → LDAP connections',
         description: 'Directory servers that accounts are checked against.',
       },
       {
@@ -354,6 +364,7 @@ export const ADMIN_AREAS: AdminArea[] = [
         label: 'OpenID providers',
         enterprise: true,
         kind: 'managed',
+        managedAt: 'Authentication → OpenID providers',
         description: 'External identity providers that can sign people in.',
       },
       {
@@ -361,18 +372,21 @@ export const ADMIN_AREAS: AdminArea[] = [
         label: 'SAML providers',
         enterprise: true,
         kind: 'managed',
+        managedAt: 'Authentication → SAML providers',
         description: 'Enterprise single sign-on providers.',
       },
       {
         id: 'two-factor',
         label: 'Two-factor authentication',
         kind: 'managed',
+        managedAt: 'Authentication → Two-factor authentication',
         description: 'Whether a second factor is offered or required at sign-in.',
       },
       {
         id: 'recaptcha',
         label: 'reCAPTCHA',
         kind: 'managed',
+        managedAt: 'Authentication → reCAPTCHA',
         description: 'The challenge shown to keep automated sign-ins out.',
       },
     ],
@@ -398,12 +412,15 @@ export const ADMIN_AREAS: AdminArea[] = [
     Paintbrush,
     'live',
   ),
+  // `live`: EPM already reads the licence state to decide whether to offer
+  // Enterprise-gated actions, so the page shows it rather than rendering an
+  // empty card. It still cannot apply a token — there is no API for that.
   single(
     'enterprise',
     'Enterprise edition',
     'The support token that unlocks enterprise features.',
     ShieldCheck,
-    'managed',
+    'live',
   ),
   {
     id: 'time-and-costs',

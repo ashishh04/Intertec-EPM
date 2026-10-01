@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { FileText, Search } from 'lucide-react';
 import { PageHeader, SectionHeader } from '@/components/common/PageHeader';
@@ -19,17 +20,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useDocuments, useUploadDocument } from '@/hooks/useDocuments';
+import { documentDownloadUrl, useDocuments, useUploadDocument } from '@/hooks/useDocuments';
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
-import type { ID, EpmProject } from '@/types';
+import type { ID, EpmDocument, EpmProject } from '@/types';
 
 const ALL = '__all__';
 
 /** Workspace document library. */
 export default function DocumentsPage() {
-  const [search, setSearch] = useState('');
+  // Seeded from the URL so a link can land on a particular document — the
+  // Help menu's "Delivery handbook" points here with `?search=handbook`.
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
   const [projectId, setProjectId] = useState<string>(ALL);
   const debouncedSearch = useDebounce(search, 250);
 
@@ -58,8 +62,16 @@ export default function DocumentsPage() {
     };
   }, [documents]);
 
-  const openPreview = (name: string) =>
-    toast('Preview is not implemented yet', { description: name });
+  /*
+   * Opens the file itself, streamed back through EPM.
+   *
+   * A new tab rather than an in-page viewer: the backend serves every document
+   * as an attachment with `nosniff`, precisely so an uploaded HTML or SVG can
+   * never execute in EPM's own origin, and rendering one inline here would give
+   * back exactly what that header exists to prevent.
+   */
+  const openDocument = (document: EpmDocument) =>
+    window.open(documentDownloadUrl(document.id), '_blank', 'noopener,noreferrer');
 
   const renderGrid = (items: typeof documents, emptyTitle: string) => (
     <QueryBoundary
@@ -85,7 +97,7 @@ export default function DocumentsPage() {
         users={users}
         projects={projectsById}
         resetKey={`${debouncedSearch}|${projectId}`}
-        onOpen={(document) => openPreview(document.name)}
+        onOpen={openDocument}
       />
     </QueryBoundary>
   );
@@ -155,11 +167,14 @@ export default function DocumentsPage() {
           pending={upload.isPending}
           onUpload={(file) =>
             upload.mutate(
-              { ...file, projectId: projectId === ALL ? undefined : projectId },
+              { file, projectId: projectId === ALL ? undefined : projectId },
               {
                 onSuccess: (created) =>
                   toast.success('Document uploaded', { description: created.name }),
-                onError: () => toast.error('Unable to upload the document'),
+                onError: (error) =>
+                  toast.error('Unable to upload the document', {
+                    description: error instanceof Error ? error.message : undefined,
+                  }),
               },
             )
           }

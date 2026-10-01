@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Pencil, Star, Trash2 } from 'lucide-react';
+import { ListTree, Pencil, Star, Trash2 } from 'lucide-react';
 
 import { ColumnPicker } from './ColumnPicker';
 import { QueryBuilder } from './QueryBuilder';
@@ -9,6 +9,7 @@ import { ConfirmDialog, PromptDialog } from '@/components/common/ConfirmDialog';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import {
   Select,
   SelectContent,
@@ -123,6 +124,14 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const [newName, setNewName] = useState('');
   const [columns, setColumns] = useState<string[]>();
   const [groupBy, setGroupBy] = useState<string>();
+  /*
+   * Show the rows as a tree, as OpenProject's own list does by default.
+   *
+   * Mutually exclusive with grouping and with an explicit sort below: each is a
+   * different claim about the order of the rows, and letting two of them apply
+   * at once produces an arrangement that answers to neither.
+   */
+  const [hierarchy, setHierarchy] = useState(true);
   // Which confirmation is open. Bulk delete carries the ids so the dialog can
   // say how many rows are about to go.
   const [renaming, setRenaming] = useState(false);
@@ -155,6 +164,10 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     });
   }, [filters, schemaQuery.data]);
 
+  // Grouping and sorting each impose their own order, so the tree yields to
+  // either rather than fighting it.
+  const treeMode = hierarchy && !groupBy && !sort;
+
   // Overrides are only sent when set. Omitting `filters` entirely lets a saved
   // view keep its own; sending an empty array would silently clear it.
   const overrides = useMemo(
@@ -172,8 +185,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         : {}),
       ...(columns?.length ? { columns: columns.join(',') } : {}),
       ...(groupBy ? { groupBy } : {}),
+      showHierarchies: treeMode,
     }),
-    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns, groupBy],
+    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns, groupBy, treeMode],
   );
 
   const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides);
@@ -372,21 +386,35 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             </>
           ) : null}
 
-          <div className="ml-auto flex items-center gap-1.5">
-            <Input
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder="Save current filters as…"
-              aria-label="New view name"
-              className="h-8 w-52"
-            />
-            <Button
-              size="sm"
-              onClick={save}
-              disabled={!newName.trim() || createQuery.isPending}
-            >
-              Save view
-            </Button>
+          {/*
+            The button is disabled until the view has a name, which is correct —
+            a saved view with no name cannot be found again. What was missing is
+            that it said so: a permanently grey button beside an empty box reads
+            as broken rather than as waiting for input, and was reported as such.
+            The title carries the reason for a pointer, and the hint below states
+            it outright.
+          */}
+          <div className="ml-auto flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder="Save current filters as…"
+                aria-label="New view name"
+                className="h-8 w-52"
+              />
+              <Button
+                size="sm"
+                onClick={save}
+                disabled={!newName.trim() || createQuery.isPending}
+                title={newName.trim() ? undefined : 'Give the view a name to save it'}
+              >
+                Save view
+              </Button>
+            </div>
+            {!newName.trim() ? (
+              <p className="text-2xs text-muted-foreground">Name the view to save it.</p>
+            ) : null}
           </div>
         </div>
 
@@ -423,6 +451,33 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             </SelectContent>
           </Select>
 
+          {/* Disabled rather than hidden while grouping or sorting is on, so
+              the reason the tree is not showing stays on screen. */}
+          <InfoTooltip
+            label={
+              groupBy || sort
+                ? 'Grouping and sorting each impose their own order, so the tree is off while either is set.'
+                : 'Show sub-items nested under their parent.'
+            }
+          >
+            <span>
+              <Button
+                variant={treeMode ? 'secondary' : 'ghost'}
+                size="sm"
+                className="shrink-0"
+                aria-pressed={treeMode}
+                disabled={Boolean(groupBy || sort)}
+                onClick={() => {
+                  setHierarchy((on) => !on);
+                  setPage(1);
+                }}
+              >
+                <ListTree className="h-3.5 w-3.5" />
+                Hierarchy
+              </Button>
+            </span>
+          </InfoTooltip>
+
           <ColumnPicker
             available={schemaQuery.data?.columns ?? []}
             renderable={RENDERABLE_COLUMNS}
@@ -456,6 +511,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             setPageSize(size);
             setPage(1);
           }}
+          showHierarchy={treeMode}
           sortBy={activeSort?.field}
           sortDir={activeSort?.direction}
           sortable={sortableColumns}

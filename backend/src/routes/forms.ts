@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
-import { EpmError } from '../lib/errors.js';
+import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 
@@ -159,15 +159,49 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  /** Schema for logging time. Requires the costs module and permission. */
   /**
-   * Time logging has no capability in OpenProject's vocabulary, so there is no
-   * authoritative source to authorise it against. Refused rather than guessed —
-   * see UNMAPPED in auth/permissions.ts.
+   * Schema for logging time, with the activities this project allows.
+   *
+   * Not guarded here. Time entries have no action in the capabilities
+   * vocabulary, so a check in EPM would be a guess — and refusing outright,
+   * which is what this did, is a guess too. OpenProject applies `log_time` per
+   * project on this very endpoint and answers 403 with its own reason, so the
+   * form is asked and the refusal is passed on. Same reasoning as the time
+   * entry routes themselves; see `routes/time-entries.ts`.
+   *
+   * A work package implies its project. Either is enough to shape the form,
+   * and with neither OpenProject returns the unscoped schema, which is what a
+   * blank timesheet row wants.
    */
-  app.post('/forms/time-entries', async () => {
-    throw EpmError.forbidden(
-      'Time logging is not available: this deployment has no authoritative permission source for it.',
-    );
+  app.post<{
+    Body: { projectId?: string; workPackageId?: string; payload?: Record<string, unknown> };
+  }>('/forms/time-entries', async (request) => {
+    const { projectId, workPackageId } = request.body ?? {};
+
+    const links: Record<string, { href: string }> = {};
+    if (projectId) {
+      if (!/^\d+$/.test(projectId)) throw EpmError.badRequest('That project is not valid.');
+      links.project = { href: `/api/v3/projects/${projectId}` };
+    }
+    if (workPackageId) {
+      if (!/^\d+$/.test(workPackageId)) {
+        throw EpmError.badRequest('That work package is not valid.');
+      }
+      links.workPackage = { href: `/api/v3/work_packages/${workPackageId}` };
+    }
+
+    const payload = {
+      ...(request.body?.payload ?? {}),
+      ...(Object.keys(links).length > 0
+        ? { _links: { ...links, ...(request.body?.payload?._links as object) } }
+        : {}),
+    };
+
+    return requestForm('/time_entries/form', payload, requestSignal(request)).catch((error) => {
+      if (error instanceof OpenProjectError && error.upstreamStatus === 403) {
+        throw EpmError.forbidden(error.message);
+      }
+      throw error;
+    });
   });
 };

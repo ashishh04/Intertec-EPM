@@ -16,6 +16,8 @@ const SetPasswordPage = lazy(() => import('@/pages/SetPasswordPage'));
 const InvitePage = lazy(() => import('@/pages/InvitePage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const MyWorkPage = lazy(() => import('@/pages/MyWorkPage'));
+const MyTimePage = lazy(() => import('@/pages/MyTimePage'));
+const TimeCostsPage = lazy(() => import('@/pages/TimeCostsPage'));
 const ProjectsPage = lazy(() => import('@/pages/ProjectsPage'));
 const ProjectDetailPage = lazy(() => import('@/pages/project/ProjectDetailPage'));
 const ProjectOverviewTab = lazy(() => import('@/pages/project/ProjectOverviewTab'));
@@ -25,6 +27,9 @@ const ProjectSprintTab = lazy(() => import('@/pages/project/ProjectSprintTab'));
 const ProjectGanttTab = lazy(() => import('@/pages/project/ProjectGanttTab'));
 const ProjectTeamTab = lazy(() => import('@/pages/project/ProjectTeamTab'));
 const ProjectDocumentsTab = lazy(() => import('@/pages/project/ProjectDocumentsTab'));
+const ProjectMeetingsTab = lazy(() => import('@/pages/project/ProjectMeetingsTab'));
+const ProjectNewsTab = lazy(() => import('@/pages/project/ProjectNewsTab'));
+const ProjectWikiTab = lazy(() => import('@/pages/project/ProjectWikiTab'));
 const ProjectActivityTab = lazy(() => import('@/pages/project/ProjectActivityTab'));
 const ProjectReportsTab = lazy(() => import('@/pages/project/ProjectReportsTab'));
 const TasksPage = lazy(() => import('@/pages/TasksPage'));
@@ -44,6 +49,10 @@ const GanttPage = lazy(() => import('@/pages/GanttPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
 const DocumentsPage = lazy(() => import('@/pages/DocumentsPage'));
+const MeetingsPage = lazy(() => import('@/pages/MeetingsPage'));
+const MeetingDetailPage = lazy(() => import('@/pages/MeetingDetailPage'));
+const NewsPage = lazy(() => import('@/pages/NewsPage'));
+const WikiPage = lazy(() => import('@/pages/WikiPage'));
 const NotificationsPage = lazy(() => import('@/pages/NotificationsPage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
@@ -162,6 +171,13 @@ export function App() {
         >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/my-work" element={<MyWorkPage />} />
+          {/* Time tracking is two surfaces, not one: your own week, which you
+              edit, and the organisation's hours, which you read. Neither is
+              permission-gated here — OpenProject scopes both to what the caller
+              may see, per project, and a gate in front of them would refuse
+              people the instance would have answered. */}
+          <Route path="/my-time" element={<MyTimePage />} />
+          <Route path="/time-and-costs" element={<TimeCostsPage />} />
 
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />}>
@@ -172,6 +188,9 @@ export function App() {
             <Route path="gantt" element={<ProjectGanttTab />} />
             <Route path="team" element={<ProjectTeamTab />} />
             <Route path="documents" element={<ProjectDocumentsTab />} />
+            <Route path="meetings" element={<ProjectMeetingsTab />} />
+            <Route path="news" element={<ProjectNewsTab />} />
+            <Route path="wiki" element={<ProjectWikiTab />} />
             <Route path="activity" element={<ProjectActivityTab />} />
             <Route path="reports" element={<ProjectReportsTab />} />
           </Route>
@@ -240,6 +259,17 @@ export function App() {
             }
           />
           <Route path="/documents" element={<DocumentsPage />} />
+          {/* Collaboration. Not permission-gated here: each record is scoped to a
+              project and the backend answers per record from OpenProject's own
+              view of who may see that project — a gate in front of the route
+              would refuse people the instance would have answered. */}
+          <Route path="/meetings" element={<MeetingsPage />} />
+          <Route path="/meetings/:meetingId" element={<MeetingDetailPage />} />
+          <Route path="/news" element={<NewsPage />} />
+          {/* The slug is a path segment so a wiki link reads as a link. The
+              bare path opens whichever page the wiki starts with. */}
+          <Route path="/wiki" element={<WikiPage />} />
+          <Route path="/wiki/:slug" element={<WikiPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           {/*
