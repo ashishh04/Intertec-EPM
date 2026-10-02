@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { EpmAccount, ID } from '@/types';
+import type { AccountRevocation, EpmAccount, ID } from '@/types';
 
 /**
  * User accounts.
@@ -82,6 +82,15 @@ export class ApiAccountRepository {
 
   unlock(id: ID): Promise<EpmAccount> {
     return apiClient.delete<EpmAccount>(`/accounts/${id}/lock`);
+  }
+
+  /**
+   * Ends their sessions, takes them off every project, and drops instance
+   * admin. Not reversible by itself — the memberships have to be granted
+   * again — but it removes nothing about the person, so their history stays.
+   */
+  revoke(id: ID): Promise<AccountRevocation> {
+    return apiClient.post<AccountRevocation>(`/accounts/${id}/revoke`);
   }
 
   /** Permanent, and only offered where the instance allows it at all. */

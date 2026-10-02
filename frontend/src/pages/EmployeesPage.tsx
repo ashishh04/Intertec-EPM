@@ -14,6 +14,7 @@ import {
 import { TableCard, TableSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { AccountDialog } from '@/components/employees/AccountDialog';
+import { RemovePersonDialog } from '@/components/employees/RemovePersonDialog';
 import { StaffingDialog } from '@/components/employees/StaffingDialog';
 import { MappingDialog } from '@/components/employees/MappingDialog';
 import { ListToolbar, ResultCount, SearchInput } from '@/components/common/ListToolbar';
@@ -38,12 +39,7 @@ import {
 } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDebounce } from '@/hooks/useDebounce';
-import {
-  useAccounts,
-  useDeleteAccount,
-  useResendInvite,
-  useSetAccountLocked,
-} from '@/hooks/useAccounts';
+import { useAccounts, useResendInvite, useSetAccountLocked } from '@/hooks/useAccounts';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useEmployees } from '@/hooks/useEmployees';
 import { usePagination } from '@/hooks/usePagination';
@@ -54,15 +50,7 @@ import { formatCurrency, formatNumber } from '@/lib/utils';
 import { env } from '@/config/env';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmEmployee } from '@/services/api/employees';
-import type { AccountStatus, EpmAccount } from '@/types';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import type { AccountStatus, EpmAccount, ID } from '@/types';
 import { toast } from 'sonner';
 
 /**
@@ -119,12 +107,14 @@ export default function EmployeesPage() {
   const mayManageAccounts = can('users:manage');
   const accounts = useAccounts(mayManageAccounts);
   const setLocked = useSetAccountLocked();
-  const deleteAccount = useDeleteAccount();
   const resendInvite = useResendInvite();
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<EpmAccount>();
-  const [removing, setRemoving] = useState<EpmAccount>();
+  // The account being offboarded. Held rather than passed straight through,
+  // because the staged dialog re-reads it from the refreshed list after each
+  // step so the next step sees the new status.
+  const [removingId, setRemovingId] = useState<ID>();
 
   const accountById = new Map((accounts.data ?? []).map((account) => [account.id, account]));
 
@@ -161,22 +151,6 @@ export default function EmployeesPage() {
       onSuccess: () => toast.success(`Invitation sent to ${account.email}`),
       onError: (error) =>
         toast.error('The invitation could not be sent', {
-          description: error instanceof Error ? error.message : undefined,
-        }),
-    });
-  };
-
-  const confirmRemove = () => {
-    if (!removing) return;
-    const name = removing.name;
-
-    deleteAccount.mutate(removing.id, {
-      onSuccess: () => {
-        toast.success(`${name} was deleted`);
-        setRemoving(undefined);
-      },
-      onError: (error) =>
-        toast.error('That could not be deleted', {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -438,8 +412,7 @@ export default function EmployeesPage() {
                           const account = accountById.get(employee.id);
                           if (!account) return null;
 
-                          const { update, lock, unlock, remove } = account.can;
-                          if (!update && !lock && !unlock && !remove) return null;
+                          const { update, lock, unlock } = account.can;
 
                           return (
                             <DropdownMenu>
@@ -474,15 +447,18 @@ export default function EmployeesPage() {
                                   </DropdownMenuItem>
                                 ) : null}
 
-                                {remove ? (
-                                  <DropdownMenuItem
-                                    destructive
-                                    onSelect={() => setRemoving(account)}
-                                  >
-                                    <Trash2 />
-                                    Delete permanently
-                                  </DropdownMenuItem>
-                                ) : null}
+                                {/* Offered whether or not the instance allows
+                                    deletion: the first two steps of removing
+                                    somebody — deactivate, then revoke — need
+                                    no upstream affordance, and the dialog
+                                    explains the third rather than hiding it. */}
+                                <DropdownMenuItem
+                                  destructive
+                                  onSelect={() => setRemovingId(account.id)}
+                                >
+                                  <Trash2 />
+                                  Remove person…
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           );
@@ -501,33 +477,15 @@ export default function EmployeesPage() {
       <StaffingDialog open={staffingOpen} onOpenChange={setStaffingOpen} employee={editing} />
       <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} account={editingAccount} />
 
-      {/* Deletion is permanent and OpenProject processes it in the background,
-          so it is confirmed and says plainly what goes with it. Deactivating
-          is the reversible alternative, and is named here. */}
-      <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
-            <DialogDescription>
-              This removes their account permanently, along with their
-              department, team and capacity in EPM. It cannot be undone. To keep their history
-              and stop them signing in, deactivate them instead.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setRemoving(undefined)}
-              disabled={deleteAccount.isPending}
-            >
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={confirmRemove} disabled={deleteAccount.isPending}>
-              Delete permanently
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Removing somebody is deactivate, then revoke, then delete — each one
+          a real step with its own outcome, rather than one confirmation that
+          either works or is missing entirely. The account is read from the
+          live list by id so each step sees the status the last one left. */}
+      <RemovePersonDialog
+        open={Boolean(removingId)}
+        onOpenChange={(open) => !open && setRemovingId(undefined)}
+        account={removingId ? accountById.get(removingId) : undefined}
+      />
     </div>
   );
 }

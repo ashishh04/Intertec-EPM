@@ -78,6 +78,21 @@ export function useSetAccountLocked() {
   });
 }
 
+/**
+ * Withdraws access without removing the person.
+ *
+ * Invalidates the same set as the rest: memberships change who appears on a
+ * project, and dropping instance admin changes what the directory reports.
+ */
+export function useRevokeAccess() {
+  const settle = useAccountInvalidation();
+
+  return useMutation({
+    mutationFn: (id: ID) => accountService.revoke(id),
+    onSuccess: settle,
+  });
+}
+
 export function useDeleteAccount() {
   const settle = useAccountInvalidation();
 

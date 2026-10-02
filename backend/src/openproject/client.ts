@@ -29,7 +29,7 @@ const MAX_ATTEMPTS = 3;
  * did — makes OpenProject answer rather than redirect. This is the same header
  * a reverse proxy would set, and OpenProject is configured to trust it.
  */
-const FORWARDED_HEADERS = { 'X-Forwarded-Proto': 'https' } as const;
+export const FORWARDED_HEADERS = { 'X-Forwarded-Proto': 'https' } as const;
 
 /** OpenProject caps `pageSize`; requesting more silently returns fewer. */
 export const MAX_PAGE_SIZE = 200;

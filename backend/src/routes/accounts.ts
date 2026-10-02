@@ -12,9 +12,9 @@ import { enqueueEmail } from '../email/outbox.js';
 import { forgetRecipient } from '../email/recipients.js';
 import { toEpmAccount } from '../mapping/accounts.js';
 import { getCurrentUser } from '../mapping/users.js';
-import { openProject } from '../openproject/client.js';
-import type { OpPrincipal } from '../openproject/types.js';
-import type { EpmAccount } from '../types/epm.js';
+import { linkId, linkTitle, openProject } from '../openproject/client.js';
+import type { OpMembership, OpPrincipal } from '../openproject/types.js';
+import type { AccountRevocation, EpmAccount } from '../types/epm.js';
 
 /**
  * User accounts.
@@ -432,6 +432,147 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
     referenceCache.invalidatePrefix('users');
     return toEpmAccount(unlocked);
+  });
+
+  /**
+   * Revokes a person's access, without removing them.
+   *
+   * The middle step of offboarding. Deactivating stops a sign-in; this takes
+   * away what the account still reaches if it is ever reactivated, or if a
+   * browser somewhere is already holding a live session. Three things, each
+   * one real:
+   *
+   * - **Sessions.** EPM's sessions are rows rather than stateless tokens, so
+   *   deleting them ends access on that browser's *next request* instead of
+   *   whenever a token happens to expire. This is the half that takes effect
+   *   immediately, so it goes first.
+   * - **Project memberships.** Removed upstream, which is where access to work
+   *   actually lives. Locking an account hides it from pickers; it does not
+   *   take the person off the projects.
+   * - **Instance administrator.** Dropped if set, because an account that
+   *   keeps it is one reactivation away from full access again.
+   *
+   * Deliberately *not* the EPM placement — department, team, capacity. That is
+   * the record of where somebody worked, not a key to anything, and deletion
+   * removes it already.
+   *
+   * Nothing here is gated on an upstream affordance, because OpenProject
+   * publishes none for membership deletion (see `routes/members.ts`). The gate
+   * is `users:manage`, which is admin-only and is already what reading this
+   * directory at all requires.
+   *
+   * A failure to remove one membership does not fail the request: the sessions
+   * are already gone, and reporting "nothing happened" when access was in fact
+   * withdrawn is the worse lie. What would not come off is named instead.
+   */
+  app.post<{ Params: { id: string } }>('/accounts/:id/revoke', async (request) => {
+    const { id } = request.params;
+
+    await guard.require(request, 'users:manage');
+    const account = await accountOf(request, id);
+
+    // Same reasoning as delete, and for a sharper reason: this ends sessions
+    // and strips admin, so an administrator who ran it on themselves could be
+    // left unable to undo it.
+    if (id === request.auth?.userId) {
+      throw EpmError.badRequest('You cannot revoke your own access.');
+    }
+
+    const signal = requestSignal(request);
+    const problems: string[] = [];
+
+    // 1. Sessions, first — the only part that takes effect at once.
+    const { prisma } = await import('../db/prisma.js');
+    const sessions = await prisma.session
+      .deleteMany({ where: { openProjectId: id } })
+      .catch((error: unknown) => {
+        problems.push(
+          error instanceof Error
+            ? `Their sessions could not be ended: ${error.message}`
+            : 'Their sessions could not be ended.',
+        );
+        return { count: 0 };
+      });
+
+    // 2. Project memberships.
+    //
+    // Read unfiltered and narrowed here, which looks wasteful and is not:
+    // upstream's `principal` filter only accepts an *active* principal, and
+    // answers "Filters User or group filter has invalid values." for a locked
+    // one. This runs straight after the account was deactivated, so the
+    // filtered form fails every time in the order the flow actually goes in.
+    // `mapping/users.ts` walks the same collection on every directory read.
+    const memberships = await openProject
+      .getAll<OpMembership>('/memberships', { pageSize: 100 }, { signal })
+      .catch((error: unknown) => {
+        problems.push(
+          error instanceof Error
+            ? `Their project memberships could not be read: ${error.message}`
+            : 'Their project memberships could not be read.',
+        );
+        return { items: [] as OpMembership[] };
+      });
+
+    // The only thing standing between this loop and every membership in the
+    // instance, so it is matched on the id from the path rather than on
+    // anything the caller sent.
+    const theirs = memberships.items.filter(
+      (membership) => linkId(membership._links, 'principal') === id,
+    );
+
+    let membershipsRemoved = 0;
+
+    for (const membership of theirs) {
+      const where = linkTitle(membership._links, 'project') || `membership ${membership.id}`;
+
+      await openProject
+        .request<void>(`/memberships/${membership.id}`, { method: 'DELETE', signal })
+        .then(() => {
+          membershipsRemoved += 1;
+        })
+        .catch((error: unknown) => {
+          problems.push(
+            error instanceof Error
+              ? `${where}: ${error.message}`
+              : `They could not be removed from ${where}.`,
+          );
+        });
+    }
+
+    // 3. Instance administrator.
+    let adminRevoked = false;
+
+    if (account.admin) {
+      await openProject
+        .request<OpPrincipal>(`/users/${id}`, {
+          method: 'PATCH',
+          body: { admin: false },
+          signal,
+        })
+        .then(() => {
+          adminRevoked = true;
+        })
+        .catch((error: unknown) => {
+          problems.push(
+            error instanceof Error
+              ? `Their administrator rights could not be removed: ${error.message}`
+              : 'Their administrator rights could not be removed.',
+          );
+        });
+    }
+
+    // The directory carries the admin flag and the roles derived from
+    // memberships, both of which have just changed.
+    referenceCache.invalidatePrefix('users');
+
+    const revocation: AccountRevocation = {
+      sessionsEnded: sessions.count,
+      membershipsRemoved,
+      adminRevoked,
+    };
+    if (problems.length > 0) revocation.problems = problems;
+
+    return revocation;
   });
 
   /**

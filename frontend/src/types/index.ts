@@ -122,6 +122,26 @@ export interface EpmAccount {
   can: AccountAffordances;
 }
 
+/**
+ * What a revocation actually did.
+ *
+ * Every figure is counted from work that completed, not from work that was
+ * attempted: an administrator offboarding somebody needs to know access is
+ * gone, and "we tried" is not an answer. `problems` carries the memberships
+ * that would not come off, so a partial revoke is reported as partial rather
+ * than reported as done.
+ */
+export interface AccountRevocation {
+  /** Browser sessions ended. Takes effect on that browser's next request. */
+  sessionsEnded: number;
+  /** Project memberships removed upstream. */
+  membershipsRemoved: number;
+  /** Whether instance-administrator rights were taken away by this call. */
+  adminRevoked: boolean;
+  /** Present only when something could not be revoked. */
+  problems?: string[];
+}
+
 export interface TeamMemberWorkload {
   userId: ID;
   /**

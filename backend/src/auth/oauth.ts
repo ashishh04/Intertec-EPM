@@ -3,6 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
+// Sign-in reaches OpenProject directly rather than through OpenProjectClient,
+// so it needs the same header for the same reason — see the constant's comment.
+// Without it the token endpoint answers 301 to a host with no TLS listener, the
+// fetch throws, and the failure surfaces as "the account service could not be
+// reached", which reads like OpenProject is down rather than misaddressed.
+import { FORWARDED_HEADERS } from '../openproject/client.js';
 import { decryptToken, encryptToken } from './crypto.js';
 
 /**
@@ -72,7 +78,7 @@ async function exchange(body: Record<string, string>): Promise<TokenResponse> {
   try {
     response = await fetch(config.tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: { ...FORWARDED_HEADERS, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: config.clientId,
         client_secret: config.clientSecret,
@@ -117,7 +123,11 @@ export async function signInWithPassword(
 
   // Identify the caller with their own token rather than trusting the form.
   const meResponse = await fetch(`${config.base}/api/v3/users/me`, {
-    headers: { Authorization: `Bearer ${tokens.access_token}`, Accept: 'application/hal+json' },
+    headers: {
+      ...FORWARDED_HEADERS,
+      Authorization: `Bearer ${tokens.access_token}`,
+      Accept: 'application/hal+json',
+    },
   });
   if (!meResponse.ok) {
     throw EpmError.unauthorized('Could not read your account after sign-in.');
