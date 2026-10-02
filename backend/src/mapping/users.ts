@@ -54,7 +54,21 @@ export function toEpmUser(
     initials: initialsFor(principal.name),
     // Principals do not expose email to a non-admin token.
     email: principal.email ?? '',
-    role: options.role ?? '',
+    /*
+     * An instance administrator is reported as one, whatever their project
+     * memberships say.
+     *
+     * The alternative — the first role of the first membership found — is both
+     * misleading and unstable where it is read most: under someone's own name
+     * in the account menu, which answers "who am I". An administrator who
+     * happens to be a Member of one project showed as "Member", and would
+     * change to something else the moment that membership did. Administrator is
+     * a property of the account, so it does not move.
+     *
+     * Groups and placeholders report nothing here, which is correct: `admin` is
+     * undefined on them, and neither holds a project role either.
+     */
+    role: principal.admin ? 'Administrator' : (options.role ?? ''),
     // The mapping is authoritative. The free-text column is a fallback for a
     // deployment that populated it before employee mapping existed; this one
     // never did. Neither is invented — an unmapped person reports nothing.
@@ -183,7 +197,11 @@ async function readCurrentUser(signal?: AbortSignal): Promise<EpmUser> {
   const roles = await loadRoles(signal).catch(() => new Map<string, string>());
 
   return toEpmUser(me, {
-    role: roles.get(String(me.id)) ?? (me.admin ? 'Administrator' : ''),
+    // Just the membership role; `toEpmUser` decides whether being an
+    // administrator outranks it. This used to fall back to Administrator only
+    // when no membership existed, which meant an administrator who belonged to
+    // a single project reported that project's role instead.
+    role: roles.get(String(me.id)) ?? '',
     overlay: overlay ?? undefined,
     // The instance is the authority; the EPM column is a fallback for a
     // deployment that populated it before this was read from upstream.
