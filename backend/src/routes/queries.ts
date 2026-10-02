@@ -171,10 +171,42 @@ async function runAndNormalize(
   pageSize: number;
   page: number;
 }> {
-  const response = await openProject.request<QueryResponse & Parameters<typeof toEpmQuery>[0]>(path, {
-    query: params,
-    signal,
-  });
+  let response: QueryResponse & Parameters<typeof toEpmQuery>[0];
+  try {
+    response = await openProject.request<QueryResponse & Parameters<typeof toEpmQuery>[0]>(path, {
+      query: params,
+      signal,
+    });
+  } catch (error) {
+    /*
+     * An instance with no projects in it refuses every view, because the caller
+     * holds `view_work_packages` nowhere — so the page that lists work showed a
+     * failure card on a product that was merely empty.
+     *
+     * The view definition cannot be recovered here: it arrives embedded in the
+     * response that just failed. An empty one stands in, which `toEpmQuery`
+     * builds from nothing, and the page renders the same "Default view, no
+     * filters, no columns" chrome it would for a view that selects nothing. The
+     * list below it is then empty rather than broken, which is the truth.
+     *
+     * Only MissingPermission. A 403 on a view belonging to someone else is a
+     * real refusal and still surfaces as one.
+     */
+    if (
+      error instanceof OpenProjectError &&
+      error.upstreamStatus === 403 &&
+      error.upstreamIdentifier?.endsWith(':MissingPermission')
+    ) {
+      return {
+        query: toEpmQuery({} as Parameters<typeof toEpmQuery>[0]),
+        tasks: [],
+        total: 0,
+        pageSize: Number(params.pageSize ?? 0) || 25,
+        page: 1,
+      };
+    }
+    throw error;
+  }
 
   const results = response._embedded?.results;
   const elements = results?._embedded?.elements ?? [];
