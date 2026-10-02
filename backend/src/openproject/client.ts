@@ -323,11 +323,54 @@ export class OpenProjectClient {
   }
 
   /** One page of a HAL collection. */
-  getCollection<T>(path: string, query: CollectionQuery = {}, signal?: AbortSignal) {
-    return this.request<HalCollection<T>>(path, {
-      query: collectionQueryToParams(query),
-      signal,
-    });
+  /*
+   * One page of a HAL collection — and an empty one where upstream would rather
+   * raise MissingPermission.
+   *
+   * Asked to list something the caller holds no permission for *anywhere*,
+   * OpenProject answers 403 rather than an empty collection. For a single
+   * resource that is the right answer. For a list it is not: "you are not
+   * authorized to access this resource" is what every page showed on an
+   * instance that simply had no projects in it yet, which reads as a broken
+   * permission system rather than an empty product.
+   *
+   * An empty list is the honest answer to "show me what I can see" when the
+   * answer is nothing, and it lets each page render the empty state it already
+   * has. Deliberately narrow: only collection reads, and only this one
+   * identifier — a 403 on a specific work package still fails as a 403, and
+   * every other upstream error is untouched.
+   */
+  async getCollection<T>(
+    path: string,
+    query: CollectionQuery = {},
+    signal?: AbortSignal,
+  ): Promise<HalCollection<T>> {
+    try {
+      return await this.request<HalCollection<T>>(path, {
+        query: collectionQueryToParams(query),
+        signal,
+      });
+    } catch (error) {
+      if (
+        error instanceof OpenProjectError &&
+        error.upstreamStatus === 403 &&
+        error.upstreamIdentifier?.endsWith(':MissingPermission')
+      ) {
+        appLog.debug(
+          { path, identifier: error.upstreamIdentifier },
+          'Upstream refused a collection read for want of permission; reporting it empty',
+        );
+        return {
+          _type: 'Collection',
+          total: 0,
+          count: 0,
+          pageSize: query.pageSize,
+          offset: query.offset,
+          _embedded: { elements: [] },
+        } as HalCollection<T>;
+      }
+      throw error;
+    }
   }
 
   /**

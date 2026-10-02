@@ -117,6 +117,19 @@ export class OpenProjectError extends EpmError {
     this.name = 'OpenProjectError';
     this.upstreamStatus = upstreamStatus;
   }
+
+  /**
+   * The `errorIdentifier` from the upstream body, e.g.
+   * `urn:openproject-org:api:v3:errors:MissingPermission`.
+   *
+   * The status alone is too coarse to act on: 403 covers both "you may not read
+   * this particular thing" and "you hold this permission nowhere", which call
+   * for different answers.
+   */
+  get upstreamIdentifier(): string | undefined {
+    const body = this.upstream as { errorIdentifier?: unknown } | undefined;
+    return typeof body?.errorIdentifier === 'string' ? body.errorIdentifier : undefined;
+  }
 }
 
 function mapUpstreamStatus(status: number): { status: number; code: ErrorCode } {

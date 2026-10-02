@@ -131,7 +131,16 @@ function asEpmError(error: unknown): EpmError {
       return EpmError.badRequest(message);
     }
     if (error.upstreamStatus === 404) return EpmError.notFound('That view');
-    if (error.upstreamStatus === 403) return EpmError.forbidden('You cannot access that view.');
+    if (error.upstreamStatus === 403) {
+      // Two different refusals wear the same status. MissingPermission means the
+      // caller holds the permission in no project at all — on an instance with
+      // no projects in it, that is every view, and "you cannot access that view"
+      // describes a permissions problem the reader does not have. The other 403
+      // is the real one: a view belonging to someone else.
+      return upstream?.errorIdentifier?.endsWith(':MissingPermission')
+        ? EpmError.forbidden('There are no projects to show here yet.')
+        : EpmError.forbidden('You cannot access that view.');
+    }
     if (error.upstreamStatus === 422) return EpmError.validation(message);
   }
 
