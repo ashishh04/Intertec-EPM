@@ -44,6 +44,7 @@ import {
   useStatuses,
   useWorkPackageOptions,
 } from '@/hooks/useCatalog';
+import { ApprovalPanel } from '@/components/approvals/ApprovalPanel';
 import { TaskAttachments } from '@/components/tasks/TaskAttachments';
 import { TaskComments } from '@/components/tasks/TaskComments';
 import { TaskRelations } from '@/components/tasks/TaskRelations';
@@ -323,6 +324,9 @@ export default function TaskDetailPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          {/* Renders nothing unless an approval chain covers this work package. */}
+          <ApprovalPanel workPackageId={task.id} />
 
           <TaskAttachments
             workPackageId={task.id}

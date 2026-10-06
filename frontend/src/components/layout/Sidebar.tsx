@@ -6,6 +6,7 @@ import { featureFlags } from '@/config/env';
 import { cn } from '@/lib/utils';
 import { useUI } from '@/providers/UIProvider';
 import { useAuth } from '@/providers/AuthProvider';
+import { useApprovalInboxCount } from '@/hooks/useApprovals';
 import { useUnreadCount } from '@/hooks/useNotifications';
 import { EpmLogo, EpmMark } from '@/components/common/EpmLogo';
 import { UserAvatar } from '@/components/common/UserAvatar';
@@ -30,6 +31,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
   const { sidebarCollapsed, toggleSidebar, openPragnya } = useUI();
   const { user, can } = useAuth();
   const unread = useUnreadCount();
+  const waiting = useApprovalInboxCount();
   const location = useLocation();
   // Filtered per person: administration items only appear for those who hold
   // the permission, so an administrator and a regular user see different rails.
@@ -83,7 +85,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
             <ul className="space-y-0.5">
               {section.items.map((item) => {
                 const active = isActive(item);
-                const badgeCount = item.badge === 'notifications' ? unread : 0;
+                const badgeCount = item.badge === 'notifications' ? unread : item.badge === 'approvals' ? waiting : 0;
 
                 const link = (
                   <NavLink
@@ -133,7 +135,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                         <TooltipTrigger asChild>{link}</TooltipTrigger>
                         <TooltipContent side="right">
                           {item.label}
-                          {badgeCount > 0 ? ` · ${badgeCount} unread` : ''}
+                          {badgeCount > 0 ? ` · ${badgeCount} ${item.badge === 'approvals' ? 'waiting' : 'unread'}` : ''}
                         </TooltipContent>
                       </Tooltip>
                     ) : (

@@ -160,6 +160,13 @@ export const ADMIN_AREAS: AdminArea[] = [
         description: 'The urgency levels a work package can carry.',
       },
       {
+        id: 'approval-chains',
+        label: 'Approval chains',
+        kind: 'live',
+        description:
+          'Who approves which work packages, in which order: steps, conditions, SLAs and who hears when one is missed.',
+      },
+      {
         id: 'custom-actions',
         label: 'Custom actions',
         enterprise: true,

@@ -29,6 +29,7 @@ import { ApiEmployeeRepository } from './api/employees';
 import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
+import { ApiApprovalRepository } from './api/approvals';
 import { ApiAdminRepository } from './api/admin';
 import { ApiPreferenceRepository } from './api/preferences';
 import { ApiSessionRepository } from './api/sessions';
@@ -79,6 +80,8 @@ export const integrationService = repositories.integration;
 export const catalogService = new ApiCatalogRepository();
 /** The health rules: EPM-owned policy, so outside the repository contract. */
 export const healthService = new ApiHealthRepository();
+/** Approvals: chains, requests, delegations. EPM-owned. */
+export const approvalService = new ApiApprovalRepository();
 export const formService = new ApiFormRepository();
 export const workPackageService = new ApiWorkPackageRepository();
 export const projectWriteService = new ApiProjectWriteRepository();

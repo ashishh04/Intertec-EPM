@@ -4,6 +4,7 @@ import {
   BookOpen,
   CalendarClock,
   CalendarDays,
+  ClipboardCheck,
   Coins,
   FileText,
   FolderKanban,
@@ -31,8 +32,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** Match nested routes as well, e.g. /projects/:id under /projects. */
   matchNested?: boolean;
-  /** Renders the live unread count when true. */
-  badge?: 'notifications';
+  /** Renders a live count: unread notifications, or approvals waiting on the person. */
+  badge?: 'notifications' | 'approvals';
   /**
    * Shown only to people holding this global permission. The route behind it
    * is guarded on the same permission (see App.tsx), so hiding the link is a
@@ -65,6 +66,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'My Work', to: '/my-work', icon: ListTodo },
       { label: 'My Time', to: '/my-time', icon: Timer },
+      { label: 'Approvals', to: '/approvals', icon: ClipboardCheck, matchNested: true, badge: 'approvals' },
       { label: 'Projects', to: '/projects', icon: FolderKanban, matchNested: true },
       { label: 'Tasks', to: '/tasks', icon: SquareKanban },
       { label: 'Calendar', to: '/calendar', icon: CalendarDays },

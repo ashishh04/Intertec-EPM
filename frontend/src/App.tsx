@@ -54,6 +54,8 @@ const MeetingDetailPage = lazy(() => import('@/pages/MeetingDetailPage'));
 const NewsPage = lazy(() => import('@/pages/NewsPage'));
 const WikiPage = lazy(() => import('@/pages/WikiPage'));
 const NotificationsPage = lazy(() => import('@/pages/NotificationsPage'));
+const ApprovalsPage = lazy(() => import('@/pages/ApprovalsPage'));
+const ApprovalDecidePage = lazy(() => import('@/pages/ApprovalDecidePage'));
 const ProfilePage = lazy(() => import('@/pages/ProfilePage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const IntegrationPage = lazy(() => import('@/pages/IntegrationPage'));
@@ -100,7 +102,9 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (isLoading) return null;
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    // The query string travels too: an approval link's chosen decision is in
+    // it, and losing it on the way through sign-in would lose the person's choice.
+    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
   }
 
   // Held at the door. Rendered in place of the route rather than redirected to
@@ -271,6 +275,9 @@ export function App() {
           <Route path="/wiki" element={<WikiPage />} />
           <Route path="/wiki/:slug" element={<WikiPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
+          <Route path="/approvals" element={<ApprovalsPage />} />
+          {/* Where an approval email's links land: it shows the request, and the person confirms. */}
+          <Route path="/approvals/decide/:token" element={<ApprovalDecidePage />} />
           <Route path="/profile" element={<ProfilePage />} />
           {/*
             One component for the whole of Administration: it reads the area

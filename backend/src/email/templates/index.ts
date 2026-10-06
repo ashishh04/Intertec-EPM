@@ -1,3 +1,5 @@
+import { render as approvalDecided, type ApprovalDecidedPayload } from './approval-decided.js';
+import { render as approvalRequest, type ApprovalRequestPayload } from './approval-request.js';
 import { render as digest, type DigestPayload } from './digest.js';
 import { render as invite, type InvitePayload } from './invite.js';
 import type { RenderedEmail } from './layout.js';
@@ -26,6 +28,8 @@ export interface TemplatePayloads {
   'task-updated': TaskUpdatedPayload;
   notification: NotificationPayload;
   digest: DigestPayload;
+  'approval-request': ApprovalRequestPayload;
+  'approval-decided': ApprovalDecidedPayload;
 }
 
 export type TemplateName = keyof TemplatePayloads;
@@ -40,6 +44,8 @@ const renderers: Renderers = {
   'task-updated': taskUpdated,
   notification,
   digest,
+  'approval-request': approvalRequest,
+  'approval-decided': approvalDecided,
 };
 
 export function isTemplateName(value: string): value is TemplateName {

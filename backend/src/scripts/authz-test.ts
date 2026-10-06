@@ -106,6 +106,11 @@ async function main() {
   let healthTimeEntryId: string | undefined;
   let originalHealthRules: unknown;
   const portfolioIds: string[] = [];
+  // Approval chains and delegations the approval tests create. The requests
+  // go by project; the chains after them, since a chain a request still names
+  // cannot be removed.
+  const approvalChainIds: string[] = [];
+  const approvalDelegationIds: string[] = [];
   // A project's portfolio is real organisational state; whatever these tests
   // set is put back, including "it was in none".
   const originalProjectPortfolio = new Map<string, string | null>();
@@ -1906,6 +1911,7 @@ async function main() {
       teams?: { manage?: boolean };
       employees?: { manage?: boolean };
       health?: { manage?: boolean; configure?: boolean };
+      approvals?: { configure?: boolean };
       portfolios?: { manage?: boolean };
       analytics?: { manage?: boolean };
     };
@@ -3482,6 +3488,521 @@ async function main() {
   }
   await call(`/employees/${adminId}/rate`, { method: 'PATCH', cookie: admin, body: { hourlyRate: originalAdminRate } });
   originalAdminRate = undefined;
+
+  // --- Approvals -------------------------------------------------------------
+  //
+  // BR-211 to BR-215, through the API, on this suite's own project. The chain
+  // covers change requests in that project alone, so no real project's work is
+  // routed by it: a change above the value threshold goes to the owner and then
+  // a sponsor, one below to the owner only. The administrator is the owner and
+  // the restricted user the sponsor — somebody with no role in the project, as
+  // a finance approver often is; being named in the chain is the authority.
+  //
+  // Needs the governance types, statuses and value field that
+  // `backend/openproject/setup/governance-types.rb` installs; without them the
+  // section says so and stops. Its rows go in the cleanup. The journal entries
+  // stay, because the journal refuses deletion.
+  console.log('\nApprovals');
+
+  interface TestApprovalTask {
+    id: string;
+    approverId: string;
+    delegateId?: string;
+    status: string;
+    activatedAt?: string;
+    dueAt?: string;
+    breachedAt?: string;
+    decidedBy?: string;
+    onBehalfOf?: string;
+    comment?: string;
+  }
+  interface TestApprovalRequest {
+    id: string;
+    status: string;
+    currentStep: number;
+    steps: { name: string; applies: boolean; status: string; tasks: TestApprovalTask[] }[];
+  }
+  interface TestApprovalSubject {
+    chain?: { name: string; steps: { name: string; applies: boolean }[] };
+    canSubmit: boolean;
+    current?: TestApprovalRequest;
+  }
+
+  check(
+    'the approvals configure permission is surfaced to an administrator',
+    adminPermissions.permissions?.approvals?.configure,
+    true,
+  );
+  check(
+    'and withheld from a caller without the grant',
+    restrictedPermissions.permissions?.approvals?.configure,
+    false,
+  );
+  check('anonymous cannot read approval chains', await status('/approvals/chains'), 401);
+  check('a caller without the grant cannot read them', await status('/approvals/chains', { cookie: restricted }), 403);
+  check(
+    'nor define one',
+    await status('/approvals/chains', { method: 'POST', cookie: restricted, body: { name: 'Not allowed' } }),
+    403,
+  );
+  check('nor read what the chain editor offers', await status('/approvals/options', { cookie: restricted }), 403);
+
+  const approvalOptions = (await (await call('/approvals/options', { cookie: admin })).json()) as {
+    types?: { id: string; name: string }[];
+    statuses?: { id: string; name: string }[];
+    customFields?: { id: string; name: string; numeric: boolean }[];
+  };
+  const named = <T extends { name: string }>(list: T[] | undefined, name: RegExp) =>
+    list?.find((item) => name.test(item.name));
+  const changeRequestType = named(approvalOptions.types, /^change request$/i);
+  const pendingApproval = named(approvalOptions.statuses, /^pending approval$/i);
+  const approvedStatus = named(approvalOptions.statuses, /^approved$/i);
+  const rejectedStatus = named(approvalOptions.statuses, /^rejected$/i);
+  const changeValue = named(approvalOptions.customFields, /^change value$/i);
+  const governanceReady = Boolean(
+    changeRequestType && pendingApproval && approvedStatus && rejectedStatus && changeValue?.numeric,
+  );
+  check('the governance types, statuses and value field are installed', governanceReady, true);
+
+  if (!createdId) throw new Error("The approval tests need the suite's own project.");
+  const approvalProjectId = createdId;
+
+  if (governanceReady) {
+    const { prisma: approvalDb } = await import('../db/prisma.js');
+    const { sweepApprovals } = await import('../domain/approvals.js');
+
+    const readJson = async <T>(path: string, cookie = admin) => (await (await call(path, { cookie })).json()) as T;
+    const subjectOf = (id: string) => readJson<TestApprovalSubject>(`/approvals/subjects/work-packages/${id}`);
+    const requestOf = (id: string) => readJson<TestApprovalRequest>(`/approvals/requests/${id}`);
+    const journalOfRequest = (id: string) => readJson<TestJournalEntry[]>(`/approvals/requests/${id}/journal`);
+    const statusNameOf = async (id: string) =>
+      (await readJson<{ status?: { name?: string } }>(`/tasks/${id}`)).status?.name;
+    // The work package's status follows a decision once it has committed, so
+    // the tests wait for it, up to a bound.
+    const waitForStatus = async (id: string, name: string) => {
+      const deadline = Date.now() + 10_000;
+      let current = await statusNameOf(id);
+      while (current !== name && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        current = await statusNameOf(id);
+      }
+      return current;
+    };
+    const changeRequest = async (subject: string, value: number) => {
+      const response = await call('/work-packages', {
+        method: 'POST',
+        cookie: admin,
+        body: {
+          projectId: approvalProjectId,
+          typeId: changeRequestType!.id,
+          payload: { subject, [changeValue!.id]: value },
+        },
+      });
+      const body = (await response.json()) as { id?: string };
+      if (!body.id) throw new Error(`Could not create a change request for the approval tests (${response.status}).`);
+      return body.id;
+    };
+    const submit = (id: string, cookie = admin) =>
+      call(`/approvals/subjects/work-packages/${id}/submit`, { method: 'POST', cookie });
+    const decide = (taskId: string, cookie: string, decision: 'approve' | 'reject', comment?: string) =>
+      call(`/approvals/tasks/${taskId}/decide`, {
+        method: 'POST',
+        cookie,
+        body: { decision, ...(comment ? { comment } : {}) },
+      });
+    // The link an approver is sent, read from the outbox where the email waits.
+    const linkFor = async (taskId: string, recipientId: string) => {
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        const row = await approvalDb.emailOutbox.findFirst({
+          where: { recipientId, dedupeKey: `approval-link:${taskId}:${recipientId}` },
+        });
+        const url = (row?.payload as { approveUrl?: string } | null)?.approveUrl;
+        if (url || Date.now() > deadline) return url?.split('/decide/')[1]?.split('?')[0];
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    };
+
+    // --- BR-211: a chain, sequential and conditional ---
+    const chainBody = {
+      name: `Authz change control ${Date.now()}`,
+      typeIds: [changeRequestType!.id],
+      projectIds: [approvalProjectId],
+      valueField: changeValue!.id,
+      steps: [
+        { id: 'owner', name: 'Owner review', approvers: [{ kind: 'user', userId: adminId }], mode: 'any' },
+        {
+          id: 'sponsor',
+          name: 'Sponsor sign-off',
+          approvers: [{ kind: 'user', userId: restrictedId }],
+          mode: 'all',
+          condition: { field: 'value', operator: 'gt', value: 50_000 },
+          slaHours: 1,
+          escalateTo: [{ kind: 'user', userId: adminId }],
+        },
+      ],
+      onSubmitStatusId: pendingApproval!.id,
+      onApproveStatusId: approvedStatus!.id,
+      onRejectStatusId: rejectedStatus!.id,
+      // The administrator both submits and approves the owner step.
+      allowSelfApproval: true,
+      active: true,
+    };
+    check(
+      'a value threshold with no value field to read is refused',
+      await status('/approvals/chains', { method: 'POST', cookie: admin, body: { ...chainBody, valueField: '' } }),
+      422,
+    );
+    check(
+      'so is a chain with no steps',
+      await status('/approvals/chains', { method: 'POST', cookie: admin, body: { ...chainBody, steps: [] } }),
+      422,
+    );
+    const chainCreated = await call('/approvals/chains', { method: 'POST', cookie: admin, body: chainBody });
+    const chain = (await chainCreated.json()) as { id?: string; steps?: unknown[] };
+    if (chain.id) approvalChainIds.push(chain.id);
+    check('an administrator can define a chain', chainCreated.status, 201);
+    check('its steps are kept in order', chain.steps?.length, 2);
+
+    const bigChange = await changeRequest('Approval probe: extend the scope', 75_000);
+    const smallChange = await changeRequest('Approval probe: a small change', 20_000);
+
+    const bigPreview = await subjectOf(bigChange);
+    check('the chain applies to a change request in its project', bigPreview.chain?.name, chainBody.name);
+    check('above the threshold both steps apply', bigPreview.chain?.steps.filter((step) => step.applies).length, 2);
+    check(
+      'below it only the owner step does',
+      (await subjectOf(smallChange)).chain?.steps.filter((step) => step.applies).length,
+      1,
+    );
+    check('its author may submit it', bigPreview.canSubmit, true);
+    check(
+      'someone who cannot edit the work package cannot submit it',
+      [403, 404].includes((await submit(bigChange, restricted)).status),
+      true,
+    );
+    check(
+      'nor can anyone set a status the chain owns by hand',
+      (await call(`/tasks/${bigChange}`, { method: 'PATCH', cookie: admin, body: { statusId: approvedStatus!.id } }))
+        .status,
+      409,
+    );
+
+    const submitted = await submit(bigChange);
+    check('the author submits it', submitted.status, 201);
+    const bigRequest = ((await submitted.json()) as TestApprovalSubject).current;
+    if (!bigRequest) throw new Error('Submitting returned no request.');
+    check('it waits on the first step', `${bigRequest.status}@${bigRequest.currentStep}`, 'pending@0');
+    check('the second approver is not asked yet: the steps run in order', bigRequest.steps[1]?.tasks[0]?.status, 'waiting');
+    check('submitting it again while it waits is refused', (await submit(bigChange)).status, 409);
+    check('the work package is pending approval', await waitForStatus(bigChange, pendingApproval!.name), pendingApproval!.name);
+    const ordinaryStatus = approvalOptions.statuses?.find(
+      (one) => ![pendingApproval, approvedStatus, rejectedStatus].some((owned) => owned?.id === one.id),
+    );
+    check(
+      'and its status cannot be changed by hand while it waits',
+      (await call(`/tasks/${bigChange}`, { method: 'PATCH', cookie: admin, body: { statusId: ordinaryStatus?.id } }))
+        .status,
+      409,
+    );
+
+    const ownerTask = bigRequest.steps[0]!.tasks[0]!;
+    check('somebody the step does not name cannot decide it', (await decide(ownerTask.id, restricted, 'approve')).status, 403);
+    const ownerDecision = await decide(ownerTask.id, admin, 'approve', 'Scope fits the release.');
+    check('the owner approves', ownerDecision.status, 200);
+    const afterOwner = (await ownerDecision.json()) as TestApprovalRequest;
+    check('the request moves on to the second approver', afterOwner.currentStep, 1);
+    check('a step cannot be decided twice', (await decide(ownerTask.id, admin, 'approve')).status, 409);
+    check(
+      "it is in the second approver's inbox",
+      (await readJson<TestApprovalRequest[]>('/approvals/inbox', restricted)).some((one) => one.id === bigRequest.id),
+      true,
+    );
+    check(
+      'and counted on their badge',
+      ((await readJson<{ count?: number }>('/approvals/inbox/count', restricted)).count ?? 0) >= 1,
+      true,
+    );
+    check(
+      'an approver may read the request without a role in its project',
+      await status(`/approvals/requests/${bigRequest.id}`, { cookie: restricted }),
+      200,
+    );
+
+    // --- BR-215: deciding from the email ---
+    const sponsorTask = afterOwner.steps[1]?.tasks[0];
+    const token = sponsorTask ? await linkFor(sponsorTask.id, restrictedId) : undefined;
+    check('the approver is emailed a link to decide', Boolean(token), true);
+    if (token) {
+      check('the link needs a signed-in session', await status(`/approvals/links/${token}`), 401);
+      check('it does not work for anyone else', await status(`/approvals/links/${token}`, { cookie: admin }), 403);
+      check(
+        'nor decide for anyone else',
+        await status(`/approvals/links/${token}/decide`, { method: 'POST', cookie: admin, body: { decision: 'approve' } }),
+        403,
+      );
+      check('it opens for the person it was sent to', await status(`/approvals/links/${token}`, { cookie: restricted }), 200);
+      check(
+        'and opening it decides nothing, so it opens again',
+        await status(`/approvals/links/${token}`, { cookie: restricted }),
+        200,
+      );
+      check(
+        'a rejection from the link still needs its reason',
+        await status(`/approvals/links/${token}/decide`, {
+          method: 'POST',
+          cookie: restricted,
+          body: { decision: 'reject' },
+        }),
+        422,
+      );
+      check(
+        'and being sent back for one does not use the link up',
+        await status(`/approvals/links/${token}`, { cookie: restricted }),
+        200,
+      );
+      const viaLink = await call(`/approvals/links/${token}/decide`, {
+        method: 'POST',
+        cookie: restricted,
+        body: { decision: 'approve', comment: 'Funded from contingency.' },
+      });
+      check('the link decides the approval', viaLink.status, 200);
+      check('which completes the chain', ((await viaLink.json()) as TestApprovalRequest).status, 'approved');
+      check(
+        'the link is refused on reuse',
+        await status(`/approvals/links/${token}/decide`, {
+          method: 'POST',
+          cookie: restricted,
+          body: { decision: 'reject', comment: 'Changed my mind.' },
+        }),
+        410,
+      );
+      check('and cannot even be opened again', await status(`/approvals/links/${token}`, { cookie: restricted }), 410);
+      check('the work package is approved', await waitForStatus(bigChange, approvedStatus!.name), approvedStatus!.name);
+    }
+
+    // --- BR-213: every step, decision and comment, in sequence ---
+    const bigJournal = await journalOfRequest(bigRequest.id);
+    const decisions = bigJournal.filter((entry) => entry.action === 'approval.decided');
+    check('both decisions are in the journal', decisions.length, 2);
+    check(
+      'in the order they were made',
+      decisions.map((entry) => entry.actorId).join(' then '),
+      `${adminId} then ${restrictedId}`,
+    );
+    check(
+      'each with its comment',
+      decisions.map((entry) => entry.reason).join(' | '),
+      'Scope fits the release. | Funded from contingency.',
+    );
+    check(
+      'and its step',
+      decisions.every((entry, index) => entry.summary.includes(index === 0 ? 'Owner review' : 'Sponsor sign-off')),
+      true,
+    );
+    check('the decision from the email says so', decisions[1]?.summary.includes('from the email'), true);
+    check(
+      'submission, each step and the outcome are there too',
+      ['approval.submitted', 'approval.step.started', 'approval.completed'].every((action) =>
+        bigJournal.some((entry) => entry.action === action),
+      ),
+      true,
+    );
+    check(
+      'oldest first',
+      bigJournal.every((entry, index) => index === 0 || entry.seq > bigJournal[index - 1]!.seq),
+      true,
+    );
+    check(
+      'a decision cannot be edited through the API',
+      await status(`/approvals/tasks/${ownerTask.id}`, { method: 'PATCH', cookie: admin, body: { comment: 'x' } }),
+      404,
+    );
+    check(
+      'nor a request deleted',
+      await status(`/approvals/requests/${bigRequest.id}`, { method: 'DELETE', cookie: admin }),
+      404,
+    );
+    check(
+      'and a used chain cannot be deleted either',
+      chain.id ? await status(`/approvals/chains/${chain.id}`, { method: 'DELETE', cookie: admin }) : 0,
+      409,
+    );
+
+    // --- BR-211: below the threshold, one step; a rejection needs its reason ---
+    const smallSubmitted = ((await (await submit(smallChange)).json()) as TestApprovalSubject).current;
+    check('below the threshold it is routed through one step', smallSubmitted?.steps.filter((step) => step.applies).length, 1);
+    const smallTask = smallSubmitted?.steps[0]?.tasks[0];
+    if (smallTask) {
+      check('rejecting without a reason is refused', (await decide(smallTask.id, admin, 'reject')).status, 422);
+      const rejected = await decide(smallTask.id, admin, 'reject', 'Not this quarter.');
+      check('rejecting with one ends the request', ((await rejected.json()) as TestApprovalRequest).status, 'rejected');
+      check('the work package is rejected', await waitForStatus(smallChange, rejectedStatus!.name), rejectedStatus!.name);
+    }
+
+    // --- BR-212: delegation ---
+    const today = new Date().toISOString().slice(0, 10);
+    check(
+      "nobody may delegate somebody else's approvals but an administrator",
+      await status('/approvals/delegations', {
+        method: 'POST',
+        cookie: restricted,
+        body: { delegatorId: adminId, delegateId: restrictedId, startsOn: today, endsOn: today },
+      }),
+      403,
+    );
+    check(
+      'a delegation cannot end before it starts',
+      await status('/approvals/delegations', {
+        method: 'POST',
+        cookie: admin,
+        body: { delegateId: restrictedId, startsOn: today, endsOn: '2000-01-01' },
+      }),
+      422,
+    );
+    const delegated = await call('/approvals/delegations', {
+      method: 'POST',
+      cookie: admin,
+      body: { delegateId: restrictedId, startsOn: today, endsOn: today, reason: 'On leave today' },
+    });
+    const delegation = (await delegated.json()) as { id?: string; active?: boolean };
+    if (delegation.id) approvalDelegationIds.push(delegation.id);
+    check('an approver can delegate for a period', delegated.status, 201);
+    check('which is in force today', delegation.active, true);
+
+    const delegatedChange = await changeRequest('Approval probe: raised during a delegation', 10_000);
+    const delegatedRequest = ((await (await submit(delegatedChange)).json()) as TestApprovalSubject).current;
+    const delegatedTask = delegatedRequest?.steps[0]?.tasks[0];
+    check('an approval raised during the delegation routes to the delegate', delegatedTask?.delegateId, restrictedId);
+    check('while the approver keeps it too', delegatedTask?.approverId, adminId);
+    check(
+      "it is in the delegate's inbox",
+      (await readJson<TestApprovalRequest[]>('/approvals/inbox', restricted)).some((one) => one.id === delegatedRequest?.id),
+      true,
+    );
+    if (delegatedTask && delegatedRequest) {
+      const byDelegate = await decide(delegatedTask.id, restricted, 'approve', 'Covering while they are away.');
+      check('the delegate can decide it', byDelegate.status, 200);
+      const decided = ((await byDelegate.json()) as TestApprovalRequest).steps[0]?.tasks[0];
+      check('the decision records who made it', decided?.decidedBy, restrictedId);
+      check('and that it was made under delegation, for whom', decided?.onBehalfOf, adminId);
+      check(
+        'and so does the journal',
+        (await journalOfRequest(delegatedRequest.id)).some(
+          (entry) => entry.action === 'approval.decided' && entry.summary.includes('on behalf of'),
+        ),
+        true,
+      );
+    }
+    if (delegation.id) {
+      check(
+        'the delegate cannot revoke it',
+        await status(`/approvals/delegations/${delegation.id}/revoke`, { method: 'POST', cookie: restricted }),
+        403,
+      );
+      check(
+        'the approver can',
+        await status(`/approvals/delegations/${delegation.id}/revoke`, { method: 'POST', cookie: admin }),
+        200,
+      );
+    }
+
+    // A delegation set up after an approval is already waiting takes it over:
+    // the absence is configured, and the reassignment follows on its own.
+    const waitingChange = await changeRequest('Approval probe: waiting when the delegation starts', 60_000);
+    const waitingStatusBefore = await statusNameOf(waitingChange);
+    const waitingRequest = ((await (await submit(waitingChange)).json()) as TestApprovalSubject).current;
+    check('with no delegation in force it waits on the approver alone', waitingRequest?.steps[0]?.tasks[0]?.delegateId, undefined);
+    const lateDelegation = (await (
+      await call('/approvals/delegations', {
+        method: 'POST',
+        cookie: admin,
+        body: { delegateId: restrictedId, startsOn: today, endsOn: today, reason: 'Called away' },
+      })
+    ).json()) as { id?: string };
+    if (lateDelegation.id) approvalDelegationIds.push(lateDelegation.id);
+    if (waitingRequest) {
+      check(
+        'a delegation starting later is attached to what already waits',
+        (await requestOf(waitingRequest.id)).steps[0]?.tasks[0]?.delegateId,
+        restrictedId,
+      );
+      check(
+        'and the delegate is asked for it, with a link of their own',
+        Boolean(waitingRequest.steps[0]?.tasks[0] && (await linkFor(waitingRequest.steps[0].tasks[0].id, restrictedId))),
+        true,
+      );
+      if (lateDelegation.id) {
+        await call(`/approvals/delegations/${lateDelegation.id}/revoke`, { method: 'POST', cookie: admin });
+      }
+      check(
+        'and revoking it hands it back',
+        (await requestOf(waitingRequest.id)).steps[0]?.tasks[0]?.delegateId,
+        undefined,
+      );
+
+      // --- BR-214: a step past its SLA raises an escalation event ---
+      const ownerStep = (await requestOf(waitingRequest.id)).steps[0]!.tasks[0]!;
+      const afterApproval = (await (await decide(ownerStep.id, admin, 'approve')).json()) as TestApprovalRequest;
+      const timed = afterApproval.steps[1]?.tasks[0];
+      check(
+        'a step with an SLA is due that long after it starts',
+        timed?.dueAt && timed.activatedAt
+          ? Math.round((Date.parse(timed.dueAt) - Date.parse(timed.activatedAt)) / 60_000)
+          : undefined,
+        60,
+      );
+      if (timed) {
+        // An hour cannot be waited out here, so the deadline is moved instead.
+        await approvalDb.approvalTask.update({
+          where: { id: timed.id },
+          data: { dueAt: new Date(Date.now() - 60_000) },
+        });
+        await sweepApprovals();
+        const dedupeKey = `approval.sla:${waitingRequest.id}:1`;
+        const raised = await approvalDb.escalationEvent.findUnique({ where: { dedupeKey } });
+        check('a step past its SLA raises an escalation event', raised?.source, 'approval.sla');
+        check('to the people the step escalates to', raised?.raisedFor.join(','), adminId);
+        check('naming the request', raised?.subjectId, waitingRequest.id);
+        check(
+          'the step is marked as breached',
+          Boolean((await requestOf(waitingRequest.id)).steps[1]?.tasks[0]?.breachedAt),
+          true,
+        );
+        check(
+          'and the journal has it',
+          (await journalOfRequest(waitingRequest.id)).some((entry) => entry.action === 'approval.sla.breached'),
+          true,
+        );
+        await sweepApprovals();
+        check(
+          'a breach is raised once, however often the sweep runs',
+          await approvalDb.escalationEvent.count({ where: { subjectId: waitingRequest.id } }),
+          1,
+        );
+      }
+
+      // Withdrawing: the requester may, an approver may not, and the work
+      // package goes back to where it was.
+      check(
+        'an approver cannot withdraw a request',
+        await status(`/approvals/requests/${waitingRequest.id}/cancel`, { method: 'POST', cookie: restricted, body: {} }),
+        403,
+      );
+      const withdrawn = await call(`/approvals/requests/${waitingRequest.id}/cancel`, {
+        method: 'POST',
+        cookie: admin,
+        body: { reason: 'Raised by the authorization tests.' },
+      });
+      check('its requester can', withdrawn.status, 200);
+      check('which ends it', ((await withdrawn.json()) as TestApprovalRequest).status, 'cancelled');
+      check(
+        'and puts the work package back where it was',
+        await waitForStatus(waitingChange, waitingStatusBefore ?? ''),
+        waitingStatusBefore,
+      );
+    }
+  }
 
   // --- Portfolios ------------------------------------------------------------
   //
@@ -5778,6 +6299,46 @@ async function main() {
       `  (removed ${removedTeams.count} test team${removedTeams.count === 1 ? '' : 's'}` +
         ` and ${removedDepartments.count} test department${removedDepartments.count === 1 ? '' : 's'})`,
     )
+  }
+
+  // The approval tests' requests, chains, delegations, links, escalations and
+  // emails. All are EPM's own rows and none has a delete route, so they go
+  // through the database. The journal entries stay: the journal refuses
+  // deletion, by design.
+  if (createdId || approvalChainIds.length || approvalDelegationIds.length) {
+    const { prisma } = await import('../db/prisma.js');
+    const requests = createdId
+      ? await prisma.approvalRequest
+          .findMany({ where: { projectId: createdId }, select: { id: true, tasks: { select: { id: true } } } })
+          .catch(() => [])
+      : [];
+    const requestIds = requests.map((request) => request.id);
+    const taskIds = requests.flatMap((request) => request.tasks.map((task) => task.id));
+    await prisma.approvalLinkToken.deleteMany({ where: { taskId: { in: taskIds } } }).catch(() => undefined);
+    await prisma.escalationEvent.deleteMany({ where: { subjectId: { in: requestIds } } }).catch(() => undefined);
+    await prisma.emailOutbox
+      .deleteMany({
+        where: {
+          template: { in: ['approval-request', 'approval-decided'] },
+          OR: [
+            ...taskIds.map((taskId) => ({ dedupeKey: { startsWith: `approval-link:${taskId}:` } })),
+            ...requestIds.map((requestId) => ({ dedupeKey: `approval-decided:${requestId}` })),
+          ],
+        },
+      })
+      .catch(() => undefined);
+    // Tasks go with their request.
+    await prisma.approvalRequest.deleteMany({ where: { id: { in: requestIds } } }).catch(() => undefined);
+    const removedChains = await prisma.approvalChain
+      .deleteMany({ where: { id: { in: approvalChainIds } } })
+      .catch(() => ({ count: 0 }));
+    await prisma.approvalDelegation.deleteMany({ where: { id: { in: approvalDelegationIds } } }).catch(() => undefined);
+    if (requestIds.length || removedChains.count) {
+      console.log(
+        `  (removed ${requestIds.length} test approval request${requestIds.length === 1 ? '' : 's'}` +
+          ` and ${removedChains.count} test chain${removedChains.count === 1 ? '' : 's'})`,
+      )
+    }
   }
 
   // Every notification this run caused — the ones the notification tests wrote

@@ -1,3 +1,4 @@
-# Only the initializers belong in this image.
+# The initializers and the on-demand setup scripts belong in this image;
+# documentation and the development compose file do not.
 README.md
 docker-compose.openproject.yml

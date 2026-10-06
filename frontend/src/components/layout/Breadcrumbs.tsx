@@ -29,6 +29,8 @@ const SEGMENT_LABEL: Record<string, string> = {
   analytics: 'Analytics',
   documents: 'Documents',
   notifications: 'Notifications',
+  approvals: 'Approvals',
+  decide: 'Decision',
   profile: 'Profile',
   settings: 'Settings',
   integration: 'Integration',
@@ -85,6 +87,9 @@ export function Breadcrumbs({ className }: { className?: string }) {
       crumbs.push({ label: department?.name ?? 'Department', to: path });
       continue;
     }
+
+    // An approval link's token is a credential, not a place: never shown.
+    if (segments[0] === 'approvals' && segments[1] === 'decide' && index === 2) continue;
 
     // Administration routes carry area and page ids; their labels live in the
     // administration config rather than in the static table above.

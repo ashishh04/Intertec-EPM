@@ -129,13 +129,27 @@ ssh -L 8080:localhost:8080 user@host
 docker run --rm -d --network epm_epm -p 8080:80 alpine/socat tcp-listen:80,fork tcp:openproject:80
 ```
 
+Approvals need the governance types — Change Request and Risk, the Pending
+approval, Approved and Rejected statuses, and the Change value field that
+approval thresholds read. A fresh OpenProject has none of them. The script that
+creates them is in the `epm-openproject` image; it creates only what is missing,
+so running it again is harmless:
+
+```bash
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openproject \
+  bundle exec rails runner /app/epm-setup/governance-types.rb
+```
+
+Then define the chains themselves in EPM, under Administration → Work packages →
+Approval chains.
+
 ## What is in each image
 
 | Image | Contents |
 |---|---|
 | `epm-backend` | `dist`, production modules, the generated Prisma client, the Prisma CLI for migrations |
 | `epm-web` | the built bundle plus Caddy and the Caddyfile; no domain baked in |
-| `epm-openproject` | `openproject/openproject:15` plus the four EPM initializers |
+| `epm-openproject` | `openproject/openproject:15` plus the four EPM initializers and the governance setup script |
 | `postgres:17-alpine` | pulled from the official library, nothing of ours in it |
 
 `epm-openproject` exists because EPM cannot use a stock OpenProject: sign-in

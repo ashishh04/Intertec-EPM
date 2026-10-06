@@ -1,10 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { openProject } from '../openproject/client.js';
+import { idFromHref, openProject } from '../openproject/client.js';
 
 /**
  * Full-fidelity work package writes.
@@ -92,6 +93,18 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         .request<OpWorkPackageWrite>(`/work_packages/${id}`, { signal })
         .catch(() => null);
       if (!current) throw EpmError.notFound(`Work package ${id}`);
+
+      // The schema form can carry a status too; the same guard applies.
+      const statusLink = (payload._links as { status?: { href?: string | null } } | undefined)?.status;
+      if (statusLink) {
+        await assertStatusChangeAllowed({
+          workPackageId: id,
+          projectId,
+          typeId: idFromHref(current._links?.type?.href),
+          currentStatusId: idFromHref(current._links?.status?.href),
+          nextStatusId: idFromHref(statusLink.href),
+        });
+      }
 
       const updated = await openProject.request<OpWorkPackageWrite>(`/work_packages/${id}`, {
         method: 'PATCH',

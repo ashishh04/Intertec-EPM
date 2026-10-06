@@ -10,6 +10,7 @@ import { env, isProduction } from './config/env.js';
 import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
+import { createApprovalSweep } from './scheduler/approval-sweep.js';
 import { createEmailWorker } from './scheduler/email-worker.js';
 import { describeEmailProvider, useEmailLogger } from './email/index.js';
 import { useAppLogger } from './lib/log.js';
@@ -274,7 +275,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Health sweep disabled; health is recalculated on change only');
   }
 
+  // SLA escalations and delegation upkeep for approvals, on the same terms.
+  const approvalSweep = createApprovalSweep({ log: app.log });
+  if (env.EPM_APPROVAL_SWEEP_ENABLED) {
+    approvalSweep.start();
+  } else {
+    app.log.info('Approval sweep disabled; SLA breaches will not be escalated');
+  }
+
   app.addHook('onClose', async () => {
+    approvalSweep.stop();
     healthSweep.stop();
     dueReminders.stop();
     snapshots.stop();

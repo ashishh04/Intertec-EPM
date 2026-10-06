@@ -41,7 +41,11 @@ function json(value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-function rowData(input: AuditInput): Prisma.AuditEventCreateManyInput {
+/**
+ * The row for one entry, for code that writes inside a transaction of its own
+ * — an approval decision and its journal entry are one write, not two.
+ */
+export function auditRow(input: AuditInput): Prisma.AuditEventCreateManyInput {
   const actorId = input.actorId === undefined ? currentAuth()?.userId ?? null : input.actorId;
 
   return {
@@ -67,7 +71,7 @@ function rowData(input: AuditInput): Prisma.AuditEventCreateManyInput {
  * entry together use `withAudit` and get both or neither.
  */
 export async function recordAudit(input: AuditInput): Promise<void> {
-  await prisma.auditEvent.create({ data: rowData(input) });
+  await prisma.auditEvent.create({ data: auditRow(input) });
 }
 
 /**
@@ -85,7 +89,7 @@ export async function withAudit<T>(
     const result = await write(tx);
     const entries = typeof entry === 'function' ? entry(result) : entry;
     for (const one of Array.isArray(entries) ? entries : [entries]) {
-      await tx.auditEvent.create({ data: rowData(one) });
+      await tx.auditEvent.create({ data: auditRow(one) });
     }
     return result;
   });
@@ -102,7 +106,7 @@ export async function withAudit<T>(
 export async function recordAuditQuietly(inputs: AuditInput[]): Promise<void> {
   if (inputs.length === 0) return;
   try {
-    await prisma.auditEvent.createMany({ data: inputs.map(rowData) });
+    await prisma.auditEvent.createMany({ data: inputs.map(auditRow) });
   } catch (error) {
     appLog.warn({ err: error, count: inputs.length }, 'Could not write journal entries');
   }

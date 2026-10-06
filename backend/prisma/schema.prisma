@@ -742,3 +742,183 @@ model ProjectHealthOverride {
 
   @@map("project_health_overrides")
 }
+
+/// -------------------------------------------------------------------------
+/// Approvals (BRQ-09) and escalation events
+/// -------------------------------------------------------------------------
+
+/// Who must approve what, in which order (BR-211).
+///
+/// A chain applies to a kind of subject — today a work package of the chosen
+/// types, in every project or the chosen ones — and lists its steps in order.
+/// A step names its approvers and whether all of them or any one must agree,
+/// and may apply only when a condition on the subject holds: a value over a
+/// threshold, a type, a priority, a project or portfolio, a custom field.
+///
+/// Timesheets, expense claims and the external portal reuse the same engine
+/// with their own subject types.
+model ApprovalChain {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  /// `work_package` today.
+  subjectType       String   @default("work_package")
+  /// OpenProject type ids the chain covers. Empty means every type.
+  typeIds           String[]
+  /// OpenProject project ids the chain covers. Empty means every project.
+  projectIds        String[]
+  /// The custom field a value threshold is measured against, e.g. `customField3`.
+  valueField        String?
+  /// The steps, in order. Validated by `domain/approval-chains.ts`.
+  steps             Json
+  /// Statuses the subject is moved to on submission, approval and rejection.
+  /// Optional; a chain can decide without touching the subject's status.
+  onSubmitStatusId  String?
+  onApproveStatusId String?
+  onRejectStatusId  String?
+  /// Off by default: the person who raised a change does not approve it.
+  allowSelfApproval Boolean  @default(false)
+  active            Boolean  @default(true)
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  requests          ApprovalRequest[]
+
+  @@index([subjectType, active])
+  @@map("approval_chains")
+}
+
+/// One subject going through a chain.
+model ApprovalRequest {
+  id               String    @id @default(cuid())
+  chainId          String
+  chain            ApprovalChain @relation(fields: [chainId], references: [id], onDelete: Restrict)
+  /// The chain as it was when this was submitted, with each step's condition
+  /// already decided. A chain edited later does not change a request in flight.
+  chainSnapshot    Json
+  subjectType      String
+  subjectId        String
+  projectId        String
+  /// What it is, for lists: the work package's key and subject.
+  title            String
+  /// The value at submission, from the chain's value field.
+  value            Float?
+  /// The subject's status before submission, put back if it is withdrawn.
+  statusBefore     String?
+  requestedBy      String
+  requestedAt      DateTime  @default(now())
+  /// pending | approved | rejected | cancelled
+  status           String    @default("pending")
+  /// Which step of the snapshot is deciding now.
+  currentStep      Int       @default(0)
+  completedAt      DateTime?
+  /// Applying the outcome to the subject — moving its status — happens after
+  /// the decision and can fail on its own; the decision stands either way.
+  outcomeAppliedAt DateTime?
+  outcomeError     String?
+
+  tasks            ApprovalTask[]
+
+  @@index([subjectType, subjectId])
+  @@index([projectId, status])
+  @@index([requestedBy, status])
+  @@map("approval_requests")
+}
+
+/// One approver's part in one step.
+model ApprovalTask {
+  id           String    @id @default(cuid())
+  requestId    String
+  request      ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stepIndex    Int
+  stepName     String
+  /// The approver the chain named. Keeps the authority whatever is delegated.
+  approverId   String
+  /// Who may also decide, under a delegation active when the step started.
+  delegateId   String?
+  delegationId String?
+  /// waiting (step not reached) | pending | approved | rejected | skipped
+  status       String    @default("waiting")
+  activatedAt  DateTime?
+  dueAt        DateTime?
+  breachedAt   DateTime?
+  decidedAt    DateTime?
+  /// Who actually decided: the approver, or their delegate.
+  decidedBy    String?
+  /// Set when a delegate decided: whose authority they used (BR-212).
+  onBehalfOf   String?
+  comment      String?
+
+  @@index([requestId, stepIndex])
+  @@index([approverId, status])
+  @@index([delegateId, status])
+  @@index([status, dueAt])
+  @@map("approval_tasks")
+}
+
+/// A person's approvals handed to someone else for a period (BR-212).
+///
+/// Delegating adds authority and never removes it (BRL-06): the person who
+/// delegated can still decide their own approvals throughout.
+model ApprovalDelegation {
+  id          String    @id @default(cuid())
+  delegatorId String
+  delegateId  String
+  /// Inclusive, as calendar days.
+  startsOn    DateTime  @db.Date
+  endsOn      DateTime  @db.Date
+  reason      String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  revokedBy   String?
+
+  @@index([delegatorId, startsOn, endsOn])
+  @@index([delegateId])
+  @@map("approval_delegations")
+}
+
+/// The link in an approval email (BR-215).
+///
+/// Bound to one task and one person: it works only for that person, signed
+/// in, and only once. Only a hash is stored; the token itself exists in the
+/// email alone.
+model ApprovalLinkToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  taskId    String
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([taskId])
+  @@map("approval_link_tokens")
+}
+
+/// Something that needs a person's attention because nothing happened in time
+/// (BR-214, and the rules engine after it).
+///
+/// Raised once per cause, enforced by `dedupeKey`, so a sweep that runs every
+/// few minutes cannot raise the same breach twice.
+model EscalationEvent {
+  id          String    @id @default(cuid())
+  /// What raised it: `approval.sla` today.
+  source      String
+  subjectType String
+  subjectId   String
+  projectId   String?
+  level       Int       @default(1)
+  /// Who it is raised to.
+  raisedFor   String[]
+  reason      String
+  dedupeKey   String    @unique
+  raisedAt    DateTime  @default(now())
+  resolvedAt  DateTime?
+  metadata    Json?
+
+  @@index([source, raisedAt])
+  @@index([projectId, raisedAt])
+  @@map("escalation_events")
+}

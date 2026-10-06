@@ -21,6 +21,17 @@ export const queryKeys = {
   healthRules: () => ['health-rules'] as const,
   healthRuleOptions: () => ['health-rules', 'options'] as const,
   healthRuleHistory: () => ['health-rules', 'history'] as const,
+  // Everything approval-related sits under ['approvals'], so one invalidation
+  // after a decision refreshes the inbox, the badge, the lists and the panel.
+  approvalChains: () => ['approvals', 'chains'] as const,
+  approvalOptions: () => ['approvals', 'options'] as const,
+  approvalSubject: (workPackageId: ID) => ['approvals', 'subject', workPackageId] as const,
+  approvalInbox: () => ['approvals', 'inbox'] as const,
+  approvalInboxCount: () => ['approvals', 'inbox', 'count'] as const,
+  approvalRequests: (scope: string, status?: string) => ['approvals', 'requests', scope, status ?? 'all'] as const,
+  approvalJournal: (requestId: ID) => ['approvals', 'journal', requestId] as const,
+  approvalLink: (token: string) => ['approvals', 'link', token] as const,
+  approvalDelegations: (all: boolean) => ['approvals', 'delegations', all] as const,
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,

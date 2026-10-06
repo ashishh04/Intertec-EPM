@@ -10,6 +10,9 @@ export const DEFAULT_DESTINATION = '/dashboard';
 export function safeDestination(from: unknown): string {
   if (typeof from !== 'string') return DEFAULT_DESTINATION;
   if (!from.startsWith('/') || from.startsWith('//')) return DEFAULT_DESTINATION;
-  if (from === '/login') return DEFAULT_DESTINATION;
+  // A backslash is read as a slash in a URL, so a path starting "/" then "\"
+  // is "//host" by another name.
+  if (from.includes('\\')) return DEFAULT_DESTINATION;
+  if (from === '/login' || from.startsWith('/login?') || from.startsWith('/login#')) return DEFAULT_DESTINATION;
   return from;
 }

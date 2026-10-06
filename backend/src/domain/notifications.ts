@@ -31,7 +31,7 @@ import type { HealthLevel } from '../types/epm.js';
 
 export type Severity = 'info' | 'warning' | 'critical';
 
-interface NotificationInput {
+export interface NotificationInput {
   recipients: string[];
   category: string;
   title: string;
@@ -82,6 +82,15 @@ async function notify(input: NotificationInput): Promise<number> {
   }
 
   return created;
+}
+
+/**
+ * The same path, for a domain with events of its own — approvals tell
+ * approvers, requesters and escalation contacts through it. Deduplicated and
+ * offered to the digest exactly like every notification above.
+ */
+export function notifyPeople(input: NotificationInput): Promise<number> {
+  return notify(input);
 }
 
 async function offerByEmail(recipientId: string, input: NotificationInput): Promise<void> {

@@ -111,6 +111,23 @@ const schema = z.object({
       .default(60),
   ),
 
+  // The approval sweep: SLA escalations and delegation upkeep. On unless set
+  // to "false", for the same reason as the health sweep — an SLA nobody checks
+  // is not an SLA. Every 5 minutes by default.
+  EPM_APPROVAL_SWEEP_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_APPROVAL_SWEEP_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(1, 'EPM_APPROVAL_SWEEP_INTERVAL_MINUTES must be at least 1.')
+      .max(60, 'EPM_APPROVAL_SWEEP_INTERVAL_MINUTES cannot exceed an hour.')
+      .default(5),
+  ),
+
   // Where the frontend lives, for links in email. Never derived from a request
   // header: a link that came from the Host header could be made to point
   // anywhere by whoever sent the request.
@@ -273,6 +290,9 @@ export function describeEnv() {
       : 'disabled',
     healthSweep: env.EPM_HEALTH_SWEEP_ENABLED
       ? `every ${env.EPM_HEALTH_SWEEP_INTERVAL_MINUTES} minutes`
+      : 'disabled',
+    approvalSweep: env.EPM_APPROVAL_SWEEP_ENABLED
+      ? `every ${env.EPM_APPROVAL_SWEEP_INTERVAL_MINUTES} minutes`
       : 'disabled',
   };
 }

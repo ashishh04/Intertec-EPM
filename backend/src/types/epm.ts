@@ -192,6 +192,7 @@ export type Permission =
   | 'employees:manage'
   | 'health:manage'
   | 'health:configure'
+  | 'approvals:configure'
   | 'portfolios:manage'
   | 'analytics:manage'
   | 'teams:manage'
@@ -1625,4 +1626,216 @@ export interface WikiPageInput {
   parentId?: ID;
   /** Derived from the title when absent. Changing it changes the page's address. */
   slug?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Approvals (BRQ-09)                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Who a step asks. Resolved to people when the request is submitted, so the
+ * approvers of a request in flight do not change if, say, the project owner
+ * does.
+ */
+export type ApprovalApproverSpec =
+  | { kind: 'user'; userId: ID }
+  /** EPM's project owner. */
+  | { kind: 'project_owner' }
+  /** Everyone holding this role in the subject's project. */
+  | { kind: 'project_role'; roleId: ID }
+  /** The requester's team lead, or failing that their department manager. */
+  | { kind: 'requester_manager' };
+
+export type ApprovalConditionOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'in' | 'not_in';
+
+/**
+ * When a step applies (BR-211). `field` is `value` (the chain's value field),
+ * `type`, `priority`, `project`, `portfolio`, or a custom field such as
+ * `customField12`. Ids are compared for type, priority, project and
+ * portfolio; a custom field is compared as a number when both sides are
+ * numbers and as text otherwise.
+ */
+export interface ApprovalCondition {
+  field: string;
+  operator: ApprovalConditionOperator;
+  value: number | string | string[];
+}
+
+export interface ApprovalStep {
+  /** Stable within the chain. */
+  id: string;
+  name: string;
+  approvers: ApprovalApproverSpec[];
+  /** `all`: everyone named must approve. `any`: the first approval decides the step. */
+  mode: 'all' | 'any';
+  /** Absent: the step always applies. */
+  condition?: ApprovalCondition;
+  /** Hours the step may take before it is escalated (BR-214). Absent: no SLA. */
+  slaHours?: number;
+  /** Who is told when the SLA is breached. Absent or empty: the project owner. */
+  escalateTo?: ApprovalApproverSpec[];
+}
+
+/** A chain as an administrator defines it (BR-211). */
+export interface ApprovalChain {
+  id: ID;
+  name: string;
+  description?: string;
+  subjectType: 'work_package';
+  /** Work package types it covers; empty means every type. */
+  typeIds: ID[];
+  /** Projects it covers; empty means every project. */
+  projectIds: ID[];
+  /** The custom field value thresholds are measured against, e.g. `customField3`. */
+  valueField?: string;
+  steps: ApprovalStep[];
+  onSubmitStatusId?: ID;
+  onApproveStatusId?: ID;
+  onRejectStatusId?: ID;
+  /** Off by default: whoever raised it does not approve it. */
+  allowSelfApproval: boolean;
+  active: boolean;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  /** Requests that have used it. A chain that has been used is retired, not deleted. */
+  requestCount: number;
+}
+
+export type ApprovalChainInput = Pick<
+  ApprovalChain,
+  | 'name'
+  | 'description'
+  | 'typeIds'
+  | 'projectIds'
+  | 'valueField'
+  | 'steps'
+  | 'onSubmitStatusId'
+  | 'onApproveStatusId'
+  | 'onRejectStatusId'
+  | 'allowSelfApproval'
+  | 'active'
+>;
+
+/** What the chain editor offers, read from the instance. */
+export interface ApprovalChainOptions {
+  types: { id: ID; name: string }[];
+  statuses: { id: ID; name: string; isClosed: boolean }[];
+  priorities: { id: ID; name: string }[];
+  roles: { id: ID; name: string }[];
+  projects: { id: ID; name: string }[];
+  portfolios: { id: ID; name: string }[];
+  /** Work package custom fields; the numeric ones can be a chain's value field. */
+  customFields: { id: string; name: string; numeric: boolean }[];
+}
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type ApprovalTaskStatus = 'waiting' | 'pending' | 'approved' | 'rejected' | 'skipped';
+
+export interface ApprovalTaskView {
+  id: ID;
+  approverId: ID;
+  /** Someone who may also decide, under a delegation (BR-212). */
+  delegateId?: ID;
+  status: ApprovalTaskStatus;
+  activatedAt?: ISODate;
+  /** When the step's SLA runs out. */
+  dueAt?: ISODate;
+  breachedAt?: ISODate;
+  decidedAt?: ISODate;
+  /** Who decided: the approver or their delegate. */
+  decidedBy?: ID;
+  /** Set when a delegate decided: whose authority they used. */
+  onBehalfOf?: ID;
+  comment?: string;
+  /** Whether the caller may decide this now. */
+  canDecide: boolean;
+}
+
+export interface ApprovalStepView {
+  index: number;
+  name: string;
+  mode: 'all' | 'any';
+  /** False when its condition did not hold at submission: shown, never run. */
+  applies: boolean;
+  /** Why it applies or not, in one sentence. */
+  conditionText?: string;
+  slaHours?: number;
+  status: 'waiting' | 'active' | 'approved' | 'rejected' | 'skipped';
+  tasks: ApprovalTaskView[];
+}
+
+export interface ApprovalRequestView {
+  id: ID;
+  chainId: ID;
+  chainName: string;
+  subjectType: 'work_package';
+  subjectId: ID;
+  projectId: ID;
+  projectName?: string;
+  /** The work package's key and subject. */
+  title: string;
+  value?: number;
+  /** The value field's name, e.g. "Change value". */
+  valueLabel?: string;
+  requestedBy: ID;
+  requestedAt: ISODate;
+  status: ApprovalStatus;
+  /** The step deciding now, while pending. */
+  currentStep: number;
+  completedAt?: ISODate;
+  /** Set when the decision stood but moving the subject's status failed. */
+  outcomeError?: string;
+  steps: ApprovalStepView[];
+  can: { cancel: boolean };
+}
+
+/** Approval state of one subject, for its own page. */
+export interface ApprovalSubjectState {
+  /** The chain that applies to it now, previewed against its current values. */
+  chain?: {
+    id: ID;
+    name: string;
+    steps: { name: string; applies: boolean; conditionText?: string }[];
+  };
+  canSubmit: boolean;
+  /** Why it cannot be submitted, when it cannot. */
+  submitBlocked?: string;
+  /** The request in flight, or the latest one. */
+  current?: ApprovalRequestView;
+  /** Earlier requests for the same subject, newest first. */
+  history: ApprovalRequestView[];
+}
+
+/** A person's approvals handed to someone else for a period (BR-212). */
+export interface ApprovalDelegation {
+  id: ID;
+  delegatorId: ID;
+  delegateId: ID;
+  startsOn: ISODate;
+  endsOn: ISODate;
+  reason?: string;
+  createdBy: ID;
+  createdAt: ISODate;
+  revokedAt?: ISODate;
+  /** In force today. */
+  active: boolean;
+}
+
+export interface ApprovalDelegationInput {
+  delegateId: ID;
+  startsOn: ISODate;
+  endsOn: ISODate;
+  reason?: string;
+  /** Administrators may delegate for someone else; everyone else only for themselves. */
+  delegatorId?: ID;
+}
+
+/** What a decide-from-email link opens on (BR-215). */
+export interface ApprovalLinkView {
+  request: ApprovalRequestView;
+  taskId: ID;
+  stepName: string;
+  /** Set when the link's owner decides as a delegate. */
+  onBehalfOf?: ID;
 }

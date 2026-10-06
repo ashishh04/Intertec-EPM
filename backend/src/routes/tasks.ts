@@ -2,13 +2,14 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
+import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
 import { addDays } from '../lib/dates.js';
 import { hoursToDuration } from '../lib/duration.js';
-import { idFromHref, openProject, type OpFilter, type SortDirection } from '../openproject/client.js';
+import { idFromHref, linkId, openProject, type OpFilter, type SortDirection } from '../openproject/client.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { projectIdentifiers } from '../mapping/projects.js';
 import { expandIds, toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
@@ -368,11 +369,22 @@ async function patchWorkPackage(
   signal: AbortSignal,
 ): Promise<WorkPackageWithPoints> {
   const current = await openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, { signal });
+  const body = buildWorkPackageBody(patch, catalog);
+
+  // A status an approval chain owns is reached through the chain, not here.
+  const links = body._links as Record<string, { href: string | null }> | undefined;
+  await assertStatusChangeAllowed({
+    workPackageId: id,
+    projectId: linkId(current._links, 'project') ?? '',
+    typeId: linkId(current._links, 'type'),
+    currentStatusId: linkId(current._links, 'status'),
+    nextStatusId: idFromHref(links?.status?.href),
+  });
 
   return openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, {
     method: 'PATCH',
     query: { notify: 'false' },
-    body: { lockVersion: current.lockVersion, ...buildWorkPackageBody(patch, catalog) },
+    body: { lockVersion: current.lockVersion, ...body },
     signal,
   });
 }
