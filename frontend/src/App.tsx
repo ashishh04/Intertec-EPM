@@ -48,6 +48,7 @@ const SprintsPage = lazy(() => import('@/pages/SprintsPage'));
 const GanttPage = lazy(() => import('@/pages/GanttPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
+const ScheduledReportsPage = lazy(() => import('@/pages/ScheduledReportsPage'));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
 const DocumentsPage = lazy(() => import('@/pages/DocumentsPage'));
 const MeetingsPage = lazy(() => import('@/pages/MeetingsPage'));
@@ -259,6 +260,16 @@ export function App() {
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/insights/:dashboardId" element={<InsightsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          {/* Scheduled distribution (BRQ-08). The backend refuses its endpoints
+              without `reports:schedule` too; this gate keeps the page honest. */}
+          <Route
+            path="/reports/scheduled"
+            element={
+              <RequirePermission permission="reports:schedule">
+                <ScheduledReportsPage />
+              </RequirePermission>
+            }
+          />
           <Route
             path="/analytics"
             element={

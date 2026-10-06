@@ -12,6 +12,7 @@ import {
   Gauge,
   LayoutDashboard,
   ListTodo,
+  MailCheck,
   Megaphone,
   PieChart,
   Plug,
@@ -87,6 +88,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { label: 'Dashboards', to: '/insights', icon: PieChart, matchNested: true },
       { label: 'Reports', to: '/reports', icon: FileText },
+      { label: 'Scheduled reports', to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
       { label: 'Time & Costs', to: '/time-and-costs', icon: Coins },
     ],
   },

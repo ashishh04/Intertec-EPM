@@ -66,6 +66,11 @@ export class ApiInsightsRepository {
     return apiClient.get<Dashboard>(`/dashboards/${id}`, params(query));
   }
 
+  /** The dashboard as a PDF or an Excel workbook: the same figures, for the same person. */
+  exportDashboard(id: DashboardId, format: 'pdf' | 'xlsx', query?: InsightQuery): Promise<Blob> {
+    return apiClient.download(`/dashboards/${id}/export`, { format, ...params(query) });
+  }
+
   getStateAsAt(at: string, scope?: string): Promise<StateAsAt> {
     return apiClient.get<StateAsAt>('/analytics/history/state', { at, ...(scope ? { scope } : {}) });
   }

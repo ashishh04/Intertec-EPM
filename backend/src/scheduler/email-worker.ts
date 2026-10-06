@@ -1,13 +1,16 @@
+import type { Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { describeEmailProvider, emailProvider } from '../email/index.js';
-import { enqueueEmail, markFailed, markSent } from '../email/outbox.js';
+import { MAX_ATTEMPTS, enqueueEmail, markFailed, markSent } from '../email/outbox.js';
 import type { EmailProvider, OutgoingEmail } from '../email/provider.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { renderStored } from '../email/templates/index.js';
 import { RESEND_BATCH_LIMIT } from '../email/resend.js';
+import { raiseOperationsAlert } from '../domain/ops-alerts.js';
+import type { OutgoingAttachment } from '../email/provider.js';
 
 /**
  * The outbox worker.
@@ -57,10 +60,17 @@ export interface EmailWorkerOptions {
   digestHourUtc?: number;
   /** Overridable so a test can be "now" whenever it likes. */
   now?: () => Date;
+  /**
+   * Confines a tick to the rows a test made. Every worker shares one outbox:
+   * a check that moved its clock forward would otherwise claim — and fail, or
+   * send — everybody else's queued mail, and reclaim their sends in flight.
+   */
+  only?: Prisma.EmailOutboxWhereInput;
 }
 
 interface OutboxRow {
   id: string;
+  dedupeKey: string | null;
   recipientId: string;
   toEmail: string;
   template: string;
@@ -76,6 +86,21 @@ interface DigestItem {
 }
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/**
+ * The files a row carries — a scheduled report's rendered PDF and workbook,
+ * named in its payload and kept beside the run that made them.
+ */
+async function attachmentsOf(row: { payload: unknown }): Promise<OutgoingAttachment[]> {
+  const ids = (row.payload as { artifactIds?: unknown } | null)?.artifactIds;
+  if (!Array.isArray(ids) || ids.length === 0) return [];
+  const files = await prisma.reportArtifact.findMany({
+    where: { id: { in: ids.map(String) } },
+    select: { id: true, filename: true, contentType: true, content: true },
+  });
+  if (files.length !== ids.length) throw new Error('A report file this email carries no longer exists.');
+  return files.map((file) => ({ filename: file.filename, contentType: file.contentType, content: Buffer.from(file.content) }));
+}
 
 /**
  * What one queued row contributes to a digest. Each template's payload has
@@ -120,7 +145,7 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
   /** Rows a previous tick claimed and never resolved, back to the queue. */
   async function recoverStaleClaims(): Promise<void> {
     const result = await prisma.emailOutbox.updateMany({
-      where: { status: 'sending', scheduledFor: { lte: new Date(now().getTime() - STALE_CLAIM_MS) } },
+      where: { status: 'sending', scheduledFor: { lte: new Date(now().getTime() - STALE_CLAIM_MS) }, ...options.only },
       data: { status: 'queued', lastError: 'reclaimed after a stalled send' },
     });
     if (result.count > 0) log.warn({ rows: result.count }, 'Email rows reclaimed from a stalled send');
@@ -134,11 +159,12 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
   async function claimDue(): Promise<OutboxRow[]> {
     return prisma.$transaction(async (tx) => {
       const rows = await tx.emailOutbox.findMany({
-        where: { status: 'queued', channel: 'immediate', scheduledFor: { lte: now() } },
+        where: { status: 'queued', channel: 'immediate', scheduledFor: { lte: now() }, ...options.only },
         orderBy: { scheduledFor: 'asc' },
         take: RESEND_BATCH_LIMIT,
         select: {
           id: true,
+          dedupeKey: true,
           recipientId: true,
           toEmail: true,
           template: true,
@@ -169,14 +195,22 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
     for (const row of rows) {
       try {
         const rendered = renderStored(row.template, row.payload);
+        const attachments = await attachmentsOf(row);
         messages.push({
           row,
-          message: { to: row.toEmail, subject: rendered.subject, html: rendered.html, text: rendered.text },
+          message: {
+            to: row.toEmail,
+            subject: rendered.subject,
+            html: rendered.html,
+            text: rendered.text,
+            ...(attachments.length > 0 ? { attachments } : {}),
+          },
         });
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'The email could not be rendered.';
-        await markFailed(row, reason, false);
+        await markFailed(row, reason, false, now());
         outcome.failed += 1;
+        await alertFailure(row, reason, false);
       }
     }
     if (messages.length === 0) return outcome;
@@ -193,15 +227,37 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
         await markSent(row.id, result.providerId);
         outcome.sent += 1;
       } else {
-        const state = await markFailed(row, result.error, result.retryable);
+        const state = await markFailed(row, result.error, result.retryable, now());
         outcome[state] += 1;
         if (state === 'failed') {
           log.warn({ id: row.id, template: row.template, error: result.error }, 'Email failed permanently');
+          await alertFailure(row, result.error, result.retryable);
         }
       }
     }
 
     return outcome;
+  }
+
+  /**
+   * Operations hear of an email that will not be delivered (BR-208): retries
+   * exhausted, or a report that cannot be sent at all. Not for the in-app
+   * alerts' own email copies, which would only alert about the alert.
+   */
+  async function alertFailure(row: OutboxRow, error: string, retried: boolean): Promise<void> {
+    if (row.dedupeKey?.startsWith('notification:ops-alert:')) return;
+    if (!retried && row.template !== 'scheduled-report') return;
+    const report = row.template === 'scheduled-report';
+    await raiseOperationsAlert({
+      kind: 'email.delivery_exhausted',
+      title: report ? 'A scheduled report could not be delivered' : 'An email could not be delivered',
+      body: `${report ? `"${row.subject}"` : `The ${row.template} email`} to ${row.toEmail} was not delivered${
+        retried ? ` after ${MAX_ATTEMPTS} attempts` : ''
+      }: ${error.replace(/[.!?]*$/, '')}.`,
+      dedupeKey: `email:${row.id}`,
+      link: report ? '/reports/scheduled' : undefined,
+      details: { outboxId: row.id, template: row.template, attempts: MAX_ATTEMPTS },
+    }).catch((alertError: unknown) => log.warn({ err: alertError, id: row.id }, 'The operations alert could not be raised'));
   }
 
   /**
@@ -215,7 +271,7 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
     if (at.getUTCHours() !== digestHourUtc || lastDigestDay === day) return 0;
 
     const pending = await prisma.emailOutbox.findMany({
-      where: { status: 'queued', channel: 'digest' },
+      where: { status: 'queued', channel: 'digest', ...options.only },
       orderBy: { createdAt: 'asc' },
       select: { id: true, recipientId: true, template: true, subject: true, payload: true },
     });

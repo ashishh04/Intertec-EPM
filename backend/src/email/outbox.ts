@@ -39,6 +39,12 @@ export interface EnqueueInput<Name extends TemplateName = TemplateName> {
    * an invitation, which has no switch — only the master `enabled` applies.
    */
   gate?: keyof UserPreferences['email'];
+  /**
+   * An address with no account behind it — a scheduled report's external
+   * recipient. Sent to as given: there is no person to look up and no
+   * preferences to consult, and `recipientId` should name it (`external:…`).
+   */
+  toEmail?: string;
 }
 
 export type EnqueueOutcome =
@@ -62,6 +68,22 @@ export async function enqueueEmail<Name extends TemplateName>(
   const context = { recipientId: input.recipientId, template: input.template, dedupeKey: input.dedupeKey };
 
   try {
+    if (input.toEmail) {
+      const { subject } = renderTemplate(input.template, input.payload);
+      await prisma.emailOutbox.create({
+        data: {
+          recipientId: input.recipientId,
+          toEmail: input.toEmail,
+          template: input.template,
+          subject,
+          payload: input.payload as unknown as Prisma.InputJsonValue,
+          channel: input.channel,
+          dedupeKey: input.dedupeKey,
+        },
+      });
+      return 'queued';
+    }
+
     const toEmail = await resolveEmail(input.recipientId);
     if (!toEmail) {
       emailLog.info(context, 'Email skipped: the recipient has no address');
@@ -151,6 +173,7 @@ export async function markFailed(
   row: { id: string; attempts: number },
   error: string,
   retryable: boolean,
+  now: Date = new Date(),
 ): Promise<'requeued' | 'failed'> {
   const attempts = row.attempts + 1;
   const again = retryable && attempts < MAX_ATTEMPTS;
@@ -162,7 +185,8 @@ export async function markFailed(
           status: 'queued',
           attempts,
           lastError: error,
-          scheduledFor: new Date(Date.now() + (BACKOFF_MS[attempts - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1]!)),
+          // From the worker's clock, which is the real one outside a test.
+          scheduledFor: new Date(now.getTime() + (BACKOFF_MS[attempts - 1] ?? BACKOFF_MS[BACKOFF_MS.length - 1]!)),
         }
       : { status: 'failed', attempts, lastError: error },
   });

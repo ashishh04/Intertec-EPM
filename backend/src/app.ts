@@ -9,6 +9,7 @@ import { ZodError } from 'zod';
 import { env, isProduction } from './config/env.js';
 import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot.js';
 import { createAnalyticsRefreshScheduler } from './scheduler/analytics-refresh.js';
+import { createReportScheduler } from './scheduler/report-scheduler.js';
 import { publishCatalogue } from './domain/measures-store.js';
 import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
@@ -324,7 +325,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Analytics model refresh disabled; dashboards show the model as last loaded');
   }
 
+  // Scheduled reports (BR-207), on unless switched off.
+  const reportScheduler = createReportScheduler({ log: app.log });
+  if (env.EPM_REPORT_SCHEDULER_ENABLED) {
+    reportScheduler.start();
+  } else {
+    app.log.info('Report scheduler disabled; scheduled reports go out only when run by hand');
+  }
+
   app.addHook('onClose', async () => {
+    reportScheduler.stop();
     analyticsRefresh.stop();
     ruleWorker.stop();
     escalationSweep.stop();

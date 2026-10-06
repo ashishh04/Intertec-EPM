@@ -124,6 +124,11 @@ async function main() {
   const analyticsFixtureScopes: string[] = [];
   let analyticsCaptureDay: string | undefined;
   const schedulerCaptureDays: string[] = [];
+  // Scheduled reports these tests define, and the restricted account that is
+  // lent reports:approve to approve one. Removed — with their runs, copies,
+  // files and the emails they queued — however far a run got.
+  const reportScheduleIds: string[] = [];
+  let reportGrantUserId: string | undefined;
   // Dedupe keys the notification tests create directly. Not the whole story:
   // the capacity, employee and portfolio sections mutate capacity through the
   // API, and each of those now produces a notification too. The timestamp below
@@ -6696,6 +6701,218 @@ async function main() {
     }
   }
 
+  // --- Scheduled reports (BR-207 to BR-210) ----------------------------------
+  console.log('\nScheduled reports');
+  {
+    type Json = Record<string, any>;
+    const { prisma: reportsDb } = await import('../db/prisma.js');
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json;
+    const bytesOf = async (path: string, cookie = admin) => {
+      const response = await call(path, { cookie });
+      return { status: response.status, text: Buffer.from(await response.arrayBuffer()).toString('latin1') };
+    };
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    // A run's emails are test mail. Once a check has read them they are
+    // cancelled, so that a mail worker elsewhere on this database — a
+    // developer's own server, say — does not send them.
+    const holdEmails = (runId: string | undefined) =>
+      runId
+        ? reportsDb.emailOutbox
+            .updateMany({
+              where: { dedupeKey: { startsWith: `report:${runId}:` }, status: 'queued' },
+              data: { status: 'cancelled', lastError: 'Cancelled by the authorization suite: a test report.' },
+            })
+            .catch(() => undefined)
+        : Promise.resolve();
+    const projectsOf = async (deliveryId: unknown) =>
+      (await reportsDb.reportDelivery.findUnique({ where: { id: String(deliveryId) }, select: { projectIds: true } }))?.projectIds ?? [];
+    const fileOf = (delivery: Json | undefined, format: string) =>
+      (delivery?.artifacts as Json[] | undefined)?.find((artifact) => artifact.format === format)?.id as string | undefined;
+    // A rendered PDF links each project row to the project; this is that link.
+    const projectLink = `/projects/${createdId})`;
+    const outside = `br209-${process.pid}@example.invalid`;
+
+    // Who may do what.
+    check('reading scheduled reports needs reports:schedule', await status('/reports/schedules', { cookie: restricted }), 403);
+    check('so does defining one', await status('/reports/schedules', { method: 'POST', cookie: restricted, body: {} }), 403);
+    check('and reading the run log', await status('/reports/runs', { cookie: restricted }), 403);
+    check('anonymous cannot download a dashboard', await status('/dashboards/portfolio-health/export?format=pdf'), 401);
+
+    // A weekly report, due a minute or two from now, in Dubai's time zone (UTC+4, no daylight saving).
+    const occurrence = new Date(Math.ceil((Date.now() + 70_000) / 60_000) * 60_000);
+    const local = new Date(occurrence.getTime() + 4 * 3_600_000);
+    const definition = {
+      name: `Authz weekly report ${process.pid}`,
+      sourceKind: 'dashboard',
+      sourceId: 'portfolio-health',
+      scope: 'instance',
+      periodPreset: 'previous-week',
+      frequency: 'weekly',
+      weekday: ((local.getUTCDay() + 6) % 7) + 1,
+      timeOfDay: local.toISOString().slice(11, 16),
+      timezone: 'Asia/Dubai',
+      windowMinutes: 60,
+      formats: ['pdf', 'xlsx'],
+      recipientUserIds: [restrictedId],
+      externalEmails: [outside],
+    };
+    const define = (body: unknown) => status('/reports/schedules', { method: 'POST', cookie: admin, body });
+    check('a weekly report needs its day', await define({ ...definition, weekday: null }), 400);
+    check('a report needs a recipient', await define({ ...definition, recipientUserIds: [], externalEmails: [] }), 400);
+    check('its recipients are people EPM knows', await define({ ...definition, recipientUserIds: ['999999999'] }), 400);
+    check('and its time zone is a real one', await define({ ...definition, timezone: 'Mars/Olympus' }), 400);
+
+    const createdResponse = await call('/reports/schedules', { method: 'POST', cookie: admin, body: definition });
+    const schedule = (await createdResponse.json()) as Json;
+    check('an administrator defines a weekly report', createdResponse.status, 201);
+    if (schedule.id) reportScheduleIds.push(schedule.id);
+    check('BR-207: its next run is the configured day and time', schedule.nextRunAt, occurrence.toISOString());
+    check(
+      'described in its own time zone',
+      String(schedule.describedTiming).includes(definition.timeOfDay) && String(schedule.describedTiming).includes('Asia/Dubai'),
+      true,
+    );
+    check('its outside address waits for approval', schedule.externalApproval?.approved, false);
+    check('approving needs reports:approve', await status(`/reports/schedules/${schedule.id}/approve`, { method: 'POST', cookie: restricted }), 403);
+    check(
+      'and is never done by whoever added the address',
+      await status(`/reports/schedules/${schedule.id}/approve`, { method: 'POST', cookie: admin }),
+      403,
+    );
+
+    // BR-209: each copy is built with its recipient's own access.
+    const manual = await json(`/reports/schedules/${schedule.id}/run`, admin, { method: 'POST' });
+    await holdEmails(manual.id);
+    check('a report can be run by hand', manual.trigger, 'manual');
+    check('and renders', manual.status, 'rendered');
+    const deliveries = (manual.deliveries ?? []) as Json[];
+    const theirs = deliveries.find((delivery) => delivery.recipientUserId === restrictedId);
+    const external = deliveries.find((delivery) => delivery.recipientKind === 'external');
+    check('BR-209: the restricted person gets a copy, as a PDF and a workbook', (theirs?.artifacts as Json[] | undefined)?.length, 2);
+    check('which leaves out the project they cannot see', (await projectsOf(theirs?.id)).includes(String(createdId)), false);
+    check('and says that it has', Number(theirs?.excludedProjects) >= 1, true);
+    const theirPdf = await bytesOf(`/reports/runs/${manual.id}/files/${fileOf(theirs, 'pdf')}`);
+    check('their PDF downloads', theirPdf.status, 200);
+    check('as a PDF', theirPdf.text.startsWith('%PDF-'), true);
+    check('with no link to the project they cannot see', theirPdf.text.includes(projectLink), false);
+    const theirWorkbook = await bytesOf(`/reports/runs/${manual.id}/files/${fileOf(theirs, 'xlsx')}`);
+    check('and their workbook as a workbook', theirWorkbook.status === 200 && theirWorkbook.text.startsWith('PK'), true);
+    check(
+      'the files are not for a caller without reports:schedule',
+      await status(`/reports/runs/${manual.id}/files/${fileOf(theirs, 'pdf')}`, { cookie: restricted }),
+      403,
+    );
+    check('an outside address is not sent to before approval', external?.renderStatus, 'withheld');
+    check('and the log says why', String(external?.reason ?? '').includes('not been approved'), true);
+    if (theirs?.renderStatus === 'rendered') {
+      // BR-208: delivery is the outbox's, with its retries; the failure path is
+      // exercised in report checks, against a simulated relay outage.
+      check('BR-208: their copy is queued as an email', ['queued', 'sending', 'sent'].includes(String(theirs.emailStatus)), true);
+      const row = await reportsDb.emailOutbox.findFirst({
+        where: { dedupeKey: { startsWith: `report:${manual.id}:` }, recipientId: restrictedId },
+        select: { template: true, payload: true },
+      });
+      check('as a scheduled-report email', row?.template, 'scheduled-report');
+      check(
+        'carrying their files',
+        JSON.stringify([...((row?.payload as { artifactIds?: string[] } | null)?.artifactIds ?? [])].sort()),
+        JSON.stringify(((theirs.artifacts ?? []) as Json[]).map((artifact) => artifact.id).sort()),
+      );
+    } else {
+      console.log(`  (the restricted account's copy was not emailed: ${theirs?.reason ?? 'no reason given'})`);
+    }
+
+    // The dashboard on the screen, as a file: the same figures, for the same person.
+    const exported = await bytesOf('/dashboards/portfolio-health/export?format=pdf', restricted);
+    check('anyone signed in downloads the dashboard they see', exported.status, 200);
+    check('as a PDF', exported.text.startsWith('%PDF-'), true);
+    check('leaving out the projects they cannot see', exported.text.includes(projectLink), false);
+    const adminExport = await bytesOf('/dashboards/portfolio-health/export?format=pdf');
+    check("while an administrator's includes the project", adminExport.text.includes(projectLink), true);
+    check(
+      'a project the caller cannot see is not found',
+      await status(`/dashboards/portfolio-health/export?format=pdf&scope=project:${createdId}`, { cookie: restricted }),
+      404,
+    );
+    const workbook = await bytesOf(`/dashboards/delivery/export?format=xlsx&scope=project:${createdId}`);
+    check('and a dashboard downloads as a workbook', workbook.status === 200 && workbook.text.startsWith('PK'), true);
+
+    // Approval by someone else: the restricted account is lent reports:approve.
+    const lent = await reportsDb.epmPermissionGrant
+      .create({ data: { openProjectId: restrictedId, permission: 'reports:approve', grantedBy: adminMe.id } })
+      .then(() => true)
+      .catch(() => false);
+    if (lent) reportGrantUserId = restrictedId;
+
+    // BR-207: the scheduler sends it at the configured time.
+    const deadline = occurrence.getTime() + 150_000;
+    console.log(`  (waiting up to ${Math.ceil((deadline - Date.now()) / 1000)} s for the occurrence at ${occurrence.toISOString()})`);
+    let scheduled: Json | undefined;
+    while (!scheduled && Date.now() < deadline) {
+      await pause(2_000);
+      const page = await json(`/reports/runs?scheduleId=${schedule.id}&pageSize=50`);
+      scheduled = (page.items as Json[] | undefined)?.find((run) => run.trigger === 'schedule');
+    }
+    for (let wait = 0; scheduled?.status === 'running' && wait < 60; wait += 1) {
+      await pause(1_000);
+      scheduled = await json(`/reports/runs/${scheduled.id}`);
+    }
+    await holdEmails(scheduled?.id);
+    check('BR-207: the scheduler sends it', scheduled !== undefined, true);
+    check('for the configured occurrence', scheduled?.scheduledFor, occurrence.toISOString());
+    const lateMs = scheduled ? Date.parse(scheduled.startedAt) - occurrence.getTime() : -1;
+    check(`at that time, within its window (${Math.round(lateMs / 1000)} s after)`, lateMs >= 0 && lateMs < definition.windowMinutes * 60_000, true);
+    check('and it renders', scheduled?.status, 'rendered');
+    const afterRun = await json(`/reports/schedules/${schedule.id}`);
+    check('its next run is a week later, at the same time', afterRun.nextRunAt, new Date(occurrence.getTime() + 7 * 86_400_000).toISOString());
+
+    // Permissions are remembered for a minute; past that the loan applies.
+    let approval = await call(`/reports/schedules/${schedule.id}/approve`, { method: 'POST', cookie: restricted });
+    if (approval.status === 403 && lent) {
+      await pause(61_000);
+      approval = await call(`/reports/schedules/${schedule.id}/approve`, { method: 'POST', cookie: restricted });
+    }
+    check('someone else with reports:approve approves the outside address', approval.status, 200);
+    const approved = (await approval.json()) as Json;
+    check('and who approved it is kept', approved.externalApproval?.approvedBy, restrictedId);
+
+    const second = await json(`/reports/schedules/${schedule.id}/run`, admin, { method: 'POST' });
+    await holdEmails(second.id);
+    const outsideCopy = ((second.deliveries ?? []) as Json[]).find((delivery) => delivery.recipientKind === 'external');
+    check('once approved, the outside address gets a copy', outsideCopy?.renderStatus, 'rendered');
+    check("built with the owner's access, so it covers the project", (await projectsOf(outsideCopy?.id)).includes(String(createdId)), true);
+    const outsidePdf = await bytesOf(`/reports/runs/${second.id}/files/${fileOf(outsideCopy, 'pdf')}`);
+    check('and its PDF links it', outsidePdf.text.includes(projectLink), true);
+    const changed = await json(`/reports/schedules/${schedule.id}`, admin, {
+      method: 'PATCH',
+      body: { ...definition, externalEmails: [outside, `second-${outside}`] },
+    });
+    check('changing the outside addresses needs approving again', changed.externalApproval?.approved, false);
+
+    // BR-210: every run is logged, and found by report and by date.
+    const logged = ((await json(`/reports/runs?scheduleId=${schedule.id}&pageSize=50`)).items as Json[]).map((run) => run.id);
+    check('BR-210: every run is logged against its report', [manual.id, scheduled?.id, second.id].every((id) => logged.includes(id)), true);
+    const day = String(second.startedAt ?? '').slice(0, 10);
+    const byDate = await json(`/reports/runs?from=${day}&to=${day}&pageSize=100`);
+    check('and found by date', (byDate.items as Json[]).some((run) => run.id === second.id), true);
+    check('a day with no runs lists none', (await json('/reports/runs?from=2099-01-01')).total, 0);
+    const detail = await json(`/reports/runs/${manual.id}`);
+    check('a run keeps each copy and what became of it', (detail.deliveries as Json[]).length, 2);
+    const stored = await reportsDb.reportRun.findUnique({ where: { id: String(manual.id) }, select: { definition: true } });
+    check('and the definition it ran with', (stored?.definition as { name?: string } | null)?.name, definition.name);
+
+    const removed = await json(`/reports/schedules/${schedule.id}`, admin, { method: 'DELETE' });
+    check('a report that has run is switched off, not deleted', removed.outcome, 'deactivated');
+    check('so its log stays', (await json(`/reports/runs?scheduleId=${schedule.id}`)).total >= 3, true);
+    const spare = await json('/reports/schedules', admin, {
+      method: 'POST',
+      body: { ...definition, name: `Authz spare report ${process.pid}`, externalEmails: [] },
+    });
+    if (spare.id) reportScheduleIds.push(spare.id);
+    check('one that never ran is deleted', (await json(`/reports/schedules/${spare.id}`, admin, { method: 'DELETE' })).outcome, 'deleted');
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -7057,6 +7274,33 @@ async function main() {
           ` and ${removedChains.count} test chain${removedChains.count === 1 ? '' : 's'})`,
       )
     }
+  }
+
+  // The scheduled-report tests' schedules, with their runs, copies and files
+  // (which go with them), the emails those queued, and the lent permission.
+  // Journal entries stay.
+  if (reportScheduleIds.length || reportGrantUserId) {
+    const { prisma } = await import('../db/prisma.js');
+    const runIds = (
+      await prisma.reportRun.findMany({ where: { scheduleId: { in: reportScheduleIds } }, select: { id: true } }).catch(() => [])
+    ).map((run) => run.id);
+    if (runIds.length) {
+      await prisma.emailOutbox
+        .deleteMany({ where: { OR: runIds.map((id) => ({ dedupeKey: { startsWith: `report:${id}:` } })) } })
+        .catch(() => undefined);
+    }
+    const removedSchedules = await prisma.reportSchedule
+      .deleteMany({ where: { id: { in: reportScheduleIds } } })
+      .catch(() => ({ count: 0 }));
+    if (reportGrantUserId) {
+      await prisma.epmPermissionGrant
+        .deleteMany({ where: { openProjectId: reportGrantUserId, permission: 'reports:approve' } })
+        .catch(() => undefined);
+    }
+    console.log(
+      `  (removed ${removedSchedules.count} test report schedule${removedSchedules.count === 1 ? '' : 's'}` +
+        ` with ${runIds.length} run${runIds.length === 1 ? '' : 's'}${reportGrantUserId ? ', and the lent permission' : ''})`,
+    );
   }
 
   // The rules tests' rules, their firings and remembered states, the events

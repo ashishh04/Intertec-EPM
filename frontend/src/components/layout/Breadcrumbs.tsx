@@ -26,6 +26,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   boards: 'Boards',
   gantt: 'Gantt',
   reports: 'Reports',
+  scheduled: 'Scheduled reports',
   analytics: 'Analytics',
   insights: 'Dashboards',
   'portfolio-health': 'Portfolio health',

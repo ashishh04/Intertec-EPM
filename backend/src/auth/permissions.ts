@@ -65,6 +65,8 @@ export const PERMISSIONS = [
   'rules:configure',
   'portfolios:manage',
   'analytics:manage',
+  'reports:schedule',
+  'reports:approve',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -141,6 +143,15 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // user should be able to cause — a real distinction, not an invented one.
   'analytics:manage':
     'Capturing metric snapshots is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Scheduled reports send portfolio figures by email on a timetable, to people
+  // and to addresses outside the organisation: a distribution responsibility,
+  // granted rather than implied by any project role.
+  'reports:schedule':
+    'Scheduled report distribution is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Approving external recipients is kept apart from defining the report, so
+  // the person who adds an outside address is not the one who lets it receive.
+  'reports:approve':
+    'Approving external recipients of scheduled reports is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

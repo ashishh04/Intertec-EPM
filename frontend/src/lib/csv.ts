@@ -8,6 +8,8 @@
  * data cannot drift from it.
  */
 
+import { saveBlob } from './download';
+
 /** What a cell may hold. Exported so a page can type its export rows. */
 export type CsvValue = string | number | boolean | null | undefined;
 
@@ -44,18 +46,5 @@ export function downloadCsv(filename: string, headers: CsvValue[], rows: CsvValu
   const blob = new Blob([`﻿${toCsv(headers, rows)}`], {
     type: 'text/csv;charset=utf-8',
   });
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.rel = 'noopener';
-  document.body.append(link);
-  link.click();
-  link.remove();
-
-  // Revoked on the next turn of the loop rather than immediately: Safari has
-  // not started the download when `click()` returns, and a revoked URL there
-  // produces an empty file.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  saveBlob(blob, filename);
 }

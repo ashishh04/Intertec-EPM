@@ -8,6 +8,7 @@ import {
   render as projectMemberAdded,
   type ProjectMemberAddedPayload,
 } from './project-member-added.js';
+import { render as scheduledReport, type ScheduledReportPayload } from './scheduled-report.js';
 import { render as taskAssigned, type TaskAssignedPayload } from './task-assigned.js';
 import { render as taskDue, type TaskDuePayload } from './task-due.js';
 import { render as taskUpdated, type TaskUpdatedPayload } from './task-updated.js';
@@ -30,6 +31,7 @@ export interface TemplatePayloads {
   digest: DigestPayload;
   'approval-request': ApprovalRequestPayload;
   'approval-decided': ApprovalDecidedPayload;
+  'scheduled-report': ScheduledReportPayload;
 }
 
 export type TemplateName = keyof TemplatePayloads;
@@ -46,6 +48,7 @@ const renderers: Renderers = {
   digest,
   'approval-request': approvalRequest,
   'approval-decided': approvalDecided,
+  'scheduled-report': scheduledReport,
 };
 
 export function isTemplateName(value: string): value is TemplateName {

@@ -13,6 +13,8 @@ import type { EmailProvider, OutgoingEmail, SendResult } from './provider.js';
  */
 
 const BATCH_URL = 'https://api.resend.com/emails/batch';
+/** One message at a time: the batch endpoint takes no attachments. */
+const SINGLE_URL = 'https://api.resend.com/emails';
 
 /** Resend refuses larger batches; the worker never sends more than this. */
 export const RESEND_BATCH_LIMIT = 100;
@@ -28,10 +30,59 @@ interface ErrorResponse {
   name?: string;
 }
 
-export function createResendProvider(apiKey: string): EmailProvider {
+/** A message with files, through the single-message endpoint. */
+async function sendOne(apiKey: string, message: OutgoingEmail): Promise<SendResult> {
+  let response: Response;
+  try {
+    response = await fetch(SINGLE_URL, {
+      method: 'POST',
+      signal: AbortSignal.timeout(TIMEOUT_MS * 3),
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: env.EMAIL_FROM,
+        to: [message.to],
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+        ...(message.headers ? { headers: message.headers } : {}),
+        attachments: (message.attachments ?? []).map((file) => ({
+          filename: file.filename,
+          content: file.content.toString('base64'),
+          content_type: file.contentType,
+        })),
+      }),
+    });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'The provider could not be reached.', retryable: true };
+  }
+  if (response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { id?: string };
+    return { ok: true, providerId: body.id ?? 'unknown' };
+  }
+  const body = (await response.json().catch(() => ({}))) as ErrorResponse;
   return {
+    ok: false,
+    error: `Resend responded with ${response.status}${body.message ? `: ${body.message}` : ''}`,
+    retryable: response.status === 429 || response.status >= 500,
+  };
+}
+
+export function createResendProvider(apiKey: string): EmailProvider {
+  const provider: EmailProvider = {
     async send(messages: OutgoingEmail[]): Promise<SendResult[]> {
       if (messages.length === 0) return [];
+
+      // Messages with files go one by one; the rest still go as one batch.
+      if (messages.some((message) => message.attachments?.length)) {
+        const plain = messages.filter((message) => !message.attachments?.length);
+        const plainResults = plain.length > 0 ? await provider.send(plain) : [];
+        let next = 0;
+        const results: SendResult[] = [];
+        for (const message of messages) {
+          results.push(message.attachments?.length ? await sendOne(apiKey, message) : plainResults[next++]!);
+        }
+        return results;
+      }
 
       let response: Response;
       try {
@@ -84,4 +135,5 @@ export function createResendProvider(apiKey: string): EmailProvider {
       return messages.map(() => ({ ok: false, error, retryable }));
     },
   };
+  return provider;
 }

@@ -7,12 +7,20 @@
  * worker can mark each row on its own outcome rather than the batch's.
  */
 
+export interface OutgoingAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+}
+
 export interface OutgoingEmail {
   to: string;
   subject: string;
   html: string;
   text: string;
   headers?: Record<string, string>;
+  /** Files sent with the message — a scheduled report's PDF and workbook. */
+  attachments?: OutgoingAttachment[];
 }
 
 export type SendResult =

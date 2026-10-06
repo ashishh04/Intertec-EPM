@@ -304,6 +304,41 @@ const schema = z.object({
   // reads everything and writes nothing — on the replica where there is one.
   EPM_ANALYTICS_DATABASE_URL: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
 
+  // --- Scheduled reports and operations alerts (BRQ-08) ---------------------
+  // Scheduled reports go out on their schedules. On unless "false".
+  EPM_REPORT_SCHEDULER_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_REPORT_SCHEDULER_SECONDS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(5).max(600).default(60),
+  ),
+  // How long each run's log is kept (the records policy; seven years by
+  // default), and the rendered files it sent, which are larger and needed for less.
+  EPM_REPORT_RUN_RETENTION_DAYS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(30).max(36500).default(2555),
+  ),
+  EPM_REPORT_ARTIFACT_RETENTION_DAYS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(1).max(3650).default(90),
+  ),
+  // Who hears when something fails for good — an email that could not be sent
+  // after every retry. OpenProject user ids; the administrators when empty.
+  EPM_OPS_ALERT_USER_IDS: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  // And, if set, an operations endpoint that receives each alert as a signed
+  // JSON POST — monitoring that does not depend on the mail relay.
+  EPM_OPS_ALERT_WEBHOOK_URL: z.preprocess((value) => (value === '' ? undefined : value), z.string().url().optional()),
+
   /*
    * The currency internal hourly rates are quoted in.
    *
@@ -450,5 +485,7 @@ export function describeEnv() {
       ? `on change and every ${env.EPM_ANALYTICS_REFRESH_INTERVAL_MINUTES} minutes; full at ${env.EPM_ANALYTICS_FULL_REFRESH_HOUR_UTC}:00 UTC`
       : 'disabled',
     analyticsRole: env.EPM_ANALYTICS_DATABASE_URL ? 'configured' : 'not configured',
+    reportScheduler: env.EPM_REPORT_SCHEDULER_ENABLED ? `every ${env.EPM_REPORT_SCHEDULER_SECONDS} seconds` : 'disabled',
+    opsAlerts: env.EPM_OPS_ALERT_WEBHOOK_URL ? 'in-app and webhook' : 'in-app',
   };
 }

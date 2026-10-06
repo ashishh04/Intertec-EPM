@@ -1070,3 +1070,138 @@ model JobLease {
 
   @@map("job_leases")
 }
+
+/// -------------------------------------------------------------------------
+/// Scheduled report distribution (BRQ-08)
+/// -------------------------------------------------------------------------
+
+/// A report sent on a schedule (BR-207): a dashboard or a saved view, how
+/// often and when, and who receives it — people with accounts, and addresses
+/// outside the organisation once someone has approved sending to them.
+model ReportSchedule {
+  id                 String      @id @default(cuid())
+  name               String
+  description        String?
+  active             Boolean     @default(true)
+  /// `dashboard` or `view`.
+  sourceKind         String
+  /// The dashboard (`portfolio-health`, `delivery`, …) or the saved view's
+  /// OpenProject query id.
+  sourceId           String
+  /// For a dashboard: `instance`, `portfolio:<id>`, `project:<id>`, …
+  scope              String      @default("instance")
+  /// The period the report covers, counted back from the day it runs:
+  /// `previous-week`, `previous-month`, `last-4-weeks`, `last-12-weeks`,
+  /// `month-to-date`, `year-to-date`.
+  periodPreset       String      @default("last-4-weeks")
+  /// `daily`, `weekly` or `monthly`.
+  frequency          String
+  /// 1 is Monday and 7 Sunday, for a weekly report.
+  weekday            Int?
+  /// 1 to 28, or 0 for the last day of the month, for a monthly report.
+  dayOfMonth         Int?
+  /// Wall-clock time in `timezone`, `HH:MM`.
+  timeOfDay          String
+  timezone           String      @default("UTC")
+  /// How late a run may still go out — after a restart, say. Past it the
+  /// occurrence is recorded as missed rather than sent at the wrong time.
+  windowMinutes      Int         @default(120)
+  /// `pdf`, `xlsx`.
+  formats            String[]
+  /// OpenProject user ids.
+  recipientUserIds   String[]
+  /// Addresses with no account. Sent to only once approved.
+  externalEmails     String[]
+  /// Who approved sending to the external addresses, and when. Cleared
+  /// whenever the list changes.
+  externalApprovedBy String?
+  externalApprovedAt DateTime?
+  /// Who last set the external addresses: an approval must come from someone else.
+  externalSetBy      String?
+  /// Who the definition belongs to. External copies are rendered with their access.
+  ownerId            String
+  nextRunAt          DateTime?
+  lastRunAt          DateTime?
+  version            Int         @default(1)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  runs               ReportRun[]
+
+  @@index([active, nextRunAt])
+  @@map("report_schedules")
+}
+
+/// One run of a schedule (BR-210): the occurrence it was for, the definition
+/// as it then stood, each recipient's copy and how its delivery went. Kept for
+/// the records policy's period; the rendered files for a shorter one.
+model ReportRun {
+  id           String           @id @default(cuid())
+  scheduleId   String
+  schedule     ReportSchedule   @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  /// The occurrence; null for a run asked for by hand.
+  scheduledFor DateTime?
+  /// `schedule` or `manual`.
+  trigger      String
+  /// `running`, `rendered`, `missed`, `failed`.
+  status       String
+  /// The definition as it was when this ran.
+  definition   Json
+  periodFrom   String?
+  periodTo     String?
+  startedAt    DateTime         @default(now())
+  finishedAt   DateTime?
+  error        String?
+  triggeredBy  String?
+  deliveries   ReportDelivery[]
+
+  /// One run per occurrence, however many servers notice it is due.
+  @@unique([scheduleId, scheduledFor])
+  @@index([scheduleId, startedAt])
+  @@index([startedAt])
+  @@map("report_runs")
+}
+
+/// One recipient's copy (BR-209), rendered with that recipient's own access,
+/// and the email that carried it.
+model ReportDelivery {
+  id               String           @id @default(cuid())
+  runId            String
+  run              ReportRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// `user` or `external`.
+  recipientKind    String
+  recipientUserId  String?
+  recipientEmail   String?
+  /// `rendered`, `withheld` (not sent, and why) or `failed`.
+  renderStatus     String
+  reason           String?
+  /// The projects this copy covered, and how many in the report's scope this
+  /// recipient's access left out.
+  projectIds       String[]
+  excludedProjects Int              @default(0)
+  /// The outbox row that carried it; its status is the delivery's.
+  outboxId         String?
+  createdAt        DateTime         @default(now())
+  artifacts        ReportArtifact[]
+
+  @@index([runId])
+  @@index([outboxId])
+  @@map("report_deliveries")
+}
+
+/// A rendered file, kept so a delivery can be inspected and its email sent.
+model ReportArtifact {
+  id          String         @id @default(cuid())
+  deliveryId  String
+  delivery    ReportDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  /// `pdf` or `xlsx`.
+  format      String
+  filename    String
+  contentType String
+  content     Bytes
+  size        Int
+  createdAt   DateTime       @default(now())
+
+  @@index([deliveryId])
+  @@index([createdAt])
+  @@map("report_artifacts")
+}

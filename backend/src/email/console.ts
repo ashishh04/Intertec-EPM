@@ -16,7 +16,15 @@ export function createConsoleProvider(): EmailProvider {
     async send(messages: OutgoingEmail[]): Promise<SendResult[]> {
       return messages.map((message) => {
         const providerId = `console-${randomUUID()}`;
-        emailLog.info({ to: message.to, subject: message.subject, providerId }, 'Email (not sent: no provider configured)');
+        emailLog.info(
+          {
+            to: message.to,
+            subject: message.subject,
+            providerId,
+            attachments: message.attachments?.map((file) => `${file.filename} (${file.content.length} bytes)`),
+          },
+          'Email (not sent: no provider configured)',
+        );
         return { ok: true, providerId };
       });
     },

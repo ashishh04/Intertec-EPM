@@ -196,6 +196,8 @@ export type Permission =
   | 'rules:configure'
   | 'portfolios:manage'
   | 'analytics:manage'
+  | 'reports:schedule'
+  | 'reports:approve'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -2442,4 +2444,118 @@ export interface AnalyticsAccessCheck {
   grants: AnalyticsAccessProbe[];
   ok: boolean;
   error?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scheduled report distribution (BRQ-08: BR-207 to BR-210)                    */
+/* -------------------------------------------------------------------------- */
+
+export type ReportFrequency = 'daily' | 'weekly' | 'monthly';
+export type ReportPeriodPreset =
+  | 'previous-week'
+  | 'previous-month'
+  | 'last-4-weeks'
+  | 'last-12-weeks'
+  | 'month-to-date'
+  | 'year-to-date';
+export type ReportFormat = 'pdf' | 'xlsx';
+
+/** What a scheduled report is: its source, timetable and recipients. */
+export interface ReportScheduleInput {
+  name: string;
+  description?: string | null;
+  active: boolean;
+  sourceKind: 'dashboard' | 'view';
+  /** A dashboard id, or a saved view's id. */
+  sourceId: string;
+  /** For a dashboard: `instance`, `portfolio:<id>`, `project:<id>`, … */
+  scope: string;
+  periodPreset: ReportPeriodPreset;
+  frequency: ReportFrequency;
+  /** 1 Monday … 7 Sunday. */
+  weekday?: number | null;
+  /** 1–28, or 0 for the last day. */
+  dayOfMonth?: number | null;
+  /** `HH:MM`, wall-clock in `timezone`. */
+  timeOfDay: string;
+  timezone: string;
+  windowMinutes: number;
+  formats: ReportFormat[];
+  recipientUserIds: ID[];
+  externalEmails: string[];
+}
+
+export interface ReportSchedule extends ReportScheduleInput {
+  id: ID;
+  description: string | null;
+  weekday: number | null;
+  dayOfMonth: number | null;
+  externalApproval: { required: boolean; approved: boolean; approvedBy?: ID; approvedAt?: ISODate; setBy?: ID };
+  ownerId: ID;
+  nextRunAt: ISODate | null;
+  lastRunAt: ISODate | null;
+  lastRunStatus: ReportRunStatus | null;
+  /** "Mondays at 07:00 (Asia/Dubai)". */
+  describedTiming: string;
+  /** "Portfolio health — All projects". */
+  sourceLabel: string;
+  version: number;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+export interface ReportScheduleOptions {
+  dashboards: { id: DashboardId; title: string }[];
+  views: { id: ID; name: string }[];
+}
+
+export type ReportRunStatus = 'running' | 'rendered' | 'missed' | 'failed';
+
+/** One recipient's copy of a run, and how its email went (BR-209, BR-210). */
+export interface ReportDelivery {
+  id: ID;
+  recipientKind: 'user' | 'external';
+  recipientUserId?: ID;
+  recipientEmail?: string;
+  renderStatus: 'rendered' | 'withheld' | 'failed';
+  /** Why it was withheld or failed. */
+  reason?: string;
+  /** Projects this copy covered, and how many in scope this recipient's access left out. */
+  projectCount: number;
+  excludedProjects: number;
+  emailStatus: 'queued' | 'sending' | 'sent' | 'failed' | 'cancelled' | 'withheld' | 'none';
+  attempts: number;
+  lastError?: string;
+  sentAt?: ISODate;
+  artifacts: { id: ID; format: ReportFormat; filename: string; size: number }[];
+}
+
+export interface ReportRun {
+  id: ID;
+  scheduleId: ID;
+  scheduleName: string;
+  /** The occurrence; null for a run asked for by hand. */
+  scheduledFor: ISODate | null;
+  trigger: 'schedule' | 'manual';
+  triggeredBy?: ID;
+  status: ReportRunStatus;
+  deliveryState: 'delivered' | 'partial' | 'pending' | 'failed' | 'none';
+  periodFrom?: ISODate;
+  periodTo?: ISODate;
+  startedAt: ISODate;
+  finishedAt?: ISODate;
+  error?: string;
+  recipients: number;
+  delivered: number;
+  failed: number;
+  withheld: number;
+  /** In a single run's detail. */
+  deliveries?: ReportDelivery[];
+}
+
+export interface ReportRunPage {
+  items: ReportRun[];
+  total: number;
+  page: number;
+  pageSize: number;
 }

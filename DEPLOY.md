@@ -220,6 +220,29 @@ Wiping the replica's volume means cloning again; the slot is reused. Retiring
 the replica for good means dropping the slot on the primary:
 `SELECT pg_drop_replication_slot('epm_analytics_replica');`.
 
+## Scheduled reports
+
+Scheduled reports (Insights → Scheduled reports) are built per recipient, each
+with that person's own access, and sent through the email outbox — so they go
+out only where email does: SMTP or Resend configured and the email worker on.
+A send that fails is retried; one that still fails after its retries is not
+dropped. Operations are told in-app (`EPM_OPS_ALERT_USER_IDS`, else the
+administrators), in the journal, in the log as an error-level line carrying
+`alert`, and, when `EPM_OPS_ALERT_WEBHOOK_URL` is set, by a JSON POST to it.
+
+Due reports are looked for every `EPM_REPORT_SCHEDULER_SECONDS`. An occurrence
+the server was down for is still sent if it comes back within the schedule's
+window, and is logged as missed after that rather than sent at the wrong time.
+The run log is kept for `EPM_REPORT_RUN_RETENTION_DAYS` (seven years by default)
+and the files each run sent for `EPM_REPORT_ARTIFACT_RETENTION_DAYS`; both are
+pruned once a day.
+
+Defining reports and reading their log needs `reports:schedule`; approving an
+outside address needs `reports:approve`, held by someone other than whoever
+added it. Both are EPM permissions: the administrators in `EPM_ADMIN_USER_IDS`
+hold them; anyone else needs a row in `epm_permission_grants` (OpenProject user
+id, permission) until roles can grant them.
+
 ## What is in each image
 
 | Image | Contents |

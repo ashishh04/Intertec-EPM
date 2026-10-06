@@ -140,6 +140,33 @@ export class ApiClient {
   delete<T>(path: string, body?: unknown) {
     return this.request<T>(path, { method: 'DELETE', body });
   }
+
+  /**
+   * A file the backend generates — a report, an export. Fetched rather than
+   * linked so a refusal reads as a message on the page, not as a downloaded
+   * file holding an error. The caller names the file: the backend's
+   * Content-Disposition is not readable across origins in development.
+   */
+  async download(path: string, query?: Record<string, QueryValue>, timeoutMs = 60_000): Promise<Blob> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(`${this.baseUrl}${path}${buildQuery(query)}`, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw await parseError(response);
+      return await response.blob();
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiError('The request timed out.', 408, 'TIMEOUT');
+      }
+      throw new ApiError('Unable to reach the EPM backend. Check your connection and try again.', 0, 'NETWORK');
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 export const apiClient = new ApiClient();

@@ -97,6 +97,15 @@ export function createSmtpProvider(settings: SmtpSettings): EmailProvider {
             html: message.html,
             text: message.text,
             ...(message.headers ? { headers: message.headers } : {}),
+            ...(message.attachments?.length
+              ? {
+                  attachments: message.attachments.map((file) => ({
+                    filename: file.filename,
+                    content: file.content,
+                    contentType: file.contentType,
+                  })),
+                }
+              : {}),
           }),
         ),
       );

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Clock3, Gauge, Undo2 } from 'lucide-react';
+import { CalendarClock, ChevronDown, Clock3, Download, FileSpreadsheet, FileText, Gauge, Undo2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -10,28 +11,27 @@ import { DashboardTableCard } from '@/components/insights/DashboardTableCard';
 import { DrillSheet } from '@/components/insights/DrillSheet';
 import { formatMeasure } from '@/components/insights/format';
 import { MeasureTile, MeasureTileSkeleton } from '@/components/insights/MeasureTile';
+import { ScopePicker } from '@/components/insights/ScopePicker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useDepartments } from '@/hooks/useDepartments';
 import { useDashboard, useMeasureCatalogue } from '@/hooks/useInsights';
-import { usePortfolios } from '@/hooks/usePortfolios';
-import { useProjects } from '@/hooks/useProjects';
-import { useTeams } from '@/hooks/useTeams';
+import { saveBlob } from '@/lib/download';
 import { formatDateTime, formatRelative } from '@/lib/utils';
+import { useAuth } from '@/providers/AuthProvider';
+import { insightsService } from '@/services';
+import type { InsightQuery } from '@/services/api/insights';
 import type { DashboardId, MeasureScopeKind } from '@/types';
 
 /**
@@ -45,7 +45,8 @@ import type { DashboardId, MeasureScopeKind } from '@/types';
  * portfolio, a project row the project, a work package itself.
  *
  * Scope and period live in the URL, so a view can be sent to someone and
- * opens the same for them — within what they may see.
+ * opens the same for them — within what they may see. The same view can be
+ * downloaded as a PDF or a workbook, or scheduled to be sent (BR-207).
  */
 
 const DASHBOARDS: { id: DashboardId; label: string }[] = [
@@ -69,6 +70,7 @@ const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 export default function InsightsPage() {
   const params = useParams();
   const navigate = useNavigate();
+  const { can } = useAuth();
   const [search, setSearch] = useSearchParams();
   const dashboardId = (DASHBOARDS.some((entry) => entry.id === params.dashboardId)
     ? params.dashboardId
@@ -130,12 +132,30 @@ export default function InsightsPage() {
           ) : null
         }
         actions={
-          scope !== 'instance' ? (
-            <Button size="sm" variant="outline" onClick={() => setScope('instance', '')}>
-              <Undo2 className="h-3.5 w-3.5" />
-              All projects
-            </Button>
-          ) : null
+          <>
+            {scope !== 'instance' ? (
+              <Button size="sm" variant="outline" onClick={() => setScope('instance', '')}>
+                <Undo2 className="h-3.5 w-3.5" />
+                All projects
+              </Button>
+            ) : null}
+            <ExportMenu dashboardId={dashboardId} query={query} scopeName={data?.scope.name} />
+            {can('reports:schedule') ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  navigate({
+                    pathname: '/reports/scheduled',
+                    search: new URLSearchParams({ new: '1', dashboard: dashboardId, scope }).toString(),
+                  })
+                }
+              >
+                <CalendarClock className="h-3.5 w-3.5" />
+                Schedule
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -150,7 +170,12 @@ export default function InsightsPage() {
       </Tabs>
 
       <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <ScopePicker scope={scope} personName={data?.scope.kind === 'person' ? data.scope.name : undefined} onChange={(value) => update({ scope: value })} />
+        <ScopePicker
+          id="insights-scope"
+          scope={scope}
+          personName={data?.scope.kind === 'person' ? data.scope.name : undefined}
+          onChange={(value) => update({ scope: value })}
+        />
         <div className="space-y-1.5">
           <Label htmlFor="insights-period">Period</Label>
           <Select
@@ -312,87 +337,44 @@ function Definitions({
   );
 }
 
-/** Instance, a portfolio, a project, a department or a team; a person only as drilled into. */
-function ScopePicker({
-  scope,
-  personName,
-  onChange,
-}: {
-  scope: string;
-  personName?: string;
-  onChange: (value: string) => void;
-}) {
-  const portfolios = usePortfolios();
-  const projects = useProjects();
-  const departments = useDepartments();
-  const teams = useTeams();
+const fileSlug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'all-projects';
+
+/** The dashboard on the screen as a file: the same figures, for the same person. */
+function ExportMenu({ dashboardId, query, scopeName }: { dashboardId: DashboardId; query: InsightQuery; scopeName?: string }) {
+  const [busy, setBusy] = useState(false);
+
+  const download = async (format: 'pdf' | 'xlsx') => {
+    setBusy(true);
+    try {
+      const blob = await insightsService.exportDashboard(dashboardId, format, query);
+      saveBlob(blob, `${dashboardId}-${fileSlug(scopeName ?? 'all projects')}-${query.to}.${format}`);
+    } catch (error) {
+      toast.error('The file could not be made', { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="insights-scope">Scope</Label>
-      <Select value={scope} onValueChange={onChange}>
-        <SelectTrigger id="insights-scope" className="h-8 text-xs">
-          <SelectValue placeholder="All projects" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="instance">All projects</SelectItem>
-          {scope.startsWith('person:') ? (
-            <SelectItem value={scope}>{personName ?? 'This person'}</SelectItem>
-          ) : null}
-          {(portfolios.data ?? []).length > 0 ? (
-            <>
-              <SelectSeparator />
-              <SelectGroup>
-                <SelectLabel>Portfolios</SelectLabel>
-                {(portfolios.data ?? []).map((portfolio) => (
-                  <SelectItem key={portfolio.id} value={`portfolio:${portfolio.id}`}>
-                    {portfolio.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </>
-          ) : null}
-          {(projects.data ?? []).length > 0 ? (
-            <>
-              <SelectSeparator />
-              <SelectGroup>
-                <SelectLabel>Projects</SelectLabel>
-                {(projects.data ?? []).map((project) => (
-                  <SelectItem key={project.id} value={`project:${project.id}`}>
-                    {project.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </>
-          ) : null}
-          {(departments.data ?? []).length > 0 ? (
-            <>
-              <SelectSeparator />
-              <SelectGroup>
-                <SelectLabel>Departments</SelectLabel>
-                {(departments.data ?? []).map((department) => (
-                  <SelectItem key={department.id} value={`department:${department.id}`}>
-                    {department.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </>
-          ) : null}
-          {(teams.data ?? []).length > 0 ? (
-            <>
-              <SelectSeparator />
-              <SelectGroup>
-                <SelectLabel>Teams</SelectLabel>
-                {(teams.data ?? []).map((team) => (
-                  <SelectItem key={team.id} value={`team:${team.id}`}>
-                    {team.name}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </>
-          ) : null}
-        </SelectContent>
-      </Select>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="secondary" loading={busy}>
+          <Download className="h-3.5 w-3.5" />
+          Export
+          <ChevronDown className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel className="text-2xs font-normal text-muted-foreground">This dashboard, as you see it</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => void download('pdf')}>
+          <FileText className="h-3.5 w-3.5" />
+          PDF
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void download('xlsx')}>
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Excel workbook
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

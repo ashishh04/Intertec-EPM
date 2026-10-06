@@ -56,6 +56,12 @@ export const queryKeys = {
   analyticsCompare: (captureId: string) => ['analytics-model', 'compare', captureId] as const,
   analyticsAccess: () => ['analytics-model', 'access'] as const,
 
+  // Scheduled reports: under one root, so running or editing one refreshes the list and the log.
+  reportSchedules: () => ['report-schedules', 'list'] as const,
+  reportScheduleOptions: () => ['report-schedules', 'options'] as const,
+  reportRuns: (filter: object) => ['report-schedules', 'runs', filter] as const,
+  reportRun: (id: string) => ['report-schedules', 'run', id] as const,
+
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,
   taskHierarchy: (id: ID) => ['tasks', 'detail', id, 'hierarchy'] as const,
