@@ -3,7 +3,7 @@ import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Pagination } from '@/components/common/Pagination';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ProjectJournal } from '@/components/projects/ProjectJournal';
+import { ProjectJournalPaged } from '@/components/projects/ProjectJournal';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
@@ -20,7 +20,9 @@ export default function ProjectActivityTab() {
   const paged = usePagination(activityQuery.data ?? [], { pageSize: 15, resetKey: projectId });
 
   return (
-    <div className="grid gap-5 lg:grid-cols-5">
+    // Two independent lists of different lengths: each card is as tall as its
+    // own content, rather than one stretched to the other's height and empty.
+    <div className="grid gap-5 lg:grid-cols-5 lg:items-start">
       <Card className="lg:col-span-3">
         <CardHeader variant="compact">
           <CardTitle>Activity</CardTitle>
@@ -58,9 +60,7 @@ export default function ProjectActivityTab() {
           <CardTitle>Project journal</CardTitle>
           <CardDescription>Health, overrides, plan and ownership, as recorded.</CardDescription>
         </CardHeader>
-        <CardContent className="p-4">
-          {projectId ? <ProjectJournal projectId={projectId} limit={100} /> : null}
-        </CardContent>
+        {projectId ? <ProjectJournalPaged projectId={projectId} /> : null}
       </Card>
     </div>
   );

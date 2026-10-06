@@ -106,7 +106,7 @@ export default function ProjectOverviewTab() {
       : null;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
+    <div className="grid gap-5 lg:grid-cols-3 lg:items-start">
       <div className="space-y-5 lg:col-span-2">
         {/* Summary */}
         <Card>
@@ -392,23 +392,10 @@ export default function ProjectOverviewTab() {
             </QueryBoundary>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Right rail */}
-      <div className="space-y-5">
-        <ProjectPortfolioCard project={project} />
-
-        {/* Next to the portfolio card because both answer "where does this
-            project sit" — but this one is upstream's own hierarchy, not an
-            EPM grouping. */}
-        <ProjectHierarchyCard project={project} />
-
-        <ProjectHealthCard project={project} />
-
-        {canEditProject ? (
-          <ProjectPlanDialog open={planOpen} onOpenChange={setPlanOpen} project={project} />
-        ) : null}
-
+        {/* In the wide column: the longest list on the page, so the two
+            columns come out about the same height, and each entry fits on
+            a line. */}
         <Card>
           <CardHeader
             variant="compact"
@@ -451,6 +438,24 @@ export default function ProjectOverviewTab() {
             </QueryBoundary>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Right rail: health first, beside the summary — the two together say how
+          the project is doing — then where it sits. It stays in view while the
+          longer left column scrolls, as a work package's details card does. */}
+      <div className="space-y-5 lg:sticky lg:top-20">
+        <ProjectHealthCard project={project} />
+
+        <ProjectPortfolioCard project={project} />
+
+        {/* Next to the portfolio card because both answer "where does this
+            project sit" — but this one is upstream's own hierarchy, not an
+            EPM grouping. */}
+        <ProjectHierarchyCard project={project} />
+
+        {canEditProject ? (
+          <ProjectPlanDialog open={planOpen} onOpenChange={setPlanOpen} project={project} />
+        ) : null}
       </div>
     </div>
   );

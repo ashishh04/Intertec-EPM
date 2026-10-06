@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import type { ProjectRepository } from '../repositories';
-import type { AuditEvent, ID, Milestone, EpmProject, HealthOverride, ProjectPlanInput } from '@/types';
+import type { AuditEvent, AuditPage, ID, Milestone, EpmProject, HealthOverride, ProjectPlanInput } from '@/types';
 
 /**
  * Projects arrive from the EPM backend already normalized. The backend owns
@@ -50,6 +50,11 @@ export class ApiProjectRepository implements ProjectRepository {
 
   getJournal(id: ID, params: { before?: number; limit?: number; action?: string } = {}): Promise<AuditEvent[]> {
     return apiClient.get<AuditEvent[]>(`/projects/${id}/journal`, params);
+  }
+
+  /** The journal a numbered page at a time, with its total. */
+  getJournalPage(id: ID, params: { page: number; pageSize: number; action?: string }): Promise<AuditPage> {
+    return apiClient.get<AuditPage>(`/projects/${id}/journal/page`, params);
   }
 
   /** The projects directly beneath this one. */

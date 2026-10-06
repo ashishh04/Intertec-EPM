@@ -1,12 +1,15 @@
+import { useEffect, useState } from 'react';
 import { Activity, Calculator, CalendarRange, CircleUser, FolderTree, Gauge, Pin, PinOff, Trash2 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
+import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { InfoTooltip } from '@/components/ui/tooltip';
-import { useProjectJournal } from '@/hooks/useProjects';
+import { useProjectJournal, useProjectJournalPage } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import type { AuditEvent, ID } from '@/types';
@@ -35,6 +38,23 @@ function iconFor(action: string): LucideIcon {
   return ICONS.find((entry) => action.startsWith(entry.prefix))?.icon ?? Activity;
 }
 
+const skeleton = (
+  <div className="space-y-3">
+    {Array.from({ length: 4 }, (_, index) => (
+      <Skeleton key={index} className="h-10 w-full" />
+    ))}
+  </div>
+);
+
+const empty = (
+  <EmptyState
+    size="inline"
+    icon={Activity}
+    title="Nothing recorded yet"
+    description="Health calculations, overrides and plan changes are recorded here as they happen."
+  />
+);
+
 interface ProjectJournalProps {
   projectId: ID;
   /** Only actions starting with this, e.g. `health.`. */
@@ -43,6 +63,7 @@ interface ProjectJournalProps {
   className?: string;
 }
 
+/** The most recent entries, up to `limit`, as one list. */
 export function ProjectJournal({ projectId, action, limit = 50, className }: ProjectJournalProps) {
   const query = useProjectJournal(projectId, { action, limit });
   const users = useUserMap();
@@ -54,29 +75,94 @@ export function ProjectJournal({ projectId, action, limit = 50, className }: Pro
       error={query.error}
       onRetry={() => query.refetch()}
       errorTitle="Unable to load the journal"
-      skeleton={
-        <div className="space-y-3">
-          {Array.from({ length: 4 }, (_, index) => (
-            <Skeleton key={index} className="h-10 w-full" />
-          ))}
-        </div>
-      }
+      skeleton={skeleton}
       isEmpty={(query.data ?? []).length === 0}
-      empty={
-        <EmptyState
-          size="inline"
-          icon={Activity}
-          title="Nothing recorded yet"
-          description="Health calculations, overrides and plan changes are recorded here as they happen."
-        />
-      }
+      empty={empty}
     >
-      <ol className={cn('space-y-3', className)}>
-        {(query.data ?? []).map((entry) => (
-          <JournalEntry key={entry.id} entry={entry} actor={entry.actorId ? users.get(entry.actorId) : undefined} />
-        ))}
-      </ol>
+      <JournalEntries entries={query.data ?? []} users={users} className={className} />
     </QueryBoundary>
+  );
+}
+
+/**
+ * The whole journal a page at a time, as the body of a card: the entries, and
+ * under them the same pager the activity list beside it has. Paged on the
+ * server, so every entry stays reachable however long the journal grows.
+ */
+export function ProjectJournalPaged({
+  projectId,
+  action,
+  pageSize: initialPageSize = 15,
+}: {
+  projectId: ID;
+  action?: string;
+  pageSize?: number;
+}) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(initialPageSize);
+  const query = useProjectJournalPage(projectId, { page, pageSize, action });
+  const users = useUserMap();
+
+  // Another project, or another filter, starts at its newest entries.
+  useEffect(() => setPage(1), [projectId, action]);
+
+  const total = query.data?.total ?? 0;
+
+  return (
+    <>
+      <CardContent className="p-4">
+        <QueryBoundary
+          isLoading={query.isLoading}
+          isError={query.isError}
+          error={query.error}
+          onRetry={() => query.refetch()}
+          errorTitle="Unable to load the journal"
+          skeleton={skeleton}
+          isEmpty={total === 0}
+          empty={empty}
+        >
+          <JournalEntries
+            entries={query.data?.items ?? []}
+            users={users}
+            className={cn(query.isPlaceholderData && 'opacity-60 transition-opacity')}
+          />
+        </QueryBoundary>
+      </CardContent>
+      {total > 0 ? (
+        <Pagination
+          page={query.data?.page ?? page}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setPage}
+          onPageSizeChange={(next) => {
+            setPageSize(next);
+            setPage(1);
+          }}
+          pageSizeOptions={[10, 15, 25, 50]}
+          itemLabel="entry"
+          itemLabelPlural="entries"
+          className="border-t border-border"
+        />
+      ) : null}
+    </>
+  );
+}
+
+function JournalEntries({
+  entries,
+  users,
+  className,
+}: {
+  entries: AuditEvent[];
+  users: ReturnType<typeof useUserMap>;
+  className?: string;
+}) {
+  return (
+    <ol className={cn('space-y-3', className)}>
+      {entries.map((entry) => (
+        <JournalEntry key={entry.id} entry={entry} actor={entry.actorId ? users.get(entry.actorId) : undefined} />
+      ))}
+    </ol>
   );
 }
 

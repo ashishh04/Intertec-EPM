@@ -364,6 +364,14 @@ export interface AuditEvent {
   after?: unknown;
 }
 
+/** One page of a journal, newest first, with the total it is a page of. */
+export interface AuditPage {
+  items: AuditEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface EpmProject {
   id: ID;
   /** Human-readable short code, e.g. "AOP". Maps to the OpenProject identifier. */

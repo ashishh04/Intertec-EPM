@@ -7,6 +7,7 @@
 
 import type {
   AuditEvent,
+  AuditPage,
   ActivityEntry,
   CalendarEvent,
   CreateTaskInput,
@@ -51,6 +52,7 @@ export interface ProjectRepository {
   recalculateHealth(id: ID): Promise<EpmProject>;
   /** What EPM recorded about the project, newest first. */
   getJournal(id: ID, params?: { before?: number; limit?: number; action?: string }): Promise<AuditEvent[]>;
+  getJournalPage(id: ID, params: { page: number; pageSize: number; action?: string }): Promise<AuditPage>;
   /** The projects directly beneath this one. */
   getChildren(id: ID): Promise<EpmProject[]>;
   /** Moves it under another project, or to the top level with an empty id. */

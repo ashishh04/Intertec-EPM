@@ -156,6 +156,21 @@ export function useRecalculateHealth() {
  * Keyed beneath the project, so every project write refreshes it — an
  * override saved in the dialog appears here without anything asking.
  */
+/**
+ * One page of the journal. The page on screen stays there while the next one
+ * loads, so paging does not flash an empty list.
+ */
+export function useProjectJournalPage(id?: ID, params: { page: number; pageSize: number; action?: string } = { page: 1, pageSize: 15 }) {
+  return useQuery({
+    // Under the journal's key, so whatever refreshes the journal refreshes this.
+    queryKey: [...queryKeys.projectJournal(id ?? 'unknown'), 'page', params],
+    queryFn: () => projectService.getJournalPage(id!, params),
+    enabled: Boolean(id),
+    staleTime: 30_000,
+    placeholderData: (previous) => previous,
+  });
+}
+
 export function useProjectJournal(id?: ID, params: { limit?: number; action?: string } = {}) {
   return useQuery({
     queryKey: [...queryKeys.projectJournal(id ?? 'unknown'), params],

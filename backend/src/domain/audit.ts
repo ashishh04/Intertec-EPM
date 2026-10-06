@@ -148,6 +148,34 @@ export interface JournalQuery {
   limit?: number;
 }
 
+/**
+ * One numbered page of a journal, newest first, with the total it is a page
+ * of — for a list a person pages through, where every entry has to stay
+ * reachable however long the journal grows.
+ */
+export async function listAuditPage(
+  query: Omit<JournalQuery, 'before' | 'limit'> & { page: number; pageSize: number },
+): Promise<{ items: AuditEvent[]; total: number; page: number; pageSize: number }> {
+  const where = {
+    ...(query.projectId ? { projectId: query.projectId } : {}),
+    ...(query.entityType ? { entityType: query.entityType } : {}),
+    ...(query.entityId ? { entityId: query.entityId } : {}),
+    ...(query.actionPrefix ? { action: { startsWith: query.actionPrefix } } : {}),
+  };
+  const pageSize = Math.min(Math.max(query.pageSize, 1), 100);
+  const total = await prisma.auditEvent.count({ where });
+  // Past the end — the journal is append-only, so only a stale page number
+  // can be — answers the last page rather than an empty one.
+  const page = Math.min(Math.max(query.page, 1), Math.max(1, Math.ceil(total / pageSize)));
+  const rows = await prisma.auditEvent.findMany({
+    where,
+    orderBy: { seq: 'desc' },
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+  });
+  return { items: rows.map(toAuditEvent), total, page, pageSize };
+}
+
 /** Newest first, paged by sequence number. */
 export async function listAudit(query: JournalQuery): Promise<AuditEvent[]> {
   const rows = await prisma.auditEvent.findMany({

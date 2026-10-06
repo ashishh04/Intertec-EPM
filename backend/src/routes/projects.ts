@@ -11,7 +11,7 @@ import { prisma } from '../db/prisma.js';
 import { setProjectPortfolio } from '../domain/portfolios.js';
 import { getUsers } from '../mapping/users.js';
 import { notifyHealthChange } from '../domain/notifications.js';
-import { listAudit, recordAudit, withAudit } from '../domain/audit.js';
+import { listAudit, listAuditPage, recordAudit, withAudit } from '../domain/audit.js';
 import {
   healthViews,
   parseOverrideLevels,
@@ -625,6 +625,27 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         limit: query.limit,
         actionPrefix: query.action,
       });
+    },
+  );
+
+  /** The same journal a page at a time, with its total, for a list a person pages through. */
+  app.get<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>(
+    '/projects/:id/journal/page',
+    async (request) => {
+      const { id } = request.params;
+      const query = z
+        .object({
+          page: z.coerce.number().int().positive().default(1),
+          pageSize: z.coerce.number().int().positive().max(100).default(15),
+          action: z.string().max(60).optional(),
+        })
+        .parse(request.query);
+
+      if (!(await loadProjects(requestSignal(request))).some((candidate) => candidate.id === id)) {
+        throw EpmError.notFound('That project');
+      }
+
+      return listAuditPage({ projectId: id, actionPrefix: query.action, page: query.page, pageSize: query.pageSize });
     },
   );
 
