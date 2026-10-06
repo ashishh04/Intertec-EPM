@@ -124,7 +124,7 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
                     <p>{entry.summary}</p>
                     {entry.reason ? <p className="mt-0.5 border-l-2 border-border pl-2 italic text-muted-foreground">{entry.reason}</p> : null}
                     <p className="text-2xs text-muted-foreground">
-                      {entry.actorKind === 'system' ? 'EPM' : name(entry.actorId)} · {formatDateTime(entry.occurredAt)}
+                      {entry.actorKind === 'system' ? 'EPM' : entry.actorKind === 'service' ? 'EPM Automation' : name(entry.actorId)} · {formatDateTime(entry.occurredAt)}
                     </p>
                   </li>
                 ))}

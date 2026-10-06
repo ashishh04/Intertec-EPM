@@ -56,7 +56,7 @@ function ActivityTimeline({ entries, users, limit, className }: ActivityTimeline
 
             <div className="min-w-0 flex-1 pt-0.5">
               <p className="text-xs leading-relaxed text-foreground">
-                <span className="font-medium">{actor?.name ?? 'A teammate'}</span>{' '}
+                <span className="font-medium">{actor?.name ?? entry.actorName ?? 'A teammate'}</span>{' '}
                 <span className="text-muted-foreground">{ACTIVITY_ACTION_LABEL[entry.action]}</span>{' '}
                 {href ? (
                   <Link

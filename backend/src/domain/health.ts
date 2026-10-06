@@ -21,6 +21,7 @@ import { recordAuditQuietly, type AuditInput } from './audit.js';
 import { projectCosts, type ProjectCost } from './costs.js';
 import { HEALTH_CRITERIA, getHealthRules, resolveRiskSelection } from './health-rules.js';
 import { notifyHealthChange } from './notifications.js';
+import { noteRuleEvent } from './rule-events.js';
 
 /**
  * Project health, as the BRD defines it (BR-204, BR-205, BR-206).
@@ -769,6 +770,15 @@ export async function recalculateHealth(
   for (const transition of transitions) {
     await notifyHealthChange(transition).catch((error: unknown) => {
       appLog.warn({ err: error, projectId: transition.projectId }, 'Could not notify a health change');
+    });
+    // Rules can watch for it too (BR-216): "when a project turns red".
+    await noteRuleEvent({
+      source: 'epm',
+      kind: 'project.health_changed',
+      subjectType: 'project',
+      subjectId: transition.projectId,
+      projectId: transition.projectId,
+      dedupeKey: `project:${transition.projectId}:health:${transition.next}:${calculatedAt.toISOString()}`,
     });
   }
 

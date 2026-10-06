@@ -6,6 +6,7 @@ import { requestHealthRecalc } from '../domain/health.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { idFromHref, openProject } from '../openproject/client.js';
+import { noteRuleEvent } from '../domain/rule-events.js';
 
 /**
  * Full-fidelity work package writes.
@@ -62,6 +63,15 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       );
 
       requestHealthRecalc(projectId);
+      await noteRuleEvent({
+        source: 'epm',
+        kind: 'work_package.created',
+        subjectType: 'work_package',
+        subjectId: String(created.id),
+        projectId,
+        version: created.lockVersion,
+        actorId: request.auth?.userId,
+      });
       reply.code(201);
       return { id: String(created.id), subject: created.subject, lockVersion: created.lockVersion };
     },
@@ -114,6 +124,15 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       });
 
       requestHealthRecalc(projectId);
+      await noteRuleEvent({
+        source: 'epm',
+        kind: 'work_package.updated',
+        subjectType: 'work_package',
+        subjectId: id,
+        projectId,
+        version: updated.lockVersion,
+        actorId: request.auth?.userId,
+      });
       return { id: String(updated.id), subject: updated.subject, lockVersion: updated.lockVersion };
     },
   );

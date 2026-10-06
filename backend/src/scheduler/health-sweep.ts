@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { env } from '../config/env.js';
 import { recalculateNow } from '../domain/health.js';
+import { withLease } from '../domain/job-lease.js';
 
 /**
  * The scheduled health sweep (BR-205).
@@ -13,8 +14,8 @@ import { recalculateNow } from '../domain/health.js';
  * active project and re-reads every project's actual cost, so stored health is
  * never older than one interval, whatever happened upstream.
  *
- * Same shape as the other schedulers: a timer, no job table, runs outside any
- * request so the service key is used, and a failed run is logged and left for
+ * Same shape as the other schedulers: a timer behind a lease — so with several
+ * servers one of them sweeps — runs outside any request so the service key is used, and a failed run is logged and left for
  * the next one. The first run comes shortly after startup, so a fresh
  * deployment has every project calculated without waiting an interval.
  */
@@ -50,8 +51,11 @@ export function createHealthSweep(options: {
     running = true;
     const startedAt = Date.now();
     try {
-      const results = await recalculateNow('all', 'sweep');
-      log.info({ projects: results.size, durationMs: Date.now() - startedAt }, 'Health sweep completed');
+      // One server recalculates every project per sweep, not each of them.
+      const outcome = await withLease('health-sweep', 30 * 60_000, () => recalculateNow('all', 'sweep'));
+      if (outcome.ran) {
+        log.info({ projects: outcome.result.size, durationMs: Date.now() - startedAt }, 'Health sweep completed');
+      }
     } catch (error) {
       log.warn({ err: error, durationMs: Date.now() - startedAt }, 'Health sweep failed; the next one will retry');
     } finally {

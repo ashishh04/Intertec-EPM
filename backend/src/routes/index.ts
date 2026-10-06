@@ -9,6 +9,7 @@ import { attachmentRoutes } from './attachments.js';
 import { authRoutes } from './auth.js';
 import { analyticsRoutes } from './analytics.js';
 import { approvalRoutes } from './approvals.js';
+import { automationRoutes } from './automation.js';
 import { catalogRoutes } from './catalog.js';
 import { commentRoutes } from './comments.js';
 import { dashboardRoutes } from './dashboard.js';
@@ -51,6 +52,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(projectRoutes);
   await app.register(healthRoutes);
   await app.register(approvalRoutes);
+  await app.register(automationRoutes);
   await app.register(taskRoutes);
   await app.register(timeEntryRoutes);
   await app.register(teamRoutes);

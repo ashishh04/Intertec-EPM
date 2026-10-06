@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { ApprovalRequest, ApprovalTask, Prisma } from '@prisma/client';
 
-import { runAsSystem } from '../auth/context.js';
+import { runAsAutomation, runAsSystem } from '../auth/context.js';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { enqueueEmail } from '../email/outbox.js';
@@ -27,8 +27,11 @@ import type {
   ApprovalTaskView,
 } from '../types/epm.js';
 import { auditRow, recordAuditQuietly, type AuditInput } from './audit.js';
+import { automationConfigured, ensureAutomationMembership } from './automation-account.js';
 import { activeChains, conditionHolds, describeCondition, pickChain, type SubjectFacts } from './approval-chains.js';
 import { notifyPeople } from './notifications.js';
+import { noteRuleEvent } from './rule-events.js';
+import { customFieldFacts } from './work-package-facts.js';
 
 /**
  * The approval engine (BRQ-09: BR-211 to BR-215).
@@ -100,22 +103,8 @@ export async function loadWorkPackage(id: string): Promise<LoadedSubject> {
         .catch(() => null),
     ]);
 
-    // Every custom field, as a number where it is one and as the text a person
-    // sees otherwise: list, user and version fields are links with a title.
-    const customFields: SubjectFacts['customFields'] = {};
-    for (const [field, value] of Object.entries(wp)) {
-      if (!/^customField\d+$/.test(field) || value === null || value === undefined) continue;
-      if (typeof value === 'number') customFields[field] = { number: value, texts: [String(value)] };
-      else if (typeof value === 'string' || typeof value === 'boolean') customFields[field] = { texts: [String(value)] };
-      else if (typeof value === 'object' && 'raw' in (value as object)) {
-        customFields[field] = { texts: [String((value as { raw?: string }).raw ?? '')] };
-      }
-    }
-    for (const [field, value] of Object.entries(wp._links ?? {})) {
-      if (!/^customField\d+$/.test(field) || !value) continue;
-      const texts = (Array.isArray(value) ? value : [value]).map((link) => link.title ?? '').filter(Boolean);
-      if (texts.length > 0) customFields[field] = { texts };
-    }
+    // Every custom field, read the way rule conditions read them too.
+    const customFields: SubjectFacts['customFields'] = customFieldFacts(wp);
 
     const identifier = identifiers.get(projectId);
     const typeId = linkId(wp._links, 'type');
@@ -135,17 +124,50 @@ export async function loadWorkPackage(id: string): Promise<LoadedSubject> {
   });
 }
 
-/** Moves a work package's status with the service key. A no-op when it is already there. */
-async function setWorkPackageStatus(id: string, statusId: string): Promise<void> {
-  await runAsSystem(async () => {
+/**
+ * Moves a work package's status for the chain. A no-op when it is already
+ * there.
+ *
+ * Made as EPM's automation account where one is configured, so the move is
+ * journalled under the service principal rather than under the
+ * administrator whose key EPM reads with (NFR06); with the service key
+ * otherwise, or if the account cannot act here. The move is then queued for
+ * the rules, so a rule can act on an approval's outcome.
+ */
+async function setWorkPackageStatus(id: string, statusId: string, projectId: string): Promise<void> {
+  const move = async () => {
     const current = await openProject.request<OpWorkPackage>(`/work_packages/${id}`);
-    if (linkId(current._links, 'status') === statusId) return;
-    await openProject.request(`/work_packages/${id}`, {
+    if (linkId(current._links, 'status') === statusId) return undefined;
+    return openProject.request<OpWorkPackage>(`/work_packages/${id}`, {
       method: 'PATCH',
       query: { notify: 'false' },
       body: { lockVersion: current.lockVersion, _links: { status: { href: `/api/v3/statuses/${statusId}` } } },
     });
-  });
+  };
+
+  let moved: OpWorkPackage | undefined;
+  if (automationConfigured()) {
+    try {
+      await ensureAutomationMembership(projectId);
+      moved = await runAsAutomation(move);
+    } catch (error) {
+      appLog.warn({ err: error, workPackageId: id }, 'The automation account could not move an approval status; using the service key');
+      moved = await runAsSystem(move);
+    }
+  } else {
+    moved = await runAsSystem(move);
+  }
+
+  if (moved) {
+    await noteRuleEvent({
+      source: 'epm',
+      kind: 'work_package.updated',
+      subjectType: 'work_package',
+      subjectId: id,
+      projectId,
+      version: moved.lockVersion,
+    });
+  }
 }
 
 /** Custom field names for a project and type, from the instance's own schema. */
@@ -697,7 +719,7 @@ async function moveSubjectStatus(
   const catalog = await runAsSystem(() => getCatalog()).catch(() => undefined);
   const statusName = catalog?.statusById.get(statusId)?.name ?? `status ${statusId}`;
   try {
-    await setWorkPackageStatus(subjectId, statusId);
+    await setWorkPackageStatus(subjectId, statusId, projectId);
     if (why === 'approved' || why === 'rejected') {
       await prisma.approvalRequest.update({ where: { id: requestId }, data: { outcomeAppliedAt: new Date(), outcomeError: null } });
     }

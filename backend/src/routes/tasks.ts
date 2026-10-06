@@ -15,6 +15,7 @@ import { projectIdentifiers } from '../mapping/projects.js';
 import { expandIds, toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
 import type { HalLinks, OpProject } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
+import { noteRuleEvent } from '../domain/rule-events.js';
 
 /**
  * Work packages.
@@ -270,6 +271,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
     // New work moves the project's counts, and perhaps its forecast finish.
     requestHealthRecalc(projectId);
+    await noteRuleEvent({
+      source: 'epm',
+      kind: 'work_package.created',
+      subjectType: 'work_package',
+      subjectId: String(created.id),
+      projectId,
+      version: created.lockVersion,
+      actorId: request.auth?.userId,
+    });
     reply.status(201);
     return toEpmTask(created, catalog, identifiers);
   });
@@ -290,6 +300,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       // A date, status, type or priority edit can move any criterion; the
       // recalculation decides whether one did.
       requestHealthRecalc(projectId);
+      await noteRuleEvent({
+        source: 'epm',
+        kind: 'work_package.updated',
+        subjectType: 'work_package',
+        subjectId: request.params.id,
+        projectId,
+        version: updated.lockVersion,
+        actorId: request.auth?.userId,
+      });
       return toEpmTask(updated, catalog, identifiers);
     },
   );
@@ -320,6 +339,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         for (const id of ids) {
           const result = await patchWorkPackage(id, patch, catalog, signal);
           updated.push(toEpmTask(result, catalog, identifiers));
+          await noteRuleEvent({
+            source: 'epm',
+            kind: 'work_package.updated',
+            subjectType: 'work_package',
+            subjectId: id,
+            projectId: linkId(result._links, 'project'),
+            version: result.lockVersion,
+            actorId: request.auth?.userId,
+          });
         }
       } finally {
         // Whatever part of the batch landed has moved those projects.

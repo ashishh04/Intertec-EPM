@@ -111,6 +111,11 @@ async function main() {
   // cannot be removed.
   const approvalChainIds: string[] = [];
   const approvalDelegationIds: string[] = [];
+  // Rules and escalation policies the rules tests create, and the receiver
+  // their outbound action calls. Removed in the cleanup however far a run got.
+  const ruleIds: string[] = [];
+  const escalationPolicyIds: string[] = [];
+  let ruleReceiver: import('node:http').Server | undefined;
   // A project's portfolio is real organisational state; whatever these tests
   // set is put back, including "it was in none".
   const originalProjectPortfolio = new Map<string, string | null>();
@@ -1912,6 +1917,7 @@ async function main() {
       employees?: { manage?: boolean };
       health?: { manage?: boolean; configure?: boolean };
       approvals?: { configure?: boolean };
+      rules?: { configure?: boolean };
       portfolios?: { manage?: boolean };
       analytics?: { manage?: boolean };
     };
@@ -3779,6 +3785,23 @@ async function main() {
       );
       check('and cannot even be opened again', await status(`/approvals/links/${token}`, { cookie: restricted }), 410);
       check('the work package is approved', await waitForStatus(bigChange, approvedStatus!.name), approvedStatus!.name);
+
+      // The move is the chain's, so it is journalled under the automation
+      // account where there is one — not under the administrator's key.
+      const principal = (await (await call('/automation/status', { cookie: admin })).json()) as {
+        account?: { working?: boolean; userId?: string };
+      };
+      if (principal.account?.working) {
+        const { openProject: upstream } = await import('../openproject/client.js');
+        const moves = await upstream.request<{ _embedded?: { elements?: { _links?: { user?: { href?: string } } }[] } }>(
+          `/work_packages/${bigChange}/activities`,
+        );
+        check(
+          "and OpenProject journals the chain's move under the automation account",
+          moves._embedded?.elements?.at(-1)?._links?.user?.href,
+          `/api/v3/users/${principal.account.userId}`,
+        );
+      }
     }
 
     // --- BR-213: every step, decision and comment, in sequence ---
@@ -4002,6 +4025,486 @@ async function main() {
         waitingStatusBefore,
       );
     }
+  }
+
+  // --- Rules and escalation --------------------------------------------------
+  //
+  // BR-216 to BR-219, through the API, on this suite's own project. A rule on
+  // Risk work at High priority runs every kind of action; Risk work at Normal
+  // and Task work at High are the controls. The outbound action calls a
+  // receiver this test starts on 127.0.0.1, so the backend under test needs
+  // EPM_RULES_OUTBOUND_ALLOWLIST=127.0.0.1; with EPM_RULES_WEBHOOK_SECRET set
+  // here as well the call's signature is checked exactly. Rules act as the
+  // automation account (backend/openproject/setup/automation-account.rb).
+  //
+  // Escalation runs the sweep in this process with a clock set a day or two
+  // ahead, and only for this test's policy: nothing here can wait out a day,
+  // and nothing real should be escalated by a clock that is wrong on purpose.
+  console.log('\nRules and escalation');
+
+  interface TestFiring {
+    id: string;
+    ruleId: string;
+    subjectId: string;
+    outcome: string;
+    actions: { type: string; outcome: string; summary: string; error?: string }[];
+  }
+
+  check(
+    'the rules configure permission is surfaced to an administrator',
+    adminPermissions.permissions?.rules?.configure,
+    true,
+  );
+  check('and withheld from a caller without the grant', restrictedPermissions.permissions?.rules?.configure, false);
+  check('anonymous cannot read rules', await status('/automation/rules'), 401);
+  check('a caller without the grant cannot read them', await status('/automation/rules', { cookie: restricted }), 403);
+  check(
+    'nor define one',
+    await status('/automation/rules', { method: 'POST', cookie: restricted, body: { name: 'Not allowed' } }),
+    403,
+  );
+  check('nor dry-run one', await status('/automation/rules/dry-run', { method: 'POST', cookie: restricted, body: {} }), 403);
+  check('nor read the escalation policies', await status('/automation/escalation-policies', { cookie: restricted }), 403);
+
+  const automation = (await (await call('/automation/status', { cookie: admin })).json()) as {
+    account?: { working?: boolean; userId?: string; admin?: boolean };
+  };
+  const automationId = automation.account?.userId;
+  check('the automation account is configured and works', automation.account?.working, true);
+  check('and is not an administrator', automation.account?.admin, false);
+
+  const ruleOptions = (await (await call('/automation/options', { cookie: admin })).json()) as {
+    types?: { id: string; name: string }[];
+    statuses?: { id: string; name: string }[];
+    priorities?: { id: string; name: string }[];
+    roles?: { id: string; name: string }[];
+  };
+  const riskType = named(ruleOptions.types, /^risk$/i);
+  const taskType = named(ruleOptions.types, /^task$/i);
+  const highPriority = named(ruleOptions.priorities, /^high$/i);
+  const normalPriority = named(ruleOptions.priorities, /^normal$/i);
+  const inProgress = named(ruleOptions.statuses, /^in progress$/i);
+  const projectAdminRole = named(ruleOptions.roles, /^project admin$/i);
+  check(
+    'the automation role is not offered as a role for people',
+    (ruleOptions.roles ?? []).some((role) => role.name === 'EPM Automation'),
+    false,
+  );
+  const rulesReady = Boolean(
+    automation.account?.working && riskType && taskType && highPriority && normalPriority && inProgress && projectAdminRole,
+  );
+  check('what the rules tests need is on the instance', rulesReady, true);
+
+  if (rulesReady) {
+    const { prisma: rulesDb } = await import('../db/prisma.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const { sweepEscalations } = await import('../domain/escalation.js');
+    const http = await import('node:http');
+    const { createHmac } = await import('node:crypto');
+
+    // The endpoint the rule's outbound action calls.
+    const received: { body: string; signature?: string }[] = [];
+    ruleReceiver = http.createServer((incoming, answer) => {
+      let body = '';
+      incoming.on('data', (chunk) => (body += String(chunk)));
+      incoming.on('end', () => {
+        const signature = incoming.headers['x-epm-signature'];
+        received.push({ body, signature: Array.isArray(signature) ? signature[0] : signature });
+        answer.writeHead(204);
+        answer.end();
+      });
+    });
+    await new Promise<void>((resolve) => ruleReceiver!.listen(0, '127.0.0.1', () => resolve()));
+    const receiverPort = (ruleReceiver.address() as { port: number }).port;
+
+    // Someone the rule can assign to: OpenProject assigns members only, and a
+    // project created through the API has none. The administrator holds every
+    // permission already, so making it a member changes nothing for the
+    // sections after this one; the membership is taken back below.
+    const grant = (await (
+      await call(`/projects/${approvalProjectId}/members`, {
+        method: 'POST',
+        cookie: admin,
+        body: { userId: adminId, roleIds: [projectAdminRole!.id] },
+      })
+    ).json()) as { membershipId?: string };
+    if (grant.membershipId) grantedMemberships.push({ projectId: approvalProjectId, membershipId: grant.membershipId });
+
+    const newItem = async (subject: string, typeId: string, priorityId: string) => {
+      const response = await call('/work-packages', {
+        method: 'POST',
+        cookie: admin,
+        body: {
+          projectId: approvalProjectId,
+          typeId,
+          payload: { subject, _links: { priority: { href: `/api/v3/priorities/${priorityId}` } } },
+        },
+      });
+      const body = (await response.json()) as { id?: string };
+      if (!body.id) throw new Error(`Could not create a work package for the rules tests (${response.status}).`);
+      return body.id;
+    };
+    const firingsOf = async (ruleId: string, subjectId?: string) =>
+      (await (
+        await call(`/automation/firings?ruleId=${ruleId}${subjectId ? `&subjectId=${subjectId}` : ''}`, { cookie: admin })
+      ).json()) as TestFiring[];
+    // Rules act a moment after the change: the worker takes queued events.
+    const settled = async (subjectIds: string[]) => {
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        const waiting = await rulesDb.ruleEvent.count({
+          where: { subjectId: { in: subjectIds }, processedAt: null, source: { not: 'automation' } },
+        });
+        if (waiting === 0) return true;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      return false;
+    };
+    const journalNow = async () =>
+      (await (await call(`/projects/${approvalProjectId}/journal`, { cookie: admin })).json()) as TestJournalEntry[];
+
+    // --- BR-216: a rule on type and priority ---
+    const ruleBody = {
+      name: `Authz triage ${Date.now()}`,
+      subjectType: 'work_package',
+      events: ['work_package.created', 'work_package.updated'],
+      projectIds: [approvalProjectId],
+      conditions: {
+        match: 'all',
+        conditions: [
+          { field: 'type', operator: 'in', value: [riskType!.id] },
+          { field: 'priority', operator: 'in', value: [highPriority!.id] },
+        ],
+      },
+      actions: [
+        { type: 'assign', to: { kind: 'user', userId: adminId } },
+        {
+          type: 'notify',
+          recipients: [{ kind: 'user', userId: adminId }],
+          title: 'High risk {{key}}',
+          message: '{{subject}} needs an owner.',
+        },
+        { type: 'set_status', statusId: inProgress!.id },
+        { type: 'set_field', field: 'dueDate', value: { relativeDays: 2 } },
+        { type: 'create_work_package', typeId: taskType!.id, subject: 'Mitigation for {{key}}', relation: 'relates' },
+        { type: 'call_endpoint', url: `http://127.0.0.1:${receiverPort}/rule` },
+      ],
+    };
+    check(
+      'a rule may not call an address inside the network',
+      await status('/automation/rules', {
+        method: 'POST',
+        cookie: admin,
+        body: { ...ruleBody, actions: [{ type: 'call_endpoint', url: 'https://10.0.0.1/hook' }] },
+      }),
+      422,
+    );
+    check(
+      'nor test something a work package does not have',
+      await status('/automation/rules', {
+        method: 'POST',
+        cookie: admin,
+        body: { ...ruleBody, conditions: { match: 'all', conditions: [{ field: 'colour', operator: 'eq', value: 'red' }] } },
+      }),
+      422,
+    );
+    const ruleCreated = await call('/automation/rules', { method: 'POST', cookie: admin, body: ruleBody });
+    const rule = (await ruleCreated.json()) as { id?: string; message?: string };
+    if (rule.id) ruleIds.push(rule.id);
+    check('an administrator can define a rule with every kind of action', ruleCreated.status, 201);
+    if (!rule.id) {
+      console.log(`    (${rule.message ?? 'no reason given'} — is EPM_RULES_OUTBOUND_ALLOWLIST=127.0.0.1 set on the backend?)`);
+    }
+
+    if (rule.id) {
+      const hit = await newItem('Rules probe: supplier may miss the date', riskType!.id, highPriority!.id);
+      const otherPriority = await newItem('Rules probe: a minor risk', riskType!.id, normalPriority!.id);
+      const otherType = await newItem('Rules probe: a high-priority task', taskType!.id, highPriority!.id);
+      check('the changes reach the rules', await settled([hit, otherPriority, otherType]), true);
+
+      const fired = await firingsOf(rule.id, hit);
+      check('a rule on type and priority fires for a matching item', fired.length, 1);
+      check('and not for one of another priority', (await firingsOf(rule.id, otherPriority)).length, 0);
+      check('nor for one of another type', (await firingsOf(rule.id, otherType)).length, 0);
+
+      // --- BR-217: each action, as the automation account ---
+      const firing = fired[0];
+      check(
+        'every action ran',
+        firing?.actions.map((action) => `${action.type}:${action.outcome}`).join(' '),
+        'assign:done notify:done set_status:done set_field:done create_work_package:done call_endpoint:done',
+      );
+      for (const action of firing?.actions ?? []) {
+        if (action.outcome !== 'done') console.log(`    (${action.type}: ${action.error ?? action.summary})`);
+      }
+      const after = (await (await call(`/tasks/${hit}`, { cookie: admin })).json()) as {
+        assigneeId?: string;
+        status?: { name?: string };
+        dueDate?: string;
+      };
+      check('assign: the item is assigned', after.assigneeId, adminId);
+      check('transition status: its status moved', after.status?.name, inProgress!.name);
+      check(
+        'set attribute: its due date is two days out',
+        after.dueDate?.slice(0, 10),
+        new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10),
+      );
+      const relations = (await (await call(`/work-packages/${hit}/relations`, { cookie: admin })).json()) as {
+        type?: string;
+        related?: { subject?: string };
+      }[];
+      check(
+        'create a linked work package: it relates to the item',
+        relations.some((relation) => relation.type === 'relates' && relation.related?.subject?.startsWith('Mitigation for')),
+        true,
+      );
+      check(
+        'notify: the person named is told',
+        Boolean(firing && (await rulesDb.notification.findFirst({ where: { recipientId: adminId, dedupeKey: `rule:${firing.id}:1` } }))),
+        true,
+      );
+      check('call an outbound endpoint: it was called', received.length, 1);
+      const payload = JSON.parse(received[0]?.body ?? '{}') as { subject?: { id?: string } };
+      check('about the item the rule fired on', payload.subject?.id, hit);
+      const secret = process.env.EPM_RULES_WEBHOOK_SECRET;
+      if (secret && received[0]) {
+        check(
+          'and signed',
+          received[0].signature,
+          `sha256=${createHmac('sha256', secret).update(received[0].body).digest('hex')}`,
+        );
+      }
+
+      const activities = await upstream.request<{ _embedded?: { elements?: { _links?: { user?: { href?: string } } }[] } }>(
+        `/work_packages/${hit}/activities`,
+      );
+      check(
+        "OpenProject's journal has the change under the automation account",
+        activities._embedded?.elements?.at(-1)?._links?.user?.href,
+        `/api/v3/users/${automationId}`,
+      );
+      const firedEntry = (await journalNow()).find(
+        (entry) => entry.action === 'automation.rule.fired' && (entry as { entityId?: string }).entityId === hit,
+      );
+      check("and EPM's journal records the firing as the service principal", `${firedEntry?.actorKind}:${firedEntry?.actorId}`, `service:${automationId}`);
+
+      // An `enter` rule fires as an item starts to match; its own changes and
+      // later edits while it still matches do not set it off again.
+      await call(`/tasks/${hit}`, { method: 'PATCH', cookie: admin, body: { subject: 'Rules probe: supplier may miss the date, confirmed' } });
+      await settled([hit]);
+      check('the rule does not fire again on its own changes or a later edit', (await firingsOf(rule.id, hit)).length, 1);
+
+      // A change made in OpenProject itself arrives by its signed webhook.
+      const current = await upstream.request<{ lockVersion: number }>(`/work_packages/${otherPriority}`);
+      const changed = await upstream.request<{ id: number; lockVersion: number; _links?: Record<string, unknown> }>(
+        `/work_packages/${otherPriority}`,
+        {
+          method: 'PATCH',
+          body: { lockVersion: current.lockVersion, _links: { priority: { href: `/api/v3/priorities/${highPriority!.id}` } } },
+        },
+      );
+      const delivery = JSON.stringify({
+        action: 'work_package:updated',
+        work_package: { id: changed.id, lockVersion: changed.lockVersion, subject: 'Rules probe', _links: changed._links },
+      });
+      const delivered = await fetch(`${BASE}/webhooks/openproject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-OP-Signature': `sha1=${createHmac('sha1', process.env.OPENPROJECT_WEBHOOK_SECRET ?? '').update(delivery).digest('hex')}`,
+        },
+        body: delivery,
+      });
+      check('a signed webhook delivery is accepted', delivered.status, 204);
+      await settled([otherPriority]);
+      check('and a change made in OpenProject fires the rule as one made in EPM does', (await firingsOf(rule.id, otherPriority)).length, 1);
+
+      // A rule cannot reach a status an approval chain owns.
+      if (changeRequestType && approvedStatus) {
+        const bypass = await call('/automation/rules', {
+          method: 'POST',
+          cookie: admin,
+          body: {
+            name: `Authz approval bypass ${Date.now()}`,
+            events: ['work_package.created'],
+            projectIds: [approvalProjectId],
+            conditions: { match: 'all', conditions: [{ field: 'type', operator: 'in', value: [changeRequestType.id] }] },
+            actions: [{ type: 'set_status', statusId: approvedStatus.id }],
+          },
+        });
+        const bypassRule = (await bypass.json()) as { id?: string };
+        if (bypassRule.id) {
+          ruleIds.push(bypassRule.id);
+          const change = await newItem('Rules probe: approve me without asking', changeRequestType.id, normalPriority!.id);
+          await settled([change]);
+          const attempt = (await firingsOf(bypassRule.id, change))[0];
+          check('a rule cannot approve what an approval chain decides', attempt?.actions[0]?.outcome, 'failed');
+          check('and the log says why', /approval chain/i.test(attempt?.actions[0]?.error ?? ''), true);
+          await call(`/automation/rules/${bypassRule.id}`, {
+            method: 'PATCH',
+            cookie: admin,
+            body: {
+              name: 'Authz approval bypass (off)',
+              events: ['work_package.created'],
+              projectIds: [approvalProjectId],
+              conditions: { match: 'all', conditions: [] },
+              actions: [{ type: 'set_status', statusId: approvedStatus.id }],
+              active: false,
+            },
+          });
+        }
+      }
+
+      // --- BR-219: the dry run and the log ---
+      const watched = [hit, otherPriority, otherType];
+      const versionsBefore = await Promise.all(
+        watched.map((id) => upstream.request<{ lockVersion: number }>(`/work_packages/${id}`).then((wp) => wp.lockVersion)),
+      );
+      const firingsBefore = await rulesDb.ruleFiring.count();
+      const notificationsBefore = await rulesDb.notification.count();
+      const dryRun = await call('/automation/rules/dry-run', { method: 'POST', cookie: admin, body: { rule: ruleBody, windowDays: 1 } });
+      const preview = (await dryRun.json()) as { items?: { subjectId: string; actions: string[] }[] };
+      check('a dry run answers', dryRun.status, 200);
+      check(
+        'reporting the items the rule would act on',
+        [hit, otherPriority].every((id) => preview.items?.some((item) => item.subjectId === id)),
+        true,
+      );
+      check('and not the others', preview.items?.some((item) => item.subjectId === otherType), false);
+      check('with what it would do to each', preview.items?.find((item) => item.subjectId === hit)?.actions.length, 6);
+      const versionsAfter = await Promise.all(
+        watched.map((id) => upstream.request<{ lockVersion: number }>(`/work_packages/${id}`).then((wp) => wp.lockVersion)),
+      );
+      check('without changing any data', versionsAfter.join(','), versionsBefore.join(','));
+      check('or logging a firing', await rulesDb.ruleFiring.count(), firingsBefore);
+      check('or telling anyone', await rulesDb.notification.count(), notificationsBefore);
+
+      const log = await firingsOf(rule.id);
+      check('every firing is logged with its outcome', log.length >= 2 && log.every((one) => one.outcome === 'succeeded'), true);
+      check(
+        'and each action with its own',
+        log.every((one) => one.actions.length === 6 && one.actions.every((action) => action.outcome === 'done')),
+        true,
+      );
+
+      check(
+        'a rule that has fired cannot be deleted',
+        await status(`/automation/rules/${rule.id}`, { method: 'DELETE', cookie: admin }),
+        409,
+      );
+      check(
+        'it can be switched off',
+        await status(`/automation/rules/${rule.id}`, { method: 'PATCH', cookie: admin, body: { ...ruleBody, active: false } }),
+        200,
+      );
+      const later = await newItem('Rules probe: after the rule was switched off', riskType!.id, highPriority!.id);
+      await settled([later]);
+      check('and then it fires no more', (await firingsOf(rule.id, later)).length, 0);
+
+      // --- BR-218: untouched work escalates along its path ---
+      const policyBody = {
+        name: `Authz untouched risks ${Date.now()}`,
+        trigger: 'untouched',
+        projectIds: [approvalProjectId],
+        typeIds: [riskType!.id],
+        priorityIds: [highPriority!.id],
+        levels: [
+          { after: 1, notify: [{ kind: 'assignee' }] },
+          { after: 2, notify: [{ kind: 'user', userId: restrictedId }] },
+        ],
+      };
+      check(
+        'escalation levels have to come in order',
+        await status('/automation/escalation-policies', {
+          method: 'POST',
+          cookie: admin,
+          body: { ...policyBody, levels: [policyBody.levels[1], policyBody.levels[0]] },
+        }),
+        422,
+      );
+      const policyCreated = await call('/automation/escalation-policies', { method: 'POST', cookie: admin, body: policyBody });
+      const policy = (await policyCreated.json()) as { id?: string };
+      if (policy.id) escalationPolicyIds.push(policy.id);
+      check('an administrator can define an escalation path', policyCreated.status, 201);
+
+      if (policy.id) {
+        const ahead = (days: number) => new Date(Date.now() + days * 86_400_000);
+        const only = { policyIds: [policy.id] };
+        const eventAt = (level: number) =>
+          rulesDb.escalationEvent.findFirst({ where: { policyId: policy.id, subjectId: hit, level } });
+
+        await sweepEscalations(ahead(1.5), only);
+        const first = await eventAt(1);
+        check('an item untouched past its threshold is escalated', Boolean(first), true);
+        check('to the first level of its path, its assignee', first?.raisedFor.join(','), adminId);
+        check(
+          'with a notification',
+          Boolean(first && (await rulesDb.notification.findFirst({ where: { recipientId: adminId, dedupeKey: `escalation:${first.id}` } }))),
+          true,
+        );
+        await sweepEscalations(ahead(1.6), only);
+        check(
+          'a level is raised once, however often the sweep runs',
+          await rulesDb.escalationEvent.count({ where: { policyId: policy.id, subjectId: hit } }),
+          1,
+        );
+
+        await sweepEscalations(ahead(2.5), only);
+        const second = await eventAt(2);
+        check('left longer, it escalates to the next level', Boolean(second), true);
+        check('to the next person on the path', second?.raisedFor.join(','), restrictedId);
+        check(
+          'who is notified',
+          Boolean(second && (await rulesDb.notification.findFirst({ where: { recipientId: restrictedId, dedupeKey: `escalation:${second.id}` } }))),
+          true,
+        );
+        check(
+          'and the escalation is journalled',
+          (await journalNow()).some((entry) => entry.action === 'escalation.raised' && entry.summary.includes('level 2')),
+          true,
+        );
+
+        // Touching the item ends the stretch it was untouched for.
+        await call(`/tasks/${hit}`, { method: 'PATCH', cookie: admin, body: { subject: 'Rules probe: supplier may miss the date, chased' } });
+        await sweepEscalations(ahead(0.5), only);
+        check(
+          'touching the item resolves its escalations',
+          await rulesDb.escalationEvent.count({ where: { policyId: policy.id, subjectId: hit, resolvedAt: null } }),
+          0,
+        );
+        const listed = (await (await call(`/automation/escalations?policyId=${policy.id}&state=all`, { cookie: admin })).json()) as {
+          subjectId: string;
+          level: number;
+          resolvedAt?: string;
+        }[];
+        check(
+          'and administrators can see each escalation and when it was resolved',
+          listed.filter((one) => one.subjectId === hit && one.resolvedAt).length,
+          2,
+        );
+
+        const eventsBefore = await rulesDb.escalationEvent.count({ where: { policyId: policy.id } });
+        const policyPreview = await call('/automation/escalation-policies/dry-run', {
+          method: 'POST',
+          cookie: admin,
+          body: { policy: { ...policyBody, id: policy.id } },
+        });
+        check('a policy can be dry-run', policyPreview.status, 200);
+        check('and that raises nothing', await rulesDb.escalationEvent.count({ where: { policyId: policy.id } }), eventsBefore);
+        check(
+          'a policy that has escalated cannot be deleted',
+          await status(`/automation/escalation-policies/${policy.id}`, { method: 'DELETE', cookie: admin }),
+          409,
+        );
+      }
+    }
+
+    // The membership was only for assigning.
+    if (grant.membershipId) {
+      await call(`/projects/${approvalProjectId}/members/${grant.membershipId}`, { method: 'DELETE', cookie: admin });
+    }
+    ruleReceiver.close();
+    ruleReceiver = undefined;
   }
 
   // --- Portfolios ------------------------------------------------------------
@@ -6339,6 +6842,52 @@ async function main() {
           ` and ${removedChains.count} test chain${removedChains.count === 1 ? '' : 's'})`,
       )
     }
+  }
+
+  // The rules tests' rules, their firings and remembered states, the events
+  // they queued, the escalation policies and what they raised, and the emails
+  // those would have sent. EPM's own rows, none with a delete route for a rule
+  // that has fired, so through the database. Journal entries stay.
+  ruleReceiver?.close();
+  {
+    const { prisma } = await import('../db/prisma.js');
+    // Whatever this run queued and the worker has done with — every section
+    // creates work, so not only the rules tests' — and anything for its project.
+    await prisma.ruleEvent
+      .deleteMany({
+        where: {
+          receivedAt: { gte: suiteStartedAt },
+          OR: [{ processedAt: { not: null } }, ...(createdId ? [{ projectId: createdId }] : [])],
+        },
+      })
+      .catch(() => undefined);
+  }
+  if (ruleIds.length || escalationPolicyIds.length) {
+    const { prisma } = await import('../db/prisma.js');
+    await prisma.ruleFiring.deleteMany({ where: { ruleId: { in: ruleIds } } }).catch(() => undefined);
+    await prisma.ruleItemState.deleteMany({ where: { ruleId: { in: ruleIds } } }).catch(() => undefined);
+    const removedRules = await prisma.automationRule
+      .deleteMany({ where: { id: { in: ruleIds } } })
+      .catch(() => ({ count: 0 }));
+    await prisma.escalationEvent.deleteMany({ where: { policyId: { in: escalationPolicyIds } } }).catch(() => undefined);
+    const removedPolicies = await prisma.escalationPolicy
+      .deleteMany({ where: { id: { in: escalationPolicyIds } } })
+      .catch(() => ({ count: 0 }));
+    await prisma.emailOutbox
+      .deleteMany({
+        where: {
+          createdAt: { gte: suiteStartedAt },
+          OR: [
+            { dedupeKey: { startsWith: 'notification:rule:' } },
+            { dedupeKey: { startsWith: 'notification:escalation:' } },
+          ],
+        },
+      })
+      .catch(() => undefined);
+    console.log(
+      `  (removed ${removedRules.count} test rule${removedRules.count === 1 ? '' : 's'}` +
+        ` and ${removedPolicies.count} escalation polic${removedPolicies.count === 1 ? 'y' : 'ies'})`,
+    );
   }
 
   // Every notification this run caused — the ones the notification tests wrote

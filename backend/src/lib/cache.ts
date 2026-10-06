@@ -1,4 +1,4 @@
-import { currentAuth } from '../auth/context.js';
+import { currentAuth, isAutomation } from '../auth/context.js';
 
 /**
  * Small in-process TTL cache.
@@ -97,7 +97,10 @@ export class TtlCache {
  */
 export function userScopedKey(name: string): string {
   const userId = currentAuth()?.userId;
-  return userId ? `${name}:u${userId}` : `${name}:system`;
+  if (userId) return `${name}:u${userId}`;
+  // The automation account sees only the projects it is a member of: its
+  // reads must never land in, or be served from, the system bucket.
+  return isAutomation() ? `${name}:automation` : `${name}:system`;
 }
 
 /** Reference data: statuses, types, priorities. Rarely changes. */

@@ -11,6 +11,8 @@ import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createApprovalSweep } from './scheduler/approval-sweep.js';
+import { createEscalationSweep } from './scheduler/escalation-sweep.js';
+import { createRuleWorker } from './scheduler/rule-worker.js';
 import { createEmailWorker } from './scheduler/email-worker.js';
 import { describeEmailProvider, useEmailLogger } from './email/index.js';
 import { useAppLogger } from './lib/log.js';
@@ -283,7 +285,24 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Approval sweep disabled; SLA breaches will not be escalated');
   }
 
+  // Rules (BR-216, BR-217) act on queued events; escalation policies (BR-218)
+  // are evaluated on a schedule. Both on unless switched off.
+  const ruleWorker = createRuleWorker({ log: app.log });
+  if (env.EPM_RULES_ENABLED) {
+    ruleWorker.start();
+  } else {
+    app.log.info('Rule worker disabled; events are queued but no rule acts on them');
+  }
+  const escalationSweep = createEscalationSweep({ log: app.log });
+  if (env.EPM_ESCALATION_SWEEP_ENABLED) {
+    escalationSweep.start();
+  } else {
+    app.log.info('Escalation sweep disabled; nothing untouched or overdue will be escalated');
+  }
+
   app.addHook('onClose', async () => {
+    ruleWorker.stop();
+    escalationSweep.stop();
     approvalSweep.stop();
     healthSweep.stop();
     dueReminders.stop();

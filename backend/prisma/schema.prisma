@@ -13,7 +13,7 @@
 // type, so a record here is always an overlay on an upstream object.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // `native` covers a developer's own machine. The Debian target is named
   // explicitly for the image, whose runtime is node:22-slim with libssl3, so
   // that the engine that ships does not depend on detection having gone the
@@ -76,19 +76,19 @@ model PlaceholderPerson {
 /// no row here at all, so every read treats a missing profile as "unmapped"
 /// rather than as an error.
 model UserProfile {
-  openProjectId String   @id
+  openProjectId      String      @id
   /// Legacy free text, superseded by `departmentId`. Kept rather than dropped:
   /// this database never held a value, but another deployment might, and reads
   /// fall back to it until that person is mapped. Never written from now on.
-  department    String?
+  department         String?
   /// The department a person belongs to. When a team is assigned and that team
   /// has a department, this is derived from it — see `domain/employees.ts`.
-  departmentId  String?
-  departmentRef Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  teamId        String?
-  team          Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  departmentId       String?
+  departmentRef      Department? @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  teamId             String?
+  team               Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// Weekly capacity in hours, backing TeamMemberWorkload.hoursCapacity.
-  hoursCapacity Float    @default(40)
+  hoursCapacity      Float       @default(40)
   /// Internal cost of an hour of this person's time, in the instance currency.
   ///
   /// EPM's own field. OpenProject keeps hourly rates in its costs module, which
@@ -96,7 +96,7 @@ model UserProfile {
   /// nothing to write — so the Time & Costs report has no cost figure at all
   /// without this. Nullable on purpose: "not costed" is a real state, and the
   /// report says how many hours it applies to rather than treating them as free.
-  hourlyRate    Float?
+  hourlyRate         Float?
   /// Set when an administrator created this account with a starting password
   /// they chose. Cleared the moment the person sets their own.
   ///
@@ -104,10 +104,10 @@ model UserProfile {
   /// `force_password_change` column, but both create and update accept the
   /// field and silently ignore it — verified against 15.5.1. So the gate is
   /// enforced here, where EPM owns the session.
-  mustChangePassword Boolean @default(false)
-  timezone      String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  mustChangePassword Boolean     @default(false)
+  timezone           String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   @@index([departmentId])
   @@index([teamId])
@@ -116,28 +116,28 @@ model UserProfile {
 
 /// Per-project attributes, plus the inputs to computed health.
 model ProjectProfile {
-  openProjectId  String   @id
+  openProjectId      String     @id
   /// Legacy free text, superseded by `portfolioId`. Kept rather than dropped:
   /// this database never held a value, but the project patch route accepts
   /// arbitrary strings, so another deployment might. Reads fall back to it
   /// until a project is linked. Never written from now on.
-  portfolio      String?
-  portfolioId    String?
-  portfolioRef   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
-  budgetTotal    Float?
+  portfolio          String?
+  portfolioId        String?
+  portfolioRef       Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
+  budgetTotal        Float?
   /// Retired: a hand-typed "spent so far" figure. Actual cost is now calculated
   /// from logged time (see `domain/costs.ts`), so nothing reads or writes this.
   /// Kept rather than dropped so a deployment's old figures are not destroyed.
-  budgetUsed     Float?
+  budgetUsed         Float?
   /// Retired: the unexplained pins that preceded `ProjectHealthOverride`.
   /// The migration that introduced overrides moved every pin across, with a
   /// reason saying it predates reasons. Nothing reads or writes this.
-  healthOverride Json?
+  healthOverride     Json?
   /// The planned (baseline) start and finish. EPM's own: an OpenProject
   /// project has no dates at all. Schedule variance is measured against the
   /// finish, and the budget planned to date is phased across the two.
-  plannedStart   DateTime? @db.Date
-  plannedFinish  DateTime? @db.Date
+  plannedStart       DateTime?  @db.Date
+  plannedFinish      DateTime?  @db.Date
   /// The effective overall health as of the last notification evaluation.
   /// Without it a transition cannot be detected at all: health is computed per
   /// request and nothing else remembers what it was.
@@ -147,10 +147,10 @@ model ProjectProfile {
   /// no such attribute and the resource publishes no `responsible` link, so
   /// every project read as "Unassigned" and there was nothing to assign. An
   /// OpenProject user id, never a foreign key — people live upstream.
-  ownerId       String?
+  ownerId            String?
   lastNotifiedHealth String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   @@index([portfolioId])
   @@map("project_profiles")
@@ -187,9 +187,9 @@ model BurndownSample {
 /// Daily counters behind DashboardMetrics.trends and ExecutiveInsights.
 /// MetricTrend is a change against the previous period, which requires history.
 model MetricSnapshot {
-  id         String   @id @default(cuid())
+  id        String   @id @default(cuid())
   /// What the row is about: instance, user, portfolio, team or department.
-  scopeType  String   @default("instance")
+  scopeType String   @default("instance")
   /// The id within that type; the empty string for `instance`, which has none.
   ///
   /// Not nullable, and that is load-bearing: Postgres treats NULLs as distinct
@@ -200,11 +200,11 @@ model MetricSnapshot {
   /// Deliberately not a foreign key either: a snapshot records what was true
   /// then, so a department deleted later must not take its own history with it,
   /// and a RESTRICT reference would make deleting one impossible once measured.
-  scopeId    String   @default("")
-  sampledOn  DateTime @db.Date
-  metric     String
-  value      Float
-  createdAt  DateTime @default(now())
+  scopeId   String   @default("")
+  sampledOn DateTime @db.Date
+  metric    String
+  value     Float
+  createdAt DateTime @default(now())
 
   /// One row per scope per metric per day — what makes a rerun overwrite
   /// rather than double-count.
@@ -254,16 +254,15 @@ model Session {
 
   /// OAuth2 tokens for this user, encrypted at rest with SESSION_SECRET.
   /// The browser never receives either one — it holds only the session id.
-  accessToken     String?
-  refreshToken    String?
+  accessToken    String?
+  refreshToken   String?
   /// When the access token expires and the refresh token must be used.
-  tokenExpiresAt  DateTime?
+  tokenExpiresAt DateTime?
 
   @@index([openProjectId])
   @@index([expiresAt])
   @@map("sessions")
 }
-
 
 /// An EPM-owned organisational unit. Unlike every model above, this is not an
 /// overlay on an OpenProject record — departments exist only in EPM, so this
@@ -285,9 +284,9 @@ model Department {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  teams       Team[]
+  teams        Team[]
   placeholders PlaceholderPerson[]
-  members     UserProfile[]
+  members      UserProfile[]
 
   /// The list route filters on this by default.
   @@index([active])
@@ -365,7 +364,7 @@ model Portfolio {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  projects    ProjectProfile[]
+  projects ProjectProfile[]
 
   /// The list route filters on this by default.
   @@index([active])
@@ -514,30 +513,30 @@ model AssistantMessage {
 
 /// A scheduled meeting, with its agenda and, afterwards, its minutes.
 model Meeting {
-  id        String  @id @default(cuid())
-  title     String
+  id              String   @id @default(cuid())
+  title           String
   /// Null for an organisation-wide meeting.
-  projectId String?
-  location  String?
+  projectId       String?
+  location        String?
   /// Start instant. A meeting happens at a moment, unlike a work package, which
   /// falls on a day — so this is a timestamp rather than a date.
-  startsAt  DateTime
+  startsAt        DateTime
   /// Length in minutes, not an end instant: a meeting is scheduled as "Tuesday
   /// at ten for an hour", and storing the end would make the duration derived
   /// from two values that can be edited apart.
-  durationMinutes Int @default(60)
+  durationMinutes Int      @default(60)
   /// Markdown. The agenda is written before, the minutes after; both are on the
   /// meeting rather than in separate records because neither is useful alone.
-  agenda    String?
-  minutes   String?
+  agenda          String?
+  minutes         String?
   /// planned | held | cancelled. A string rather than an enum, matching how
   /// every other status in this database is stored — a new state must not need a
   /// migration.
-  state     String  @default("planned")
+  state           String   @default("planned")
   /// OpenProject user id of whoever scheduled it.
-  createdBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   participants MeetingParticipant[]
 
@@ -565,19 +564,19 @@ model MeetingParticipant {
 
 /// An announcement, for a project or for the organisation.
 model NewsPost {
-  id        String  @id @default(cuid())
-  title     String
+  id          String    @id @default(cuid())
+  title       String
   /// One-line standfirst shown in the list. Optional: a short post is its own summary.
-  summary   String?
+  summary     String?
   /// Markdown.
-  body      String
-  projectId String?
-  authorId  String
+  body        String
+  projectId   String?
+  authorId    String
   /// Null while it is a draft. Publishing is what makes it visible to anybody
   /// but its author, so this is the state rather than a separate flag.
   publishedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([projectId])
   @@index([publishedAt])
@@ -586,7 +585,7 @@ model NewsPost {
 
 /// A wiki page, in a tree, with every past version kept.
 model WikiPage {
-  id        String  @id @default(cuid())
+  id        String     @id @default(cuid())
   /// URL-safe, and unique within its project — enforced by two partial indexes
   /// in the migration, because Postgres treats NULLs as distinct and a plain
   /// unique on (projectId, slug) would therefore not constrain the
@@ -604,8 +603,8 @@ model WikiPage {
   children  WikiPage[] @relation("WikiTree")
   /// Who saved the current version.
   updatedBy String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   revisions WikiRevision[]
 
@@ -783,7 +782,7 @@ model ApprovalChain {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  requests          ApprovalRequest[]
+  requests ApprovalRequest[]
 
   @@index([subjectType, active])
   @@map("approval_chains")
@@ -791,7 +790,7 @@ model ApprovalChain {
 
 /// One subject going through a chain.
 model ApprovalRequest {
-  id               String    @id @default(cuid())
+  id               String        @id @default(cuid())
   chainId          String
   chain            ApprovalChain @relation(fields: [chainId], references: [id], onDelete: Restrict)
   /// The chain as it was when this was submitted, with each step's condition
@@ -807,18 +806,18 @@ model ApprovalRequest {
   /// The subject's status before submission, put back if it is withdrawn.
   statusBefore     String?
   requestedBy      String
-  requestedAt      DateTime  @default(now())
+  requestedAt      DateTime      @default(now())
   /// pending | approved | rejected | cancelled
-  status           String    @default("pending")
+  status           String        @default("pending")
   /// Which step of the snapshot is deciding now.
-  currentStep      Int       @default(0)
+  currentStep      Int           @default(0)
   completedAt      DateTime?
   /// Applying the outcome to the subject — moving its status — happens after
   /// the decision and can fail on its own; the decision stands either way.
   outcomeAppliedAt DateTime?
   outcomeError     String?
 
-  tasks            ApprovalTask[]
+  tasks ApprovalTask[]
 
   @@index([subjectType, subjectId])
   @@index([projectId, status])
@@ -828,7 +827,7 @@ model ApprovalRequest {
 
 /// One approver's part in one step.
 model ApprovalTask {
-  id           String    @id @default(cuid())
+  id           String          @id @default(cuid())
   requestId    String
   request      ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   stepIndex    Int
@@ -839,7 +838,7 @@ model ApprovalTask {
   delegateId   String?
   delegationId String?
   /// waiting (step not reached) | pending | approved | rejected | skipped
-  status       String    @default("waiting")
+  status       String          @default("waiting")
   activatedAt  DateTime?
   dueAt        DateTime?
   breachedAt   DateTime?
@@ -904,7 +903,9 @@ model ApprovalLinkToken {
 /// few minutes cannot raise the same breach twice.
 model EscalationEvent {
   id          String    @id @default(cuid())
-  /// What raised it: `approval.sla` today.
+  /// What raised it: `approval.sla` for an approval step's own SLA, or
+  /// `policy.untouched` | `policy.overdue` | `policy.approval_sla` for an
+  /// escalation policy's levels.
   source      String
   subjectType String
   subjectId   String
@@ -915,10 +916,157 @@ model EscalationEvent {
   reason      String
   dedupeKey   String    @unique
   raisedAt    DateTime  @default(now())
+  /// When the condition stopped holding: touched, closed, rescheduled, decided.
   resolvedAt  DateTime?
   metadata    Json?
+  /// The escalation policy that raised it, if one did.
+  policyId    String?
+  /// The policy's episode: one continuous stretch of the condition holding,
+  /// named by when it began. A new stretch starts again at level one.
+  episode     String?
 
   @@index([source, raisedAt])
   @@index([projectId, raisedAt])
+  @@index([policyId, resolvedAt])
   @@map("escalation_events")
+}
+
+/// An automation rule (BR-216, BR-217): when a work package or project event
+/// matches its conditions, its actions run as EPM's automation account.
+model AutomationRule {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  /// `work_package` or `project`: what the rule watches and acts on.
+  subjectType String   @default("work_package")
+  /// The events it listens to, e.g. `work_package.created`, `work_package.updated`.
+  events      String[]
+  /// Projects it watches. Empty means every project.
+  projectIds  String[]
+  /// `{ match: 'all' | 'any', conditions: [...] }`. Validated by `domain/rules.ts`.
+  conditions  Json
+  /// `enter`: fires when an item starts to match, once until it stops.
+  /// `every`: fires on every matching event.
+  fireMode    String   @default("enter")
+  /// The actions, in order. Validated by `domain/rules.ts`.
+  actions     Json
+  /// Bumped on every edit; a firing records the version it ran.
+  version     Int      @default(1)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  firings RuleFiring[]
+
+  @@index([active, subjectType])
+  @@map("automation_rules")
+}
+
+/// One event for the rules to consider: a change EPM made, or one OpenProject
+/// reported by webhook. A queue in the database, so a second server claims
+/// different events rather than the same ones twice.
+model RuleEvent {
+  id          String    @id @default(cuid())
+  /// `epm` (a write through EPM), `webhook` (reported by OpenProject), or
+  /// `automation` (a change a rule made, recorded only so its echo is ignored).
+  source      String
+  kind        String
+  subjectType String
+  subjectId   String
+  projectId   String?
+  /// The work package's lockVersion when known: with the id, one change.
+  version     Int?
+  actorId     String?
+  /// `work_package:<id>:v<version>` when the version is known, so the same
+  /// change reported by EPM and by the webhook is considered once.
+  dedupeKey   String    @unique
+  receivedAt  DateTime  @default(now())
+  claimedAt   DateTime?
+  claimedBy   String?
+  processedAt DateTime?
+  attempts    Int       @default(0)
+  error       String?
+
+  @@index([processedAt, receivedAt])
+  @@map("rule_events")
+}
+
+/// Whether an item matched a rule when it was last considered, so an `enter`
+/// rule fires as an item starts to match rather than on every change after.
+model RuleItemState {
+  ruleId      String
+  subjectType String
+  subjectId   String
+  matched     Boolean
+  /// The rule version this was decided under; an edited rule starts afresh.
+  ruleVersion Int
+  updatedAt   DateTime @updatedAt
+
+  @@id([ruleId, subjectType, subjectId])
+  @@map("rule_item_states")
+}
+
+/// Every time a rule fired, and what each of its actions did (BR-219).
+model RuleFiring {
+  id           String         @id @default(cuid())
+  ruleId       String
+  rule         AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  ruleVersion  Int
+  ruleName     String
+  eventId      String?
+  /// The event kind that fired it.
+  trigger      String
+  subjectType  String
+  subjectId    String
+  /// What it was, for the log: `PROJ-12 Fix the export`.
+  subjectTitle String?
+  projectId    String?
+  /// `succeeded` | `partial` | `failed`
+  outcome      String
+  /// `[{ type, outcome: 'done' | 'failed' | 'skipped', summary, error? }]`
+  actions      Json
+  firedAt      DateTime       @default(now())
+  durationMs   Int?
+
+  @@index([ruleId, firedAt])
+  @@index([projectId, firedAt])
+  @@index([subjectType, subjectId])
+  @@map("rule_firings")
+}
+
+/// An escalation policy (BR-218): when an item is untouched, overdue or past an
+/// approval step's SLA for long enough, its levels tell the next people on the
+/// path, one level at a time.
+model EscalationPolicy {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  /// `untouched` | `overdue` | `approval_sla`
+  trigger     String
+  /// Empty means every project, type or priority.
+  projectIds  String[]
+  typeIds     String[]
+  priorityIds String[]
+  /// `[{ after, notify: [...] }]` in order: `after` is days for untouched and
+  /// overdue, hours past the SLA for approvals. Validated by `domain/escalation.ts`.
+  levels      Json
+  version     Int      @default(1)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, trigger])
+  @@map("escalation_policies")
+}
+
+/// Who runs a scheduled job right now. A lease rather than a lock, so a server
+/// that dies mid-run releases it by expiry instead of holding it forever.
+model JobLease {
+  name      String   @id
+  holder    String
+  expiresAt DateTime
+
+  @@map("job_leases")
 }

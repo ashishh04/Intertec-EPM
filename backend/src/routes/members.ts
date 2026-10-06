@@ -11,6 +11,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { toEpmMemberCandidate, toEpmProjectMember, toEpmRole } from '../mapping/members.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpRole } from '../openproject/types.js';
+import { automationUserId } from '../domain/automation-account.js';
 
 /**
  * Project membership.
@@ -171,9 +172,16 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
     const permissions = await permissionsFor(request);
     const canManage = allows(permissions, 'member:manage', id);
 
-    const memberships = await membershipsOf(id, requestSignal(request));
+    const [memberships, automationId] = await Promise.all([
+      membershipsOf(id, requestSignal(request)),
+      automationUserId(),
+    ]);
 
-    return memberships.items.map((membership) => toEpmProjectMember(membership, canManage));
+    // The automation account is made a member where a rule acts; it is not
+    // part of the team, and removing it here would only be undone next time.
+    return memberships.items
+      .map((membership) => toEpmProjectMember(membership, canManage))
+      .filter((member) => member.userId !== automationId);
   });
 
   /**
@@ -197,8 +205,9 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
     // Users only. Groups and placeholder users come back from this endpoint
     // too, and adding those stays an OpenProject operation — EPM has no group
     // concept and inventing half of one here would be worse than omitting them.
+    const automationId = await automationUserId();
     return collection.items
-      .filter((principal) => principal._type === 'User')
+      .filter((principal) => principal._type === 'User' && String(principal.id) !== automationId)
       .map(toEpmMemberCandidate)
       .sort((a, b) => a.name.localeCompare(b.name));
   });

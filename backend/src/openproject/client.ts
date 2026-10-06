@@ -1,4 +1,4 @@
-import { currentAuth } from '../auth/context.js';
+import { currentAuth, isAutomation } from '../auth/context.js';
 import { env } from '../config/env.js';
 import { OpenProjectError, EpmError } from '../lib/errors.js';
 import { appLog } from '../lib/log.js';
@@ -191,11 +191,19 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export class OpenProjectClient {
   private readonly baseUrl: string;
   private readonly systemAuthorization: string;
+  private readonly automationAuthorization?: string;
 
-  constructor(baseUrl = env.OPENPROJECT_BASE_URL, apiKey = env.OPENPROJECT_API_KEY) {
+  constructor(
+    baseUrl = env.OPENPROJECT_BASE_URL,
+    apiKey = env.OPENPROJECT_API_KEY,
+    automationKey = env.OPENPROJECT_AUTOMATION_API_KEY,
+  ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     // OpenProject expects HTTP Basic with the literal username "apikey".
     this.systemAuthorization = `Basic ${Buffer.from(`apikey:${apiKey}`).toString('base64')}`;
+    if (automationKey) {
+      this.automationAuthorization = `Basic ${Buffer.from(`apikey:${automationKey}`).toString('base64')}`;
+    }
   }
 
   /**
@@ -208,7 +216,16 @@ export class OpenProjectClient {
    */
   private get authorization(): string {
     const auth = currentAuth();
-    return auth ? `Bearer ${auth.accessToken}` : this.systemAuthorization;
+    if (auth) return `Bearer ${auth.accessToken}`;
+    if (isAutomation()) {
+      // Refused rather than downgraded: a rule's change made on the system key
+      // would be journalled under the administrator's name.
+      if (!this.automationAuthorization) {
+        throw new Error('The automation account is not configured (OPENPROJECT_AUTOMATION_API_KEY).');
+      }
+      return this.automationAuthorization;
+    }
+    return this.systemAuthorization;
   }
 
   private url(path: string, query: QueryParams = {}, root = false) {

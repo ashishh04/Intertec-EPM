@@ -9,6 +9,7 @@ import { resolveRecipient } from '../email/recipients.js';
 import { EpmError } from '../lib/errors.js';
 import { linkId, linkTitle } from '../openproject/client.js';
 import type { HalLinks } from '../openproject/types.js';
+import { noteRuleEvent, noteWebhookReceived } from '../domain/rule-events.js';
 
 /**
  * Inbound webhooks from OpenProject.
@@ -40,6 +41,7 @@ const HANDLED_ACTIONS = new Set(['work_package:created', 'work_package:updated']
 interface WebhookWorkPackage {
   id: number;
   subject?: string;
+  lockVersion?: number;
   updatedAt?: string;
   _links?: HalLinks;
   _embedded?: { project?: { identifier?: string; name?: string } };
@@ -173,8 +175,32 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Body: WebhookBody }>('/webhooks/openproject', async (request, reply) => {
     verifySignature(request);
+    noteWebhookReceived();
 
     const action = request.body?.action ?? '';
+
+    // For the rules (BR-216): the same change EPM made itself is keyed on the
+    // same lockVersion and so considered once.
+    const workPackage = request.body?.work_package;
+    if ((action === 'work_package:created' || action === 'work_package:updated') && typeof workPackage?.id === 'number') {
+      await noteRuleEvent({
+        source: 'webhook',
+        kind: action === 'work_package:created' ? 'work_package.created' : 'work_package.updated',
+        subjectType: 'work_package',
+        subjectId: String(workPackage.id),
+        projectId: linkId(workPackage._links, 'project'),
+        version: typeof workPackage.lockVersion === 'number' ? workPackage.lockVersion : undefined,
+      });
+    } else if ((action === 'project:created' || action === 'project:updated') && typeof request.body?.project?.id === 'number') {
+      const id = String(request.body.project.id);
+      await noteRuleEvent({
+        source: 'webhook',
+        kind: action === 'project:created' ? 'project.created' : 'project.updated',
+        subjectType: 'project',
+        subjectId: id,
+        projectId: id,
+      });
+    }
 
     // Before anything that can fail: a delivery that changes a project's
     // health is worth a recalculation whatever happens to its email.

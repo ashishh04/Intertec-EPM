@@ -37,8 +37,10 @@ COPY zzz_epm_admin_settings.rb  /app/config/initializers/zzz_epm_admin_settings.
 COPY zzz_epm_admin_catalog.rb   /app/config/initializers/zzz_epm_admin_catalog.rb
 
 # Configuration scripts, run on demand rather than at boot — the governance
-# types (Change Request, Risk) the approval chains and health rules use:
+# types (Change Request, Risk) the approval chains and health rules use, and the
+# automation account rules act as:
 #   docker compose exec -T openproject bundle exec rails runner /app/epm-setup/governance-types.rb
+#   docker compose exec -T openproject bundle exec rails runner /app/epm-setup/automation-account.rb
 # They write OpenProject's own records through its own models, the way an
 # administrator would, and patch nothing.
 COPY setup/ /app/epm-setup/

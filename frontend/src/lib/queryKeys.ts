@@ -32,6 +32,13 @@ export const queryKeys = {
   approvalJournal: (requestId: ID) => ['approvals', 'journal', requestId] as const,
   approvalLink: (token: string) => ['approvals', 'link', token] as const,
   approvalDelegations: (all: boolean) => ['approvals', 'delegations', all] as const,
+  // Rules and escalation, under ['automation'] for the same reason.
+  automationStatus: () => ['automation', 'status'] as const,
+  automationOptions: () => ['automation', 'options'] as const,
+  automationRules: () => ['automation', 'rules'] as const,
+  automationFirings: (ruleId?: ID) => ['automation', 'firings', ruleId ?? 'all'] as const,
+  escalationPolicies: () => ['automation', 'policies'] as const,
+  escalations: (state: string) => ['automation', 'escalations', state] as const,
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,

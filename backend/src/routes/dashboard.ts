@@ -17,6 +17,7 @@ import type {
   DashboardMetrics,
   MetricTrend,
 } from '../types/epm.js';
+import { automationUserId } from '../domain/automation-account.js';
 
 /** Counts without transferring rows — OpenProject returns `total` on any page. */
 async function count(filters: OpFilter[], signal: AbortSignal): Promise<number> {
@@ -267,16 +268,21 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         )
         .catch(() => ({ _embedded: { elements: [] as OpWorkPackage[] } }));
 
+      // Not in the people directory, so named here: a rule's change reads as
+      // the automation account's, not as an anonymous teammate's.
+      const automationId = await automationUserId().catch(() => undefined);
       const entries = await Promise.all(
         (recent._embedded?.elements ?? []).map(async (workPackage): Promise<ActivityEntry> => {
           const latest = await lastActivity(String(workPackage.id), signal);
           const actorLink = latest?._links?.user;
           const actorHref = Array.isArray(actorLink) ? actorLink[0]?.href : actorLink?.href;
           const commented = (latest?.comment?.raw ?? '').trim().length > 0;
+          const actorId = actorHref?.split('/').pop() ?? '';
 
           return {
             id: `${workPackage.id}-${latest?.id ?? 'update'}`,
-            actorId: actorHref?.split('/').pop() ?? '',
+            actorId,
+            ...(automationId && actorId === automationId ? { actorName: 'EPM Automation' } : {}),
             action: commented ? 'commented' : workPackage.createdAt === workPackage.updatedAt ? 'created' : 'updated',
             objectLabel: workPackage.subject,
             objectType: 'task',

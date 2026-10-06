@@ -24,6 +24,8 @@ import { allows } from '../auth/capabilities.js';
 import { env } from '../config/env.js';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
 import type { HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
+import { noteRuleEvent } from '../domain/rule-events.js';
+import { automationUserId } from '../domain/automation-account.js';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -32,15 +34,20 @@ const listQuery = z.object({
 
 /** Project members, grouped in one pass over memberships. */
 async function membersByProject(signal?: AbortSignal): Promise<Map<string, string[]>> {
-  const memberships = await openProject
-    .getAll<OpMembership>('/memberships', { pageSize: MAX_PAGE_SIZE }, { signal })
-    .catch(() => ({ items: [] as OpMembership[] }));
+  const [memberships, automationId] = await Promise.all([
+    openProject
+      .getAll<OpMembership>('/memberships', { pageSize: MAX_PAGE_SIZE }, { signal })
+      .catch(() => ({ items: [] as OpMembership[] })),
+    automationUserId().catch(() => undefined),
+  ]);
 
   const byProject = new Map<string, string[]>();
   for (const membership of memberships.items) {
     const projectId = linkId(membership._links, 'project');
     const principalId = linkId(membership._links, 'principal');
-    if (!projectId || !principalId) continue;
+    // The automation account is a member where a rule acts, not one of the
+    // team: it would otherwise be counted in a portfolio's people and capacity.
+    if (!projectId || !principalId || principalId === automationId) continue;
 
     const existing = byProject.get(projectId) ?? [];
     if (!existing.includes(principalId)) existing.push(principalId);
@@ -348,6 +355,14 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       }
 
       invalidateProjects();
+      await noteRuleEvent({
+        source: 'epm',
+        kind: 'project.updated',
+        subjectType: 'project',
+        subjectId: id,
+        projectId: id,
+        actorId: request.auth?.userId,
+      });
 
       const projects = await loadProjects(requestSignal(request));
       const project = projects.find((candidate) => candidate.id === id);
@@ -380,6 +395,14 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       });
 
       invalidateProjects();
+      await noteRuleEvent({
+        source: 'epm',
+        kind: 'project.created',
+        subjectType: 'project',
+        subjectId: String(created.id),
+        projectId: String(created.id),
+        actorId: request.auth?.userId,
+      });
 
       reply.code(201);
       return { id: String(created.id), name: created.name };
@@ -508,6 +531,16 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           // A notification that cannot be written must not fail the write the
           // user actually asked for.
           request.log.warn({ err: error }, 'Could not notify a health change');
+        });
+        // An override moves what rules see as much as a recalculation does.
+        await noteRuleEvent({
+          source: 'epm',
+          kind: 'project.health_changed',
+          subjectType: 'project',
+          subjectId: id,
+          projectId: id,
+          actorId: request.auth?.userId,
+          dedupeKey: `project:${id}:health:${after.health.overall}:${new Date().toISOString()}`,
         });
       }
 

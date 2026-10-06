@@ -62,6 +62,7 @@ export const PERMISSIONS = [
   'health:manage',
   'health:configure',
   'approvals:configure',
+  'rules:configure',
   'portfolios:manage',
   'analytics:manage',
   'roles:manage',
@@ -125,6 +126,11 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // being the approver the chain named, or their delegate.
   'approvals:configure':
     'Approval chains are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Rules act on any project's work as the automation account, and escalation
+  // policies decide who is chased about it: policy again, and powerful enough
+  // to keep apart from the approval chains.
+  'rules:configure':
+    'Automation rules and escalation policies are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   // Grouping projects into portfolios is a structural responsibility of its
   // own, like departments and teams, and OpenProject has no portfolio concept
   // to derive it from. Granted from EPM's own permission grants.

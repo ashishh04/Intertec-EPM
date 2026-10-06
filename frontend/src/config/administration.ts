@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Users,
+  Workflow,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -211,6 +212,28 @@ export const ADMIN_AREAS: AdminArea[] = [
         label: 'Project lists',
         kind: 'managed',
         description: 'Saved, shareable views of the project list.',
+      },
+    ],
+  },
+  {
+    id: 'automation',
+    label: 'Rules and escalation',
+    description: 'Rules that act on work as it changes, and who is chased when work stalls.',
+    icon: Workflow,
+    pages: [
+      {
+        id: 'rules',
+        label: 'Rules',
+        kind: 'live',
+        description:
+          'When work or a project changes and matches a rule, the rule acts — assigns, moves the status, sets a field, creates linked work, notifies or calls out — as the automation account.',
+      },
+      {
+        id: 'escalation',
+        label: 'Escalation',
+        kind: 'live',
+        description:
+          'Escalation paths for work left untouched, work overdue and approvals past their SLA: who is told at each level, and what has been escalated.',
       },
     ],
   },

@@ -46,3 +46,21 @@ export function currentAuth(): AuthContext | undefined {
 export function runAsSystem<T>(fn: () => T): T {
   return storage.exit(fn);
 }
+
+const automation = new AsyncLocalStorage<true>();
+
+/**
+ * Runs `fn` as EPM's automation account (BR-217): no signed-in user, and the
+ * OpenProject calls inside travel on `OPENPROJECT_AUTOMATION_API_KEY`, so every
+ * change a rule makes is journalled under that account rather than under a
+ * person or the administrator's key. Callers check the account is configured
+ * first — `domain/automation-account.ts` — rather than falling back silently.
+ */
+export function runAsAutomation<T>(fn: () => T): T {
+  return storage.exit(() => automation.run(true, fn));
+}
+
+/** Whether the current call is the automation account's. */
+export function isAutomation(): boolean {
+  return automation.getStore() === true;
+}

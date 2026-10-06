@@ -8,6 +8,7 @@ import { appLog } from '../lib/log.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpWorkPackage } from '../openproject/types.js';
 import type { UserPreferences } from '../types/epm.js';
+import { automationUserId } from './automation-account.js';
 
 /**
  * Telling people about meetings, news, wiki pages and documents.
@@ -66,9 +67,12 @@ async function projectMembers(projectId: string): Promise<string[]> {
         ),
       ).catch(() => ({ items: [] as OpMembership[] }));
 
+      const automationId = await automationUserId().catch(() => undefined);
       const ids = new Set<string>();
       for (const membership of memberships.items) {
         const principalId = linkId(membership._links, 'principal');
+        // Not a reader of news: the automation account acts for rules.
+        if (principalId && principalId === automationId) continue;
         // A membership's principal can be a group or a placeholder. Only a real
         // user has an address, and the outbox would drop the rest anyway — but
         // dropping them here keeps the count in the log honest.

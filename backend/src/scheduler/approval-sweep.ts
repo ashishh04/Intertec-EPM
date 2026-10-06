@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { env } from '../config/env.js';
 import { sweepApprovals } from '../domain/approvals.js';
+import { withLease } from '../domain/job-lease.js';
 
 /**
  * The approval sweep (BR-214, BR-212).
@@ -9,7 +10,7 @@ import { sweepApprovals } from '../domain/approvals.js';
  * Every few minutes: raise an escalation for each step that has outlived its
  * SLA, and keep delegations current — attach one whose period has started to
  * the approvals waiting on its delegator, detach one that has ended. Same
- * shape as the other schedulers: a timer, no job table, a failed run logged
+ * shape as the other schedulers: a timer behind a lease, a failed run logged
  * and left for the next.
  */
 
@@ -29,9 +30,9 @@ export function createApprovalSweep(options: { log: FastifyBaseLogger; intervalM
     if (running) return;
     running = true;
     try {
-      const result = await sweepApprovals();
-      if (result.breached || result.attached || result.detached) {
-        log.info(result, 'Approval sweep: escalations raised and delegations updated');
+      const outcome = await withLease('approval-sweep', 10 * 60_000, () => sweepApprovals());
+      if (outcome.ran && (outcome.result.breached || outcome.result.attached || outcome.result.detached)) {
+        log.info(outcome.result, 'Approval sweep: escalations raised and delegations updated');
       }
     } catch (error) {
       log.warn({ err: error }, 'Approval sweep failed; the next one will retry');

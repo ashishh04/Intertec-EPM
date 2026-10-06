@@ -39,6 +39,12 @@ export interface NotificationInput {
   link?: string;
   severity: Severity;
   dedupeKey: string;
+  /**
+   * How the email copy goes: on the daily digest (the default), or at once —
+   * for an escalation, which is the point of escalating. Immediate email is
+   * gated on the person's "assigned" switch: work that has become theirs.
+   */
+  email?: 'digest' | 'immediate';
 }
 
 /**
@@ -108,9 +114,9 @@ async function offerByEmail(recipientId: string, input: NotificationInput): Prom
         // `link` is an EPM route; the email needs somewhere absolute to point.
         url: input.link ? `${env.APP_BASE_URL}${input.link}` : undefined,
       },
-      channel: 'digest',
+      channel: input.email ?? 'digest',
       dedupeKey: `notification:${input.dedupeKey}`,
-      gate: 'updates',
+      gate: input.email === 'immediate' ? 'assigned' : 'updates',
     });
   } catch {
     // Already logged by the outbox where it could be; the notification stands.

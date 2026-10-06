@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { z } from 'zod';
 
 /**
@@ -194,6 +196,60 @@ const schema = z.object({
   OPENPROJECT_WEBHOOK_SECRET: z.string().optional(),
 
   /*
+   * The automation account rules act as (BR-217): a non-administrator
+   * OpenProject user with its own API key, created by
+   * backend/openproject/setup/automation-account.rb. Without it rules still
+   * notify and call out, but change nothing in OpenProject — a rule's change
+   * made on the key above would be journalled under a person's name.
+   */
+  // Compose passes an unset variable through as an empty string: that is "not set".
+  OPENPROJECT_AUTOMATION_API_KEY: z.preprocess((value) => (value === '' ? undefined : value), z.string().min(1).optional()),
+
+  // --- Rules and escalation -------------------------------------------------
+  // The rule worker considers queued events every few seconds. On unless "false".
+  EPM_RULES_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_RULES_POLL_SECONDS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(1).max(300).default(5),
+  ),
+  // Escalation policies are evaluated on this schedule. On unless "false": an
+  // item nobody has touched is exactly the one nobody will notice.
+  EPM_ESCALATION_SWEEP_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_ESCALATION_SWEEP_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(1, 'EPM_ESCALATION_SWEEP_INTERVAL_MINUTES must be at least 1.')
+      .max(1440, 'EPM_ESCALATION_SWEEP_INTERVAL_MINUTES cannot exceed a day.')
+      .default(15),
+  ),
+  // Hosts a rule's outbound call may reach although they resolve to a private,
+  // loopback or link-local address, and may reach over plain http. Empty means
+  // public https endpoints only, which is the point: a rule must not be a way
+  // to reach the inside of the network.
+  EPM_RULES_OUTBOUND_ALLOWLIST: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((host) => host.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  // Signs every outbound rule call: X-EPM-Signature: sha256=<HMAC of the body>.
+  EPM_RULES_WEBHOOK_SECRET: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(16, 'EPM_RULES_WEBHOOK_SECRET must be at least 16 characters.').optional(),
+  ),
+
+  /*
    * The currency internal hourly rates are quoted in.
    *
    * Configuration rather than a read from upstream: OpenProject keeps
@@ -240,8 +296,43 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+/**
+ * Secrets that may be read from a file instead of the environment (NFR06):
+ * `SESSION_SECRET_FILE=/run/secrets/epm_session` and the like, which is how a
+ * Docker or orchestrator secret store hands them over. A value set directly
+ * still wins, so nothing that works today changes.
+ */
+const FILE_SECRETS = [
+  'OPENPROJECT_API_KEY',
+  'OPENPROJECT_AUTOMATION_API_KEY',
+  'OPENPROJECT_OAUTH_CLIENT_SECRET',
+  'OPENPROJECT_WEBHOOK_SECRET',
+  'SESSION_SECRET',
+  'RESEND_API_KEY',
+  'SMTP_PASSWORD',
+  'EPM_RULES_WEBHOOK_SECRET',
+] as const;
+
+function withSecretFiles(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const merged = { ...source };
+  for (const name of FILE_SECRETS) {
+    const file = source[`${name}_FILE`];
+    if (!file || source[name]) continue;
+    try {
+      merged[name] = readFileSync(file, 'utf8').trim();
+    } catch (error) {
+      throw new Error(
+        `Invalid backend configuration.\n  - ${name}_FILE names ${file}, which could not be read: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return merged;
+}
+
 function load(): Env {
-  const parsed = schema.safeParse(process.env);
+  const parsed = schema.safeParse(withSecretFiles(process.env));
 
   if (!parsed.success) {
     const problems = parsed.error.issues
@@ -293,6 +384,11 @@ export function describeEnv() {
       : 'disabled',
     approvalSweep: env.EPM_APPROVAL_SWEEP_ENABLED
       ? `every ${env.EPM_APPROVAL_SWEEP_INTERVAL_MINUTES} minutes`
+      : 'disabled',
+    automationAccount: env.OPENPROJECT_AUTOMATION_API_KEY ? 'configured' : 'not configured',
+    rules: env.EPM_RULES_ENABLED ? `every ${env.EPM_RULES_POLL_SECONDS} seconds` : 'disabled',
+    escalationSweep: env.EPM_ESCALATION_SWEEP_ENABLED
+      ? `every ${env.EPM_ESCALATION_SWEEP_INTERVAL_MINUTES} minutes`
       : 'disabled',
   };
 }

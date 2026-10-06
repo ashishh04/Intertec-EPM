@@ -14,6 +14,7 @@ import { getUsers } from '../mapping/users.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
 import type { EpmTimeEntry, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
+import { automationUserId } from '../domain/automation-account.js';
 
 /**
  * Logged time.
@@ -303,13 +304,15 @@ async function reportablePeople(signal: AbortSignal): Promise<{ id: string; name
     )
     .catch(() => ({ items: [] as { _links?: { principal?: { href?: string; title?: string } } }[] }));
 
+  const automationId = await automationUserId().catch(() => undefined);
   const byId = new Map<string, string>();
   for (const membership of memberships.items) {
     const principal = membership._links?.principal;
     const href = principal?.href ?? '';
-    // Only `/users/:id`; `/groups/:id` and `/placeholder_users/:id` are skipped.
+    // Only `/users/:id`; `/groups/:id` and `/placeholder_users/:id` are skipped,
+    // and so is the automation account, which logs no time.
     const match = /\/users\/(\d+)$/.exec(href);
-    if (match && principal?.title) byId.set(match[1]!, principal.title);
+    if (match && principal?.title && match[1] !== automationId) byId.set(match[1]!, principal.title);
   }
 
   return [...byId.entries()]

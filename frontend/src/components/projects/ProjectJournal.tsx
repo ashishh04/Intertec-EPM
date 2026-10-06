@@ -88,7 +88,13 @@ function JournalEntry({
   actor?: ReturnType<ReturnType<typeof useUserMap>['get']>;
 }) {
   const Icon = iconFor(entry.action);
-  const who = entry.actorKind === 'system' ? 'EPM' : actor?.name ?? 'Someone no longer listed';
+  // The automation account is not a person in the directory; it is named for what it is.
+  const who =
+    entry.actorKind === 'system'
+      ? 'EPM'
+      : entry.actorKind === 'service'
+        ? 'EPM Automation'
+        : actor?.name ?? 'Someone no longer listed';
 
   return (
     <li className="flex items-start gap-2.5">

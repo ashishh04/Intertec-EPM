@@ -143,13 +143,36 @@ docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openpro
 Then define the chains themselves in EPM, under Administration → Work packages →
 Approval chains.
 
+Rules act as an account of their own, not as anyone's. Create it once — the
+script is in the same image — and put the key it prints in `.env.prod`:
+
+```bash
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openproject   bundle exec rails runner /app/epm-setup/automation-account.rb
+```
+
+The account, "EPM Automation", is not an administrator: EPM makes it a member of
+a project, with its own minimal role, the first time a rule acts there. Its key
+is printed once (`ROTATE=1` issues a new one). Set it as
+`OPENPROJECT_AUTOMATION_API_KEY`, or put it in a file and set
+`OPENPROJECT_AUTOMATION_API_KEY_FILE` — any of EPM's secrets can be read from a
+file named by `<NAME>_FILE`, which is how a secret store hands them over — then
+`up -d`. Until it is set, rules notify and call out but change nothing in
+OpenProject, and approval outcomes are moved with the service key.
+
+For rules to see changes made in OpenProject itself, its webhook (Administration
+→ API and webhooks) has to send the work package and project events, created
+and updated, to `https://<host>/api/webhooks/openproject`, signed with
+`OPENPROJECT_WEBHOOK_SECRET`. Changes made through EPM reach the rules either
+way. Rules and escalation policies are defined in EPM, under Administration →
+Rules and escalation.
+
 ## What is in each image
 
 | Image | Contents |
 |---|---|
 | `epm-backend` | `dist`, production modules, the generated Prisma client, the Prisma CLI for migrations |
 | `epm-web` | the built bundle plus Caddy and the Caddyfile; no domain baked in |
-| `epm-openproject` | `openproject/openproject:15` plus the four EPM initializers and the governance setup script |
+| `epm-openproject` | `openproject/openproject:15` plus the four EPM initializers and the setup scripts (governance types, automation account) |
 | `postgres:17-alpine` | pulled from the official library, nothing of ours in it |
 
 `epm-openproject` exists because EPM cannot use a stock OpenProject: sign-in

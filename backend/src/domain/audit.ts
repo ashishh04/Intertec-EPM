@@ -24,6 +24,11 @@ export interface AuditInput {
    * pass `null` for a change EPM made itself, such as a scheduled recalculation.
    */
   actorId?: string | null;
+  /**
+   * Set to `service` for EPM's automation account acting for a rule (BR-217),
+   * with `actorId` its OpenProject user id. Otherwise derived from `actorId`.
+   */
+  actorKind?: 'user' | 'system' | 'service';
   projectId?: string | null;
   entityType: string;
   entityId: string;
@@ -50,7 +55,7 @@ export function auditRow(input: AuditInput): Prisma.AuditEventCreateManyInput {
 
   return {
     actorId,
-    actorKind: actorId ? 'user' : 'system',
+    actorKind: input.actorKind ?? (actorId ? 'user' : 'system'),
     projectId: input.projectId ?? null,
     entityType: input.entityType,
     entityId: input.entityId,
@@ -120,7 +125,7 @@ export function toAuditEvent(row: AuditRow): AuditEvent {
     seq: row.seq,
     occurredAt: row.occurredAt.toISOString(),
     actorId: row.actorId ?? undefined,
-    actorKind: row.actorKind === 'user' ? 'user' : 'system',
+    actorKind: row.actorKind === 'user' || row.actorKind === 'service' ? row.actorKind : 'system',
     projectId: row.projectId ?? undefined,
     entityType: row.entityType,
     entityId: row.entityId,

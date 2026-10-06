@@ -193,6 +193,7 @@ export type Permission =
   | 'health:manage'
   | 'health:configure'
   | 'approvals:configure'
+  | 'rules:configure'
   | 'portfolios:manage'
   | 'analytics:manage'
   | 'teams:manage'
@@ -351,7 +352,8 @@ export interface AuditEvent {
   occurredAt: ISODate;
   /** Absent when EPM itself made the change, e.g. a scheduled recalculation. */
   actorId?: ID;
-  actorKind: 'user' | 'system';
+  /** `service`: EPM's automation account, acting for a rule (BR-217). */
+  actorKind: 'user' | 'system' | 'service';
   projectId?: ID;
   entityType: string;
   entityId: ID;
@@ -722,6 +724,8 @@ export type ActivityAction =
 export interface ActivityEntry {
   id: ID;
   actorId: ID;
+  /** Set when the actor is not a person in the directory, e.g. EPM's automation account. */
+  actorName?: string;
   action: ActivityAction;
   /** What the action was performed on, e.g. "OP-142" or "Design Sign-off". */
   objectLabel: string;
@@ -1838,4 +1842,282 @@ export interface ApprovalLinkView {
   stepName: string;
   /** Set when the link's owner decides as a delegate. */
   onBehalfOf?: ID;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Rules and escalation (BRQ-10: BR-216 to BR-219)                            */
+/* -------------------------------------------------------------------------- */
+
+/** What a rule watches and acts on. */
+export type RuleSubjectType = 'work_package' | 'project';
+
+export type RuleEventKind =
+  | 'work_package.created'
+  | 'work_package.updated'
+  | 'project.created'
+  | 'project.updated'
+  /** EPM's own: a project's overall health level changed. */
+  | 'project.health_changed';
+
+export type RuleConditionOperator =
+  | 'in'
+  | 'not_in'
+  | 'is_empty'
+  | 'is_set'
+  | 'eq'
+  | 'neq'
+  | 'contains'
+  | 'not_contains'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  /** Dates: before today, i.e. in the past. */
+  | 'before_today'
+  | 'today_or_later'
+  /** Dates: between today and that many days ahead. */
+  | 'within_next_days'
+  /** Dates: more, or fewer, than that many days ago. */
+  | 'more_than_days_ago'
+  | 'less_than_days_ago'
+  /** Dates: against a fixed YYYY-MM-DD. */
+  | 'on_or_before'
+  | 'on_or_after';
+
+/**
+ * One test on an item (BR-216). `field` is an attribute — `type`, `status`,
+ * `priority`, `assignee`, `dueDate`, `customField7` and so on — and `value`
+ * whatever the operator needs: ids for `in`, a number of days, a date, text.
+ */
+export interface RuleCondition {
+  field: string;
+  operator: RuleConditionOperator;
+  value?: string | number | boolean | string[];
+}
+
+export interface RuleConditionGroup {
+  /** `all`: every condition must hold. `any`: one is enough. None: always. */
+  match: 'all' | 'any';
+  conditions: RuleCondition[];
+}
+
+/** Who, relative to the item: for notifications, assignment and escalation paths. */
+export type PersonSpec =
+  | { kind: 'user'; userId: ID }
+  | { kind: 'assignee' }
+  | { kind: 'responsible' }
+  | { kind: 'author' }
+  | { kind: 'project_owner' }
+  /** The assignee's team lead (for an approval: the approver's). */
+  | { kind: 'team_lead' }
+  /** The assignee's department manager (for an approval: the approver's). */
+  | { kind: 'department_manager' }
+  | { kind: 'project_role'; roleId: ID }
+  /** Escalating an approval: the approvers it is waiting on. */
+  | { kind: 'approvers' };
+
+export type RuleRelation = 'relates' | 'blocks' | 'blocked' | 'follows' | 'precedes' | 'child' | 'none';
+
+/** A date can be set relative to today or to the item's own dates. */
+export type RuleFieldValue =
+  | string
+  | number
+  | null
+  | { relativeDays: number; from?: 'today' | 'startDate' | 'dueDate' };
+
+/**
+ * What a rule does (BR-217). Changes to OpenProject are made as the automation
+ * account; `notify` and `call_endpoint` are EPM's own.
+ */
+export type RuleAction =
+  | { type: 'assign'; to: PersonSpec | { kind: 'nobody' } }
+  | {
+      type: 'notify';
+      recipients: PersonSpec[];
+      /** Placeholders: {{key}} {{subject}} {{project}} {{status}} {{priority}} {{type}} {{assignee}} {{dueDate}} {{health}} {{url}} {{rule}} */
+      title: string;
+      message: string;
+      severity?: 'info' | 'warning' | 'critical';
+    }
+  | { type: 'set_status'; statusId: ID }
+  | { type: 'set_field'; field: string; value: RuleFieldValue }
+  | {
+      type: 'create_work_package';
+      typeId: ID;
+      subject: string;
+      description?: string;
+      assignee?: PersonSpec;
+      /** How the new item relates to the one that fired the rule. `none` for project rules. */
+      relation: RuleRelation;
+      dueInDays?: number;
+    }
+  | { type: 'call_endpoint'; url: string };
+
+export interface AutomationRule {
+  id: ID;
+  name: string;
+  description?: string;
+  active: boolean;
+  subjectType: RuleSubjectType;
+  events: RuleEventKind[];
+  /** Empty means every project. */
+  projectIds: ID[];
+  conditions: RuleConditionGroup;
+  /** `enter`: once as an item starts to match, again only after it stops. `every`: every matching event. */
+  fireMode: 'enter' | 'every';
+  actions: RuleAction[];
+  version: number;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  firingCount: number;
+  lastFiredAt?: ISODate;
+}
+
+export type AutomationRuleInput = Pick<
+  AutomationRule,
+  'name' | 'description' | 'active' | 'subjectType' | 'events' | 'projectIds' | 'conditions' | 'fireMode' | 'actions'
+>;
+
+export interface RuleActionOutcome {
+  type: RuleAction['type'];
+  outcome: 'done' | 'failed' | 'skipped';
+  /** What it did, or would have, in a sentence. */
+  summary: string;
+  error?: string;
+}
+
+/** One firing, with what each action did (BR-219). */
+export interface RuleFiringView {
+  id: ID;
+  ruleId: ID;
+  ruleName: string;
+  ruleVersion: number;
+  trigger: string;
+  subjectType: RuleSubjectType;
+  subjectId: ID;
+  subjectTitle?: string;
+  projectId?: ID;
+  outcome: 'succeeded' | 'partial' | 'failed' | 'skipped';
+  actions: RuleActionOutcome[];
+  firedAt: ISODate;
+  durationMs?: number;
+}
+
+export interface RuleDryRunItem {
+  subjectType: RuleSubjectType;
+  subjectId: ID;
+  title: string;
+  projectId?: ID;
+  projectName?: string;
+  /** What the rule would have done to it, action by action. Nothing was done. */
+  actions: string[];
+}
+
+/** What a rule would have done over a past window, with nothing changed (BR-219). */
+export interface RuleDryRunResult {
+  windowDays: number;
+  /** Items in scope changed within the window. */
+  evaluated: number;
+  matched: number;
+  items: RuleDryRunItem[];
+  truncated: boolean;
+  notes: string[];
+}
+
+export type EscalationTrigger = 'untouched' | 'overdue' | 'approval_sla';
+
+/** A level of an escalation path (BR-218). */
+export interface EscalationLevel {
+  /** Days untouched or overdue; hours past the SLA for approvals. */
+  after: number;
+  notify: PersonSpec[];
+}
+
+export interface EscalationPolicy {
+  id: ID;
+  name: string;
+  description?: string;
+  active: boolean;
+  trigger: EscalationTrigger;
+  /** Empty means every project, type or priority. */
+  projectIds: ID[];
+  typeIds: ID[];
+  priorityIds: ID[];
+  levels: EscalationLevel[];
+  version: number;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  /** Escalations of this policy not yet resolved. */
+  openCount: number;
+}
+
+export type EscalationPolicyInput = Pick<
+  EscalationPolicy,
+  'name' | 'description' | 'active' | 'trigger' | 'projectIds' | 'typeIds' | 'priorityIds' | 'levels'
+>;
+
+/** An escalation raised: by an approval step's own SLA, or by a policy's level. */
+export interface EscalationView {
+  id: ID;
+  source: string;
+  policyId?: ID;
+  policyName?: string;
+  subjectType: string;
+  subjectId: ID;
+  subjectTitle?: string;
+  /** Where to open it in EPM. */
+  link?: string;
+  projectId?: ID;
+  projectName?: string;
+  level: number;
+  raisedFor: ID[];
+  reason: string;
+  raisedAt: ISODate;
+  resolvedAt?: ISODate;
+}
+
+/** What a policy would escalate now, with nothing raised or sent. */
+export interface EscalationDryRunResult {
+  evaluated: number;
+  items: {
+    subjectType: string;
+    subjectId: ID;
+    title: string;
+    projectName?: string;
+    level: number;
+    since: ISODate;
+    recipients: ID[];
+    /** Already raised at this level: a real sweep would send nothing new. */
+    alreadyRaised: boolean;
+  }[];
+  truncated: boolean;
+}
+
+export interface AutomationStatus {
+  account: {
+    configured: boolean;
+    working: boolean;
+    userId?: ID;
+    name?: string;
+    admin?: boolean;
+    roleFound: boolean;
+  };
+  worker: { enabled: boolean; pollSeconds: number; queued: number; failed: number; lastProcessedAt?: ISODate };
+  escalation: { enabled: boolean; intervalMinutes: number; lastRunAt?: ISODate };
+  /** Changes made outside EPM reach the rules only through the webhook. */
+  webhook: { secretConfigured: boolean; lastReceivedAt?: ISODate };
+  outbound: { signing: boolean; allowlist: string[] };
+}
+
+/** What the rule and policy editors offer, read from the instance. */
+export interface AutomationOptions {
+  types: { id: ID; name: string }[];
+  statuses: { id: ID; name: string; isClosed: boolean }[];
+  priorities: { id: ID; name: string }[];
+  roles: { id: ID; name: string }[];
+  projects: { id: ID; name: string }[];
+  portfolios: { id: ID; name: string }[];
+  customFields: { id: string; name: string; numeric: boolean }[];
 }
