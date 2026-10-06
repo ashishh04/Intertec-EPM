@@ -20,16 +20,17 @@ export default function ProjectActivityTab() {
   const paged = usePagination(activityQuery.data ?? [], { pageSize: 15, resetKey: projectId });
 
   return (
-    // Two independent lists of different lengths: each card is as tall as its
-    // own content, rather than one stretched to the other's height and empty.
-    <div className="grid gap-5 lg:grid-cols-5 lg:items-start">
-      <Card className="lg:col-span-3">
+    // Two lists side by side, the same width and the same height: each card
+    // stretches to the taller of the two and keeps its pager on its bottom
+    // edge, so the cards and their pagers line up.
+    <div className="grid gap-5 lg:grid-cols-2">
+      <Card className="flex flex-col">
         <CardHeader variant="compact">
           <CardTitle>Activity</CardTitle>
         </CardHeader>
         {/* The timeline draws its own empty state, so the boundary only has to
             cover loading and failure. */}
-        <CardContent className="p-4">
+        <CardContent className="flex-1 p-4">
           <QueryBoundary
             isLoading={activityQuery.isLoading}
             isError={activityQuery.isError}
@@ -55,7 +56,7 @@ export default function ProjectActivityTab() {
 
       {/* Append-only: nothing in it can be edited or removed, by the API or by
           the database, so it reads as evidence rather than as a feed. */}
-      <Card className="lg:col-span-2">
+      <Card className="flex flex-col">
         <CardHeader variant="compact">
           <CardTitle>Project journal</CardTitle>
           <CardDescription>Health, overrides, plan and ownership, as recorded.</CardDescription>

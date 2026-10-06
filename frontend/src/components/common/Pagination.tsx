@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -76,6 +77,8 @@ export function Pagination({
   variant = 'default',
   className,
 }: PaginationProps) {
+  // Its own id: two pagers on one page must not share the label's target.
+  const sizeId = useId();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const current = Math.min(Math.max(1, page), totalPages);
 
@@ -89,7 +92,9 @@ export function Pagination({
       aria-label="Pagination"
       className={cn(
         'flex flex-wrap items-center justify-between gap-x-4 gap-y-2',
-        variant === 'default' ? 'px-3 py-2' : 'px-2 py-1.5',
+        // One height whether or not there are page buttons, so two pagers side
+        // by side sit on the same line.
+        variant === 'default' ? 'min-h-12 px-3 py-2' : 'px-2 py-1.5',
         className,
       )}
     >
@@ -117,14 +122,14 @@ export function Pagination({
       <div className="flex items-center gap-2">
         {onPageSizeChange ? (
           <div className="hidden items-center gap-1.5 sm:flex">
-            <label htmlFor="pagination-size" className="text-2xs text-muted-foreground">
+            <label htmlFor={sizeId} className="text-2xs text-muted-foreground">
               Per page
             </label>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => onPageSizeChange(Number(value))}
             >
-              <SelectTrigger id="pagination-size" className="h-7 w-16 text-2xs">
+              <SelectTrigger id={sizeId} className="h-7 w-16 text-2xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

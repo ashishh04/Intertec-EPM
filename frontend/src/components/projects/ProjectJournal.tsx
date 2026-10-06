@@ -110,7 +110,8 @@ export function ProjectJournalPaged({
 
   return (
     <>
-      <CardContent className="p-4">
+      {/* Grows to fill the card, so the pager stays on its bottom edge. */}
+      <CardContent className="flex-1 p-4">
         <QueryBoundary
           isLoading={query.isLoading}
           isError={query.isError}
