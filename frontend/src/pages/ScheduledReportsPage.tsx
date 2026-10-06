@@ -243,7 +243,11 @@ export default function ScheduledReportsPage() {
                   myId={user?.id}
                   canApprove={can('reports:approve')}
                   onEdit={() => setEditing({ id: schedule.id, input: toInput(schedule) })}
-                  onLog={() => setLogFor(schedule.id)}
+                  onLog={() => {
+                    setLogFor(schedule.id);
+                    // The log sits below the list; bring it into view with the report chosen.
+                    requestAnimationFrame(() => document.getElementById('run-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                  }}
                 />
               ))}
             </ul>
@@ -356,8 +360,12 @@ function ScheduleRow({
           onClick={() =>
             run.mutate(schedule.id, {
               onSuccess: (result) => {
+                const queued = (result.deliveries ?? []).filter((delivery) =>
+                  ['queued', 'sending', 'sent'].includes(delivery.emailStatus),
+                ).length;
+                const notSent = result.recipients - queued;
                 toast.success('Report sent to the outbox', {
-                  description: `${result.recipients - result.withheld} of ${result.recipients} ${result.recipients === 1 ? 'copy' : 'copies'} queued${result.withheld > 0 ? `, ${result.withheld} not sent` : ''}.`,
+                  description: `${queued} of ${result.recipients} ${result.recipients === 1 ? 'copy' : 'copies'} queued${notSent > 0 ? `, ${notSent} not sent — see the log` : ''}.`,
                 });
                 onLog();
               },
@@ -788,7 +796,7 @@ function RunLog({
   useEffect(() => setPage(1), [scheduleId, from, to, pageSize]);
 
   return (
-    <Card>
+    <Card id="run-log" className="scroll-mt-4">
       <CardHeader variant="compact">
         <CardTitle>Run log</CardTitle>
         <CardDescription>Every run, each recipient&rsquo;s copy and what became of its email — by report and by date.</CardDescription>
