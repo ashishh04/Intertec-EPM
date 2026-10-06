@@ -271,6 +271,27 @@ async function analyticsAdministrators(): Promise<string[]> {
  * upstream error can contain a request URL, and a stack trace can contain
  * paths; neither belongs in something a person reads.
  */
+export async function notifyAnalyticsProblem(input: {
+  title: string;
+  body: string;
+  /** Once per problem per period: the scheduler retries, and so would the notice. */
+  dedupeKey: string;
+  link?: string;
+}): Promise<number> {
+  const recipients = await analyticsAdministrators();
+  if (recipients.length === 0) return 0;
+
+  return notify({
+    recipients,
+    category: 'system',
+    title: input.title,
+    body: input.body,
+    link: input.link ?? '/admin/analytics',
+    severity: 'warning',
+    dedupeKey: input.dedupeKey,
+  });
+}
+
 export async function notifySnapshotFailure(input: {
   day: string;
   reason: string;

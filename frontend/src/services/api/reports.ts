@@ -15,6 +15,7 @@ export class ApiReportRepository implements ReportRepository {
       from: filters.from,
       to: filters.to,
       projectId: filters.projectId,
+      portfolioId: filters.portfolioId,
       teamId: filters.teamId,
       status: filters.status,
     };

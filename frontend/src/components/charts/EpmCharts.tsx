@@ -382,3 +382,83 @@ export function TrendChart({
     </ResponsiveContainer>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* A measure over time (BR-404)                                                */
+/* -------------------------------------------------------------------------- */
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "6 Oct" for a week, "Oct 26" for a month: the bucket's first day. */
+function bucketLabel(from: string, bucket: 'week' | 'month'): string {
+  const [year, month, day] = from.split('-').map(Number) as [number, number, number];
+  return bucket === 'month' ? `${SHORT_MONTHS[month - 1]} ${String(year).slice(2)}` : `${day} ${SHORT_MONTHS[month - 1]}`;
+}
+
+/**
+ * One measure of the semantic layer across the period's buckets. A figure
+ * counted within each bucket (delivered, hours logged) is drawn as bars; a
+ * state as it stood at each bucket's end (open, overdue, risks) as a line.
+ * A bucket with no value is a gap, never a zero.
+ */
+export function MeasureSeriesChart({
+  points,
+  bucket,
+  kind,
+  label,
+  format,
+  tone = 'primary',
+}: {
+  points: { from: string; to: string; value: number | null }[];
+  bucket: 'week' | 'month';
+  kind: 'bars' | 'line';
+  label: string;
+  format: (value: number) => string;
+  tone?: Tone;
+}) {
+  if (points.length === 0 || points.every((point) => point.value === null)) {
+    return <ChartEmpty icon={TrendingUp} title="Nothing to draw yet" description="No value in this period." />;
+  }
+
+  const rows = points.map((point) => ({ label: bucketLabel(point.from, bucket), value: point.value }));
+  // The axis carries magnitudes, the tooltip the exact figure: "AED 25,000"
+  // does not fit beside a chart, "25K" does.
+  const tick = (value: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+  const tooltip = (
+    <Tooltip
+      {...TOOLTIP_STYLE}
+      formatter={(value: number) => [format(value), label]}
+      {...(kind === 'line' ? { cursor: { stroke: 'hsl(var(--border))' } } : {})}
+    />
+  );
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      {kind === 'bars' ? (
+        <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
+          <YAxis {...AXIS} width={40} tickFormatter={tick} />
+          {tooltip}
+          <Bar dataKey="value" name={label} radius={[4, 4, 0, 0]} maxBarSize={30} fill={TONE_VAR[tone]} />
+        </BarChart>
+      ) : (
+        <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+          <CartesianGrid {...GRID} />
+          <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
+          <YAxis {...AXIS} width={40} tickFormatter={tick} allowDecimals={false} />
+          {tooltip}
+          <Line
+            type="monotone"
+            dataKey="value"
+            name={label}
+            stroke={TONE_VAR[tone]}
+            strokeWidth={2}
+            dot={{ r: 2 }}
+            connectNulls={false}
+          />
+        </LineChart>
+      )}
+    </ResponsiveContainer>
+  );
+}

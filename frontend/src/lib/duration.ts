@@ -9,7 +9,8 @@
  *   time-of-day value like `PT1H30M` truncates to zero and is refused with
  *   "Duration must be greater than 0".
  * - **hours** — `estimatedTime`, `remainingTime`, `spentTime`: effort, written
- *   `PT7H30M`.
+ *   `PT7H30M` — and from a day upwards with a day part of twenty-four hours:
+ *   OpenProject writes 40 hours as `P1DT16H` and 120 as `P5D`.
  *
  * Asking a planner to type either by hand is a developer's idea of a form, so
  * the UI collects a number and this does the translation.
@@ -27,8 +28,11 @@ export function durationUnitFor(attribute: string): DurationUnit {
 const PATTERN =
   /^P(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
 
-/** An OpenProject "day" of effort is a working day, not twenty-four hours. */
-const HOURS_PER_DAY = 8;
+/**
+ * A day in an ISO duration is twenty-four hours: OpenProject converts effort
+ * by total seconds, so its `P1D` is 24 hours of effort, not a working day.
+ */
+const HOURS_PER_DAY = 24;
 
 interface Parts {
   days: number;

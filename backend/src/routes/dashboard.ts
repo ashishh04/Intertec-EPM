@@ -8,7 +8,6 @@ import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { getCurrentUser } from '../mapping/users.js';
 import { listProjects } from '../mapping/projects.js';
-import { healthViews } from '../domain/health.js';
 import { addDays } from '../lib/dates.js';
 import type { OpActivity, OpProject, OpWorkPackage } from '../openproject/types.js';
 import type {
@@ -18,6 +17,9 @@ import type {
   MetricTrend,
 } from '../types/epm.js';
 import { automationUserId } from '../domain/automation-account.js';
+import { OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
+import { evaluateMeasures } from '../domain/measures.js';
+import { viewerOf } from './measures.js';
 
 /** Counts without transferring rows — OpenProject returns `total` on any page. */
 async function count(filters: OpFilter[], signal: AbortSignal): Promise<number> {
@@ -174,11 +176,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const blockedIds = catalog.statusIdsByEpm.get('blocked') ?? [];
     const criticalIds = catalog.priorityIdsByEpm.get('critical') ?? [];
 
-    const overdueFilters: OpFilter[] = [
-      mine,
-      open,
-      { field: 'dueDate', operator: '<t-', values: ['0'] },
-    ];
+    const overdueFilters: OpFilter[] = [mine, open, OVERDUE_DUE_FILTER];
 
     const [myTasks, myTasksDueThisWeek, inProgress, inProgressBlocked, overdue, overdueCritical] =
       await Promise.all([
@@ -199,24 +197,26 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
           : Promise.resolve(0),
       ]);
 
-    const active = projects.filter((project) => project.active);
-    // The stored health, override applied — the same value the project pages
-    // show, so this count cannot contradict them.
-    const health = await healthViews(active);
-    const atRisk = active.filter(
-      (project) => (health.get(String(project.id))?.effective.overall ?? 'healthy') !== 'healthy',
-    ).length;
-
-    await recordSnapshots(
-      { myTasks, inProgress, overdue, activeProjects: active.length },
-      me.id,
+    // The project tiles are measures of the semantic layer (BR-404): the same
+    // numbers, by the same definitions, as the executive view and the PMO
+    // dashboards show for everything this person can see.
+    const portfolio = await evaluateMeasures(
+      ['projects.active', 'projects.atRisk', 'sprint.progress'],
+      { kind: 'instance' },
+      { from: addDays(today, -27), to: today },
+      await viewerOf(request),
+      today,
     );
+    const activeProjects = portfolio.measures['projects.active']?.value ?? projects.filter((project) => project.active).length;
+    const atRisk = portfolio.measures['projects.atRisk']?.value ?? 0;
+
+    await recordSnapshots({ myTasks, inProgress, overdue, activeProjects }, me.id);
 
     const [myTasksTrend, inProgressTrend, overdueTrend, activeProjectsTrend] = await Promise.all([
       trendFor('myTasks', myTasks, me.id, false),
       trendFor('inProgress', inProgress, me.id, true),
       trendFor('overdue', overdue, me.id, false),
-      trendFor('activeProjects', active.length, me.id, true),
+      trendFor('activeProjects', activeProjects, me.id, true),
     ]);
 
     const metrics: DashboardMetrics = {
@@ -226,10 +226,10 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       inProgressBlocked,
       overdue,
       overdueCritical,
-      activeProjects: active.length,
+      activeProjects,
       projectsAtRisk: atRisk,
-      // Requires sprints; this instance defines no versions.
-      sprintProgress: 0,
+      // Delivered of committed points across the sprints under way; 0 when none is.
+      sprintProgress: portfolio.measures['sprint.progress']?.value ?? 0,
       trends: {
         myTasks: myTasksTrend,
         inProgress: inProgressTrend,

@@ -8,6 +8,9 @@ import { ZodError } from 'zod';
 
 import { env, isProduction } from './config/env.js';
 import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot.js';
+import { createAnalyticsRefreshScheduler } from './scheduler/analytics-refresh.js';
+import { publishCatalogue } from './domain/measures-store.js';
+import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createApprovalSweep } from './scheduler/approval-sweep.js';
@@ -219,6 +222,9 @@ export async function buildApp(): Promise<FastifyInstance> {
    * `referenceCache` is deliberately untouched: statuses, types and principals
    * change through their own endpoints, which invalidate their own keys.
    */
+  /** Writes that cannot change anything the analytics model holds. */
+  const NOT_MODELLED = ['/analytics/', '/auth/', '/sessions', '/notifications', '/preferences', '/assistant'];
+
   app.addHook('onResponse', async (request, reply) => {
     if (request.method === 'GET' || request.method === 'HEAD') return;
     if (reply.statusCode >= 400) return;
@@ -230,6 +236,12 @@ export async function buildApp(): Promise<FastifyInstance> {
     // Only this caller's entry: a write by one person does not change anybody
     // else's permissions except through membership, which the TTL covers.
     if (request.auth) forgetPermissions(request.auth.userId);
+
+    // And the analytics model is due an incremental refresh. Work changes
+    // reach it through the rule queue already; this covers what does not pass
+    // through there — departments, teams, people, portfolios, plans, rates,
+    // time — so the dashboards catch up within a tick, not an interval.
+    if (!NOT_MODELLED.some((prefix) => request.url.startsWith(`${env.API_PREFIX}${prefix}`))) markModelStale();
   });
 
   await app.register(registerRoutes, { prefix: env.API_PREFIX });
@@ -300,7 +312,20 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Escalation sweep disabled; nothing untouched or overdue will be escalated');
   }
 
+  // The analytics model (BR-402) and the semantic layer's catalogue (BR-404).
+  // On unless switched off: every dashboard reads the model.
+  const analyticsRefresh = createAnalyticsRefreshScheduler({ log: app.log });
+  if (env.EPM_ANALYTICS_MODEL_ENABLED) {
+    analyticsRefresh.start();
+    void publishCatalogue().catch((error: unknown) => {
+      app.log.warn({ err: error }, 'The measure catalogue could not be published to the analytics schema');
+    });
+  } else {
+    app.log.info('Analytics model refresh disabled; dashboards show the model as last loaded');
+  }
+
   app.addHook('onClose', async () => {
+    analyticsRefresh.stop();
     ruleWorker.stop();
     escalationSweep.stop();
     approvalSweep.stop();

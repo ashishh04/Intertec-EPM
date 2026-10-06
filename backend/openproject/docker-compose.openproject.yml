@@ -67,3 +67,6 @@ services:
       # delete for types, statuses, priorities, custom fields, webhooks and
       # OAuth applications, none of which API v3 lets anyone write.
       - ./zzz_epm_admin_catalog.rb:/app/config/initializers/zzz_epm_admin_catalog.rb:ro
+      # The EPM analytics export (/epm_admin/analytics/*): work package
+      # history as rows, read-only, for the analytics model.
+      - ./zzz_epm_analytics_api.rb:/app/config/initializers/zzz_epm_analytics_api.rb:ro

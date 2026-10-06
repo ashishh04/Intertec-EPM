@@ -166,18 +166,73 @@ and updated, to `https://<host>/api/webhooks/openproject`, signed with
 way. Rules and escalation policies are defined in EPM, under Administration →
 Rules and escalation.
 
+## Analytics
+
+Reports and dashboards read EPM's analytics model, a schema of its own
+(`analytics`) that the backend loads from OpenProject and refreshes by itself:
+soon after each change, every 10 minutes regardless, and in full each night at
+`EPM_ANALYTICS_FULL_REFRESH_HOUR_UTC`, when every table is reconciled against
+its source. Nothing needs starting. Administration → Analytics model shows each
+refresh, how long it took against `EPM_ANALYTICS_REFRESH_WINDOW_MINUTES`, how it
+reconciled, and the daily capture that history is checked against.
+
+The model reads work package history through `zzz_epm_analytics_api.rb`, in the
+`epm-openproject` image. It is read-only.
+
+### Analytics replica
+
+BI tools read a streaming replica of the EPM database rather than the primary,
+as a read-only role that can see the analytics schema and nothing else (BR-401).
+It is optional, and started with the `analytics` profile. Once, before the first
+start, set `EPM_REPLICATION_PASSWORD` and `EPM_ANALYTICS_DB_PASSWORD` in
+`.env.prod`, then create the two accounts from the backend:
+
+```bash
+set -a; . ./.env.prod; set +a
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T \
+  -e EPM_REPLICATION_PASSWORD="$EPM_REPLICATION_PASSWORD" backend \
+  node dist/scripts/analytics.js replication epm_analytics_replica
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T \
+  -e EPM_ANALYTICS_DB_PASSWORD="$EPM_ANALYTICS_DB_PASSWORD" backend \
+  node dist/scripts/analytics.js role
+docker compose -f docker-compose.deploy.yml --env-file .env.prod --profile analytics up -d postgres-replica
+```
+
+The first creates the replication account and a replication slot, and caps the
+WAL a slot may hold at 4 GB (`max_slot_wal_keep_size`), so a replica that is gone
+for good costs the primary at most that. The second creates `epm_analytics`:
+it may read every table and function in the analytics schema, may not write
+anything, and may not read any application table. The replica clones the primary
+on its first start and follows it from then on.
+
+Who connects where is decided in the compose file. The primary refuses the
+analytics role outright, so reporting can never land on it; the replica accepts
+only that role, only from `EPM_ANALYTICS_ALLOWED_CIDR` (default: the Docker
+networks it is on), on `EPM_ANALYTICS_BIND:EPM_ANALYTICS_PORT` (default
+`127.0.0.1:5434`, so over an SSH tunnel). Name the analytics estate's address
+range and interface there to open it to BI tools.
+
+Set `EPM_ANALYTICS_DATABASE_URL` to the role on the replica, and Administration
+→ Analytics model → Access will confirm that it reads every table and that each
+kind of write is refused, by the replica and by the role's grants separately.
+
+Wiping the replica's volume means cloning again; the slot is reused. Retiring
+the replica for good means dropping the slot on the primary:
+`SELECT pg_drop_replication_slot('epm_analytics_replica');`.
+
 ## What is in each image
 
 | Image | Contents |
 |---|---|
 | `epm-backend` | `dist`, production modules, the generated Prisma client, the Prisma CLI for migrations |
 | `epm-web` | the built bundle plus Caddy and the Caddyfile; no domain baked in |
-| `epm-openproject` | `openproject/openproject:15` plus the four EPM initializers and the setup scripts (governance types, automation account) |
+| `epm-openproject` | `openproject/openproject:15` plus the five EPM initializers and the setup scripts (governance types, automation account) |
 | `postgres:17-alpine` | pulled from the official library, nothing of ours in it |
 
 `epm-openproject` exists because EPM cannot use a stock OpenProject: sign-in
 depends on `zzz_epm_password_grant.rb` being loaded inside that container, and
-the other three initializers add the administrative endpoints EPM reads. They
+the other four add the administrative endpoints EPM reads and the history its
+analytics model loads. They
 used to be bind-mounted from a checkout, which made the host depend on this
 repository being present at the right commit — and a stack that comes up with
 the mount missing starts cleanly and then refuses every sign-in. Baked into the
@@ -197,6 +252,7 @@ ties that image to that address.
 |---|---|
 | OpenProject database and attachments | bind mount at `OPENPROJECT_DATA_DIR`, default `/srv/openproject` |
 | EPM database | named volume `epm-pgdata` |
+| Analytics replica | named volume `epm-pgdata-replica`; a copy, rebuilt by cloning |
 | TLS certificates | named volume `caddy-data` |
 
 OpenProject's data is a bind mount on purpose: a path can be pointed at a

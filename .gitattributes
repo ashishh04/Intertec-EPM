@@ -1,0 +1,5 @@
+# Files read inside Linux containers keep LF line endings on every checkout,
+# whatever core.autocrlf says: a carriage return breaks a shell script, and
+# turns an authentication method in pg_hba.conf into one Postgres refuses.
+*.sh text eol=lf
+deploy/**/*.conf text eol=lf

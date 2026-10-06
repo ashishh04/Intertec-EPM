@@ -50,6 +50,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'projects/health-rules': lazy(() => import('./HealthRulesPage')),
   'automation/rules': lazy(() => import('./RulesPage')),
   'automation/escalation': lazy(() => import('./EscalationPage')),
+  analytics: lazy(() => import('./AnalyticsModelPage')),
   'custom-fields': catalog('custom-fields'),
   'help-texts': lazy(() => import('./HelpTextsPage')),
   'calendars/working-days': lazy(() => import('./WorkingDaysPage')),

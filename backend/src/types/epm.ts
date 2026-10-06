@@ -1019,9 +1019,12 @@ export interface DashboardMetrics {
 }
 
 export interface DeliveryTrendPoint {
+  /** The bucket's label: `2026-09` for a month. */
   period: string;
+  /** Delivered in the bucket, on the day each was closed (`work.completed`). */
   completed: number;
   created: number;
+  /** Story points delivered in the bucket (`work.pointsDelivered`). */
   velocity: number;
 }
 
@@ -1040,21 +1043,36 @@ export interface PortfolioRow {
   override?: { reason: string; setBy: ID; setAt: ISODate };
 }
 
+/**
+ * The executive view's headline figures, each a measure of the semantic
+ * layer (BR-404) for the report's scope and period. Null where there is
+ * nothing to measure (no milestone decided, no sprint ended) rather than a
+ * zero that reads as a result.
+ */
 export interface ExecutiveInsights {
-  portfolioHealth: number;
-  onTimeDelivery: number;
-  openRisks: number;
+  /** Share of active, assessed projects whose health is green (`health.greenPct`). */
+  portfolioHealth: number | null;
+  /** Milestones due in the period delivered on their date (`milestones.onTime`). */
+  onTimeDelivery: number | null;
+  openRisks: number | null;
   overdueTasks: number;
-  teamUtilization: number;
-  sprintVelocity: number;
+  /** Hours logged against capacity in the period (`utilisation`). */
+  teamUtilization: number | null;
+  /** Story points delivered per sprint, over sprints ended in the period (`sprint.velocity`). */
+  sprintVelocity: number | null;
   velocityTrend: MetricTrend;
   matrix: PortfolioRow[];
+  /** When the analytics model's data was read. */
+  asOf: ISODate | null;
+  /** Every figure above as its measure, with its definition. */
+  measures: Record<string, MeasureResult>;
 }
 
 export interface ReportFilters {
   from?: ISODate;
   to?: ISODate;
   projectId?: ID;
+  portfolioId?: ID;
   teamId?: ID;
   status?: ProjectStatus[];
 }
@@ -1069,7 +1087,8 @@ export interface StatusDistribution {
 export interface TimeEntrySummary {
   userId: ID;
   hoursLogged: number;
-  hoursBillable: number;
+  /** Hours from a person with no hourly rate, which no cost figure includes. */
+  hoursUncosted: number;
   projectBreakdown: { projectId: ID; hours: number }[];
 }
 
@@ -2128,4 +2147,299 @@ export interface AutomationOptions {
   projects: { id: ID; name: string }[];
   portfolios: { id: ID; name: string }[];
   customFields: { id: string; name: string; numeric: boolean }[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reports, dashboards and analytics (BRQ-05: BR-401 to BR-405)                */
+/* -------------------------------------------------------------------------- */
+
+export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'perWeek' | 'points';
+export type MeasureScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'person';
+export type MeasureMemberKind = 'work_package' | 'project' | 'person';
+
+export interface MeasureScope {
+  kind: MeasureScopeKind;
+  /** The portfolio, project, department, team or person; absent for the instance. */
+  id?: ID;
+}
+
+export interface MeasurePeriod {
+  /** First day, inclusive. */
+  from: ISODate;
+  /** Last day, inclusive. */
+  to: ISODate;
+}
+
+/** A measure as the semantic layer defines it (BR-404). */
+export interface MeasureInfo {
+  id: string;
+  label: string;
+  unit: MeasureUnit;
+  /** Exactly what is counted. */
+  definition: string;
+  scopes: MeasureScopeKind[];
+  usesPeriod: boolean;
+  memberKind?: MeasureMemberKind;
+  trend?: 'period' | 'asAt';
+  version: number;
+}
+
+/** A measure's value for one scope, period and viewer. */
+export interface MeasureResult {
+  id: string;
+  label: string;
+  unit: MeasureUnit;
+  definition: string;
+  memberKind?: MeasureMemberKind;
+  /** False when the measure has no meaning for this kind of scope. */
+  applicable: boolean;
+  /** Null when there is nothing to measure; `note` says why. */
+  value: number | null;
+  note?: string;
+  /** Ids of the work packages, projects or people behind the value. */
+  members?: number[];
+  parts?: Record<string, number | null>;
+}
+
+export interface MeasureEvaluation {
+  scope: MeasureScope;
+  period: MeasurePeriod;
+  today: ISODate;
+  /** When the analytics model's data was read. */
+  asOf: ISODate | null;
+  measures: Record<string, MeasureResult>;
+}
+
+export interface MeasureWorkMember {
+  id: number;
+  subject: string;
+  projectId: number;
+  projectName: string;
+  type: string;
+  status: string;
+  statusCategory: string;
+  priority: string | null;
+  assigneeId: number | null;
+  assigneeName: string | null;
+  dueDate: ISODate | null;
+  closedAt: ISODate | null;
+  isMilestone: boolean;
+  /** Why it is here, where the measure says: met, missed, late 3d. */
+  flag?: string;
+}
+
+export interface MeasureProjectMember {
+  id: number;
+  name: string;
+  identifier: string | null;
+  portfolioId: string | null;
+  health: HealthLevel | null;
+  scheduleVarianceDays: number | null;
+  budget: number | null;
+}
+
+export interface MeasurePersonMember {
+  id: number;
+  name: string;
+  departmentId: string | null;
+  teamId: string | null;
+  weeklyCapacityHours: number;
+  loggedHours: number;
+  utilisation: number | null;
+}
+
+export type MeasureMembers =
+  | { kind: 'work_package'; items: MeasureWorkMember[] }
+  | { kind: 'project'; items: MeasureProjectMember[] }
+  | { kind: 'person'; items: MeasurePersonMember[] };
+
+/** The drill-through behind a measure's value. */
+export interface MeasureMembersResult {
+  measure: MeasureResult;
+  asOf: ISODate | null;
+  members: MeasureMembers;
+}
+
+export interface MeasureTrendPoint {
+  from: ISODate;
+  to: ISODate;
+  value: number | null;
+}
+
+export interface MeasureTrend {
+  measure: MeasureInfo;
+  asOf: ISODate | null;
+  points: MeasureTrendPoint[];
+}
+
+export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'risk';
+export type DashboardLinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
+
+export interface DashboardColumn {
+  key: string;
+  label: string;
+  unit?: MeasureUnit;
+  measureId?: string;
+}
+
+export interface DashboardRow {
+  key: string;
+  cells: Record<string, string | number | null>;
+  link?: { kind: DashboardLinkKind; id: string };
+}
+
+export interface DashboardTable {
+  id: string;
+  title: string;
+  description?: string;
+  columns: DashboardColumn[];
+  rows: DashboardRow[];
+}
+
+export interface DashboardSeries {
+  id: string;
+  title: string;
+  measureId: string;
+  bucket: 'week' | 'month';
+  points: MeasureTrendPoint[];
+}
+
+/** An executive or PMO dashboard (BR-405), described as data. */
+export interface Dashboard {
+  id: DashboardId;
+  title: string;
+  description: string;
+  scope: MeasureScope & { name: string };
+  period: MeasurePeriod;
+  today: ISODate;
+  asOf: ISODate | null;
+  /** The measures on the tiles, in order. */
+  tiles: string[];
+  measures: Record<string, MeasureResult>;
+  tables: DashboardTable[];
+  series: DashboardSeries[];
+  timing: { serverMs: number; targetMs: number; withinTarget: boolean };
+}
+
+/* ---------------------------------------------------- the analytics model */
+
+export interface ReconciliationLine {
+  entity: string;
+  label: string;
+  source: number;
+  model: number;
+  difference: number;
+  /** Rows of difference the tolerance allows. */
+  allowed: number;
+  ok: boolean;
+}
+
+export interface AnalyticsRefreshRun {
+  id: ID;
+  kind: 'full' | 'incremental';
+  trigger: 'schedule' | 'manual' | 'change';
+  startedAt: ISODate;
+  finishedAt: ISODate | null;
+  status: 'running' | 'succeeded' | 'failed';
+  durationMs: number | null;
+  /** The agreed window a full refresh must finish within. */
+  windowMs: number | null;
+  withinWindow: boolean | null;
+  rows: Record<string, number> | null;
+  reconciliation: ReconciliationLine[] | null;
+  reconciled: boolean | null;
+  error: string | null;
+}
+
+export interface AnalyticsRefreshRunPage {
+  items: AnalyticsRefreshRun[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AnalyticsModelStatus {
+  enabled: boolean;
+  asOf: ISODate | null;
+  running: boolean;
+  lastFull: AnalyticsRefreshRun | null;
+  lastIncremental: AnalyticsRefreshRun | null;
+  counts: Record<string, number>;
+  windowMinutes: number;
+  tolerancePct: number;
+  fullRefreshHourUtc: number;
+  intervalMinutes: number;
+}
+
+/** Every work package as API v3 reported it at a moment (BR-403). */
+export interface WorkPackageCapture {
+  id: ID;
+  capturedAt: ISODate;
+  trigger: string;
+  workPackages: number;
+}
+
+export interface WorkPackageCapturePage {
+  items: WorkPackageCapture[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ReconstructionDifference {
+  workPackageId: number;
+  subject: string | null;
+  field: string;
+  label: string;
+  captured: string | null;
+  reconstructed: string | null;
+}
+
+/** Reconstruction from the journals, compared with a capture row by row. */
+export interface ReconstructionCheck {
+  capture: WorkPackageCapture;
+  modelAsOf: ISODate | null;
+  compared: number;
+  matched: number;
+  mismatched: number;
+  deletedSince: number;
+  missingFromHistory: number;
+  differences: ReconstructionDifference[];
+  matches: boolean;
+}
+
+/** The work in scope as it stood at an instant. */
+export interface StateAsAt {
+  at: ISODate;
+  day: ISODate;
+  total: number;
+  open: number;
+  closed: number;
+  overdue: number;
+  byStatus: { statusId: number; name: string; category: string; count: number }[];
+  byProject: { projectId: number; name: string; total: number; open: number; overdue: number }[];
+}
+
+export interface AnalyticsAccessProbe {
+  attempt: string;
+  statement: string;
+  /** A read worked; a write was refused. */
+  ok: boolean;
+  code?: string;
+  message?: string;
+}
+
+/** Whether the analytics role reads everything and writes nothing (BR-401). */
+export interface AnalyticsAccessCheck {
+  configured: boolean;
+  checkedAt: ISODate;
+  role?: string;
+  replica?: boolean;
+  lagSeconds?: number | null;
+  reads: AnalyticsAccessProbe[];
+  writes: AnalyticsAccessProbe[];
+  /** The role's privileges as the primary records them: the second lock. */
+  grants: AnalyticsAccessProbe[];
+  ok: boolean;
+  error?: string;
 }

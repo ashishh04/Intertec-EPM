@@ -39,6 +39,22 @@ export const queryKeys = {
   automationFirings: (ruleId?: ID) => ['automation', 'firings', ruleId ?? 'all'] as const,
   escalationPolicies: () => ['automation', 'policies'] as const,
   escalations: (state: string) => ['automation', 'escalations', state] as const,
+  // The semantic layer and dashboards: under ['insights'], so a model refresh
+  // can invalidate every figure at once.
+  measures: () => ['insights', 'measures'] as const,
+  measureValues: (ids: string[], query: object) => ['insights', 'values', ids.join(','), query] as const,
+  measureMembers: (id: string, query: object) => ['insights', 'members', id, query] as const,
+  measureTrend: (id: string, query: object) => ['insights', 'trend', id, query] as const,
+  dashboards: () => ['insights', 'dashboards'] as const,
+  dashboard: (id: string, query: object) => ['insights', 'dashboard', id, query] as const,
+  stateAsAt: (at: string, scope?: string) => ['insights', 'state', at, scope ?? 'instance'] as const,
+  // The model's administration.
+  analyticsModel: () => ['analytics-model', 'status'] as const,
+  analyticsRuns: (page: number, pageSize: number, kind?: string) =>
+    ['analytics-model', 'runs', page, pageSize, kind ?? 'all'] as const,
+  analyticsCaptures: (page: number, pageSize: number) => ['analytics-model', 'captures', page, pageSize] as const,
+  analyticsCompare: (captureId: string) => ['analytics-model', 'compare', captureId] as const,
+  analyticsAccess: () => ['analytics-model', 'access'] as const,
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,

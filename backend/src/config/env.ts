@@ -249,6 +249,61 @@ const schema = z.object({
     z.string().min(16, 'EPM_RULES_WEBHOOK_SECRET must be at least 16 characters.').optional(),
   ),
 
+  // --- Analytics model (BRQ-05) -------------------------------------------
+  // The reporting model in the `analytics` schema, refreshed from OpenProject
+  // and EPM. On unless "false": every dashboard reads it. It writes only to its
+  // own schema, all of it derived and rebuilt by the next full refresh.
+  EPM_ANALYTICS_MODEL_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  // An incremental refresh runs within this long of a change EPM is told about
+  // (its own writes, OpenProject's webhook), and at least this often anyway.
+  EPM_ANALYTICS_CHANGE_CHECK_SECONDS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(5).max(600).default(30),
+  ),
+  EPM_ANALYTICS_REFRESH_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(1).max(1440).default(10),
+  ),
+  // The nightly full refresh, which reloads everything and reconciles it, at
+  // this hour UTC — and the window it is agreed to finish within (BR-402).
+  EPM_ANALYTICS_FULL_REFRESH_HOUR_UTC: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(0).max(23).default(1),
+  ),
+  EPM_ANALYTICS_REFRESH_WINDOW_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(1).max(720).default(30),
+  ),
+  // How far a model count may differ from its source and still reconcile, as
+  // a percentage of the source, rounded up to whole rows: a change made while
+  // the refresh is reading is one row, not a failure.
+  EPM_ANALYTICS_RECONCILE_TOLERANCE_PCT: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().min(0).max(10).default(0.5),
+  ),
+  // The daily independent capture of every work package, which reconstruction
+  // from the journals is checked against (BR-403), at this hour UTC; kept this
+  // many days.
+  EPM_ANALYTICS_CAPTURE_HOUR_UTC: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(0).max(23).default(2),
+  ),
+  EPM_ANALYTICS_CAPTURE_RETENTION_DAYS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(7).max(3650).default(400),
+  ),
+  // The response target every dashboard is measured against (BR-405).
+  EPM_DASHBOARD_TARGET_MS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(100).max(60_000).default(2000),
+  ),
+  // The read-only analytics role's connection (BR-401), for checking that it
+  // reads everything and writes nothing — on the replica where there is one.
+  EPM_ANALYTICS_DATABASE_URL: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+
   /*
    * The currency internal hourly rates are quoted in.
    *
@@ -311,6 +366,7 @@ const FILE_SECRETS = [
   'RESEND_API_KEY',
   'SMTP_PASSWORD',
   'EPM_RULES_WEBHOOK_SECRET',
+  'EPM_ANALYTICS_DATABASE_URL',
 ] as const;
 
 function withSecretFiles(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -390,5 +446,9 @@ export function describeEnv() {
     escalationSweep: env.EPM_ESCALATION_SWEEP_ENABLED
       ? `every ${env.EPM_ESCALATION_SWEEP_INTERVAL_MINUTES} minutes`
       : 'disabled',
+    analyticsModel: env.EPM_ANALYTICS_MODEL_ENABLED
+      ? `on change and every ${env.EPM_ANALYTICS_REFRESH_INTERVAL_MINUTES} minutes; full at ${env.EPM_ANALYTICS_FULL_REFRESH_HOUR_UTC}:00 UTC`
+      : 'disabled',
+    analyticsRole: env.EPM_ANALYTICS_DATABASE_URL ? 'configured' : 'not configured',
   };
 }

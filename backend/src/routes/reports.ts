@@ -1,33 +1,53 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import { requestSignal } from '../lib/request-signal.js';
-import { aggregateCache, userScopedKey } from '../lib/cache.js';
-import { openProject, linkId, type OpFilter } from '../openproject/client.js';
-import { getCatalog } from '../mapping/catalog.js';
-import { getProjectAggregates, listProjects } from '../mapping/projects.js';
+import { addDays, daysBetween, today as todayIso } from '../lib/dates.js';
+import { EpmError } from '../lib/errors.js';
 import { healthViews, unassessedView } from '../domain/health.js';
-import { durationToHours } from '../lib/duration.js';
-import type { HalCollection, OpProject, OpTimeEntry, OpWorkPackage } from '../openproject/types.js';
+import { modelFacts } from '../domain/measure-facts.js';
+import {
+  bucketsOf,
+  contextFor,
+  evaluateInContext,
+  prepare,
+  type MeasureContext,
+  type Period,
+  type Scope,
+} from '../domain/measures.js';
+import { viewerOf } from './measures.js';
 import type {
   DeliveryTrendPoint,
   ExecutiveInsights,
-  HealthLevel,
+  MetricTrend,
   PortfolioRow,
   StatusDistribution,
   TaskStatusCategory,
   TimeEntrySummary,
 } from '../types/epm.js';
 
-/** Aggregates are computed server-side; the browser never sees a full dataset. */
+/**
+ * Reports, computed by the semantic layer (BR-404) from the analytics model.
+ *
+ * Every figure here is a measure, or a breakdown of the same facts the
+ * measures read, so the reports page, the executive view, the dashboards and a
+ * scheduled report can never disagree about the same thing. The filters the
+ * page offers are applied here: the period to everything that happens in time,
+ * and the project, portfolio or team to everything — a team narrows to the
+ * work assigned to its people and the time they logged.
+ */
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 const filtersQuery = z.object({
-  from: z.string().optional(),
-  to: z.string().optional(),
-  projectId: z.string().optional(),
+  from: z.string().regex(DAY).optional(),
+  to: z.string().regex(DAY).optional(),
+  projectId: z.string().regex(/^\d+$/).optional(),
+  portfolioId: z.string().optional(),
   teamId: z.string().optional(),
   status: z.string().optional(),
 });
+
+type Filters = z.infer<typeof filtersQuery>;
 
 const STATUS_LABEL: Record<TaskStatusCategory, string> = {
   backlog: 'Backlog',
@@ -38,198 +58,189 @@ const STATUS_LABEL: Record<TaskStatusCategory, string> = {
   blocked: 'Blocked',
 };
 
-interface GroupedCollection extends HalCollection<unknown> {
-  groups?: { count: number; value?: string | null; _links?: { valueLink?: { href: string }[] } }[];
+/** The period asked for, or `days` back from today. */
+function periodOf(filters: Filters, days: number): Period {
+  const to = filters.to ?? todayIso();
+  const from = filters.from ?? addDays(to, -(days - 1));
+  if (from > to) throw EpmError.badRequest('from must not be after to.');
+  if (daysBetween(from, to) > 731) throw EpmError.badRequest('A period can be at most two years long.');
+  return { from, to };
 }
 
-function scopeFilters(projectId?: string): OpFilter[] {
-  return projectId ? [{ field: 'project', operator: '=', values: [projectId] }] : [];
+/**
+ * The filters as a scope: a project, else a portfolio, else the instance — and
+ * a team narrows whichever of those to its people's work.
+ */
+async function contextOf(request: FastifyRequest, filters: Filters, period: Period): Promise<MeasureContext> {
+  const viewer = await viewerOf(request);
+  const shared = await prepare(viewer);
+  const facts = await modelFacts();
+
+  if (filters.projectId && !viewer.visibleProjectIds.has(Number(filters.projectId))) {
+    throw EpmError.notFound('That project');
+  }
+  if (filters.portfolioId && !facts.portfolios.has(filters.portfolioId)) throw EpmError.notFound('That portfolio');
+  if (filters.teamId && !facts.teams.has(filters.teamId)) throw EpmError.notFound('That team');
+
+  const place: Scope = filters.projectId
+    ? { kind: 'project', id: filters.projectId }
+    : filters.portfolioId
+      ? { kind: 'portfolio', id: filters.portfolioId }
+      : { kind: 'instance' };
+
+  if (!filters.teamId) return contextFor(shared, place, period, todayIso());
+
+  // A team inside a place: the team's people, their work in that place.
+  const within = new Set(contextFor(shared, place, period, todayIso()).projects.map((project) => project.id));
+  return contextFor(shared, { kind: 'team', id: filters.teamId }, period, todayIso(), within);
 }
 
-/** Caps the walk — trend reporting should not stream an entire instance. */
-const TREND_MAX_PAGES = 10;
+/** The projects a report is about: those in scope, or — for a team — those its people have work in. */
+function reportProjects(context: MeasureContext) {
+  if (context.projects.length > 0) return context.projects.filter((project) => project.active);
+  const ids = new Set(context.work.map((item) => item.projectId));
+  return [...context.facts.projects.values()].filter((project) => project.active && ids.has(project.id));
+}
+
+function trendOf(current: number | null, previous: number | null, periodLabel: string): MetricTrend {
+  if (current === null || previous === null || previous === 0) {
+    return { changePct: 0, direction: 'flat', positiveIsUp: true, periodLabel };
+  }
+  const changePct = Math.round(((current - previous) / previous) * 100);
+  return {
+    changePct: Math.abs(changePct),
+    direction: changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat',
+    positiveIsUp: true,
+    periodLabel,
+  };
+}
 
 export const reportRoutes: FastifyPluginAsync = async (app) => {
+  /** Work in scope by EPM status category, now. */
   app.get('/reports/status-distribution', async (request) => {
-    const { projectId } = filtersQuery.parse(request.query);
-    const signal = requestSignal(request);
-
-    return aggregateCache.get(userScopedKey(`status-distribution:${projectId ?? 'all'}`), async () => {
-      const catalog = await getCatalog(signal);
-
-      const collection = (await openProject.getCollection<unknown>(
-        '/work_packages',
-        { filters: scopeFilters(projectId), groupBy: 'status', pageSize: 1 },
-        signal,
-      )) as GroupedCollection;
-
-      // Several OpenProject statuses collapse into one EPM status, so counts
-      // must be summed rather than mapped one to one.
-      const totals = new Map<TaskStatusCategory, number>();
-      for (const group of collection.groups ?? []) {
-        const id = group._links?.valueLink?.[0]?.href?.split('/').pop();
-        const epm = id ? catalog.statusById.get(id)?.epm : undefined;
-        if (!epm) continue;
-        totals.set(epm, (totals.get(epm) ?? 0) + group.count);
-      }
-
-      return (Object.keys(STATUS_LABEL) as TaskStatusCategory[])
-        .map((status): StatusDistribution => ({
-          status,
-          label: STATUS_LABEL[status],
-          count: totals.get(status) ?? 0,
-        }))
-        .filter((row) => row.count > 0);
-    });
+    const filters = filtersQuery.parse(request.query);
+    const context = await contextOf(request, filters, periodOf(filters, 90));
+    const totals = new Map<TaskStatusCategory, number>();
+    for (const item of context.work) {
+      const category = item.statusCategory as TaskStatusCategory;
+      totals.set(category, (totals.get(category) ?? 0) + 1);
+    }
+    return (Object.keys(STATUS_LABEL) as TaskStatusCategory[])
+      .map((status): StatusDistribution => ({ status, label: STATUS_LABEL[status], count: totals.get(status) ?? 0 }))
+      .filter((row) => row.count > 0);
   });
 
+  /**
+   * Created, delivered and story points delivered, per month of the period —
+   * delivered on the day work was closed, not the day it was last edited.
+   */
   app.get('/reports/delivery-trends', async (request) => {
-    const { projectId } = filtersQuery.parse(request.query);
-    const signal = requestSignal(request);
+    const filters = filtersQuery.parse(request.query);
+    const context = await contextOf(request, filters, periodOf(filters, 365));
+    const measures = ['work.created', 'work.completed', 'work.pointsDelivered'] as const;
 
-    return aggregateCache.get(userScopedKey(`delivery-trends:${projectId ?? 'all'}`), async () => {
-      const catalog = await getCatalog(signal);
-
-      const workPackages = await openProject
-        .getAll<OpWorkPackage>(
-          '/work_packages',
-          { filters: scopeFilters(projectId), pageSize: 100, sortBy: [['createdAt', 'desc']] },
-          { signal, maxPages: TREND_MAX_PAGES },
-        )
-        .catch(() => ({ items: [] as OpWorkPackage[], truncated: false }));
-
-      if ('truncated' in workPackages && workPackages.truncated) {
-        request.log.warn('Delivery trends computed from a capped sample of work packages.');
-      }
-
-      const months = new Map<string, { created: number; completed: number; points: number }>();
-      const bucket = (key: string) => {
-        const existing = months.get(key) ?? { created: 0, completed: 0, points: 0 };
-        months.set(key, existing);
-        return existing;
-      };
-
-      for (const workPackage of workPackages.items) {
-        bucket(workPackage.createdAt.slice(0, 7)).created += 1;
-
-        const statusId = linkId(workPackage._links, 'status');
-        if (statusId && catalog.statusById.get(statusId)?.epm === 'done') {
-          const entry = bucket(workPackage.updatedAt.slice(0, 7));
-          entry.completed += 1;
-          const points = (workPackage as { storyPoints?: number | null }).storyPoints;
-          if (typeof points === 'number') entry.points += points;
-        }
-      }
-
-      return [...months.entries()]
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .slice(-12)
-        .map(([period, value]): DeliveryTrendPoint => ({
-          period,
-          created: value.created,
-          completed: value.completed,
-          velocity: value.points,
-        }));
-    });
+    const points: DeliveryTrendPoint[] = [];
+    for (const slice of bucketsOf(context.period, 'month')) {
+      const values = await evaluateInContext([...measures], { ...context, period: slice });
+      points.push({
+        period: slice.from.slice(0, 7),
+        created: values['work.created']?.value ?? 0,
+        completed: values['work.completed']?.value ?? 0,
+        velocity: values['work.pointsDelivered']?.value ?? 0,
+      });
+    }
+    return points;
   });
 
+  /** Hours logged in the period, per person, with what no cost figure includes. */
   app.get('/reports/time-summary', async (request) => {
-    const { projectId } = filtersQuery.parse(request.query);
-    const signal = requestSignal(request);
+    const filters = filtersQuery.parse(request.query);
+    const context = await contextOf(request, filters, periodOf(filters, 90));
+    const { period } = context;
 
-    const entries = await openProject
-      .getAll<OpTimeEntry>(
-        '/time_entries',
-        { filters: scopeFilters(projectId), pageSize: 100 },
-        { signal },
-      )
-      .catch(() => ({ items: [] as OpTimeEntry[] }));
-
-    const byUser = new Map<string, { hours: number; projects: Map<string, number> }>();
-
-    for (const entry of entries.items) {
-      const userId = linkId(entry._links, 'user');
-      if (!userId) continue;
-
-      const hours = durationToHours(entry.hours) ?? 0;
-      const record = byUser.get(userId) ?? { hours: 0, projects: new Map<string, number>() };
-      record.hours += hours;
-
-      const project = linkId(entry._links, 'project');
-      if (project) record.projects.set(project, (record.projects.get(project) ?? 0) + hours);
-
-      byUser.set(userId, record);
+    const byUser = new Map<number, { hours: number; uncosted: number; projects: Map<number, number> }>();
+    for (const entry of context.time) {
+      if (entry.userId === null || entry.spentOn < period.from || entry.spentOn > period.to) continue;
+      const record = byUser.get(entry.userId) ?? { hours: 0, uncosted: 0, projects: new Map<number, number>() };
+      record.hours += entry.hours;
+      if (entry.cost === null) record.uncosted += entry.hours;
+      if (entry.projectId !== null) record.projects.set(entry.projectId, (record.projects.get(entry.projectId) ?? 0) + entry.hours);
+      byUser.set(entry.userId, record);
     }
 
+    const round = (value: number) => Math.round(value * 100) / 100;
     return [...byUser.entries()].map(([userId, record]): TimeEntrySummary => ({
-      userId,
-      hoursLogged: Math.round(record.hours * 100) / 100,
-      // OpenProject does not mark billability without the cost module.
-      hoursBillable: 0,
-      projectBreakdown: [...record.projects.entries()].map(([id, hours]) => ({
-        projectId: id,
-        hours: Math.round(hours * 100) / 100,
+      userId: String(userId),
+      hoursLogged: round(record.hours),
+      hoursUncosted: round(record.uncosted),
+      projectBreakdown: [...record.projects.entries()].map(([projectId, hours]) => ({
+        projectId: String(projectId),
+        hours: round(hours),
       })),
     }));
   });
 
-  app.get('/reports/executive-insights', async (request) => {
-    const signal = requestSignal(request);
+  /** The executive view: headline measures for the scope and period, and each project's health. */
+  app.get('/reports/executive-insights', async (request): Promise<ExecutiveInsights> => {
+    const filters = filtersQuery.parse(request.query);
+    const period = periodOf(filters, 90);
+    const context = await contextOf(request, filters, period);
 
-    const [projects, aggregates] = await Promise.all([
-      listProjects(signal),
-      getProjectAggregates(signal),
-    ]);
+    const ids = [
+      'health.greenPct',
+      'milestones.onTime',
+      'risk.open',
+      'work.overdue',
+      'utilisation',
+      'sprint.velocity',
+      'work.completed',
+      'work.throughput',
+    ];
+    // People scopes carry no projects of their own; their project figures
+    // are read across the projects their people work in.
+    const projects = reportProjects(context);
+    const measured = context.projects.length > 0 ? context : { ...context, projects };
+    const measures = await evaluateInContext(ids, measured);
 
-    const active = projects.filter((project) => project.active);
+    // Velocity against the period of the same length just before.
+    const span = daysBetween(period.from, period.to);
+    const previous = { from: addDays(period.from, -span), to: addDays(period.from, -1) };
+    const before = await evaluateInContext(['sprint.velocity'], { ...measured, period: previous });
 
-    // The stored health with overrides applied, so a report never disagrees
-    // with the project page it summarises — and the calculated value and the
-    // override's reason travel with it, so a pin is never reported as measured.
-    const health = await healthViews(active);
-    const matrix: PortfolioRow[] = active.map((project) => {
-      const id = String(project.id);
-      const view = health.get(id) ?? unassessedView('Health has not been calculated yet.');
+    const health = await healthViews(projects);
+    const matrix: PortfolioRow[] = projects
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((project) => {
+        const id = String(project.id);
+        const view = health.get(id) ?? unassessedView('Health has not been calculated yet.');
+        return {
+          projectId: id,
+          projectName: project.name,
+          identifier: project.identifier ?? '',
+          schedule: view.effective.schedule,
+          budget: view.effective.budget,
+          risks: view.effective.risks,
+          overdue: view.effective.overdue,
+          overall: view.effective.overall,
+          calculatedOverall: view.calculated.overall,
+          override: view.override
+            ? { reason: view.override.reason, setBy: view.override.setBy, setAt: view.override.setAt }
+            : undefined,
+        };
+      });
 
-      return {
-        projectId: id,
-        projectName: project.name,
-        identifier: project.identifier,
-        schedule: view.effective.schedule,
-        budget: view.effective.budget,
-        risks: view.effective.risks,
-        overdue: view.effective.overdue,
-        overall: view.effective.overall,
-        calculatedOverall: view.calculated.overall,
-        override: view.override
-          ? { reason: view.override.reason, setBy: view.override.setBy, setAt: view.override.setAt }
-          : undefined,
-      };
-    });
-    const openRisks = active.reduce((sum, project) => sum + (health.get(String(project.id))?.openRisks ?? 0), 0);
-
-    const healthy = matrix.filter((row) => row.overall === 'healthy').length;
-    const totalTasks = [...aggregates.total.values()].reduce((sum, value) => sum + value, 0);
-    const completedTasks = [...aggregates.completed.values()].reduce((sum, value) => sum + value, 0);
-    const overdueTasks = [...aggregates.overdue.values()].reduce((sum, value) => sum + value, 0);
-
-    const insights: ExecutiveInsights = {
-      portfolioHealth: matrix.length ? Math.round((healthy / matrix.length) * 100) : 0,
-      onTimeDelivery:
-        completedTasks + overdueTasks > 0
-          ? Math.round((completedTasks / (completedTasks + overdueTasks)) * 100)
-          : 0,
-      // Real risks: open work packages of a risk type. This tile used to show
-      // the overdue count under the name "risks".
-      openRisks,
-      overdueTasks,
-      // Needs a capacity model and logged time; this instance has almost none.
-      teamUtilization: 0,
-      sprintVelocity: 0,
-      velocityTrend: { changePct: 0, direction: 'flat', positiveIsUp: true, periodLabel: 'vs last sprint' },
+    const value = (id: string) => measures[id]?.value ?? null;
+    return {
+      portfolioHealth: value('health.greenPct'),
+      onTimeDelivery: value('milestones.onTime'),
+      openRisks: value('risk.open'),
+      overdueTasks: value('work.overdue') ?? 0,
+      teamUtilization: value('utilisation'),
+      sprintVelocity: value('sprint.velocity'),
+      velocityTrend: trendOf(value('sprint.velocity'), before['sprint.velocity']?.value ?? null, 'vs the period before'),
       matrix,
+      asOf: context.facts.asOf,
+      measures,
     };
-
-    return insights;
   });
 };

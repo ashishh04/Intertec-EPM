@@ -16,6 +16,7 @@ import { expandIds, toEpmTask, type WorkPackageWithPoints } from '../mapping/tas
 import type { HalLinks, OpProject } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
+import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
 
 /**
  * Work packages.
@@ -59,10 +60,8 @@ const OP_SORT_FIELD: Record<string, string> = {
 function bucketFilters(bucket: string | undefined, today: string): OpFilter[] {
   switch (bucket) {
     case 'overdue':
-      return [
-        { field: 'status', operator: 'o', values: [] },
-        { field: 'dueDate', operator: '<t-', values: ['0'] },
-      ];
+      // Due before today; work due today is in the `today` bucket, not here.
+      return [OPEN_FILTER, OVERDUE_DUE_FILTER];
     case 'today':
       return [
         { field: 'status', operator: 'o', values: [] },

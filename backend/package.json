@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "EPM BFF — normalizes OpenProject into EPM domain models for the EPM frontend",
+  "description": "EPM BFF \u2014 normalizes OpenProject into EPM domain models for the EPM frontend",
   "engines": {
     "node": ">=22"
   },
@@ -20,7 +20,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "probe": "tsx --env-file-if-exists=.env src/scripts/probe-openproject.ts",
-    "test:authz": "tsx --env-file-if-exists=.env src/scripts/authz-test.ts"
+    "test:authz": "tsx --env-file-if-exists=.env src/scripts/authz-test.ts",
+    "analytics": "tsx --env-file-if-exists=.env src/scripts/analytics.ts"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.33.6",

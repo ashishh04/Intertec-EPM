@@ -409,7 +409,7 @@ function DeliveryTrendsWidget() {
     >
       <ChartCard
         title="Delivery Insights"
-        description="Completed vs. created work packages per sprint"
+        description="Delivered and created work packages per month"
         height={260}
         actions={
           <Button asChild variant="ghost" size="sm" className="text-2xs">

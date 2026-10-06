@@ -67,7 +67,7 @@ export default function SprintsPage() {
         errorTitle="Unable to load velocity"
         skeleton={<ChartCardSkeleton height={240} />}
       >
-        <ChartCard title="Velocity trend" description="Story points delivered per sprint" height={240}>
+        <ChartCard title="Points delivered" description="Story points of the work delivered each month" height={240}>
           <VelocityChart data={trendsQuery.data ?? []} />
         </ChartCard>
       </QueryBoundary>

@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { ProgressBar } from '@/components/ui/progress';
 import { useSetSprintState, useSprints } from '@/hooks/useSprints';
+import { useMeasureValues } from '@/hooks/useInsights';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { useUserMap } from '@/hooks/useUsers';
@@ -70,6 +71,15 @@ export default function AgilePage() {
   const activeSprint = sprints.find((item) => item.state === 'active');
   const sprint: EpmSprint | undefined =
     sprints.find((item) => item.id === selectedId) ?? activeSprint ?? sprints[0];
+
+  const velocityQuery = useMeasureValues(
+    ['sprint.velocity'],
+    {
+      scope: sprint?.projectIds.length === 1 ? `project:${sprint.projectIds[0]}` : 'instance',
+      from: new Date(Date.now() - 182 * 86_400_000).toISOString().slice(0, 10),
+    },
+    Boolean(sprint),
+  );
 
   const selectSprint = (id: ID) => {
     setSearchParams((current) => {
@@ -173,11 +183,9 @@ export default function AgilePage() {
   const progress = Math.round((sprint.completedPoints / Math.max(1, sprint.committedPoints)) * 100);
   const remaining = sprint.committedPoints - sprint.completedPoints;
   const daysLeft = daysFromToday(sprint.endDate) ?? 0;
-  const velocity = trendsQuery.data ?? [];
-  const averageVelocity =
-    velocity.length > 0
-      ? Math.round(velocity.reduce((sum, point) => sum + point.velocity, 0) / velocity.length)
-      : 0;
+  // Velocity is the semantic layer's: points delivered per sprint, over the
+  // sprints of this sprint's projects that ended in the last six months.
+  const averageVelocity = velocityQuery.data?.measures['sprint.velocity']?.value ?? null;
 
   return (
     <div className="space-y-5">
@@ -323,9 +331,13 @@ export default function AgilePage() {
         />
         <MetricCard
           label="Velocity"
-          value={averageVelocity}
-          suffix="pts"
-          support="Rolling average per sprint"
+          value={averageVelocity ?? '—'}
+          suffix={averageVelocity === null ? undefined : 'pts'}
+          support={
+            averageVelocity === null
+              ? 'No sprint of these projects ended in the last six months'
+              : 'Points delivered per sprint, last six months'
+          }
           icon={TrendingUp}
           tone="highlight"
         />
@@ -345,8 +357,8 @@ export default function AgilePage() {
           errorTitle="Unable to load velocity"
           skeleton={<ChartCardSkeleton height={260} />}
         >
-          <ChartCard title="Velocity" description="Story points delivered per sprint" height={260}>
-            <VelocityChart data={velocity} />
+          <ChartCard title="Points delivered" description="Story points of the work delivered each month" height={260}>
+            <VelocityChart data={trendsQuery.data ?? []} />
           </ChartCard>
         </QueryBoundary>
       </div>

@@ -1,13 +1,20 @@
 /**
- * OpenProject reports durations as ISO-8601 (`PT7H30M`, `P1D`); the EPM
+ * OpenProject reports durations as ISO-8601 (`PT7H30M`, `P1DT16H`); the EPM
  * contract uses plain hours.
+ *
+ * A day in these strings is twenty-four hours, not a working day. OpenProject
+ * 15.5.1 writes effort as `Duration.new(seconds: hours * 3600).iso8601` and
+ * reads it back as total seconds over 3600 (`API::V3::Utilities::
+ * DateTimeFormatter`), so 40 hours arrives as `P1DT16H` and 120 as `P5D`.
+ * Reading a day as eight hours — as this once did — reported a 120-hour
+ * estimate as 40, and a form saved from that wrote 40 back.
  */
 
 const PATTERN =
   /^P(?:(\d+(?:\.\d+)?)Y)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)W)?(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$/;
 
-/** An OpenProject "day" of effort is a working day, not 24 hours. */
-const HOURS_PER_DAY = 8;
+/** The hours in each unit as OpenProject counts them: calendar time, not working time. */
+const HOURS_PER_DAY = 24;
 
 export function durationToHours(value: string | null | undefined): number | undefined {
   if (!value) return undefined;
@@ -21,7 +28,7 @@ export function durationToHours(value: string | null | undefined): number | unde
   const total =
     num(years) * 365 * HOURS_PER_DAY +
     num(months) * 30 * HOURS_PER_DAY +
-    num(weeks) * 5 * HOURS_PER_DAY +
+    num(weeks) * 7 * HOURS_PER_DAY +
     num(days) * HOURS_PER_DAY +
     num(hours) +
     num(minutes) / 60 +

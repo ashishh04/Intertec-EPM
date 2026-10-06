@@ -22,6 +22,7 @@ import { projectCosts, type ProjectCost } from './costs.js';
 import { HEALTH_CRITERIA, getHealthRules, resolveRiskSelection } from './health-rules.js';
 import { notifyHealthChange } from './notifications.js';
 import { noteRuleEvent } from './rule-events.js';
+import { OVERDUE_DUE_FILTER } from './work-definitions.js';
 
 /**
  * Project health, as the BRD defines it (BR-204, BR-205, BR-206).
@@ -158,6 +159,34 @@ function scheduleCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
   };
 }
 
+/** Spend against plan as a share of the whole budget, to one decimal place: positive is over. */
+export function budgetVariancePct(cost: number, planned: number, budget: number): number {
+  return Math.round(((cost - planned) / budget) * 1000) / 10;
+}
+
+/**
+ * How much of a budget was planned to be spent by `today`.
+ *
+ * Phased evenly across the planned start and finish: nothing before the
+ * start, all of it after the finish. Without a usable plan there is no
+ * phasing, and the whole budget counts as planned — `share` is then null.
+ * The one rule for "planned to date": health's budget criterion and the cost
+ * variance measures both use it. Phased budgets (BR-310) will replace the
+ * even spread here.
+ */
+export function plannedBudgetToDate(
+  budget: number,
+  plannedStart: string | undefined | null,
+  plannedFinish: string | undefined | null,
+  today: string,
+): { planned: number; share: number | null } {
+  if (!plannedStart || !plannedFinish || plannedFinish < plannedStart) return { planned: budget, share: null };
+  const span = daysBetween(plannedStart, plannedFinish);
+  const elapsed = today < plannedStart ? 0 : Math.min(span, daysBetween(plannedStart, today));
+  const share = span > 0 ? elapsed / span : 1;
+  return { planned: budget * share, share };
+}
+
 /**
  * Spend against the budget planned to date.
  *
@@ -182,19 +211,13 @@ function budgetCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
   }
 
   const { budget, cost } = inputs;
-  let planned = budget;
-  let basis = 'with no planned dates to phase it over, all of it counts as planned';
+  const { planned, share } = plannedBudgetToDate(budget, inputs.plannedStart, inputs.plannedFinish, inputs.today);
+  const basis =
+    share === null
+      ? 'with no planned dates to phase it over, all of it counts as planned'
+      : `${money(planned)} of it was planned by today, ${Math.round(share * 100)}% of the way through the schedule`;
 
-  if (inputs.plannedStart && inputs.plannedFinish && inputs.plannedFinish >= inputs.plannedStart) {
-    const span = daysBetween(inputs.plannedStart, inputs.plannedFinish);
-    const elapsed =
-      inputs.today < inputs.plannedStart ? 0 : Math.min(span, daysBetween(inputs.plannedStart, inputs.today));
-    const share = span > 0 ? elapsed / span : 1;
-    planned = budget * share;
-    basis = `${money(planned)} of it was planned by today, ${Math.round(share * 100)}% of the way through the schedule`;
-  }
-
-  const variance = Math.round(((cost.cost - planned) / budget) * 1000) / 10;
+  const variance = budgetVariancePct(cost.cost, planned, budget);
   const direction =
     variance > 0
       ? `${variance}% of the budget over plan`
@@ -543,7 +566,7 @@ async function gatherInputs(scope: string[] | 'all', rules: HealthRules, refresh
     const [total, openCounts, overdue, risks, highRisks, latest, profiles, costs] = await Promise.all([
       countsByProject([...narrow], signal),
       countsByProject([...narrow, open], signal),
-      countsByProject([...narrow, open, { field: 'dueDate', operator: '<t-', values: ['0'] }], signal),
+      countsByProject([...narrow, open, OVERDUE_DUE_FILTER], signal),
       riskTypeIds.length > 0
         ? countsByProject([...narrow, open, { field: 'type', operator: '=', values: riskTypeIds }], signal)
         : none,

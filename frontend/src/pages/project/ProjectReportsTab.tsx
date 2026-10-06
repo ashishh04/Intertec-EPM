@@ -144,7 +144,7 @@ export default function ProjectReportsTab() {
       >
         <ChartCard
           title="Delivery trend"
-          description="Completed vs. created work packages per sprint"
+          description="Delivered and created work packages per month"
           height={260}
         >
           <DeliveryTrendChart data={trendsQuery.data ?? []} />

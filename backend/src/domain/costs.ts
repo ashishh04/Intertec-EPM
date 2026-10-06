@@ -40,6 +40,22 @@ interface OpTimeEntryLite {
 
 const NONE: ProjectCost = { cost: 0, costedHours: 0, uncostedHours: 0 };
 
+/** Money to two places, the way every cost figure is reported. */
+export function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * The cost of `hours` worked by someone at `rate` an hour.
+ *
+ * The one rule for labour cost. The analytics model prices each time entry
+ * with it, and this module prices each project with it, so the two can only
+ * disagree about which entries they saw, never about what an hour costs.
+ */
+export function labourCost(hours: number, rate: number): number {
+  return roundMoney(hours * rate);
+}
+
 /**
  * What is known, and how far it can be trusted.
  *
@@ -94,16 +110,16 @@ function accumulate(entries: OpTimeEntryLite[], rates: Map<string, number>): Map
     if (rate === undefined) {
       total.uncostedHours += hours;
     } else {
-      total.cost += hours * rate;
+      total.cost += labourCost(hours, rate);
       total.costedHours += hours;
     }
     totals.set(projectId, total);
   }
 
   for (const total of totals.values()) {
-    total.cost = Math.round(total.cost * 100) / 100;
-    total.costedHours = Math.round(total.costedHours * 100) / 100;
-    total.uncostedHours = Math.round(total.uncostedHours * 100) / 100;
+    total.cost = roundMoney(total.cost);
+    total.costedHours = roundMoney(total.costedHours);
+    total.uncostedHours = roundMoney(total.uncostedHours);
   }
   return totals;
 }

@@ -4,10 +4,10 @@
 # ---------------------------------------------
 # EPM cannot run against a stock OpenProject. It signs people in on its own form
 # and exchanges their credentials for an OpenProject token, which needs
-# zzz_epm_password_grant.rb loaded inside the container; the other three add the
-# administrative endpoints EPM reads.
+# zzz_epm_password_grant.rb loaded inside the container; the other four add the
+# administrative endpoints EPM reads and the history its analytics model loads.
 #
-# Mounted from a working copy, those four files make the deployment host depend
+# Mounted from a working copy, those five files make the deployment host depend
 # on a checkout of this repository being present, at the right commit, at the
 # right path. A stack that comes up with the mount missing starts cleanly and
 # then refuses every sign-in, with nothing in any log that points at the cause.
@@ -35,6 +35,7 @@ COPY zzz_epm_password_grant.rb  /app/config/initializers/zzz_epm_password_grant.
 COPY zzz_epm_admin_api.rb       /app/config/initializers/zzz_epm_admin_api.rb
 COPY zzz_epm_admin_settings.rb  /app/config/initializers/zzz_epm_admin_settings.rb
 COPY zzz_epm_admin_catalog.rb   /app/config/initializers/zzz_epm_admin_catalog.rb
+COPY zzz_epm_analytics_api.rb   /app/config/initializers/zzz_epm_analytics_api.rb
 
 # Configuration scripts, run on demand rather than at boot — the governance
 # types (Change Request, Risk) the approval chains and health rules use, and the

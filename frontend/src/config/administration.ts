@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Braces,
   CalendarDays,
   ClipboardList,
@@ -237,6 +238,13 @@ export const ADMIN_AREAS: AdminArea[] = [
       },
     ],
   },
+  single(
+    'analytics',
+    'Analytics model',
+    'How fresh the reporting model is, every refresh and how it reconciled to its source, the daily captures history is checked against, and the read-only role BI tools use.',
+    BarChart3,
+    'live',
+  ),
   single(
     'custom-fields',
     'Custom fields',

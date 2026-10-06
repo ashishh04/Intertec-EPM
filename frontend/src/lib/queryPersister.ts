@@ -21,11 +21,13 @@ const STORAGE_KEY = 'epm.query-cache';
 const OWNER_KEY = 'epm.query-cache.owner';
 
 /**
- * Bumping this discards every persisted cache. It is tied to the build so a
+ * A change discards every persisted cache. It is the build's identity, so a
  * deploy that changes a response shape cannot hydrate the old one into new
- * components.
+ * components — which a fixed version string did not prevent: the executive
+ * view's figures gained their definitions in a release, and a browser holding
+ * yesterday's response rendered it into the new tiles and failed.
  */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = __EPM_BUILD_ID__;
 
 /** A day. Older data is thrown away rather than shown and corrected. */
 export const PERSIST_MAX_AGE = 24 * 60 * 60 * 1000;

@@ -1,15 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import {
-  AlertTriangle,
-  CalendarCheck,
-  Gauge,
-  ShieldAlert,
-  TrendingUp,
-  Users,
-} from 'lucide-react';
+import { Gauge } from 'lucide-react';
 import { PageHeader, SectionHeader } from '@/components/common/PageHeader';
-import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
+import { DrillSheet } from '@/components/insights/DrillSheet';
+import { MeasureTile, MeasureTileSkeleton } from '@/components/insights/MeasureTile';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
@@ -82,6 +77,7 @@ export default function AnalyticsPage() {
   const distributionQuery = useStatusDistribution();
 
   const insights = insightsQuery.data;
+  const [drill, setDrill] = useState<string | undefined>();
 
   // The health matrix carries one row per project, so it grows with the portfolio.
 
@@ -102,66 +98,26 @@ export default function AnalyticsPage() {
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
       >
         {insightsQuery.isLoading || !insights
-          ? [0, 1, 2, 3, 4, 5].map((index) => <MetricCardSkeleton key={index} />)
-          : [
-              {
-                label: 'Portfolio Health',
-                value: insights.portfolioHealth,
-                suffix: '%',
-                support: 'Projects rated healthy overall',
-                icon: Gauge,
-                tone: 'success' as const,
+          ? [0, 1, 2, 3, 4, 5].map((index) => <MeasureTileSkeleton key={index} />)
+          : ['health.greenPct', 'milestones.onTime', 'risk.open', 'work.overdue', 'utilisation', 'sprint.velocity'].map(
+              (id) => {
+                const measure = insights.measures?.[id];
+                return measure ? (
+                  <motion.div
+                    key={id}
+                    variants={{
+                      hidden: { opacity: 0, y: 8 },
+                      show: { opacity: 1, y: 0, transition: { duration: 0.26 } },
+                    }}
+                  >
+                    <MeasureTile measure={measure} onOpen={() => setDrill(id)} />
+                  </motion.div>
+                ) : null;
               },
-              {
-                label: 'On-Time Delivery',
-                value: insights.onTimeDelivery,
-                suffix: '%',
-                support: 'Milestones met on the committed date',
-                icon: CalendarCheck,
-                tone: 'primary' as const,
-              },
-              {
-                label: 'Open Risks',
-                value: insights.openRisks,
-                support: 'Logged across active projects',
-                icon: ShieldAlert,
-                tone: 'warning' as const,
-              },
-              {
-                label: 'Overdue Tasks',
-                value: insights.overdueTasks,
-                support: 'Past their committed date',
-                icon: AlertTriangle,
-                tone: 'danger' as const,
-              },
-              {
-                label: 'Team Utilization',
-                value: insights.teamUtilization,
-                suffix: '%',
-                support: insights.teamUtilization > 85 ? 'Above healthy capacity' : 'Within capacity',
-                icon: Users,
-                tone: insights.teamUtilization > 85 ? ('warning' as const) : ('accent' as const),
-              },
-              {
-                label: 'Sprint Velocity',
-                value: insights.sprintVelocity,
-                suffix: 'pts',
-                trend: insights.velocityTrend,
-                icon: TrendingUp,
-                tone: 'highlight' as const,
-              },
-            ].map((card) => (
-              <motion.div
-                key={card.label}
-                variants={{
-                  hidden: { opacity: 0, y: 8 },
-                  show: { opacity: 1, y: 0, transition: { duration: 0.26 } },
-                }}
-              >
-                <MetricCard {...card} />
-              </motion.div>
-            ))}
+            )}
       </motion.div>
+
+      <DrillSheet measureId={drill} query={{}} onClose={() => setDrill(undefined)} onScope={() => setDrill(undefined)} />
 
       {/* Portfolio health matrix */}
       <section className="space-y-3">
@@ -312,7 +268,7 @@ export default function AnalyticsPage() {
         errorTitle="Unable to load velocity"
         skeleton={<ChartCardSkeleton height={240} />}
       >
-        <ChartCard title="Velocity" description="Story points delivered per sprint" height={240}>
+        <ChartCard title="Points delivered" description="Story points of the work delivered each month" height={240}>
           <VelocityChart data={trendsQuery.data ?? []} />
         </ChartCard>
       </QueryBoundary>

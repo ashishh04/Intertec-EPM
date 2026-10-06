@@ -143,6 +143,9 @@ async function main() {
   let restricted = '';
   let adminId = '';
   let createdId: string | undefined;
+  // The analytics section's two work packages, in the project above.
+  const analyticsProbeIds: string[] = [];
+  let analyticsProbeCreatedAt = 0;
 
   try {
 
@@ -250,6 +253,8 @@ async function main() {
     items?: { id: string }[];
   };
   const taskId = tasks.items?.[0]?.id;
+
+
 
   if (taskId) {
     check(
@@ -1519,11 +1524,20 @@ async function main() {
     false,
   );
 
-  const other = relatable[0]?.id;
+  // The other end must be one the restricted caller can read too, so that
+  // refusing them a deletion below is about permission, not visibility — a
+  // candidate in a project they cannot see would answer 404 for the wrong reason.
+  let other: string | undefined;
+  for (const candidate of relatable.slice(0, 25)) {
+    if ((await status(`/tasks/${candidate.id}`, { cookie: restricted })) === 200) {
+      other = candidate.id;
+      break;
+    }
+  }
   if (!other) throw new Error('No second work package available to relate to.');
 
   const searched = (await (
-    await call(`/work-packages/${target}/relatable?q=${encodeURIComponent(relatable[0]!.subject.slice(0, 12))}`, {
+    await call(`/work-packages/${target}/relatable?q=${encodeURIComponent(relatable.find((w) => w.id === other)!.subject.slice(0, 12))}`, {
       cookie: admin,
     })
   ).json()) as { id: string }[];
@@ -1675,6 +1689,24 @@ async function main() {
   );
 
   // --- Comments ------------------------------------------------------------
+  // Two work packages for the analytics tests, made here — after the sections
+  // above have picked the work packages they act on and relate, so none of
+  // theirs is one of these, in a project the restricted caller cannot see —
+  // and early enough that by the time
+  // those tests change them OpenProject's journal aggregation window (5 minutes)
+  // has passed and the change is a version of its own. No dates, no assignee
+  // and an ordinary type, so the health tests' counts on this project are as
+  // they would be without them, and nobody is emailed. Removed with the project.
+  analyticsProbeCreatedAt = Date.now();
+  for (const name of ['A', 'B']) {
+    const probe = await call('/tasks', {
+      method: 'POST',
+      cookie: admin,
+      body: { projectId: createdId, subject: `Analytics probe ${name}` },
+    });
+    if (probe.status === 201) analyticsProbeIds.push(((await probe.json()) as { id: string }).id);
+  }
+
   console.log('\nComments');
 
   interface TestComment {
@@ -6479,6 +6511,189 @@ async function main() {
       await status('/sprints/not-a-number', { method: 'DELETE', cookie: admin }),
       404,
     );
+  }
+
+  // --- Reports, dashboards and analytics (BR-401 to BR-405) -----------------
+  console.log('\nReports, dashboards and analytics');
+  {
+    type Json = Record<string, unknown>;
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json & Record<string, any>;
+    const dayOffset = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const projectScope = `project:${createdId}`;
+
+    // Administration of the model is analytics:manage.
+    for (const [path, method] of [
+      ['/analytics/model', 'GET'],
+      ['/analytics/model/runs', 'GET'],
+      ['/analytics/model/refresh', 'POST'],
+      ['/analytics/history/captures', 'GET'],
+      ['/analytics/history/captures', 'POST'],
+      ['/analytics/access', 'GET'],
+    ] as const) {
+      check(`${method} ${path} needs analytics:manage`, await status(path, { method, cookie: restricted, body: method === 'POST' ? {} : undefined }), 403);
+    }
+    check('anonymous cannot read a dashboard', await status('/dashboards/portfolio-health'), 401);
+
+    // BR-402: a full refresh loads everything, within its window, and reconciles.
+    const full = await json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'full', wait: true } });
+    check('a full refresh succeeds', full.status, 'succeeded');
+    check('it finishes within the agreed window', full.withinWindow, true);
+    check('every table reconciles to its source within tolerance', full.reconciled, true);
+    const wpLine = (full.reconciliation as { entity: string; source: number; model: number }[] | null)?.find(
+      (line) => line.entity === 'work_packages',
+    );
+    check('work packages: the model holds as many as OpenProject', wpLine !== undefined && wpLine.model === wpLine.source, true);
+    const runs = await json('/analytics/model/runs?kind=full&pageSize=5');
+    check('the run is in the refresh log', (runs.items as { id: string }[]).some((run) => run.id === full.id), true);
+    const model = await json('/analytics/model');
+    check('the model says when its data was read', typeof model.asOf, 'string');
+
+    // BR-404: one definition per measure, the same number wherever it is read.
+    const catalogue = (await json('/measures')) as unknown as { id: string; definition: string }[];
+    check(
+      'the catalogue defines overdue as before today',
+      catalogue.find((measure) => measure.id === 'work.overdue')?.definition.includes('before today'),
+      true,
+    );
+    check('an unknown measure is refused', await status('/measures/values?ids=no.such', { cookie: admin }), 400);
+    check('an unknown dashboard is not found', await status('/dashboards/no-such', { cookie: admin }), 404);
+    check(
+      'a project the caller cannot see is not found, not empty',
+      await status(`/measures/values?ids=work.overdue&scope=${projectScope}`, { cookie: restricted }),
+      404,
+    );
+    // A person's figures are the work in the projects OpenProject lets them
+    // read, and no other: here, whatever public projects the restricted caller
+    // can read as a non-member, and never the suite's own private project.
+    const restrictedMe = await json('/me', restricted);
+    const readable = Object.entries(
+      (restrictedMe.projectPermissions ?? {}) as Record<string, { project?: { view?: boolean } }>,
+    )
+      .filter(([, set]) => set.project?.view)
+      .map(([id]) => id);
+    let expectedOverdue = 0;
+    let expectedActive = 0;
+    for (const id of readable) {
+      const values = await json(`/measures/values?ids=work.overdue,projects.active&scope=project:${id}`);
+      const active = Number(values.measures['projects.active'].value ?? 0);
+      expectedActive += active;
+      if (active) expectedOverdue += Number(values.measures['work.overdue'].value ?? 0);
+    }
+    const restrictedView = await json('/measures/values?ids=work.overdue,projects.active', restricted);
+    check(
+      'a person counts the work in the projects they can read, and no other',
+      restrictedView.measures['work.overdue'].value,
+      expectedOverdue,
+    );
+    check('and only those projects', restrictedView.measures['projects.active'].value, expectedActive);
+    check('which never include a project they cannot see', readable.includes(String(createdId)), false);
+
+    // History: wait out the aggregation window, if this run got here quickly.
+    const aggregationMs = (Number(model.aggregationMinutes ?? 5) || 5) * 60_000 + 10_000;
+    const waitMs = analyticsProbeCreatedAt + aggregationMs - Date.now();
+    if (waitMs > 0 && waitMs < 6 * 60_000) {
+      console.log(`  (waiting ${Math.ceil(waitMs / 1000)} s for OpenProject's journal aggregation window)`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    check('the two analytics probes were created', analyticsProbeIds.length, 2);
+    const [probeA, probeB] = analyticsProbeIds as [string, string];
+
+    // BR-403: capture every work package, change two, and rebuild the capture's
+    // instant from history.
+    await json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'incremental', wait: true } });
+    const capture = await json('/analytics/history/captures', admin, { method: 'POST' });
+    check('a capture is taken from the instance', Number(capture.workPackages) > 0, true);
+    const yesterday = dayOffset(-1);
+    const todayDay = dayOffset(0);
+    check(
+      'after it, probe A is renamed and made overdue',
+      await status(`/tasks/${probeA}`, {
+        method: 'PATCH',
+        cookie: admin,
+        body: { subject: 'Analytics probe A, renamed', dueDate: yesterday },
+      }),
+      200,
+    );
+    check(
+      'and probe B is made due today',
+      await status(`/tasks/${probeB}`, { method: 'PATCH', cookie: admin, body: { dueDate: todayDay } }),
+      200,
+    );
+    await json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'incremental', wait: true } });
+    const compared = await json(`/analytics/history/captures/${capture.id}/compare`);
+    check('reconstruction matches the capture field for field', compared.matches, true);
+    check('with no work package differing', compared.mismatched, 0);
+    check('every captured work package was compared', compared.compared, Number(capture.workPackages) - Number(compared.deletedSince));
+    const nowA = await json(`/tasks/${probeA}`);
+    check('while probe A as it is now has moved on', nowA.subject, 'Analytics probe A, renamed');
+    const before = await json(`/analytics/history/state?at=${encodeURIComponent(String(capture.capturedAt))}&scope=${projectScope}`);
+    const now = await json(`/analytics/history/state?at=${encodeURIComponent(new Date().toISOString())}&scope=${projectScope}`);
+    check('the project as it stood then had one overdue item fewer than now', Number(now.overdue) - Number(before.overdue), 1);
+    check('a future instant is refused', await status(`/analytics/history/state?at=2099-01-01T00:00:00Z`, { cookie: admin }), 400);
+
+    // The definition end to end: A (due yesterday) is overdue, B (due today) is not.
+    const members = await json(`/measures/work.overdue/members?scope=${projectScope}`);
+    const memberIds = (members.members.items as { id: number }[]).map((item) => String(item.id));
+    check('drill-through lists probe A among the overdue', memberIds.includes(probeA), true);
+    check('and not probe B, which is due today', memberIds.includes(probeB), false);
+    check('the list is the count', memberIds.length, members.measure.value);
+    check('and reaches the work package itself', await status(`/tasks/${memberIds[0]}`, { cookie: admin }), 200);
+
+    // The same measure from four places.
+    const direct = await json(`/measures/values?ids=work.overdue,risk.high&scope=${projectScope}`);
+    const healthBoard = await json(`/dashboards/portfolio-health?scope=${projectScope}`);
+    const instanceBoard = await json('/dashboards/portfolio-health');
+    const executive = await json(`/reports/executive-insights?projectId=${createdId}`);
+    const overdue = direct.measures['work.overdue'].value;
+    check('overdue: the portfolio-health dashboard agrees with the measure', healthBoard.measures['work.overdue'].value, overdue);
+    check(
+      'and so does its row on the instance dashboard',
+      (instanceBoard.tables as { id: string; rows: { link?: { id: string }; cells: Json }[] }[])
+        .find((table) => table.id === 'projects')
+        ?.rows.find((row) => row.link?.id === createdId)?.cells['work.overdue'],
+      overdue,
+    );
+    check('and the executive report', executive.overdueTasks, overdue);
+    const riskBoard = await json(`/dashboards/risk?scope=${projectScope}`);
+    check('high risks: the risk dashboard agrees with the measure', riskBoard.measures['risk.high'].value, direct.measures['risk.high'].value);
+
+    // BR-405: every dashboard, within the response target.
+    for (const id of ['portfolio-health', 'delivery', 'utilisation', 'budget', 'risk']) {
+      const response = await call(`/dashboards/${id}`, { cookie: admin });
+      const body = (await response.json()) as { timing?: { withinTarget: boolean; serverMs: number }; tiles?: string[] };
+      check(`the ${id} dashboard answers`, response.status, 200);
+      check(`within the response target (${body.timing?.serverMs ?? '?'} ms)`, body.timing?.withinTarget, true);
+      check('with its tiles', (body.tiles?.length ?? 0) > 0, true);
+    }
+    const projectRows = (instanceBoard.tables as { id: string; rows: { link?: { kind: string; id: string } }[] }[]).find(
+      (table) => table.id === 'projects',
+    )?.rows;
+    check('the dashboard links the project for drill-through', projectRows?.some((row) => row.link?.kind === 'project' && row.link.id === createdId), true);
+
+    // The report fixes: filters are applied, and nothing is a placeholder.
+    const emptyPeriod = (await json('/reports/time-summary?from=2099-01-01&to=2099-01-31')) as unknown as unknown[];
+    check('a period with no time logged reports none', emptyPeriod.length, 0);
+    const september = (await json('/reports/delivery-trends?from=2026-09-01&to=2026-09-30')) as unknown as { period: string }[];
+    check('delivery trends cover only the period asked for', september.map((point) => point.period).join(','), '2026-09');
+    const distribution = (await json(`/reports/status-distribution?projectId=${createdId}`)) as unknown as { count: number }[];
+    const total = await json(`/measures/values?ids=work.total&scope=${projectScope}`);
+    check('the status distribution is of the project asked for', distribution.reduce((sum, row) => sum + row.count, 0), total.measures['work.total'].value);
+    check('the executive report says what each figure is', typeof executive.measures['milestones.onTime']?.definition, 'string');
+    check('and when its data was read', typeof executive.asOf, 'string');
+    const anyTime = (await json('/reports/time-summary')) as unknown as Json[];
+    check('time is reported without a billable placeholder', anyTime.every((row) => !('hoursBillable' in row)), true);
+
+    // BR-401: the analytics role reads everything and writes nothing.
+    const access = await json('/analytics/access');
+    if (access.configured) {
+      check('the analytics role reads every table', (access.reads as { ok: boolean }[]).every((probe) => probe.ok), true);
+      check('every write it attempts is refused', (access.writes as { ok: boolean }[]).every((probe) => probe.ok), true);
+      check('and it holds no write privilege', (access.grants as { ok: boolean }[]).every((probe) => probe.ok), true);
+      check('on the replica', access.replica, true);
+    } else {
+      console.log('  (the analytics role is not configured on this backend; EPM_ANALYTICS_DATABASE_URL)');
+    }
   }
 
   // --- Project lifecycle ------------------------------------------------------

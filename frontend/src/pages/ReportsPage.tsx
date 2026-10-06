@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,12 +9,10 @@ import {
   Printer,
   Sheet,
   Table2,
-  Gauge,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
-import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
+import { MetricCard } from '@/components/common/MetricCard';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Badge } from '@/components/ui/badge';
 import { InfoTooltip } from '@/components/ui/tooltip';
@@ -23,7 +22,8 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Pagination } from '@/components/common/Pagination';
 import { TableCard, TableSkeleton } from '@/components/common/DataTable';
-import { TruncationNotice } from '@/components/common/TruncationNotice';
+import { DrillSheet } from '@/components/insights/DrillSheet';
+import { MeasureTile, MeasureTileSkeleton } from '@/components/insights/MeasureTile';
 import {
   DeliveryTrendChart,
   HorizontalBarChart,
@@ -31,7 +31,7 @@ import {
   VelocityChart,
 } from '@/components/charts/EpmCharts';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ProgressBar } from '@/components/ui/progress';
@@ -61,8 +61,9 @@ import {
 } from '@/components/ui/select';
 import { useProjects } from '@/hooks/useProjects';
 import { useTeams } from '@/hooks/useTeams';
+import { usePortfolios } from '@/hooks/usePortfolios';
 import { useUsers } from '@/hooks/useUsers';
-import { useTasks } from '@/hooks/useTasks';
+import { useMeasureMembers } from '@/hooks/useInsights';
 import { usePagination } from '@/hooks/usePagination';
 import {
   useDeliveryTrends,
@@ -72,7 +73,6 @@ import {
 } from '@/hooks/useReports';
 import { HEALTH_META, PROJECT_STATUS_META } from '@/lib/domain';
 import {
-  daysFromToday,
   formatHours,
   formatNumber,
   formatPercent,
@@ -84,19 +84,11 @@ import type { HealthLevel, ID, ReportFilters } from '@/types';
 
 const ALL = '__all__';
 
-/**
- * How many work packages the overdue report reads at once.
- *
- * The overdue list is filtered in the browser from this page, so a project
- * with more open work than this would under-report. The notice under the
- * table says when that happens and lets the reader pull the rest.
- */
-const TASK_PAGE_SIZE = 200;
 
 const REPORTS = [
   { value: 'status', label: 'Project Status' },
   { value: 'completion', label: 'Task Completion' },
-  { value: 'velocity', label: 'Sprint Velocity' },
+  { value: 'velocity', label: 'Points Delivered' },
   { value: 'team', label: 'Team Performance' },
   { value: 'overdue', label: 'Overdue Work' },
   { value: 'time', label: 'Time Tracking' },
@@ -110,20 +102,38 @@ export default function ReportsPage() {
     from: toISODateOnly(subDays(new Date(), 90)),
     to: toISODateOnly(new Date()),
   });
-  const [taskPageSize, setTaskPageSize] = useState(TASK_PAGE_SIZE);
+  const [drill, setDrill] = useState<string | undefined>();
 
   const projectsQuery = useProjects();
   const teamsQuery = useTeams();
+  const portfoliosQuery = usePortfolios();
   const { data: users } = useUsers();
   const distributionQuery = useStatusDistribution(filters);
   const trendsQuery = useDeliveryTrends(filters);
   const insightsQuery = useExecutiveInsights(filters);
   const timeQuery = useTimeSummary(filters);
-  const tasksQuery = useTasks({ projectId: filters.projectId, pageSize: taskPageSize });
+  // The same scope the server gives the figures above: a project, else a
+  // portfolio, else the instance — and a team narrows any of them to its people.
+  const reportQuery = useMemo(() => {
+    const place = filters.projectId
+      ? `project:${filters.projectId}`
+      : filters.portfolioId
+        ? `portfolio:${filters.portfolioId}`
+        : undefined;
+    return {
+      scope: filters.teamId ? `team:${filters.teamId}` : (place ?? 'instance'),
+      within: filters.teamId ? place : undefined,
+      from: filters.from,
+      to: filters.to,
+    };
+  }, [filters.projectId, filters.portfolioId, filters.teamId, filters.from, filters.to]);
+  // Overdue work is the drill-through of the overdue measure: every item, by
+  // the one definition, rather than a filter over the first page of tasks.
+  const overdueQuery = useMeasureMembers('work.overdue', reportQuery);
 
   // One key for every client-side pager, so changing any filter returns each
   // table to its first page rather than stranding the reader mid-list.
-  const filtersKey = `${filters.projectId ?? ''}|${filters.teamId ?? ''}|${filters.from ?? ''}|${filters.to ?? ''}`;
+  const filtersKey = `${filters.projectId ?? ''}|${filters.portfolioId ?? ''}|${filters.teamId ?? ''}|${filters.from ?? ''}|${filters.to ?? ''}`;
 
   const projects = useMemo(
     () =>
@@ -133,16 +143,11 @@ export default function ReportsPage() {
     [projectsQuery.data, filters.projectId],
   );
 
-  const loadedTasks = tasksQuery.data?.items ?? [];
-  const totalTasks = tasksQuery.data?.total ?? loadedTasks.length;
-
   const overdue = useMemo(
-    () =>
-      (tasksQuery.data?.items ?? [])
-        .filter((task) => task.statusCategory !== 'done' && (daysFromToday(task.dueDate) ?? 0) < 0)
-        .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '')),
-    [tasksQuery.data],
+    () => (overdueQuery.data?.members.kind === 'work_package' ? overdueQuery.data.members.items : []),
+    [overdueQuery.data],
   );
+  const lateDays = (flag?: string) => Number(/late (\d+)d/.exec(flag ?? '')?.[1] ?? 0);
 
   const timeByUser = useMemo(
     () =>
@@ -162,22 +167,6 @@ export default function ReportsPage() {
   const timePaged = usePagination(timeQuery.data ?? [], { pageSize: 10, resetKey: filtersKey });
 
   const insights = insightsQuery.data;
-
-  // The overdue list is filtered from one page of work packages, so a large
-  // project can under-report until the rest is loaded. Shown under the table
-  // and beside the empty state alike: "nothing is overdue" is only true of
-  // what was fetched.
-  const overdueTruncation = (
-    <TruncationNotice
-      shown={loadedTasks.length}
-      total={totalTasks}
-      itemLabel="task"
-      affected="The overdue figures"
-      step={TASK_PAGE_SIZE}
-      loading={tasksQuery.isFetching}
-      onLoadMore={() => setTaskPageSize((size) => size + TASK_PAGE_SIZE)}
-    />
-  );
 
   /**
    * The report on screen, as rows.
@@ -253,25 +242,23 @@ export default function ReportsPage() {
           name: `overdue-work-${range}`,
           headers: ['Key', 'Subject', 'Project', 'Status', 'Priority', 'Due', 'Days late'],
           rows: overdue.map((task) => [
-            task.key,
+            `#${task.id}`,
             task.subject,
-            projects.find((project) => project.id === task.projectId)?.name ?? task.projectId,
-            task.status.name,
-            task.priorityRef.name,
+            task.projectName,
+            task.status,
+            task.priority ?? '',
             task.dueDate ?? null,
-            // Negative days from today, read as lateness — the figure the table
-            // shows, rather than the raw signed number.
-            Math.abs(daysFromToday(task.dueDate) ?? 0),
+            lateDays(task.flag),
           ]),
         };
       case 'time':
         return {
           name: `time-tracking-${range}`,
-          headers: ['Person', 'Hours logged', 'Billable hours'],
+          headers: ['Person', 'Hours logged', 'Not costed'],
           rows: (timeQuery.data ?? []).map((entry) => [
             users?.find((user) => user.id === entry.userId)?.name ?? entry.userId,
             entry.hoursLogged,
-            entry.hoursBillable,
+            entry.hoursUncosted,
           ]),
         };
       case 'completion':
@@ -283,8 +270,8 @@ export default function ReportsPage() {
       case 'velocity':
       case 'trends':
         return {
-          name: `${report === 'velocity' ? 'sprint-velocity' : 'delivery-trends'}-${range}`,
-          headers: ['Period', 'Completed', 'Created', 'Velocity (points)'],
+          name: `${report === 'velocity' ? 'points-delivered' : 'delivery-trends'}-${range}`,
+          headers: ['Month', 'Delivered', 'Created', 'Points delivered'],
           rows: (trendsQuery.data ?? []).map((point) => [
             point.period,
             point.completed,
@@ -363,7 +350,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Filters */}
-      <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
+      <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div className="space-y-1.5">
           <Label htmlFor="report-type">Report</Label>
           <Select value={report} onValueChange={(value) => setReport(value as typeof report)}>
@@ -428,6 +415,31 @@ export default function ReportsPage() {
         </div>
 
         <div className="space-y-1.5">
+          <Label htmlFor="report-portfolio">Portfolio</Label>
+          <Select
+            value={filters.portfolioId ?? ALL}
+            onValueChange={(value) =>
+              setFilters((current) => ({
+                ...current,
+                portfolioId: value === ALL ? undefined : (value as ID),
+              }))
+            }
+          >
+            <SelectTrigger id="report-portfolio" className="h-8 text-xs">
+              <SelectValue placeholder="All portfolios" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All portfolios</SelectItem>
+              {(portfoliosQuery.data ?? []).map((portfolio) => (
+                <SelectItem key={portfolio.id} value={portfolio.id}>
+                  {portfolio.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="report-team">Team</Label>
           <Select
             value={filters.teamId ?? ALL}
@@ -453,46 +465,22 @@ export default function ReportsPage() {
         </div>
       </Card>
 
-      {/* Headline metrics */}
+      {/* Headline figures: measures of the semantic layer, for the filters
+          above, each with its definition and the items behind it. */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {insightsQuery.isLoading || !insights ? (
-          [0, 1, 2, 3].map((index) => <MetricCardSkeleton key={index} />)
-        ) : (
-          <>
-            <MetricCard
-              label="Portfolio Health"
-              value={insights.portfolioHealth}
-              suffix="%"
-              support="Projects rated healthy"
-              icon={Gauge}
-              tone="success"
-            />
-            <MetricCard
-              label="On-Time Delivery"
-              value={insights.onTimeDelivery}
-              suffix="%"
-              support="Milestones hit on plan"
-              icon={CheckCircle2}
-              tone="primary"
-            />
-            <MetricCard
-              label="Overdue Work"
-              value={insights.overdueTasks}
-              support="Across all projects"
-              icon={AlertTriangle}
-              tone="danger"
-            />
-            <MetricCard
-              label="Sprint Velocity"
-              value={insights.sprintVelocity}
-              suffix="pts"
-              trend={insights.velocityTrend}
-              icon={TrendingUp}
-              tone="highlight"
-            />
-          </>
-        )}
+        {insightsQuery.isLoading || !insights
+          ? [0, 1, 2, 3].map((index) => <MeasureTileSkeleton key={index} />)
+          : ['health.greenPct', 'milestones.onTime', 'work.overdue', 'sprint.velocity'].map((id) => {
+              const measure = insights.measures?.[id];
+              return measure ? <MeasureTile key={id} measure={measure} onOpen={() => setDrill(id)} /> : null;
+            })}
       </div>
+      <DrillSheet
+        measureId={drill}
+        query={reportQuery}
+        onClose={() => setDrill(undefined)}
+        onScope={() => setDrill(undefined)}
+      />
 
       <Tabs value={report} onValueChange={(value) => setReport(value as typeof report)}>
         <div className="epm-scroll overflow-x-auto">
@@ -667,10 +655,14 @@ export default function ReportsPage() {
             isError={trendsQuery.isError}
             error={trendsQuery.error}
             onRetry={() => trendsQuery.refetch()}
-            errorTitle="Unable to load sprint velocity"
+            errorTitle="Unable to load points delivered"
             skeleton={<ChartCardSkeleton height={280} />}
           >
-            <ChartCard title="Sprint velocity" description="Story points delivered per sprint" height={280}>
+            <ChartCard
+              title="Points delivered"
+              description="Story points of the work delivered each month, counted on the day it was closed"
+              height={280}
+            >
               <VelocityChart data={trendsQuery.data ?? []} />
             </ChartCard>
           </QueryBoundary>
@@ -745,91 +737,89 @@ export default function ReportsPage() {
           </QueryBoundary>
         </TabsContent>
 
-        {/* Overdue work */}
+        {/* Overdue work: the overdue measure's own list (BR-404) */}
         <TabsContent value="overdue" className="mt-4">
           <QueryBoundary
-            isLoading={tasksQuery.isLoading}
-            isError={tasksQuery.isError}
-            error={tasksQuery.error}
-            onRetry={() => tasksQuery.refetch()}
+            isLoading={overdueQuery.isLoading}
+            isError={overdueQuery.isError}
+            error={overdueQuery.error}
+            onRetry={() => overdueQuery.refetch()}
             errorTitle="Unable to load overdue work"
             skeleton={<TableSkeleton columns={5} rows={6} />}
             isEmpty={overdue.length === 0}
             empty={
-              <div className="space-y-3">
-                <Card>
-                  <EmptyState
-                    icon={CheckCircle2}
-                    title="Nothing is overdue"
-                    description="Every open work package is still inside its committed date."
-                  />
-                </Card>
-                {overdueTruncation}
-              </div>
+              <Card>
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nothing is overdue"
+                  description="Every open work package is still inside its committed date."
+                />
+              </Card>
             }
           >
-            <div className="space-y-3">
-              <TableCard
-                toolbar={
-                  <CardHeader variant="compact" className="border-b-0">
-                    <CardTitle>Overdue work packages</CardTitle>
-                  </CardHeader>
-                }
-                footer={
-                  <Pagination
-                    page={overduePaged.page}
-                    pageSize={overduePaged.pageSize}
-                    total={overduePaged.total}
-                    onPageChange={overduePaged.setPage}
-                    onPageSizeChange={overduePaged.setPageSize}
-                    itemLabel="task"
-                  />
-                }
-              >
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Task</TableHead>
-                      <TableHead>Assignee</TableHead>
-                      <TableHead>Due</TableHead>
-                      <TableHead numeric>Days late</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {overduePaged.items.map((task) => {
-                      const assignee = users?.find((user) => user.id === task.assigneeId);
-                      const late = Math.abs(daysFromToday(task.dueDate) ?? 0);
-                      return (
-                        <TableRow key={task.id}>
-                          <TableCell className="font-mono text-2xs text-muted-foreground">
-                            {task.key}
-                          </TableCell>
-                          <TableCell className="font-medium">{task.subject}</TableCell>
-                          <TableCell>
-                            <span className="flex items-center gap-1.5">
-                              <UserAvatar user={assignee} size="xs" />
-                              {assignee?.name ?? 'Unassigned'}
-                            </span>
-                          </TableCell>
-                          <TableCell className="font-mono text-2xs tabular-nums">
-                            {formatShortDate(task.dueDate)}
-                          </TableCell>
-                          <TableCell numeric className="font-medium text-danger">
-                            {formatNumber(late)}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableCard>
-              {overdueTruncation}
-            </div>
+            <TableCard
+              toolbar={
+                <CardHeader variant="compact" className="border-b-0">
+                  <CardTitle>Overdue work packages</CardTitle>
+                  <CardDescription className="text-2xs">
+                    {overdueQuery.data?.measure.definition}
+                  </CardDescription>
+                </CardHeader>
+              }
+              footer={
+                <Pagination
+                  page={overduePaged.page}
+                  pageSize={overduePaged.pageSize}
+                  total={overduePaged.total}
+                  onPageChange={overduePaged.setPage}
+                  onPageSizeChange={overduePaged.setPageSize}
+                  itemLabel="work package"
+                />
+              }
+            >
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Work package</TableHead>
+                    <TableHead>Assignee</TableHead>
+                    <TableHead>Due</TableHead>
+                    <TableHead numeric>Days late</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {overduePaged.items.map((task) => {
+                    const assignee = users?.find((user) => user.id === String(task.assigneeId ?? ''));
+                    return (
+                      <TableRow key={task.id}>
+                        <TableCell className="font-mono text-2xs text-muted-foreground">#{task.id}</TableCell>
+                        <TableCell className="font-medium">
+                          <Link to={`/tasks/${task.id}`} className="hover:text-primary hover:underline">
+                            {task.subject}
+                          </Link>
+                          <span className="block text-2xs font-normal text-muted-foreground">{task.projectName}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="flex items-center gap-1.5">
+                            <UserAvatar user={assignee} size="xs" />
+                            {task.assigneeName ?? 'Unassigned'}
+                          </span>
+                        </TableCell>
+                        <TableCell className="font-mono text-2xs tabular-nums">
+                          {formatShortDate(task.dueDate)}
+                        </TableCell>
+                        <TableCell numeric className="font-medium text-danger">
+                          {formatNumber(lateDays(task.flag))}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableCard>
           </QueryBoundary>
         </TabsContent>
 
-        {/* Time tracking */}
         <TabsContent value="time" className="mt-4">
           <QueryBoundary
             isLoading={timeQuery.isLoading}
@@ -862,7 +852,7 @@ export default function ReportsPage() {
               <TableCard
                 toolbar={
                   <CardHeader variant="compact" className="border-b-0">
-                    <CardTitle>Billable summary</CardTitle>
+                    <CardTitle>Hours by person</CardTitle>
                   </CardHeader>
                 }
                 footer={
@@ -881,7 +871,7 @@ export default function ReportsPage() {
                     <TableRow>
                       <TableHead>Person</TableHead>
                       <TableHead numeric>Logged</TableHead>
-                      <TableHead numeric>Billable</TableHead>
+                      <TableHead numeric>Not costed</TableHead>
                       <TableHead numeric>Projects</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -892,7 +882,7 @@ export default function ReportsPage() {
                         <TableRow key={entry.userId}>
                           <TableCell className="font-medium">{user?.name ?? 'Unknown'}</TableCell>
                           <TableCell numeric>{formatHours(entry.hoursLogged)}</TableCell>
-                          <TableCell numeric>{formatHours(entry.hoursBillable)}</TableCell>
+                          <TableCell numeric>{formatHours(entry.hoursUncosted)}</TableCell>
                           <TableCell numeric>{formatNumber(entry.projectBreakdown.length)}</TableCell>
                         </TableRow>
                       );
@@ -917,7 +907,7 @@ export default function ReportsPage() {
             <div className="space-y-4">
               <ChartCard
                 title="Delivery trend"
-                description="Completed vs. created work packages per sprint"
+                description="Delivered and created work packages per month"
                 height={280}
               >
                 <DeliveryTrendChart data={trendsQuery.data ?? []} />
@@ -938,7 +928,7 @@ export default function ReportsPage() {
                 />
                 <MetricCard
                   label="Open risks"
-                  value={insights?.openRisks ?? 0}
+                  value={insights?.openRisks ?? '—'}
                   icon={AlertTriangle}
                   tone="warning"
                 />

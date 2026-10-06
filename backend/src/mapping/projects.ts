@@ -1,4 +1,5 @@
 import { openProject, linkId, linkTitle, type OpFilter } from '../openproject/client.js';
+import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { HalCollection, OpProject } from '../openproject/types.js';
@@ -92,13 +93,7 @@ async function loadAggregates(signal?: AbortSignal): Promise<ProjectAggregates> 
     // work packages, which silently excludes everything closed.
     countsByProject([], signal),
     countsByProject([{ field: 'status', operator: 'c', values: [] }], signal),
-    countsByProject(
-      [
-        { field: 'status', operator: 'o', values: [] },
-        { field: 'dueDate', operator: '<t-', values: ['0'] },
-      ],
-      signal,
-    ).catch(() => new Map<string, number>()),
+    countsByProject([OPEN_FILTER, OVERDUE_DUE_FILTER], signal).catch(() => new Map<string, number>()),
   ]);
 
   return { total, completed, overdue };

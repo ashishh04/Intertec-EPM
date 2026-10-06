@@ -19,5 +19,38 @@ services:
       timeout: 5s
       retries: 10
 
+  # The analytics replica (BR-401), only with `--profile analytics`: a
+  # streaming, read-only copy of the database above for reporting, which only
+  # the analytics role may connect to. Before the first start, on the primary:
+  #   npm run analytics -- replication   (password from EPM_REPLICATION_PASSWORD)
+  #   npm run analytics -- role          (password from EPM_ANALYTICS_DB_PASSWORD)
+  # and allow the replication account in its pg_hba.conf — see
+  # deploy/analytics/primary-pg_hba.conf. Compose reads both passwords from .env.
+  postgres-replica:
+    image: postgres:17-alpine
+    container_name: epm-postgres-replica
+    profiles: [analytics]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ['sh', '/epm/replica-entrypoint.sh']
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      PRIMARY_HOST: postgres
+      REPLICATION_USER: epm_replicator
+      REPLICATION_PASSWORD: ${EPM_REPLICATION_PASSWORD:?set EPM_REPLICATION_PASSWORD in .env}
+    ports:
+      - '5434:5432'
+    volumes:
+      - epm-pgdata-replica:/var/lib/postgresql/data
+      - ../deploy/analytics/replica-entrypoint.sh:/epm/replica-entrypoint.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U epm_analytics -d postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   epm-pgdata:
+  epm-pgdata-replica:

@@ -27,6 +27,7 @@ import { ApiAccountRepository } from './api/accounts';
 import { ApiMemberRepository } from './api/members';
 import { ApiEmployeeRepository } from './api/employees';
 import { ApiAnalyticsRepository } from './api/analytics';
+import { ApiInsightsRepository } from './api/insights';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
 import { ApiApprovalRepository } from './api/approvals';
@@ -104,6 +105,8 @@ export const departmentService = new ApiDepartmentRepository();
 export const employeeService = new ApiEmployeeRepository();
 export const portfolioService = new ApiPortfolioRepository();
 export const analyticsService = new ApiAnalyticsRepository();
+/** The semantic layer, the dashboards and the analytics model (BRQ-05). */
+export const insightsService = new ApiInsightsRepository();
 
 /** Instance administration. Reads OpenProject's admin resources through the backend. */
 export const adminService = new ApiAdminRepository();

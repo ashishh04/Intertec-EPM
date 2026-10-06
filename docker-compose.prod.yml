@@ -63,10 +63,54 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-epm}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real password}
       POSTGRES_DB: ${POSTGRES_DB:-epm}
+    # Who may connect: the image's defaults, plus the analytics replica's
+    # replication account, and a refusal for the analytics role — reporting
+    # reads the replica, never this database (BR-401).
+    command: ['postgres', '-c', 'hba_file=/etc/epm/pg_hba.conf']
     volumes:
       - epm-pgdata:/var/lib/postgresql/data
+      - ./deploy/analytics/primary-pg_hba.conf:/etc/epm/pg_hba.conf:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-epm} -d ${POSTGRES_DB:-epm}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [epm]
+
+  # ---------------------------------------------- analytics replica (BR-401)
+  # Only with `--profile analytics`. A streaming, read-only copy of the EPM
+  # database that reporting and BI tools read, so they never compete with people
+  # for the primary; only the analytics role may connect, and only from
+  # EPM_ANALYTICS_ALLOWED_CIDR (default: the Docker networks it is on). The
+  # primary refuses that role outright. Before the first start, from the backend:
+  #   npm run analytics -- replication epm_analytics_replica
+  #   npm run analytics -- role
+  # (DEPLOY.md, "Analytics replica").
+  postgres-replica:
+    image: postgres:17-alpine
+    container_name: epm-postgres-replica
+    profiles: [analytics]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ['sh', '/epm/replica-entrypoint.sh']
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      PRIMARY_HOST: postgres
+      REPLICATION_USER: epm_replicator
+      REPLICATION_PASSWORD: ${EPM_REPLICATION_PASSWORD:?set EPM_REPLICATION_PASSWORD}
+      REPLICATION_SLOT: ${EPM_REPLICATION_SLOT:-epm_analytics_replica}
+      ANALYTICS_ALLOWED_CIDR: ${EPM_ANALYTICS_ALLOWED_CIDR:-samenet}
+    # Published on loopback by default: reach it over an SSH tunnel, or set
+    # EPM_ANALYTICS_BIND to the interface the analytics estate connects to.
+    ports:
+      - '${EPM_ANALYTICS_BIND:-127.0.0.1}:${EPM_ANALYTICS_PORT:-5434}:5432'
+    volumes:
+      - epm-pgdata-replica:/var/lib/postgresql/data
+      - ./deploy/analytics/replica-entrypoint.sh:/epm/replica-entrypoint.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U epm_analytics -d postgres']
       interval: 10s
       timeout: 5s
       retries: 10
@@ -135,6 +179,16 @@ services:
       EPM_ESCALATION_SWEEP_INTERVAL_MINUTES: ${EPM_ESCALATION_SWEEP_INTERVAL_MINUTES:-15}
       EPM_RULES_OUTBOUND_ALLOWLIST: ${EPM_RULES_OUTBOUND_ALLOWLIST:-}
       EPM_RULES_WEBHOOK_SECRET: ${EPM_RULES_WEBHOOK_SECRET:-}
+      # The analytics model every dashboard reads (BRQ-05): refreshed soon after
+      # a change and every few minutes, in full each night at this hour, which
+      # is expected to finish within the window.
+      EPM_ANALYTICS_MODEL_ENABLED: ${EPM_ANALYTICS_MODEL_ENABLED:-true}
+      EPM_ANALYTICS_FULL_REFRESH_HOUR_UTC: ${EPM_ANALYTICS_FULL_REFRESH_HOUR_UTC:-1}
+      EPM_ANALYTICS_REFRESH_WINDOW_MINUTES: ${EPM_ANALYTICS_REFRESH_WINDOW_MINUTES:-30}
+      EPM_DASHBOARD_TARGET_MS: ${EPM_DASHBOARD_TARGET_MS:-2000}
+      # The analytics role on the replica, for the access check in
+      # Administration (BR-401): postgresql://epm_analytics:<password>@postgres-replica:5432/epm
+      EPM_ANALYTICS_DATABASE_URL: ${EPM_ANALYTICS_DATABASE_URL:-}
       EPM_DUE_REMINDER_ENABLED: ${EPM_DUE_REMINDER_ENABLED}
       EPM_DUE_REMINDER_HOUR_UTC: ${EPM_DUE_REMINDER_HOUR_UTC}
       EPM_DUE_REMINDER_DAYS: ${EPM_DUE_REMINDER_DAYS}
@@ -183,6 +237,7 @@ services:
 
 volumes:
   epm-pgdata:
+  epm-pgdata-replica:
   caddy-data:
   caddy-config:
 

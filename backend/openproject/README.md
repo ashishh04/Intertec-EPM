@@ -47,6 +47,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_admin_api.rb` | Users settings, the permission catalogue and roles (below). |
 | `zzz_epm_admin_settings.rb` | The settings sections: work packages, projects, languages, repositories, emails, incoming email, aggregation, authentication, calendars, avatars. |
 | `zzz_epm_admin_catalog.rb` | Create, edit and delete for types, statuses, priorities, custom fields, webhooks and OAuth applications. |
+| `zzz_epm_analytics_api.rb` | Read-only export of every work package version (the journals) and of unit costs, for EPM's analytics model (below). |
 | `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
 | `setup/automation-account.rb` | Not an initializer: run by hand, like the one below. Creates EPM's automation account — the service principal rules act as — and its minimal "EPM Automation" project role with a complete workflow, and prints the account's API key once (`ROTATE=1` issues a new one). Not an administrator; EPM adds it to a project when a rule first acts there. |
 | `setup/governance-types.rb` | Not an initializer: a one-off `rails runner` script, run by hand. Creates the Change Request and Risk types, the Pending approval / Approved / Rejected statuses with their workflow, and the Change value field that approval thresholds read. Creates only what is missing, so it is safe to run again. Copied to `/app/epm-setup/` in the image. |
@@ -58,6 +59,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 /app/config/initializers/zzz_epm_admin_api.rb
 /app/config/initializers/zzz_epm_admin_settings.rb
 /app/config/initializers/zzz_epm_admin_catalog.rb
+/app/config/initializers/zzz_epm_analytics_api.rb
 ```
 
 The `zzz_` prefix matters: Rails loads initializers alphabetically, and the
@@ -105,6 +107,39 @@ Like the sign-in patch, everything it touches — `Roles::BaseContract`,
 compatibility guarantee. After an upgrade, re-run the two checks above; a 404
 means the routes or controller no longer load and the three EPM admin pages
 built on them will report an upstream error until the file is adapted.
+
+## The analytics export (`zzz_epm_analytics_api.rb`)
+
+OpenProject keeps every version of every work package — the journal behind each
+work package's Activity tab — but API v3 shows it only per work package, as
+rendered sentences. EPM's analytics model rebuilds the portfolio as at any past
+date from those versions (BR-403), so this initializer exports them as rows:
+
+| Method | Path | Does |
+| --- | --- | --- |
+| GET | `/epm_admin/analytics/journals?cursor=&limit=` | Work package versions changed after the cursor, oldest change first: each version's attributes and custom values, and when it became current |
+| GET | `/epm_admin/analytics/journals/summary` | Counts for reconciliation, and the id of every work package that exists |
+| GET | `/epm_admin/analytics/cost_entries?cursor=&limit=` | Unit costs (Costs module), which API v3 does not list on 15.5.1 |
+
+**Read-only and admin only**, identified as API v3 identifies a caller. It runs
+SELECTs on `journals`, `work_package_journals`, `customizable_journals`,
+`cost_entries` and `cost_types`; Postgres builds each page as JSON. Paging is by
+`(updated_at, id)`, because a version OpenProject merges (the same person's
+changes within the aggregation window, 5 minutes by default) is rewritten in
+place with a later `updated_at`; history therefore resolves to that window. The
+cursor is opaque and carries microseconds.
+
+It reads OpenProject's schema directly, with no compatibility guarantee. After
+an upgrade:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/epm_admin/analytics/journals/summary   # 403
+curl -s -u apikey:<key> http://localhost:8080/epm_admin/analytics/journals/summary                      # JSON
+```
+
+then run a full refresh (`npm run analytics -- refresh full`) and check that it
+reconciles; `npm run analytics -- capture` then `-- compare <id>` confirms that
+reconstruction still matches the instance field for field.
 
 ## Running it
 

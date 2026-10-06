@@ -8,3 +8,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** This build's identity, set in vite.config.ts. */
+declare const __EPM_BUILD_ID__: string;

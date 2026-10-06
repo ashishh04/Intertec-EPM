@@ -1,0 +1,560 @@
+import { env } from '../config/env.js';
+import { isDelivered, isOpen } from './work-definitions.js';
+import {
+  contextFor,
+  evaluateInContext,
+  measureById,
+  measureSeries,
+  milestoneOutcome,
+  prepare,
+  type Bucket,
+  type EvaluatedMeasure,
+  type MeasureContext,
+  type Period,
+  type Scope,
+  type Shared,
+  type Viewer,
+} from './measures.js';
+
+/**
+ * The executive and PMO dashboards (BR-405).
+ *
+ * Five views leadership uses in governance forums — portfolio health, delivery,
+ * resource utilisation, budget and risk exposure — each built only from the
+ * semantic layer: tiles are measures, tables are measures evaluated per row,
+ * trends are measures over time. Nothing here counts anything itself, so a
+ * figure on one dashboard is the figure on every other.
+ *
+ * Every dashboard is described as data — tiles, tables of cells with links,
+ * series — so the screen, the PDF and the spreadsheet a scheduled report sends
+ * all render the same thing. Every row links somewhere: a portfolio, project,
+ * department, team or person opens that scope's dashboard, and a work package
+ * opens the work package, which is the drill-through.
+ *
+ * Each is timed against the response target (`EPM_DASHBOARD_TARGET_MS`).
+ */
+
+export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'risk';
+
+export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'delivery', 'utilisation', 'budget', 'risk'];
+
+export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
+
+export interface DashboardColumn {
+  key: string;
+  label: string;
+  /** Where the cell is a measure's value, its unit — for formatting. */
+  unit?: EvaluatedMeasure['unit'];
+  /** The measure behind the column, for its definition. */
+  measureId?: string;
+}
+
+export interface DashboardRow {
+  key: string;
+  cells: Record<string, string | number | null>;
+  link?: { kind: LinkKind; id: string };
+}
+
+export interface DashboardTable {
+  id: string;
+  title: string;
+  description?: string;
+  columns: DashboardColumn[];
+  rows: DashboardRow[];
+}
+
+export interface DashboardSeries {
+  id: string;
+  title: string;
+  measureId: string;
+  bucket: Bucket;
+  points: { from: string; to: string; value: number | null }[];
+}
+
+export interface Dashboard {
+  id: DashboardId;
+  title: string;
+  description: string;
+  scope: Scope & { name: string };
+  period: Period;
+  today: string;
+  asOf: string | null;
+  /** The measures on the tiles, in order. */
+  tiles: string[];
+  measures: Record<string, EvaluatedMeasure>;
+  tables: DashboardTable[];
+  series: DashboardSeries[];
+  timing: { serverMs: number; targetMs: number; withinTarget: boolean };
+}
+
+const TITLES: Record<DashboardId, { title: string; description: string }> = {
+  'portfolio-health': {
+    title: 'Portfolio health',
+    description: 'How every project is doing on the health rules, what is slipping and what is late.',
+  },
+  delivery: {
+    title: 'Delivery',
+    description: 'What was delivered, how fast, and whether milestones were met on their dates.',
+  },
+  utilisation: {
+    title: 'Resource utilisation',
+    description: 'Hours logged against the capacity of the people in scope.',
+  },
+  budget: {
+    title: 'Budget',
+    description: 'Spend against budget and against the budget planned to date.',
+  },
+  risk: {
+    title: 'Risk exposure',
+    description: 'Open risks by severity and project, and how exposure has moved.',
+  },
+};
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function scopeName(shared: Shared, scope: Scope): string {
+  const { facts } = shared;
+  switch (scope.kind) {
+    case 'instance':
+      return 'All projects';
+    case 'portfolio':
+      return facts.portfolios.get(scope.id ?? '')?.name ?? 'Portfolio';
+    case 'project':
+      return facts.projects.get(Number(scope.id))?.name ?? 'Project';
+    case 'department':
+      return facts.departments.get(scope.id ?? '')?.name ?? 'Department';
+    case 'team':
+      return facts.teams.get(scope.id ?? '')?.name ?? 'Team';
+    case 'person':
+      return facts.people.get(Number(scope.id))?.name ?? 'Person';
+  }
+}
+
+/** Measures evaluated per row: one row per scope, one column per measure. */
+async function measureTable(
+  shared: Shared,
+  options: {
+    id: string;
+    title: string;
+    description?: string;
+    rows: { key: string; label: string; scope: Scope; link: { kind: LinkKind; id: string } }[];
+    measures: string[];
+    period: Period;
+    today: string;
+    firstColumn: string;
+  },
+): Promise<DashboardTable> {
+  const columns: DashboardColumn[] = [
+    { key: 'name', label: options.firstColumn },
+    ...options.measures.map((id) => {
+      const measure = measureById(id)!;
+      return { key: id, label: measure.label, unit: measure.unit, measureId: id };
+    }),
+  ];
+  const rows: DashboardRow[] = [];
+  for (const row of options.rows) {
+    const context = contextFor(shared, row.scope, options.period, options.today);
+    const values = await evaluateInContext(options.measures, context);
+    rows.push({
+      key: row.key,
+      link: row.link,
+      cells: {
+        name: row.label,
+        ...Object.fromEntries(options.measures.map((id) => [id, values[id]?.value ?? null])),
+      },
+    });
+  }
+  return { id: options.id, title: options.title, description: options.description, columns, rows };
+}
+
+/** A measure over the period's buckets, through the same definitions. */
+async function series(context: MeasureContext, id: string, title: string, bucket: Bucket): Promise<DashboardSeries> {
+  return { id, title, measureId: id, bucket, points: await measureSeries(context, id, bucket) };
+}
+
+/** Weekly buckets for up to six months, monthly beyond. */
+const bucketFor = (period: Period): Bucket =>
+  Date.parse(period.to) - Date.parse(period.from) > 183 * 86_400_000 ? 'month' : 'week';
+
+const projectRows = (context: MeasureContext) =>
+  context.projects
+    .filter((project) => project.active || context.scope.kind === 'project')
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((project) => ({
+      key: `project:${project.id}`,
+      label: project.name,
+      scope: { kind: 'project' as const, id: String(project.id) },
+      link: { kind: 'project' as const, id: String(project.id) },
+    }));
+
+/* -------------------------------------------------------------------------- */
+/* The dashboards                                                             */
+/* -------------------------------------------------------------------------- */
+
+async function portfolioHealth(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = ['projects.active', 'health.greenPct', 'projects.atRisk', 'schedule.slipping', 'work.overdue', 'risk.high'];
+  const tables: DashboardTable[] = [];
+
+  if (context.scope.kind === 'instance') {
+    const portfolios = [...shared.facts.portfolios.values()]
+      .filter((portfolio) => portfolio.active)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    tables.push(
+      await measureTable(shared, {
+        id: 'portfolios',
+        title: 'Portfolios',
+        firstColumn: 'Portfolio',
+        rows: portfolios.map((portfolio) => ({
+          key: `portfolio:${portfolio.id}`,
+          label: portfolio.name,
+          scope: { kind: 'portfolio', id: portfolio.id },
+          link: { kind: 'portfolio', id: portfolio.id },
+        })),
+        measures: ['projects.active', 'health.green', 'health.amber', 'health.red', 'work.overdue', 'risk.high', 'budget.consumed'],
+        period: context.period,
+        today: context.today,
+      }),
+    );
+  }
+
+  const projects = await measureTable(shared, {
+    id: 'projects',
+    title: 'Projects',
+    firstColumn: 'Project',
+    rows: projectRows(context),
+    measures: ['schedule.varianceDays', 'work.open', 'work.overdue', 'risk.high', 'budget.consumed'],
+    period: context.period,
+    today: context.today,
+  });
+  // Health is a level, not a measure's number: added as its own column.
+  projects.columns.splice(1, 0, { key: 'health', label: 'Health' });
+  for (const row of projects.rows) {
+    const health = context.health.get(Number(row.link?.id));
+    row.cells.health = health?.assessed ? health.overall : null;
+  }
+  tables.push(projects);
+
+  const bucket = bucketFor(context.period);
+  return {
+    tiles,
+    tables,
+    series: [
+      await series(context, 'work.overdue', 'Overdue work', bucket),
+      await series(context, 'work.open', 'Open work', bucket),
+    ],
+    measures: await evaluateInContext([...tiles, 'health.green', 'health.amber', 'health.red'], context),
+  };
+}
+
+async function delivery(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = [
+    'work.completed',
+    'work.throughput',
+    'milestones.onTime',
+    'milestones.missed',
+    'work.leadTime',
+    'work.cycleTime',
+    'sprint.velocity',
+    'schedule.drift',
+    'work.churn',
+  ];
+  const { facts, period, today } = context;
+
+  const milestones = context.work
+    .filter((item) => item.isMilestone && item.dueDate !== null && item.dueDate >= period.from && item.dueDate <= period.to)
+    .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
+  const outcomeLabel = { met: 'Met', missed: 'Missed', pending: 'Not yet due', excluded: 'Rejected' } as const;
+
+  const inScope = new Set(context.projects.map((project) => project.id));
+  const sprints = [...facts.versions.values()]
+    .filter((sprint) => sprint.projectId !== null && inScope.has(sprint.projectId) && sprint.endDate !== null && sprint.endDate >= period.from && sprint.endDate <= period.to)
+    .sort((a, b) => (a.endDate ?? '').localeCompare(b.endDate ?? ''));
+
+  const tables: DashboardTable[] = [
+    {
+      id: 'milestones',
+      title: 'Milestones due in the period',
+      columns: [
+        { key: 'name', label: 'Milestone' },
+        { key: 'project', label: 'Project' },
+        { key: 'due', label: 'Due' },
+        { key: 'closed', label: 'Delivered' },
+        { key: 'outcome', label: 'Outcome' },
+      ],
+      rows: milestones.map((item) => ({
+        key: `wp:${item.id}`,
+        link: { kind: 'work_package', id: String(item.id) },
+        cells: {
+          name: item.subject,
+          project: facts.projects.get(item.projectId)?.name ?? '',
+          due: item.dueDate,
+          closed: item.closedAt ? item.closedAt.slice(0, 10) : null,
+          outcome: outcomeLabel[milestoneOutcome(item, today)],
+        },
+      })),
+    },
+    {
+      id: 'sprints',
+      title: 'Sprints ended in the period',
+      columns: [
+        { key: 'name', label: 'Sprint' },
+        { key: 'project', label: 'Project' },
+        { key: 'end', label: 'Ended' },
+        { key: 'committed', label: 'Committed', unit: 'points' },
+        { key: 'delivered', label: 'Delivered', unit: 'points' },
+      ],
+      rows: sprints.map((sprint) => {
+        const items = context.work.filter((item) => item.versionId === sprint.id);
+        const points = (list: typeof items) => list.reduce((sum, item) => sum + (item.storyPoints ?? 0), 0);
+        return {
+          key: `sprint:${sprint.id}`,
+          link: sprint.projectId !== null ? { kind: 'project', id: String(sprint.projectId) } : undefined,
+          cells: {
+            name: sprint.name,
+            project: sprint.projectId !== null ? (facts.projects.get(sprint.projectId)?.name ?? '') : '',
+            end: sprint.endDate,
+            committed: sprint.committedPoints ?? points(items),
+            delivered: points(items.filter(isDelivered)),
+          },
+        };
+      }),
+    },
+  ];
+
+  if (context.scope.kind === 'instance' || context.scope.kind === 'portfolio') {
+    tables.push(
+      await measureTable(shared, {
+        id: 'projects',
+        title: 'Projects',
+        firstColumn: 'Project',
+        rows: projectRows(context),
+        measures: ['work.completed', 'work.throughput', 'milestones.onTime', 'work.leadTime', 'work.overdue'],
+        period,
+        today,
+      }),
+    );
+  }
+
+  const bucket = bucketFor(period);
+  return {
+    tiles,
+    tables,
+    series: [
+      await series(context, 'work.completed', 'Delivered', bucket),
+      await series(context, 'work.created', 'Created', bucket),
+      await series(context, 'work.open', 'Open work', bucket),
+    ],
+    measures: await evaluateInContext(tiles, context),
+  };
+}
+
+async function utilisation(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = ['utilisation', 'capacity.weeklyHours', 'time.logged', 'time.uncosted'];
+  const { facts, period, today } = context;
+  const tables: DashboardTable[] = [];
+  const measures = ['capacity.weeklyHours', 'time.logged', 'utilisation'];
+
+  if (context.scope.kind === 'instance') {
+    const departments = [...facts.departments.values()].filter((item) => item.active).sort((a, b) => a.name.localeCompare(b.name));
+    const teams = [...facts.teams.values()].filter((item) => item.active).sort((a, b) => a.name.localeCompare(b.name));
+    tables.push(
+      await measureTable(shared, {
+        id: 'departments',
+        title: 'Departments',
+        firstColumn: 'Department',
+        rows: departments.map((item) => ({
+          key: `department:${item.id}`,
+          label: item.name,
+          scope: { kind: 'department', id: item.id },
+          link: { kind: 'department', id: item.id },
+        })),
+        measures,
+        period,
+        today,
+      }),
+      await measureTable(shared, {
+        id: 'teams',
+        title: 'Teams',
+        firstColumn: 'Team',
+        rows: teams.map((item) => ({
+          key: `team:${item.id}`,
+          label: item.name,
+          scope: { kind: 'team', id: item.id },
+          link: { kind: 'team', id: item.id },
+        })),
+        measures,
+        period,
+        today,
+      }),
+    );
+  }
+
+  tables.push(
+    await measureTable(shared, {
+      id: 'people',
+      title: 'People',
+      firstColumn: 'Person',
+      rows: [...context.people]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((person) => ({
+          key: `person:${person.id}`,
+          label: person.name,
+          scope: { kind: 'person', id: String(person.id) },
+          link: { kind: 'person', id: String(person.id) },
+        })),
+      measures,
+      period,
+      today,
+    }),
+  );
+
+  const bucket = bucketFor(period);
+  return {
+    tiles,
+    tables,
+    series: [
+      await series(context, 'utilisation', 'Utilisation', bucket),
+      await series(context, 'time.logged', 'Hours logged', bucket),
+    ],
+    measures: await evaluateInContext(tiles, context),
+  };
+}
+
+async function budget(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = ['budget.total', 'cost.actual', 'cost.plannedToDate', 'cost.variance', 'budget.consumed', 'budget.variancePct'];
+  const projects = await measureTable(shared, {
+    id: 'projects',
+    title: 'Projects with a budget',
+    firstColumn: 'Project',
+    rows: projectRows(context).filter((row) => (shared.facts.projects.get(Number(row.link.id))?.budget ?? 0) > 0),
+    measures: ['budget.total', 'cost.actual', 'cost.plannedToDate', 'cost.variance', 'budget.consumed'],
+    period: context.period,
+    today: context.today,
+  });
+  const bucket = bucketFor(context.period);
+  return {
+    tiles,
+    tables: [projects],
+    series: [await series(context, 'cost.spent', 'Spent', bucket)],
+    measures: await evaluateInContext([...tiles, 'time.uncosted'], context),
+  };
+}
+
+async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = ['risk.open', 'risk.high', 'risk.overdue'];
+  const { facts } = context;
+  const open = context.work
+    .filter((item) => isOpen(item) && context.risk.typeIds.has(item.typeId))
+    .sort(
+      (a, b) =>
+        (facts.priorities.get(b.priorityId ?? -1)?.position ?? 0) - (facts.priorities.get(a.priorityId ?? -1)?.position ?? 0) ||
+        (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'),
+    );
+
+  const bySeverity = new Map<string, number>();
+  for (const item of open) {
+    const name = item.priorityId !== null ? (facts.priorities.get(item.priorityId)?.name ?? 'No priority') : 'No priority';
+    bySeverity.set(name, (bySeverity.get(name) ?? 0) + 1);
+  }
+
+  const tables: DashboardTable[] = [
+    {
+      id: 'risks',
+      title: 'Open risks',
+      columns: [
+        { key: 'name', label: 'Risk' },
+        { key: 'project', label: 'Project' },
+        { key: 'severity', label: 'Severity' },
+        { key: 'owner', label: 'Assignee' },
+        { key: 'due', label: 'Due' },
+      ],
+      rows: open.map((item) => ({
+        key: `wp:${item.id}`,
+        link: { kind: 'work_package', id: String(item.id) },
+        cells: {
+          name: item.subject,
+          project: facts.projects.get(item.projectId)?.name ?? '',
+          severity: item.priorityId !== null ? (facts.priorities.get(item.priorityId)?.name ?? null) : null,
+          owner: item.assigneeId !== null ? (facts.users.get(item.assigneeId)?.name ?? null) : null,
+          due: item.dueDate,
+        },
+      })),
+    },
+    {
+      id: 'severity',
+      title: 'By severity',
+      columns: [
+        { key: 'name', label: 'Severity' },
+        { key: 'count', label: 'Open risks', unit: 'count' },
+      ],
+      rows: [...bySeverity.entries()].map(([name, count]) => ({ key: `severity:${name}`, cells: { name, count } })),
+    },
+  ];
+  if (context.scope.kind === 'instance' || context.scope.kind === 'portfolio') {
+    tables.push(
+      await measureTable(shared, {
+        id: 'projects',
+        title: 'By project',
+        firstColumn: 'Project',
+        rows: projectRows(context),
+        measures: ['risk.open', 'risk.high', 'risk.overdue'],
+        period: context.period,
+        today: context.today,
+      }),
+    );
+  }
+
+  const bucket = bucketFor(context.period);
+  return {
+    tiles,
+    tables,
+    series: [
+      await series(context, 'risk.open', 'Open risks', bucket),
+      await series(context, 'risk.high', 'High risks', bucket),
+    ],
+    measures: await evaluateInContext(tiles, context),
+  };
+}
+
+/** The dashboards there are, for a menu. */
+export const DASHBOARDS = DASHBOARD_IDS.map((id) => ({ id, ...TITLES[id] }));
+
+const BUILDERS: Record<DashboardId, (shared: Shared, context: MeasureContext) => Promise<Partial<Dashboard>>> = {
+  'portfolio-health': portfolioHealth,
+  delivery,
+  utilisation,
+  budget,
+  risk,
+};
+
+/** Builds one dashboard for a scope, a period and a viewer, timed against the target. */
+export async function buildDashboard(
+  id: DashboardId,
+  scope: Scope,
+  period: Period,
+  viewer: Viewer,
+  today: string,
+  prepared?: Shared,
+): Promise<Dashboard> {
+  const startedAt = performance.now();
+  const shared = prepared ?? (await prepare(viewer));
+  const context = contextFor(shared, scope, period, today);
+  const built = await BUILDERS[id](shared, context);
+  const serverMs = Math.round(performance.now() - startedAt);
+
+  return {
+    id,
+    ...TITLES[id],
+    scope: { ...scope, name: scopeName(shared, scope) },
+    period,
+    today,
+    asOf: shared.facts.asOf,
+    tiles: built.tiles ?? [],
+    measures: built.measures ?? {},
+    tables: built.tables ?? [],
+    series: built.series ?? [],
+    timing: { serverMs, targetMs: env.EPM_DASHBOARD_TARGET_MS, withinTarget: serverMs <= env.EPM_DASHBOARD_TARGET_MS },
+  };
+}

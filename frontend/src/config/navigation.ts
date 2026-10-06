@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   ListTodo,
   Megaphone,
+  PieChart,
   Plug,
   Settings,
   ShieldCheck,
@@ -84,6 +85,7 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Insights',
     items: [
+      { label: 'Dashboards', to: '/insights', icon: PieChart, matchNested: true },
       { label: 'Reports', to: '/reports', icon: FileText },
       { label: 'Time & Costs', to: '/time-and-costs', icon: Coins },
     ],

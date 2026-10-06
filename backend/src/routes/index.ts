@@ -8,6 +8,8 @@ import { webhooksRoutes } from './webhooks.js';
 import { attachmentRoutes } from './attachments.js';
 import { authRoutes } from './auth.js';
 import { analyticsRoutes } from './analytics.js';
+import { analyticsModelRoutes } from './analytics-model.js';
+import { measureRoutes } from './measures.js';
 import { approvalRoutes } from './approvals.js';
 import { automationRoutes } from './automation.js';
 import { catalogRoutes } from './catalog.js';
@@ -77,6 +79,8 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(placeholderPeopleRoutes);
   await app.register(portfolioRoutes);
   await app.register(analyticsRoutes);
+  await app.register(analyticsModelRoutes);
+  await app.register(measureRoutes);
   await app.register(adminRoutes);
   await app.register(preferencesRoutes);
   await app.register(sessionRoutes);
