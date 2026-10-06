@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { requestHealthRecalc } from '../domain/health.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
@@ -59,6 +60,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         },
       );
 
+      requestHealthRecalc(projectId);
       reply.code(201);
       return { id: String(created.id), subject: created.subject, lockVersion: created.lockVersion };
     },
@@ -82,7 +84,8 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       }
 
       // The work package's own project decides this, not the caller.
-      await guard.require(request, 'task:edit', await guard.projectOfWorkPackage(request, id));
+      const projectId = await guard.projectOfWorkPackage(request, id);
+      await guard.require(request, 'task:edit', projectId);
 
       const signal = requestSignal(request);
       const current = await openProject
@@ -97,6 +100,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         signal,
       });
 
+      requestHealthRecalc(projectId);
       return { id: String(updated.id), subject: updated.subject, lockVersion: updated.lockVersion };
     },
   );
@@ -108,11 +112,13 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       'delete',
       'delete this work package',
     );
+    const projectId = await guard.projectOfWorkPackage(request, request.params.id);
 
     await openProject.request<void>(`/work_packages/${request.params.id}`, {
       method: 'DELETE',
       signal: requestSignal(request),
     });
+    requestHealthRecalc(projectId);
     reply.code(204);
   });
 };

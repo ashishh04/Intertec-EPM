@@ -31,3 +31,18 @@ export function runWithAuth<T>(context: AuthContext, fn: () => T): T {
 export function currentAuth(): AuthContext | undefined {
   return storage.getStore();
 }
+
+/**
+ * Runs `fn` with no signed-in user, so OpenProject calls fall back to the
+ * configured service key.
+ *
+ * For work that must see every project regardless of who caused it: health is
+ * one authoritative value per project, so it cannot be calculated from
+ * whatever the person whose edit triggered it happens to be able to see. Not
+ * incidental either — timers and promises created inside a request inherit
+ * that request's context, so a recalculation queued by a user's edit would
+ * otherwise run on their token long after the request finished.
+ */
+export function runAsSystem<T>(fn: () => T): T {
+  return storage.exit(fn);
+}

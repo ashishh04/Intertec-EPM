@@ -37,7 +37,8 @@ import { useAuth } from '@/providers/AuthProvider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { HEALTH_MATRIX_LABEL, HEALTH_META, TONE_FILL, TONE_TEXT } from '@/lib/domain';
+import { HEALTH_CRITERIA_META, HEALTH_MATRIX_LABEL, HEALTH_META, TONE_FILL, TONE_TEXT } from '@/lib/domain';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn, formatLongDate } from '@/lib/utils';
 import type { HealthLevel } from '@/types';
 
@@ -166,7 +167,7 @@ export default function AnalyticsPage() {
       <section className="space-y-3">
         <SectionHeader
           title="Portfolio health matrix"
-          description="Schedule, scope and resource confidence per project"
+          description="Each project on the health rules: schedule, budget, high risks and overdue work"
         />
 
         <QueryBoundary
@@ -218,9 +219,9 @@ export default function AnalyticsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="min-w-48">Project</TableHead>
-                  <TableHead>Schedule</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Resources</TableHead>
+                  {HEALTH_CRITERIA_META.map((criterion) => (
+                    <TableHead key={criterion.key}>{criterion.short}</TableHead>
+                  ))}
                   <TableHead>Overall</TableHead>
                 </TableRow>
               </TableHeader>
@@ -238,17 +239,26 @@ export default function AnalyticsPage() {
                         {row.projectName}
                       </Link>
                     </TableCell>
+                    {HEALTH_CRITERIA_META.map((criterion) => (
+                      <TableCell key={criterion.key}>
+                        <HealthCell level={row[criterion.key]} />
+                      </TableCell>
+                    ))}
                     <TableCell>
-                      <HealthCell level={row.schedule} />
-                    </TableCell>
-                    <TableCell>
-                      <HealthCell level={row.scope} />
-                    </TableCell>
-                    <TableCell>
-                      <HealthCell level={row.resources} />
-                    </TableCell>
-                    <TableCell>
-                      <HealthCell level={row.overall} emphasis />
+                      <span className="flex items-center gap-1.5">
+                        <HealthCell level={row.overall} emphasis />
+                        {/* A pinned value is never shown as a measured one:
+                            the calculated level and the reason travel with it. */}
+                        {row.override ? (
+                          <InfoTooltip
+                            label={`Overridden — calculated ${HEALTH_MATRIX_LABEL[row.calculatedOverall]}. ${row.override.reason}`}
+                          >
+                            <Badge tone="accent" className="text-2xs" tabIndex={0}>
+                              Pinned
+                            </Badge>
+                          </InfoTooltip>
+                        ) : null}
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -394,7 +404,11 @@ export default function AnalyticsPage() {
   );
 }
 
-function HealthCell({ level, emphasis = false }: { level: HealthLevel; emphasis?: boolean }) {
+function HealthCell({ level, emphasis = false }: { level: HealthLevel | null; emphasis?: boolean }) {
+  if (level === null) {
+    // Not assessed: nothing to measure against yet, which is not the same as good.
+    return <span className="text-xs text-muted-foreground">n/a</span>;
+  }
   const meta = HEALTH_META[level];
   return (
     <span

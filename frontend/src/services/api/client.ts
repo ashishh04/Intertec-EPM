@@ -132,6 +132,11 @@ export class ApiClient {
     return this.request<T>(path, { method: 'PATCH', body });
   }
 
+  /** Replaces a resource whole — the health rules, which are saved as one. */
+  put<T>(path: string, body?: unknown) {
+    return this.request<T>(path, { method: 'PUT', body });
+  }
+
   delete<T>(path: string, body?: unknown) {
     return this.request<T>(path, { method: 'DELETE', body });
   }

@@ -23,6 +23,7 @@ const GRANTABLE = new Set<Permission>([
   'teams:manage',
   'employees:manage',
   'health:manage',
+  'health:configure',
   'portfolios:manage',
   'analytics:manage',
 ]);

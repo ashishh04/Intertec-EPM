@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn, formatPercent } from '@/lib/utils';
 import {
   HEALTH_META,
+  HEALTH_NOT_ASSESSED,
   PROJECT_STATUS_META,
   SPRINT_STATE_META,
   TASK_PRIORITY_META,
@@ -168,11 +169,12 @@ export function HealthIndicator({
   label,
   className,
 }: {
-  level: HealthLevel;
+  /** Null for a criterion that could not be assessed, shown as such. */
+  level: HealthLevel | null;
   label?: string;
   className?: string;
 }) {
-  const meta = HEALTH_META[level];
+  const meta = level ? HEALTH_META[level] : HEALTH_NOT_ASSESSED;
   return (
     <span className={cn('inline-flex items-center gap-1.5 text-xs', className)}>
       <span className={cn('h-2 w-2 shrink-0 rounded-full', TONE_FILL[meta.tone])} aria-hidden />

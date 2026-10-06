@@ -6,20 +6,24 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId, MAX_PAGE_SIZE } from '../openproject/client.js';
-import {
-  HEALTH_DIMENSIONS,
-  HEALTH_LEVELS,
-  getProjectAggregates,
-  getProjectOverlays,
-  toEpmProject,
-} from '../mapping/projects.js';
-import { prisma, optional } from '../db/prisma.js';
+import { getProjectAggregates, getProjectOverlays, toEpmProject } from '../mapping/projects.js';
+import { prisma } from '../db/prisma.js';
 import { setProjectPortfolio } from '../domain/portfolios.js';
 import { getUsers } from '../mapping/users.js';
 import { notifyHealthChange } from '../domain/notifications.js';
-import { Prisma } from '@prisma/client';
+import { listAudit, recordAudit, withAudit } from '../domain/audit.js';
+import {
+  healthViews,
+  parseOverrideLevels,
+  recalculateNow,
+  requestHealthRecalc,
+  unassessedView,
+} from '../domain/health.js';
+import { HEALTH_CRITERIA } from '../domain/health-rules.js';
+import { allows } from '../auth/capabilities.js';
+import { env } from '../config/env.js';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
-import type { Milestone, EpmProject } from '../types/epm.js';
+import type { HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -84,8 +88,6 @@ function invalidateProjects() {
 }
 
 async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
-  const today = new Date().toISOString().slice(0, 10);
-
   const [projects, aggregates, members, overlays] = await Promise.all([
     openProject.getAll<OpProject>('/projects', { pageSize: MAX_PAGE_SIZE }, { signal }),
     getProjectAggregates(signal),
@@ -93,13 +95,135 @@ async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
     getProjectOverlays(),
   ]);
 
+  // Stored health, one authoritative value per project, for exactly the
+  // projects this caller can see.
+  const health = await healthViews(projects.items);
+
   return projects.items.map((project) =>
     toEpmProject(project, aggregates, {
       memberIds: members.get(String(project.id)) ?? [],
       overlay: overlays.get(String(project.id)),
-      today,
+      // A project without a view reads as not assessed rather than vanishing
+      // from the list.
+      health: health.get(String(project.id)) ?? unassessedView('Health has not been calculated yet.'),
     }),
   );
+}
+
+const HEALTH_WORDS: Record<HealthLevel, string> = { healthy: 'green', warning: 'amber', critical: 'red' };
+const DIMENSION_LABELS: Record<string, string> = {
+  overall: 'overall',
+  schedule: 'schedule variance',
+  budget: 'budget variance',
+  risks: 'open high risks',
+  overdue: 'overdue items',
+};
+const DIMENSIONS = [...HEALTH_CRITERIA, 'overall'] as const;
+const LEVELS: HealthLevel[] = ['healthy', 'warning', 'critical'];
+
+/** A reason has to say something. Ten characters rules out "ok" and "fix". */
+const MIN_REASON = 10;
+
+const day = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are written YYYY-MM-DD.')
+  .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), 'That is not a real date.');
+
+const planBody = z
+  .object({
+    plannedStart: day.nullable().optional(),
+    plannedFinish: day.nullable().optional(),
+    budgetTotal: z
+      .number()
+      .finite()
+      .min(0, 'A budget cannot be negative.')
+      .max(1e13, 'That budget is too large.')
+      .nullable()
+      .optional(),
+  })
+  .strict();
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "30 Sep 2026". Spelled out by hand: locale data abbreviates September as "Sept". */
+function describeDay(value: Date | string | null | undefined): string {
+  if (!value) return 'none';
+  const iso = typeof value === 'string' ? value : value.toISOString().slice(0, 10);
+  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
+  return `${d} ${MONTHS[m - 1]} ${y}`;
+}
+
+function describeMoney(value: number | null | undefined): string {
+  if (value === null || value === undefined || value === 0) return 'none';
+  return `${env.EPM_CURRENCY} ${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Writes a project's planned dates and budget, journalled together.
+ *
+ * Every field is optional and `null` clears it. The finish may not come
+ * before the start once both are known — including when only one of them is
+ * being changed, which is the case a per-field check would miss.
+ */
+async function updatePlan(projectId: string, input: z.infer<typeof planBody>): Promise<boolean> {
+  const existing = await prisma.projectProfile.findUnique({
+    where: { openProjectId: projectId },
+    select: { plannedStart: true, plannedFinish: true, budgetTotal: true },
+  });
+
+  const toDate = (value: string | null) => (value === null ? null : new Date(`${value}T00:00:00Z`));
+  const next = {
+    plannedStart: input.plannedStart === undefined ? existing?.plannedStart ?? null : toDate(input.plannedStart),
+    plannedFinish: input.plannedFinish === undefined ? existing?.plannedFinish ?? null : toDate(input.plannedFinish),
+    budgetTotal: input.budgetTotal === undefined ? existing?.budgetTotal ?? null : input.budgetTotal,
+  };
+
+  if (next.plannedStart && next.plannedFinish && next.plannedFinish < next.plannedStart) {
+    throw EpmError.validation('The planned finish cannot be before the planned start.');
+  }
+
+  const changes: string[] = [];
+  const sameDay = (a: Date | null | undefined, b: Date | null) =>
+    (a?.toISOString().slice(0, 10) ?? null) === (b?.toISOString().slice(0, 10) ?? null);
+  if (!sameDay(existing?.plannedStart, next.plannedStart)) {
+    changes.push(`planned start ${describeDay(existing?.plannedStart)} → ${describeDay(next.plannedStart)}`);
+  }
+  if (!sameDay(existing?.plannedFinish, next.plannedFinish)) {
+    changes.push(`planned finish ${describeDay(existing?.plannedFinish)} → ${describeDay(next.plannedFinish)}`);
+  }
+  if ((existing?.budgetTotal ?? null) !== next.budgetTotal) {
+    changes.push(`budget ${describeMoney(existing?.budgetTotal)} → ${describeMoney(next.budgetTotal)}`);
+  }
+  if (changes.length === 0) return false;
+
+  const snapshot = (value: typeof next) => ({
+    plannedStart: value.plannedStart?.toISOString().slice(0, 10) ?? null,
+    plannedFinish: value.plannedFinish?.toISOString().slice(0, 10) ?? null,
+    budgetTotal: value.budgetTotal,
+  });
+
+  await withAudit(
+    (tx) =>
+      tx.projectProfile.upsert({
+        where: { openProjectId: projectId },
+        create: { openProjectId: projectId, ...next },
+        update: next,
+      }),
+    {
+      projectId,
+      entityType: 'project',
+      entityId: projectId,
+      action: 'project.plan.updated',
+      summary: `Plan changed: ${changes.join('; ')}.`,
+      before: snapshot({
+        plannedStart: existing?.plannedStart ?? null,
+        plannedFinish: existing?.plannedFinish ?? null,
+        budgetTotal: existing?.budgetTotal ?? null,
+      }),
+      after: snapshot(next),
+    },
+  );
+  return true;
 }
 
 export const projectRoutes: FastifyPluginAsync = async (app) => {
@@ -199,23 +323,28 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
-      // Portfolio and budget are EPM-owned; they have no OpenProject column,
-      // so they are persisted in the overlay rather than pushed upstream.
-      const overlay: Record<string, unknown> = {};
-      if (typeof patch.portfolio === 'string') overlay.portfolio = patch.portfolio;
-      if (typeof patch.budgetTotal === 'number') overlay.budgetTotal = patch.budgetTotal;
-      if (typeof patch.budgetUsed === 'number') overlay.budgetUsed = patch.budgetUsed;
-
-      if (Object.keys(overlay).length > 0) {
-        await optional(
-          () =>
-            prisma.projectProfile.upsert({
-              where: { openProjectId: id },
-              create: { openProjectId: id, ...overlay },
-              update: overlay,
-            }),
-          null,
+      // Spend is calculated from logged time now. Accepting a typed figure and
+      // ignoring it would look like a save that worked.
+      if (patch.budgetUsed !== undefined) {
+        throw EpmError.badRequest(
+          'Budget used is calculated from logged time and cannot be set. Set the budget itself instead.',
         );
+      }
+
+      // The budget is EPM-owned, with no OpenProject column, and goes through
+      // the same journalled path as the rest of the plan.
+      if (patch.budgetTotal !== undefined) {
+        const plan = planBody.parse({ budgetTotal: patch.budgetTotal });
+        if (await updatePlan(id, plan)) requestHealthRecalc(id);
+      }
+
+      // Legacy free text, superseded by the portfolio link; still accepted.
+      if (typeof patch.portfolio === 'string') {
+        await prisma.projectProfile.upsert({
+          where: { openProjectId: id },
+          create: { openProjectId: id, portfolio: patch.portfolio },
+          update: { portfolio: patch.portfolio },
+        });
       }
 
       invalidateProjects();
@@ -260,66 +389,112 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   /** Archive rather than delete: OpenProject deletion is asynchronous and final. */
 
   /**
-   * Pins one or more health dimensions.
+   * Overrides a project's calculated health, or clears the override (BR-206).
    *
-   * Its own route rather than part of the overlay patch above, which is gated
-   * on `project:edit` — derived from OpenProject's `projects/update`. Health is
-   * EPM's judgement, so its authority is EPM's to grant; sharing that handler
-   * would mean sharing that permission.
+   * `levels` pins the overall and/or any criterion; `{}` clears every pin.
+   * Setting or changing an override needs a reason, which is kept in the
+   * journal beside who set it and when, and is shown wherever the overridden
+   * value is — the calculated value stays visible next to it everywhere.
+   * Clearing may say why too, but does not have to: it returns the project to
+   * what the data says.
    *
-   * The body is the whole override. An omitted or null dimension is cleared,
-   * and `{}` clears every pin, so there is no separate delete.
+   * Its own route rather than part of the project patch, which is gated on
+   * `project:edit` — derived from OpenProject's `projects/update`. Health is
+   * EPM's judgement, so its authority is EPM's to grant.
    */
-  app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
+  app.patch<{ Params: { id: string }; Body: { levels?: unknown; reason?: unknown } }>(
     '/projects/:id/health',
     async (request) => {
       const { id } = request.params;
-
       await guard.require(request, 'health:manage');
 
-      const body = request.body ?? {};
-      const override: Record<string, string> = {};
+      const raw = request.body?.levels ?? {};
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw EpmError.badRequest('levels must be an object of criterion to level.');
+      }
 
-      for (const [key, level] of Object.entries(body)) {
-        // Null and undefined clear that dimension rather than setting it.
+      const levels: HealthOverride = {};
+      for (const [key, level] of Object.entries(raw as Record<string, unknown>)) {
+        // Null and undefined clear that criterion rather than setting it.
         if (level === null || level === undefined) continue;
-
-        if (!HEALTH_DIMENSIONS.includes(key as never)) {
-          throw EpmError.badRequest(`${key} is not a health dimension.`);
+        if (!(DIMENSIONS as readonly string[]).includes(key)) {
+          throw EpmError.badRequest(`${key} is not a health criterion.`);
         }
-        if (typeof level !== 'string' || !HEALTH_LEVELS.includes(level as never)) {
+        if (typeof level !== 'string' || !LEVELS.includes(level as HealthLevel)) {
           throw EpmError.badRequest(`${String(level)} is not a health level.`);
         }
-        override[key] = level;
+        levels[key as keyof HealthOverride] = level as HealthLevel;
       }
+
+      const reason = typeof request.body?.reason === 'string' ? request.body.reason.trim() : '';
+      const clearing = Object.keys(levels).length === 0;
+      if (!clearing && reason.length < MIN_REASON) {
+        throw EpmError.validation(
+          `Say why the calculated health is wrong, in at least ${MIN_REASON} characters. The reason is kept with the override.`,
+        );
+      }
+      if (reason.length > 2000) throw EpmError.validation('Keep the reason under 2,000 characters.');
 
       // Confirms the project exists and that this caller can see it, so the
       // route cannot be used to discover project ids.
-      await openProject.request<{ id: number }>(`/projects/${id}`, {
-        signal: requestSignal(request),
-      });
-
-      const stored = Object.keys(override).length > 0 ? override : Prisma.DbNull;
+      const signal = requestSignal(request);
+      await openProject.request<{ id: number }>(`/projects/${id}`, { signal });
 
       // What it was, before the pin lands. A transition needs both ends, and
       // after the write the previous value is gone.
-      const projectsBefore = await loadProjects(requestSignal(request));
-      const before = projectsBefore.find((candidate) => candidate.id === id);
+      const before = (await loadProjects(signal)).find((candidate) => candidate.id === id);
+      if (!before) throw EpmError.notFound('That project');
 
-      await prisma.projectProfile.upsert({
-        where: { openProjectId: id },
-        create: { openProjectId: id, healthOverride: stored },
-        update: { healthOverride: stored },
-      });
+      const existing = await prisma.projectHealthOverride.findUnique({ where: { projectId: id } });
+      if (clearing && !existing) return before;
 
-      // Re-read through the normal path, so the response is the same shape
-      // every other project read returns, with the pin already applied.
-      const projects = await loadProjects(requestSignal(request));
-      const after = projects.find((candidate) => candidate.id === id);
+      const pinned = Object.entries(levels)
+        .map(([key, level]) => {
+          const calculated = before.healthCalculated[key as keyof typeof before.healthCalculated];
+          const was = calculated ? HEALTH_WORDS[calculated] : 'not assessed';
+          return `${DIMENSION_LABELS[key]} ${HEALTH_WORDS[level]} (calculated ${was})`;
+        })
+        .join(', ');
+      const action = clearing
+        ? 'health.override.cleared'
+        : existing
+          ? 'health.override.changed'
+          : 'health.override.set';
+      const summary = clearing
+        ? 'Health override cleared; the calculated health applies again.'
+        : `Health overridden: ${pinned}.`;
 
-      // Only when the effective state actually moved. Pinning a dimension that
+      await withAudit(
+        async (tx) => {
+          if (clearing) {
+            await tx.projectHealthOverride.delete({ where: { projectId: id } });
+            return;
+          }
+          const data = { levels: levels as object, reason, setBy: request.auth!.userId, setAt: new Date() };
+          await tx.projectHealthOverride.upsert({
+            where: { projectId: id },
+            create: { projectId: id, ...data },
+            update: data,
+          });
+        },
+        {
+          projectId: id,
+          entityType: 'project',
+          entityId: id,
+          action,
+          summary,
+          reason: reason || null,
+          before: existing ? { levels: parseOverrideLevels(existing.levels), reason: existing.reason } : null,
+          after: clearing ? null : { levels, calculated: before.healthCalculated },
+        },
+      );
+
+      invalidateProjects();
+      const after = (await loadProjects(signal)).find((candidate) => candidate.id === id);
+
+      // Only when the effective state actually moved. Pinning a criterion that
       // does not change the headline is not news to anyone.
-      if (after && before && before.health.overall !== after.health.overall) {
+      if (after && before.health.overall !== after.health.overall) {
         await notifyHealthChange({
           projectId: id,
           projectName: after.name,
@@ -327,6 +502,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           previous: before.health.overall,
           next: after.health.overall,
           overridden: Boolean(after.healthOverride),
+          occurrence: new Date().toISOString().slice(0, 10),
+          detail: clearing ? 'The override was cleared.' : `Reason given: ${reason}`,
         }).catch((error: unknown) => {
           // A notification that cannot be written must not fail the write the
           // user actually asked for.
@@ -338,6 +515,85 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  /**
+   * Recalculates one project's health now and answers with the result.
+   *
+   * Health already follows changes on its own; this is for the person who has
+   * just changed something upstream and does not want to wait for the sweep.
+   * Open to whoever may edit the project or manage health — it changes nothing
+   * but how fresh the figure is.
+   */
+  app.post<{ Params: { id: string } }>('/projects/:id/health/recalculate', async (request) => {
+    const { id } = request.params;
+    const permissions = await guard.permissionsFor(request);
+    if (!allows(permissions, 'health:manage') && !allows(permissions, 'project:edit', id)) {
+      throw EpmError.forbidden("You do not have permission to recalculate this project's health.");
+    }
+
+    const signal = requestSignal(request);
+    if (!(await loadProjects(signal)).some((candidate) => candidate.id === id)) {
+      throw EpmError.notFound('That project');
+    }
+
+    await recalculateNow([id], 'manual');
+    invalidateProjects();
+    return (await loadProjects(signal)).find((candidate) => candidate.id === id);
+  });
+
+  /**
+   * Sets a project's planned start, planned finish and budget.
+   *
+   * EPM's own fields: an OpenProject project has no dates and publishes no
+   * budget. Each change is journalled with its before and after, and health is
+   * recalculated before answering, so the response already shows what the new
+   * plan means for schedule and budget variance.
+   */
+  app.patch<{ Params: { id: string }; Body: unknown }>('/projects/:id/plan', async (request) => {
+    const { id } = request.params;
+    await guard.require(request, 'project:edit', id);
+    const input = planBody.parse(request.body ?? {});
+
+    const signal = requestSignal(request);
+    if (!(await loadProjects(signal)).some((candidate) => candidate.id === id)) {
+      throw EpmError.notFound('That project');
+    }
+
+    if (await updatePlan(id, input)) await recalculateNow([id], 'change');
+    invalidateProjects();
+    return (await loadProjects(signal)).find((candidate) => candidate.id === id);
+  });
+
+  /**
+   * The project's own journal: what EPM recorded about it, newest first.
+   *
+   * Health calculations and overrides, plan and budget changes, owner and
+   * portfolio changes — everything EPM owns about the project, with who and
+   * why. Visible to whoever can see the project, like the project itself.
+   */
+  app.get<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>(
+    '/projects/:id/journal',
+    async (request) => {
+      const { id } = request.params;
+      const query = z
+        .object({
+          before: z.coerce.number().int().positive().optional(),
+          limit: z.coerce.number().int().positive().max(200).optional(),
+          action: z.string().max(60).optional(),
+        })
+        .parse(request.query);
+
+      if (!(await loadProjects(requestSignal(request))).some((candidate) => candidate.id === id)) {
+        throw EpmError.notFound('That project');
+      }
+
+      return listAudit({
+        projectId: id,
+        before: query.before,
+        limit: query.limit,
+        actionPrefix: query.action,
+      });
+    },
+  );
 
   /**
    * Associates a project with a portfolio, or clears it.
@@ -360,7 +616,26 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         signal: requestSignal(request),
       });
 
-      await setProjectPortfolio(id, request.body?.portfolioId);
+      const before = await prisma.projectProfile.findUnique({
+        where: { openProjectId: id },
+        select: { portfolioRef: { select: { id: true, name: true } } },
+      });
+      const portfolioId = await setProjectPortfolio(id, request.body?.portfolioId);
+
+      if ((before?.portfolioRef?.id ?? null) !== portfolioId) {
+        const now = portfolioId
+          ? await prisma.portfolio.findUnique({ where: { id: portfolioId }, select: { id: true, name: true } })
+          : null;
+        await recordAudit({
+          projectId: id,
+          entityType: 'project',
+          entityId: id,
+          action: 'project.portfolio.changed',
+          summary: `Portfolio ${before?.portfolioRef?.name ?? 'none'} → ${now?.name ?? 'none'}.`,
+          before: before?.portfolioRef ?? null,
+          after: now,
+        });
+      }
       invalidateProjects();
 
       const projects = await loadProjects(requestSignal(request));
@@ -490,11 +765,33 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      await prisma.projectProfile.upsert({
+      const previous = await prisma.projectProfile.findUnique({
         where: { openProjectId: id },
-        create: { openProjectId: id, ownerId },
-        update: { ownerId },
+        select: { ownerId: true },
       });
+      if ((previous?.ownerId ?? null) === ownerId) return { id, ownerId: ownerId ?? '' };
+
+      const users = await getUsers(requestSignal(request));
+      const nameOf = (userId: string | null | undefined) =>
+        userId ? users.find((user) => user.id === userId)?.name ?? `user ${userId}` : 'nobody';
+
+      await withAudit(
+        (tx) =>
+          tx.projectProfile.upsert({
+            where: { openProjectId: id },
+            create: { openProjectId: id, ownerId },
+            update: { ownerId },
+          }),
+        {
+          projectId: id,
+          entityType: 'project',
+          entityId: id,
+          action: 'project.owner.changed',
+          summary: `Owner ${nameOf(previous?.ownerId)} → ${nameOf(ownerId)}.`,
+          before: { ownerId: previous?.ownerId ?? null },
+          after: { ownerId },
+        },
+      );
 
       invalidateProjects();
       return { id, ownerId: ownerId ?? '' };
@@ -562,7 +859,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     if (!/^\d+$/.test(id)) throw EpmError.notFound('That project');
 
     const project = await openProject
-      .request<{ id: number; _links?: Record<string, unknown> }>(`/projects/${id}`, {
+      .request<{ id: number; name?: string; _links?: Record<string, unknown> }>(`/projects/${id}`, {
         signal: requestSignal(request),
       })
       .catch(() => null);
@@ -579,8 +876,18 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     });
 
     // The EPM overlay is keyed on a project that will no longer exist. Its
-    // portfolio link, budget and health pin go with it.
+    // portfolio link, budget, stored health and override go with it. Its
+    // journal does not: that is the record of what happened, deletion included.
     await prisma.projectProfile.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
+    await prisma.projectHealthState.deleteMany({ where: { projectId: id } }).catch(() => undefined);
+    await prisma.projectHealthOverride.deleteMany({ where: { projectId: id } }).catch(() => undefined);
+    await recordAudit({
+      projectId: id,
+      entityType: 'project',
+      entityId: id,
+      action: 'project.deleted',
+      summary: `Project ${project.name ?? id} was deleted, with its work packages.`,
+    }).catch((error: unknown) => request.log.warn({ err: error }, 'Could not journal a project deletion'));
 
     const deadline = Date.now() + 8_000;
     let gone = false;

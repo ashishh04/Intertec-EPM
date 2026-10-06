@@ -7,13 +7,8 @@ import { openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { getCurrentUser } from '../mapping/users.js';
-import {
-  computeHealth,
-  effectiveHealth,
-  getProjectAggregates,
-  listProjects,
-  loadHealthOverrides,
-} from '../mapping/projects.js';
+import { listProjects } from '../mapping/projects.js';
+import { healthViews } from '../domain/health.js';
 import { addDays } from '../lib/dates.js';
 import type { OpActivity, OpProject, OpWorkPackage } from '../openproject/types.js';
 import type {
@@ -165,15 +160,10 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
      */
     return aggregateCache.get(userScopedKey('dashboard-metrics'), async () => {
 
-    // `loadHealthOverrides` reads the local database and depends on nothing
-    // below, so it joins this wave rather than adding a round trip of its own
-    // after the counts have resolved.
-    const [me, catalog, projects, aggregates, overrides] = await Promise.all([
+    const [me, catalog, projects] = await Promise.all([
       getCurrentUser(signal),
       getCatalog(signal),
       listProjects(signal),
-      getProjectAggregates(signal),
-      loadHealthOverrides(),
     ]);
 
     const mine: OpFilter = { field: 'assignee', operator: '=', values: [me.id] };
@@ -209,18 +199,12 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       ]);
 
     const active = projects.filter((project) => project.active);
-    // Pins are honoured here too, so this count agrees with what the project
-    // pages show rather than contradicting them.
-    const atRisk = active.filter((project) => {
-      const id = String(project.id);
-      const { health } = computeHealth({
-        total: aggregates.total.get(id) ?? 0,
-        completed: aggregates.completed.get(id) ?? 0,
-        overdue: aggregates.overdue.get(id) ?? 0,
-        today,
-      });
-      return effectiveHealth(health, overrides.get(id)).overall !== 'healthy';
-    }).length;
+    // The stored health, override applied — the same value the project pages
+    // show, so this count cannot contradict them.
+    const health = await healthViews(active);
+    const atRisk = active.filter(
+      (project) => (health.get(String(project.id))?.effective.overall ?? 'healthy') !== 'healthy',
+    ).length;
 
     await recordSnapshots(
       { myTasks, inProgress, overdue, activeProjects: active.length },

@@ -15,7 +15,8 @@ import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { HealthOverrideDialog } from '@/components/projects/HealthOverrideDialog';
+import { ProjectHealthCard } from '@/components/projects/ProjectHealthCard';
+import { ProjectPlanDialog } from '@/components/projects/ProjectPlanDialog';
 import {
   Select,
   SelectContent,
@@ -28,7 +29,7 @@ import { toast } from 'sonner';
 import { ProjectPortfolioCard } from '@/components/portfolios/ProjectPortfolioCard';
 import { ProjectHierarchyCard } from '@/components/projects/ProjectHierarchyCard';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
-import { HealthIndicator, PriorityBadge } from '@/components/common/StatusBadge';
+import { PriorityBadge } from '@/components/common/StatusBadge';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
@@ -38,7 +39,7 @@ import { useProject, useProjectMilestones } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
-import { HEALTH_META, PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
+import { PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
 import {
   cn,
   formatCurrency,
@@ -48,18 +49,9 @@ import {
   formatShortDate,
   pluralize,
 } from '@/lib/utils';
-import type { HealthDimension } from '@/types';
 
 /** Sentinel: a select cannot hold an empty string as a value. */
 const NO_OWNER = '__none__';
-
-const HEALTH_DIMENSIONS: { key: HealthDimension; label: string; hint: string }[] = [
-  { key: 'scope', label: 'Scope', hint: 'Change requests and requirement stability' },
-  { key: 'schedule', label: 'Schedule', hint: 'Progress against the committed plan' },
-  { key: 'resources', label: 'Resources', hint: 'Staffing and skill coverage' },
-  { key: 'budget', label: 'Budget', hint: 'Spend against the approved envelope' },
-  { key: 'overall', label: 'Overall', hint: 'Aggregated delivery confidence' },
-];
 
 /** Project summary: facts, progress, health, milestones and recent activity. */
 export default function ProjectOverviewTab() {
@@ -76,8 +68,8 @@ export default function ProjectOverviewTab() {
 
   // Declared with the other hooks: the guard below returns early, and a hook
   // after it would run on some renders and not others.
-  const { can, canInProject } = useAuth();
-  const [healthOpen, setHealthOpen] = useState(false);
+  const { canInProject } = useAuth();
+  const [planOpen, setPlanOpen] = useState(false);
   const setOwner = useSetProjectOwner();
   const canEditProject = canInProject(project?.id, 'project:edit');
 
@@ -87,7 +79,6 @@ export default function ProjectOverviewTab() {
     .map((id) => users.get(id))
     .filter((user): user is NonNullable<typeof user> => Boolean(user))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const canOverrideHealth = can('health:manage');
 
   if (isLoading || !project) {
     return (
@@ -99,14 +90,37 @@ export default function ProjectOverviewTab() {
   }
 
   const owner = users.get(project.ownerId);
-  const budgetPct = Math.round((project.budgetUsed / Math.max(1, project.budgetTotal)) * 100);
+  // Not assessed means the instance has no risk type to count.
+  const risksTracked =
+    project.healthDetail.criteria.find((criterion) => criterion.criterion === 'risks')?.level !== null;
+  const budgetPct =
+    project.budgetTotal > 0 ? Math.round((project.budgetUsed / project.budgetTotal) * 100) : null;
+  // Days the open work is forecast to finish after the planned finish.
+  const slip =
+    project.dueDate && project.forecastFinish
+      ? Math.round(
+          (Date.parse(`${project.forecastFinish.slice(0, 10)}T00:00:00Z`) -
+            Date.parse(`${project.dueDate.slice(0, 10)}T00:00:00Z`)) /
+            86_400_000,
+        )
+      : null;
 
   return (
     <div className="grid gap-5 lg:grid-cols-3">
       <div className="space-y-5 lg:col-span-2">
         {/* Summary */}
         <Card>
-          <CardHeader variant="compact">
+          <CardHeader
+            variant="compact"
+            actions={
+              canEditProject ? (
+                <Button size="sm" variant="ghost" onClick={() => setPlanOpen(true)}>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Plan and budget
+                </Button>
+              ) : null
+            }
+          >
             <CardTitle>Project summary</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
@@ -156,15 +170,35 @@ export default function ProjectOverviewTab() {
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Start date</dt>
+                <dt className="epm-eyebrow">Planned start</dt>
                 <dd className="mt-1 font-mono text-xs tabular-nums">
-                  {formatLongDate(project.startDate)}
+                  {project.startDate ? formatLongDate(project.startDate) : 'Not set'}
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Target date</dt>
+                <dt className="epm-eyebrow">Planned finish</dt>
                 <dd className="mt-1 font-mono text-xs tabular-nums">
-                  {formatLongDate(project.dueDate)}
+                  {project.dueDate ? formatLongDate(project.dueDate) : 'Not set'}
+                </dd>
+              </div>
+              <div>
+                <dt className="epm-eyebrow">Forecast finish</dt>
+                <dd className="mt-1 text-xs">
+                  {/* From the open work's own dates: the latest due date, and
+                      never before today while anything is overdue. */}
+                  <span className="font-mono tabular-nums">
+                    {project.forecastFinish ? formatLongDate(project.forecastFinish) : '—'}
+                  </span>
+                  {slip !== null && slip !== 0 ? (
+                    <span
+                      className={cn(
+                        'ml-1.5 text-2xs font-medium',
+                        slip > 0 ? 'text-danger' : 'text-success',
+                      )}
+                    >
+                      {slip > 0 ? `${slip} ${pluralize(slip, 'day')} late` : `${-slip} ${pluralize(-slip, 'day')} early`}
+                    </span>
+                  ) : null}
                 </dd>
               </div>
               <div>
@@ -182,14 +216,27 @@ export default function ProjectOverviewTab() {
               <div>
                 <dt className="epm-eyebrow">Open risks</dt>
                 <dd className="mt-1 flex items-center gap-1.5 text-xs font-medium">
-                  <ShieldAlert
-                    className={cn(
-                      'h-3.5 w-3.5',
-                      project.openRiskCount > 2 ? 'text-danger' : 'text-warning',
-                    )}
-                    aria-hidden
-                  />
-                  {formatNumber(project.openRiskCount)}
+                  {/* Work packages of a risk type. With no such type on the
+                      instance there is nothing to count, which is said rather
+                      than shown as a reassuring zero. */}
+                  {risksTracked ? (
+                    <>
+                      <ShieldAlert
+                        className={cn(
+                          'h-3.5 w-3.5',
+                          project.openRiskCount === 0
+                            ? 'text-muted-foreground'
+                            : project.openRiskCount > 2
+                              ? 'text-danger'
+                              : 'text-warning',
+                        )}
+                        aria-hidden
+                      />
+                      {formatNumber(project.openRiskCount)}
+                    </>
+                  ) : (
+                    <span className="font-normal text-muted-foreground">Not tracked</span>
+                  )}
                 </dd>
               </div>
             </dl>
@@ -229,8 +276,8 @@ export default function ProjectOverviewTab() {
             <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-3">
               <SummaryStat
                 icon={CalendarRange}
-                label="Target"
-                value={formatShortDate(project.dueDate)}
+                label="Planned finish"
+                value={project.dueDate ? formatShortDate(project.dueDate) : 'Not set'}
               />
               <SummaryStat
                 icon={Users}
@@ -239,9 +286,24 @@ export default function ProjectOverviewTab() {
               />
               <SummaryStat
                 icon={CircleDollarSign}
-                label="Budget used"
-                value={`${formatCurrency(project.budgetUsed)} of ${formatCurrency(project.budgetTotal)}`}
-                sub={`${formatPercent(budgetPct)} consumed`}
+                label="Spent to date"
+                value={
+                  project.budgetTotal > 0
+                    ? `${formatCurrency(project.budgetUsed)} of ${formatCurrency(project.budgetTotal)}`
+                    : formatCurrency(project.budgetUsed)
+                }
+                sub={
+                  // Spend is logged hours at each person's rate; hours from
+                  // someone with no rate are said, not priced at zero.
+                  [
+                    budgetPct === null ? 'No budget set' : `${formatPercent(budgetPct)} of budget`,
+                    project.uncostedHours > 0
+                      ? `${formatNumber(project.uncostedHours)} ${pluralize(project.uncostedHours, 'hour')} not costed`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')
+                }
               />
             </div>
           </CardContent>
@@ -341,61 +403,10 @@ export default function ProjectOverviewTab() {
             EPM grouping. */}
         <ProjectHierarchyCard project={project} />
 
-        <Card>
-          <CardHeader
-            variant="compact"
-            actions={
-              canOverrideHealth ? (
-                <Button size="sm" variant="ghost" onClick={() => setHealthOpen(true)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                  Override
-                </Button>
-              ) : null
-            }
-          >
-            <CardTitle>Project health</CardTitle>
-          </CardHeader>
-          <CardContent className="p-4">
-            <ul className="space-y-3">
-              {HEALTH_DIMENSIONS.map((dimension) => {
-                const pinned = project.healthOverride?.[dimension.key];
+        <ProjectHealthCard project={project} />
 
-                return (
-                  <li key={dimension.key} className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="flex items-center gap-1.5 text-xs font-medium">
-                        {dimension.label}
-                        {pinned ? (
-                          <Badge tone="accent" className="text-2xs">
-                            Overridden
-                          </Badge>
-                        ) : null}
-                      </p>
-                      {/* The reason names the figures the rule used, so the
-                          value can be checked rather than taken on trust. */}
-                      <p className="text-2xs text-muted-foreground">
-                        {project.healthReasons?.[dimension.key] ?? dimension.hint}
-                      </p>
-                      {pinned ? (
-                        <p className="mt-0.5 text-2xs text-muted-foreground">
-                          Calculated: {HEALTH_META[project.healthCalculated[dimension.key]].label}
-                        </p>
-                      ) : null}
-                    </div>
-                    <HealthIndicator level={project.health[dimension.key]} className="shrink-0" />
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
-
-        {canOverrideHealth ? (
-          <HealthOverrideDialog
-            open={healthOpen}
-            onOpenChange={setHealthOpen}
-            project={project}
-          />
+        {canEditProject ? (
+          <ProjectPlanDialog open={planOpen} onOpenChange={setPlanOpen} project={project} />
         ) : null}
 
         <Card>

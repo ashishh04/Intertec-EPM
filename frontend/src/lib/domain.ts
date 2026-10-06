@@ -2,7 +2,9 @@ import type {
   ActivityAction,
   ConnectionState,
   DocumentKind,
+  HealthCriterion,
   HealthLevel,
+  HealthUnit,
   NotificationCategory,
   NotificationReason,
   ProjectStatus,
@@ -107,6 +109,64 @@ export const HEALTH_META: Record<HealthLevel, StateMeta> = {
   warning: { label: 'Warning', tone: 'warning' },
   critical: { label: 'Critical', tone: 'danger' },
 };
+
+/**
+ * A criterion that could not be measured — no planned finish, no budget, no
+ * risk type. Neutral on purpose: borrowing green's colour for it is how a
+ * project with no budget used to read as on budget.
+ */
+export const HEALTH_NOT_ASSESSED: StateMeta = {
+  label: 'Not assessed',
+  tone: 'neutral',
+  description: 'There is nothing to measure this against yet.',
+};
+
+/** The health criteria (BR-204), in the order they are shown everywhere. */
+export const HEALTH_CRITERIA_META: {
+  key: HealthCriterion;
+  label: string;
+  short: string;
+  unit: HealthUnit;
+  hint: string;
+}[] = [
+  {
+    key: 'schedule',
+    label: 'Schedule variance',
+    short: 'Schedule',
+    unit: 'days',
+    hint: 'Days the forecast finish is past the planned finish.',
+  },
+  {
+    key: 'budget',
+    label: 'Budget variance',
+    short: 'Budget',
+    unit: 'percent',
+    hint: 'Spend ahead of the budget planned to date, as a share of the budget.',
+  },
+  {
+    key: 'risks',
+    label: 'Open high risks',
+    short: 'Risks',
+    unit: 'count',
+    hint: 'Open risks at high priority.',
+  },
+  {
+    key: 'overdue',
+    label: 'Overdue items',
+    short: 'Overdue',
+    unit: 'count',
+    hint: 'Open work packages past their due date.',
+  },
+];
+
+/** "+12 days", "-3.5%", "4" — a criterion's measured figure in its unit. */
+export function formatHealthValue(value: number | null, unit: HealthUnit): string {
+  if (value === null) return '—';
+  const sign = unit !== 'count' && value > 0 ? '+' : '';
+  if (unit === 'days') return `${sign}${value} ${Math.abs(value) === 1 ? 'day' : 'days'}`;
+  if (unit === 'percent') return `${sign}${value}%`;
+  return String(value);
+}
 
 /** Compact word used inside the portfolio matrix. */
 export const HEALTH_MATRIX_LABEL: Record<HealthLevel, string> = {

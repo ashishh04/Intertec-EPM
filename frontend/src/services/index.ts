@@ -28,6 +28,7 @@ import { ApiMemberRepository } from './api/members';
 import { ApiEmployeeRepository } from './api/employees';
 import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiPortfolioRepository } from './api/portfolios';
+import { ApiHealthRepository } from './api/health';
 import { ApiAdminRepository } from './api/admin';
 import { ApiPreferenceRepository } from './api/preferences';
 import { ApiSessionRepository } from './api/sessions';
@@ -76,6 +77,8 @@ export const integrationService = repositories.integration;
  * view, which is exactly what write paths and pickers need.
  */
 export const catalogService = new ApiCatalogRepository();
+/** The health rules: EPM-owned policy, so outside the repository contract. */
+export const healthService = new ApiHealthRepository();
 export const formService = new ApiFormRepository();
 export const workPackageService = new ApiWorkPackageRepository();
 export const projectWriteService = new ApiProjectWriteRepository();

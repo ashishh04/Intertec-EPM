@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
+import { requestHealthRecalc } from '../domain/health.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -266,6 +267,8 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       },
     );
 
+    // New work moves the project's counts, and perhaps its forecast finish.
+    requestHealthRecalc(projectId);
     reply.status(201);
     return toEpmTask(created, catalog, identifiers);
   });
@@ -273,11 +276,8 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
     '/tasks/:id',
     async (request) => {
-      await guard.require(
-        request,
-        'task:edit',
-        await guard.projectOfWorkPackage(request, request.params.id),
-      );
+      const projectId = await guard.projectOfWorkPackage(request, request.params.id);
+      await guard.require(request, 'task:edit', projectId);
 
       const signal = requestSignal(request);
       const [catalog, identifiers] = await Promise.all([
@@ -286,6 +286,9 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       ]);
 
       const updated = await patchWorkPackage(request.params.id, request.body ?? {}, catalog, signal);
+      // A date, status, type or priority edit can move any criterion; the
+      // recalculation decides whether one did.
+      requestHealthRecalc(projectId);
       return toEpmTask(updated, catalog, identifiers);
     },
   );
@@ -304,14 +307,22 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
       // Authorised per item: a bulk selection can span projects, and holding
       // the permission in one is not permission for the rest.
+      const projects = new Set<string>();
       for (const id of ids) {
-        await guard.require(request, 'task:edit', await guard.projectOfWorkPackage(request, id));
+        const projectId = await guard.projectOfWorkPackage(request, id);
+        await guard.require(request, 'task:edit', projectId);
+        projects.add(projectId);
       }
 
       const updated: EpmTask[] = [];
-      for (const id of ids) {
-        const result = await patchWorkPackage(id, patch, catalog, signal);
-        updated.push(toEpmTask(result, catalog, identifiers));
+      try {
+        for (const id of ids) {
+          const result = await patchWorkPackage(id, patch, catalog, signal);
+          updated.push(toEpmTask(result, catalog, identifiers));
+        }
+      } finally {
+        // Whatever part of the batch landed has moved those projects.
+        requestHealthRecalc([...projects]);
       }
       return updated;
     },
@@ -323,6 +334,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
     // Checked for every id before deleting any, so a partly-permitted selection
     // fails outright instead of half-completing.
+    const projects = new Set<string>();
     for (const id of ids) {
       await guard.requireLink(
         request,
@@ -330,10 +342,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         'delete',
         'delete this work package',
       );
+      projects.add(await guard.projectOfWorkPackage(request, id));
     }
 
-    for (const id of ids) {
-      await openProject.request<void>(`/work_packages/${id}`, { method: 'DELETE', signal });
+    try {
+      for (const id of ids) {
+        await openProject.request<void>(`/work_packages/${id}`, { method: 'DELETE', signal });
+      }
+    } finally {
+      requestHealthRecalc([...projects]);
     }
 
     reply.status(204);

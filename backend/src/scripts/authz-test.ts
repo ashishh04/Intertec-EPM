@@ -1,4 +1,3 @@
-import type { ProjectHealth } from '../types/epm.js';
 /**
  * Authorization tests, exercised over HTTP.
  *
@@ -99,9 +98,13 @@ async function main() {
   // Sprints are OpenProject versions; the API has no delete route for them, so
   // the cleanup removes these through the upstream endpoint directly.
   const createdSprintIds: string[] = [];
-  // Health pins are real management state. Whatever these tests set is put
-  // back, including "there was no pin", which is a value too.
-  const originalHealthOverride = new Map<string, Record<string, string> | null>();
+  // The health tests price logged time with an hourly rate on the
+  // administrator and may change the health rules. Both are real state and
+  // are put back; the time entry they log is removed. Hoisted so the cleanup
+  // can undo them even when a run stops part-way.
+  let originalAdminRate: number | null | undefined;
+  let healthTimeEntryId: string | undefined;
+  let originalHealthRules: unknown;
   const portfolioIds: string[] = [];
   // A project's portfolio is real organisational state; whatever these tests
   // set is put back, including "it was in none".
@@ -1902,7 +1905,7 @@ async function main() {
       departments?: { manage?: boolean };
       teams?: { manage?: boolean };
       employees?: { manage?: boolean };
-      health?: { manage?: boolean };
+      health?: { manage?: boolean; configure?: boolean };
       portfolios?: { manage?: boolean };
       analytics?: { manage?: boolean };
     };
@@ -3027,171 +3030,97 @@ async function main() {
 
   // --- Health ----------------------------------------------------------------
   //
-  // The calculation is a pure function, so its boundaries are exercised
-  // directly rather than through a project whose numbers cannot be arranged.
-  // The override path goes through the API, and any pin these tests set is
-  // captured and restored in the cleanup step.
+  // BR-204, BR-205 and BR-206, through the API, on this suite's own project —
+  // so the work, the plan and the spend the tests need can be arranged rather
+  // than hoped for. The calculation itself is checked against worked examples
+  // in `domain/__checks__/health.check.ts`, which needs no instance.
+  //
+  // Nothing here touches a real project. The project, its work packages and
+  // its time go with it in the cleanup; the hourly rate set on the
+  // administrator is put back there too, and so is anything changed in the
+  // health rules.
   console.log('\nHealth');
 
-  const {
-    computeHealth,
-    effectiveHealth,
-    parseHealthOverride,
-    HEALTH_THRESHOLDS,
-  } = await import('../mapping/projects.js');
-
-  const today = '2026-09-03';
-  const at = (
-    total: number,
-    completed: number,
-    overdue: number,
-    dueDate?: string,
-  ): ProjectHealth => computeHealth({ total, completed, overdue, dueDate, today }).health;
-
-  // --- boundaries, on both sides of every threshold ---
-  const t = HEALTH_THRESHOLDS;
-  check('thresholds are named, not inline', typeof t.scheduleWarning, 'number');
-
-  // Schedule turns on the share of work already overdue: 10% and 25%.
-  check('schedule is healthy just below its warning', at(100, 0, 9).schedule, 'healthy');
-  check('schedule warns exactly at its threshold', at(100, 0, 10).schedule, 'warning');
-  check('schedule stays warning just below critical', at(100, 0, 24).schedule, 'warning');
-  check('schedule is critical exactly at its threshold', at(100, 0, 25).schedule, 'critical');
-
-  // Resources reads the same ratio at 15% and 35%.
-  check('resources is healthy just below its warning', at(100, 0, 14).resources, 'healthy');
-  check('resources warns exactly at its threshold', at(100, 0, 15).resources, 'warning');
-  check('resources stays warning just below critical', at(100, 0, 34).resources, 'warning');
-  check('resources is critical exactly at its threshold', at(100, 0, 35).resources, 'critical');
-
-  // Scope reads the share still open: 60% and 85%.
-  check('scope is healthy just below its warning', at(100, 41, 0).scope, 'healthy');
-  check('scope warns exactly at its threshold', at(100, 40, 0).scope, 'warning');
-  check('scope stays warning just below critical', at(100, 16, 0).scope, 'warning');
-  check('scope is critical exactly at its threshold', at(100, 15, 0).scope, 'critical');
-
-  // Past the due date, any meaningful amount of open work is critical.
-  check('a past due date with 20% open is critical', at(100, 80, 0, '2026-01-01').scope, 'critical');
-  check('a past due date with 5% open is not', at(100, 95, 0, '2026-01-01').scope, 'healthy');
-  check('a future due date does not escalate', at(100, 80, 0, '2027-01-01').scope, 'healthy');
-
-  // --- the three headline conditions ---
-  check('a healthy project reports healthy overall', at(100, 90, 0).overall, 'healthy');
-  check('a warning condition reports warning overall', at(100, 90, 12).overall, 'warning');
-  check('a critical condition reports critical overall', at(100, 90, 40).overall, 'critical');
-  check('overall is the worst dimension, not an average', at(100, 90, 40).schedule, 'critical');
-
-  // --- missing and degenerate data ---
-  // A project with no work packages is reported healthy rather than alarming,
-  // and its reason says so rather than implying a clean bill of health.
-  const empty = computeHealth({ total: 0, completed: 0, overdue: 0, today });
-  check('a project with no work packages is healthy', empty.health.overall, 'healthy');
-  check('and says why rather than implying a clean result', empty.reasons.overall.includes('no work packages'), true);
-  check('no overdue work is healthy on schedule', at(50, 25, 0).schedule, 'healthy');
-  check('all work overdue is critical', at(50, 0, 50).schedule, 'critical');
-  check('all work complete is healthy on scope', at(50, 50, 0).scope, 'healthy');
-
-  // Every dimension must be one of the three levels, whatever the inputs.
-  let invalidLevels = 0;
-  for (let total = 0; total <= 20; total += 1) {
-    for (let completed = 0; completed <= total; completed += 1) {
-      for (let overdue = 0; overdue <= total; overdue += 1) {
-        const health = at(total, completed, overdue);
-        for (const level of Object.values(health)) {
-          if (!['healthy', 'warning', 'critical'].includes(level)) invalidLevels += 1;
-        }
-      }
-    }
+  interface TestCriterion {
+    criterion: string;
+    level: string | null;
+    value: number | null;
+    reason: string;
   }
-  check('no input produces a level outside the three', invalidLevels, 0);
+  interface TestHealthProject {
+    id: string;
+    status: string;
+    startDate?: string;
+    dueDate?: string;
+    budgetTotal: number;
+    budgetUsed: number;
+    health: Record<string, string | null>;
+    healthCalculated: Record<string, string | null>;
+    healthOverride?: { levels: Record<string, string>; reason: string; setBy: string; setAt: string };
+    healthDetail: { criteria: TestCriterion[]; explanation: string; calculatedAt: string; ruleVersion: number };
+  }
+  interface TestJournalEntry {
+    seq: number;
+    action: string;
+    summary: string;
+    reason?: string;
+    actorId?: string;
+    actorKind: string;
+  }
 
-  // --- determinism ---
-  const once = JSON.stringify(computeHealth({ total: 37, completed: 11, overdue: 9, dueDate: '2026-08-01', today }));
+  if (!createdId) throw new Error("The health tests need the suite's own project.");
+  const healthProjectId = createdId;
+
+  const readHealthProject = async (cookie = admin) =>
+    (await (await call(`/projects/${healthProjectId}`, { cookie })).json()) as TestHealthProject;
+  const criterionOf = (project: TestHealthProject | undefined, key: string) =>
+    project?.healthDetail?.criteria.find((criterion) => criterion.criterion === key);
+  const journalOf = async (cookie = admin) =>
+    (await (await call(`/projects/${healthProjectId}/journal`, { cookie })).json()) as TestJournalEntry[];
+
+  // Recalculation after a change is asynchronous by design — the write that
+  // caused it does not wait — so the tests wait for it, up to a bound.
+  const waitForHealth = async (ready: (project: TestHealthProject) => boolean) => {
+    const deadline = Date.now() + 20_000;
+    let latest = await readHealthProject();
+    while (!ready(latest) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      latest = await readHealthProject();
+    }
+    return latest;
+  };
+
+  // --- the shape of a project's health ---
+  const fresh = await readHealthProject();
+  check('a project carries its effective health', typeof fresh.health?.overall, 'string');
+  check('and the calculated value alongside it', typeof fresh.healthCalculated?.overall, 'string');
+  check('and the calculation itself, one entry per criterion', fresh.healthDetail?.criteria.length, 4);
   check(
-    'the same inputs give the same output every time',
-    Array.from({ length: 50 }, () =>
-      JSON.stringify(computeHealth({ total: 37, completed: 11, overdue: 9, dueDate: '2026-08-01', today })),
-    ).every((result) => result === once),
+    'every criterion explains itself',
+    fresh.healthDetail?.criteria.every((criterion) => criterion.reason.length > 0),
     true,
   );
+  check(
+    'the scope and resources dimensions are gone',
+    'scope' in (fresh.health ?? {}) || 'resources' in (fresh.health ?? {}),
+    false,
+  );
+  check('with no planned finish, schedule is not assessed rather than green', criterionOf(fresh, 'schedule')?.level, null);
+  check('with no budget, budget is not assessed rather than green', criterionOf(fresh, 'budget')?.level, null);
+  check('and the reason says why', criterionOf(fresh, 'budget')?.reason.includes('No budget'), true);
+  check('a calculation names the rules it used', typeof fresh.healthDetail?.ruleVersion, 'number');
+  check('the overall comes with its explanation', (fresh.healthDetail?.explanation.length ?? 0) > 0, true);
 
-  // --- override resolution ---
-  const failing: ProjectHealth = at(100, 0, 50);
-  check('an undefined override changes nothing', effectiveHealth(failing, undefined).overall, 'critical');
-  check('an empty override changes nothing', effectiveHealth(failing, {}).overall, 'critical');
-  check('a pinned dimension is replaced', effectiveHealth(failing, { schedule: 'healthy' }).schedule, 'healthy');
   check(
-    'other dimensions are untouched by it',
-    effectiveHealth(failing, { schedule: 'healthy' }).scope,
-    'critical',
-  );
-  // Overall follows the effective values, so pinning moves the headline.
-  check(
-    'pinning every dimension moves overall',
-    effectiveHealth(failing, {
-      scope: 'healthy',
-      schedule: 'healthy',
-      resources: 'healthy',
-      budget: 'healthy',
-    }).overall,
-    'healthy',
-  );
-  // And overall can be pinned on its own, which takes precedence.
-  check('overall can be pinned directly', effectiveHealth(failing, { overall: 'healthy' }).overall, 'healthy');
-  check(
-    'pinning overall leaves the dimensions showing the truth',
-    effectiveHealth(failing, { overall: 'healthy' }).schedule,
-    'critical',
-  );
-
-  // --- reading a stored override ---
-  check('a null column is no override', parseHealthOverride(null), undefined);
-  check('an empty object is no override', parseHealthOverride({}), undefined);
-  check('an array is not an override', parseHealthOverride(['healthy']), undefined);
-  check('a string is not an override', parseHealthOverride('healthy'), undefined);
-  check(
-    'a valid pin is read back',
-    JSON.stringify(parseHealthOverride({ schedule: 'critical' })),
-    '{"schedule":"critical"}',
-  );
-  // A malformed row must not take a project page down, so bad keys are dropped
-  // rather than thrown on. The write path rejects them, so this is defence.
-  check(
-    'an unknown dimension is dropped rather than thrown on',
-    JSON.stringify(parseHealthOverride({ nope: 'healthy', schedule: 'warning' })),
-    '{"schedule":"warning"}',
+    'the configure permission is surfaced to an administrator',
+    adminPermissions.permissions?.health?.configure,
+    true,
   );
   check(
-    'an unknown level is dropped too',
-    parseHealthOverride({ schedule: 'purple' }),
-    undefined,
+    'and withheld from a caller without the grant',
+    restrictedPermissions.permissions?.health?.configure,
+    false,
   );
-
-  // --- through the API ---
-  const healthProject = (await (await call('/projects', { cookie: admin })).json()) as {
-    id: string;
-    health: ProjectHealth;
-    healthCalculated: ProjectHealth;
-    healthOverride?: Record<string, string>;
-    healthReasons: Record<string, string>;
-  }[];
-
-  const projectId = healthProject[0]?.id;
-  if (!projectId) throw new Error('No project available for the health tests.');
-
-  // Snapshot before anything is pinned, so the cleanup can put it back.
-  originalHealthOverride.set(projectId, healthProject[0]?.healthOverride ?? null);
-
-  const readProject = async (cookie: string) =>
-    ((await (await call('/projects', { cookie })).json()) as typeof healthProject).find(
-      (p) => p.id === projectId,
-    );
-
-  const initial = await readProject(admin);
-  check('a project carries its effective health', typeof initial?.health.overall, 'string');
-  check('and the calculated value alongside it', typeof initial?.healthCalculated.overall, 'string');
-  check('and a reason per dimension', typeof initial?.healthReasons.schedule, 'string');
-
   check(
     'the manage permission is surfaced to the client',
     adminPermissions.permissions?.health?.manage,
@@ -3203,43 +3132,335 @@ async function main() {
     false,
   );
 
-  const setHealth = (body: Record<string, unknown>, cookie = admin) =>
-    call(`/projects/${projectId}/health`, { method: 'PATCH', cookie, body });
+  // --- BR-204: a configured amber threshold, crossed, turns the project amber ---
+  interface TestRules {
+    version: number;
+    criteria: Record<
+      string,
+      { enabled: boolean; weight: number; amberAt: number; redAt: number; typeIds?: string[]; priorityIds?: string[] }
+    >;
+    redShare: number;
+    amberShare: number;
+  }
+  const rulesNow = async () => (await (await call('/health/rules', { cookie: admin })).json()) as TestRules;
+  const rulesAtStart = await rulesNow();
+  originalHealthRules = rulesAtStart;
+  check('anyone signed in can read the health rules', await status('/health/rules', { cookie: restricted }), 200);
+  check('anonymous cannot', await status('/health/rules'), 401);
 
-  check('anonymous cannot pin health', await status(`/projects/${projectId}/health`, { method: 'PATCH', body: { overall: 'critical' } }), 401);
-  check('a caller without the grant cannot pin health', (await setHealth({ overall: 'critical' }, restricted)).status, 403);
+  const overdueAmber = rulesAtStart.criteria.overdue!.amberAt;
+  let overdueArranged = 0;
+  for (let n = 0; n < overdueAmber; n += 1) {
+    const task = await call('/tasks', {
+      method: 'POST',
+      cookie: admin,
+      body: {
+        projectId: healthProjectId,
+        subject: `Health probe, overdue ${n + 1}`,
+        startDate: '2026-01-05',
+        dueDate: '2026-01-15',
+      },
+    });
+    if (task.status === 201) overdueArranged += 1;
+  }
+  check(`${overdueAmber} overdue work packages could be arranged`, overdueArranged, overdueAmber);
+
+  const amber = await waitForHealth((project) => criterionOf(project, 'overdue')?.level === 'warning');
   check(
-    'the health is unchanged after the refused write',
-    (await readProject(admin))?.healthOverride,
-    undefined,
+    'crossing the amber line turns overdue items amber with nobody touching it',
+    criterionOf(amber, 'overdue')?.level,
+    'warning',
+  );
+  check('the measured figure is the overdue count', criterionOf(amber, 'overdue')?.value, overdueAmber);
+  check('so the project is computed amber', amber.healthCalculated.overall, 'warning');
+  check('and its status agrees with its health', amber.status, 'at_risk');
+  check(
+    'the journal records the move, attributed to the system',
+    (await journalOf()).some(
+      (entry) => entry.action === 'health.calculated' && entry.actorKind === 'system',
+    ),
+    true,
   );
 
-  check('an unknown dimension is refused', (await setHealth({ nope: 'healthy' })).status, 400);
-  check('an unknown level is refused', (await setHealth({ overall: 'purple' })).status, 400);
-  check('a non-string level is refused', (await setHealth({ overall: 3 })).status, 400);
+  // The rules are policy, so only `health:configure` changes them — and a
+  // preview shows what a change would do without doing it.
+  const stricter = structuredClone(rulesAtStart) as TestRules;
+  stricter.criteria.overdue!.amberAt = 1;
+  stricter.criteria.overdue!.redAt = 1;
+  check(
+    'a caller without the grant cannot preview rules',
+    await status('/health/rules/preview', { method: 'POST', cookie: restricted, body: stricter }),
+    403,
+  );
+  const preview = (await (
+    await call('/health/rules/preview', { method: 'POST', cookie: admin, body: stricter })
+  ).json()) as { projects: { projectId: string; current: { overall: string }; preview: { overall: string } }[] };
+  const previewRow = preview.projects?.find((row) => row.projectId === healthProjectId);
+  check('a preview recalculates with the proposed rules', previewRow?.preview.overall, 'critical');
+  check('beside what the rules in force give', previewRow?.current.overall, 'warning');
+  check('and saves nothing', (await rulesNow()).version, rulesAtStart.version);
+
+  const reversed = structuredClone(rulesAtStart) as TestRules;
+  reversed.criteria.overdue!.redAt = reversed.criteria.overdue!.amberAt - 1;
+  check(
+    'red below amber is refused',
+    (await call('/health/rules', { method: 'PUT', cookie: admin, body: reversed })).status,
+    422,
+  );
+  const noneCounted = structuredClone(rulesAtStart) as TestRules;
+  for (const rule of Object.values(noneCounted.criteria)) rule.weight = 0;
+  check(
+    'rules that count nothing are refused',
+    (await call('/health/rules', { method: 'PUT', cookie: admin, body: noneCounted })).status,
+    422,
+  );
+  check(
+    'saving the rules already in force is refused as a no-op',
+    (await call('/health/rules', { method: 'PUT', cookie: admin, body: rulesAtStart })).status,
+    409,
+  );
+  check(
+    'a caller without the grant cannot change the rules',
+    (await call('/health/rules', { method: 'PUT', cookie: restricted, body: stricter })).status,
+    403,
+  );
+  check(
+    'nor read the instance options the editor offers',
+    await status('/health/rules/options', { cookie: restricted }),
+    403,
+  );
+  check('the rules are unchanged after the refusals', (await rulesNow()).version, rulesAtStart.version);
+
+  // A real save, chosen so it changes no project's level: pinning the risk
+  // priorities to exactly what an empty selection already resolves to.
+  const options = (await (await call('/health/rules/options', { cookie: admin })).json()) as {
+    defaultHighPriorityIds: string[];
+  };
+  if (options.defaultHighPriorityIds?.length) {
+    const explicit = structuredClone(rulesAtStart) as TestRules;
+    explicit.criteria.risks!.priorityIds = options.defaultHighPriorityIds;
+    const saved = await call('/health/rules', { method: 'PUT', cookie: admin, body: explicit });
+    check('an administrator can save new rules', saved.status, 200);
+    check('a save adds the next version', ((await saved.json()) as TestRules).version, rulesAtStart.version + 1);
+    const history = (await (await call('/health/rules/history', { cookie: admin })).json()) as TestJournalEntry[];
+    check('and is journalled with who made it', history[0]?.actorId, adminId);
+    check('naming what changed', history[0]?.summary.includes('high priorities changed'), true);
+
+    const restored = await call('/health/rules', { method: 'PUT', cookie: admin, body: rulesAtStart });
+    check('and the previous rules can be put back as the version after', restored.status, 200);
+  } else {
+    console.log('  (skipped the rules save: this instance has no high priorities to pin)');
+  }
+
+  // --- the plan: planned dates and budget ---
+  const setPlan = (body: Record<string, unknown>, cookie = admin) =>
+    call(`/projects/${healthProjectId}/plan`, { method: 'PATCH', cookie, body });
+
+  check(
+    'a caller who cannot edit the project cannot change its plan',
+    (await setPlan({ budgetTotal: 1 }, restricted)).status,
+    403,
+  );
+  check(
+    'a finish before the start is refused',
+    (await setPlan({ plannedStart: '2026-06-01', plannedFinish: '2026-05-01' })).status,
+    422,
+  );
+  check('a negative budget is refused', (await setPlan({ budgetTotal: -5 })).status, 400);
+  check('an unknown field is refused', (await setPlan({ budgetUsed: 10 })).status, 400);
+  check(
+    'spend cannot be typed in any more',
+    (await call(`/projects/${healthProjectId}`, { method: 'PATCH', cookie: admin, body: { budgetUsed: 10 } })).status,
+    400,
+  );
+
+  const planned = await setPlan({ plannedStart: '2026-01-01', plannedFinish: '2027-12-31', budgetTotal: 1000 });
+  check('a permitted caller can set the plan', planned.status, 200);
+  const plannedBody = (await planned.json()) as TestHealthProject;
+  check('the planned start is kept', plannedBody.startDate, '2026-01-01');
+  check('the planned finish is kept', plannedBody.dueDate, '2027-12-31');
+  check('the budget is kept', plannedBody.budgetTotal, 1000);
+  check(
+    'the answer is already recalculated: schedule is now assessed',
+    criterionOf(plannedBody, 'schedule')?.level,
+    'healthy',
+  );
+  check('and so is budget, with nothing spent yet', criterionOf(plannedBody, 'budget')?.level, 'healthy');
+  check(
+    'a plan change is journalled with its before and after',
+    (await journalOf()).some(
+      (entry) => entry.action === 'project.plan.updated' && entry.summary.includes('budget') && entry.actorId === adminId,
+    ),
+    true,
+  );
+  check(
+    'clearing a date is allowed and keeps the rest',
+    ((await (await setPlan({ plannedStart: null })).json()) as TestHealthProject).budgetTotal,
+    1000,
+  );
+  await setPlan({ plannedStart: '2026-01-01' });
+
+  // --- BR-205: spend that crosses the red line turns the project red ---
+  const adminEmployee = (await (await call(`/employees/${adminId}`, { cookie: admin })).json()) as {
+    hourlyRate?: number | null;
+  };
+  originalAdminRate = adminEmployee.hourlyRate ?? null;
+  check(
+    'an hourly rate can be set to price logged time',
+    (await call(`/employees/${adminId}/rate`, { method: 'PATCH', cookie: admin, body: { hourlyRate: 100 } })).status,
+    200,
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const logTime = async (activityId?: string) =>
+    call('/time-entries', {
+      method: 'POST',
+      cookie: admin,
+      body: { projectId: healthProjectId, hours: 10, spentOn: today, comment: 'Health budget probe', ...(activityId ? { activityId } : {}) },
+    });
+  let logged = await logTime();
+  if (logged.status !== 201) {
+    // The instance wants an activity; take the first it offers this project.
+    const form = JSON.stringify(
+      await (await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId: healthProjectId } })).json(),
+    );
+    const activity = /time_entries\/activities\/(\d+)/.exec(form)?.[1];
+    logged = await logTime(activity);
+  }
+  check('time can be logged on the project', logged.status, 201);
+  healthTimeEntryId = logged.status === 201 ? ((await logged.json()) as { id: string }).id : undefined;
+
+  const red = await waitForHealth((project) => criterionOf(project, 'budget')?.level === 'critical');
+  check('logging spend past the red line turns budget red, unprompted', criterionOf(red, 'budget')?.level, 'critical');
+  check('the project is red on that recalculation', red.healthCalculated.overall, 'critical');
+  check('its spend is the logged hours at the rate, not a typed figure', red.budgetUsed, 1000);
+  check('the reason names the spend and the budget', criterionOf(red, 'budget')?.reason.includes('1,000'), true);
+  const redJournal = await journalOf();
+  check(
+    'and the move is journalled, saying what moved',
+    redJournal.some((entry) => entry.action === 'health.calculated' && entry.summary.includes('budget variance')),
+    true,
+  );
+  check(
+    'journal entries come newest first, in sequence',
+    redJournal.every((entry, index) => index === 0 || redJournal[index - 1]!.seq > entry.seq),
+    true,
+  );
+
+  // --- BR-206: an override needs a reason and hides nothing ---
+  const setOverride = (body: Record<string, unknown>, cookie = admin) =>
+    call(`/projects/${healthProjectId}/health`, { method: 'PATCH', cookie, body });
+
+  check(
+    'anonymous cannot override health',
+    await status(`/projects/${healthProjectId}/health`, { method: 'PATCH', body: { levels: { overall: 'warning' } } }),
+    401,
+  );
+  check(
+    'a caller without the grant cannot override health',
+    (await setOverride({ levels: { overall: 'warning' }, reason: 'Recovery plan agreed with the sponsor.' }, restricted)).status,
+    403,
+  );
+  check('an override without a reason is refused', (await setOverride({ levels: { overall: 'warning' } })).status, 422);
+  check(
+    'a reason that says nothing is refused too',
+    (await setOverride({ levels: { overall: 'warning' }, reason: 'ok' })).status,
+    422,
+  );
+  check(
+    'a retired dimension is refused',
+    (await setOverride({ levels: { scope: 'healthy' }, reason: 'Scope is fine, honestly.' })).status,
+    400,
+  );
+  check(
+    'an unknown level is refused',
+    (await setOverride({ levels: { overall: 'purple' }, reason: 'Purple is not a level.' })).status,
+    400,
+  );
   check(
     'an unknown project is not found',
-    (await setHealth({ overall: 'critical' }) && (await call('/projects/99999999/health', { method: 'PATCH', cookie: admin, body: { overall: 'critical' } })).status),
+    (await call('/projects/99999999/health', {
+      method: 'PATCH',
+      cookie: admin,
+      body: { levels: { overall: 'warning' }, reason: 'There is no such project.' },
+    })).status,
     404,
   );
+  check('nothing was overridden by the refusals', (await readHealthProject()).healthOverride, undefined);
 
-  const pinned = await setHealth({ schedule: 'critical' });
-  check('a permitted caller can pin a dimension', pinned.status, 200);
-  const pinnedBody = (await pinned.json()) as (typeof healthProject)[number];
-  check('the effective value takes the pin', pinnedBody.health.schedule, 'critical');
-  check('overall follows it', pinnedBody.health.overall, 'critical');
-  // The calculated value stays visible: a pin that hides the signal underneath
-  // it is a way to lose information rather than to manage it.
-  check('the calculated value is still reported', pinnedBody.healthCalculated.schedule, 'healthy');
-  check('the override is reported', JSON.stringify(pinnedBody.healthOverride), '{"schedule":"critical"}');
+  const reason = 'Change request approved on 1 Oct adds budget; finance has not loaded it yet.';
+  const overridden = await setOverride({ levels: { overall: 'warning' }, reason });
+  check('a permitted caller can override, with a reason', overridden.status, 200);
+  const overriddenBody = (await overridden.json()) as TestHealthProject;
+  check('the effective value takes the override', overriddenBody.health.overall, 'warning');
+  check('the calculated value is still reported beside it', overriddenBody.healthCalculated.overall, 'critical');
+  check('and so is the reason', overriddenBody.healthOverride?.reason, reason);
+  check('and who set it', overriddenBody.healthOverride?.setBy, adminId);
+  check(
+    'the override is in the journal, with its reason',
+    (await journalOf()).some((entry) => entry.action === 'health.override.set' && entry.reason === reason),
+    true,
+  );
 
-  const changed = (await (await setHealth({ schedule: 'warning' })).json()) as (typeof healthProject)[number];
-  check('a pin can be changed', JSON.stringify(changed.healthOverride), '{"schedule":"warning"}');
-  check('and the effective value follows', changed.health.schedule, 'warning');
+  // Reports carry both values and the reason — a pin is never reported as measured.
+  const insights = (await (await call('/reports/executive-insights', { cookie: admin })).json()) as {
+    matrix: { projectId: string; overall: string; calculatedOverall: string; override?: { reason: string } }[];
+  };
+  const reportRow = insights.matrix?.find((row) => row.projectId === healthProjectId);
+  check('the executive report shows the overridden value', reportRow?.overall, 'warning');
+  check('beside the calculated one', reportRow?.calculatedOverall, 'critical');
+  check('with the reason', reportRow?.override?.reason, reason);
 
-  const clearedHealth = (await (await setHealth({})).json()) as (typeof healthProject)[number];
-  check('an empty body clears every pin', clearedHealth.healthOverride, undefined);
-  check('and health returns to calculated', clearedHealth.health.overall, clearedHealth.healthCalculated.overall);
+  const changedReason = 'Sponsor agreed to carry the overrun into the next phase.';
+  await setOverride({ levels: { overall: 'healthy', budget: 'warning' }, reason: changedReason });
+  check(
+    'changing an override is journalled as a change',
+    (await journalOf()).some((entry) => entry.action === 'health.override.changed' && entry.reason === changedReason),
+    true,
+  );
+
+  const clearedOverride = (await (await setOverride({ levels: {} })).json()) as TestHealthProject;
+  check('an empty override clears it', clearedOverride.healthOverride, undefined);
+  check('and the calculated health applies again', clearedOverride.health.overall, clearedOverride.healthCalculated.overall);
+  const clearedJournal = await journalOf();
+  check(
+    'clearing is journalled',
+    clearedJournal.some((entry) => entry.action === 'health.override.cleared'),
+    true,
+  );
+  await setOverride({ levels: {} });
+  check('clearing nothing writes nothing', (await journalOf()).length, clearedJournal.length);
+
+  // --- reading the journal, and recalculating on request ---
+  const restrictedSeesProject = (await status(`/projects/${healthProjectId}`, { cookie: restricted })) === 200;
+  check(
+    'a project journal is readable exactly by those who can see the project',
+    await status(`/projects/${healthProjectId}/journal`, { cookie: restricted }),
+    restrictedSeesProject ? 200 : 404,
+  );
+  check('anonymous cannot read a journal', await status(`/projects/${healthProjectId}/journal`), 401);
+  check(
+    'the journal cannot be edited through the API',
+    await status(`/projects/${healthProjectId}/journal`, { method: 'PATCH', cookie: admin, body: {} }),
+    404,
+  );
+  check(
+    'nor deleted',
+    await status(`/projects/${healthProjectId}/journal`, { method: 'DELETE', cookie: admin }),
+    404,
+  );
+  check(
+    'a caller who may not edit the project cannot force a recalculation',
+    await status(`/projects/${healthProjectId}/health/recalculate`, { method: 'POST', cookie: restricted }),
+    403,
+  );
+  const recalculated = await call(`/projects/${healthProjectId}/health/recalculate`, { method: 'POST', cookie: admin });
+  check('an editor can recalculate on demand', recalculated.status, 200);
+  check(
+    'and the answer is the fresh calculation',
+    Date.parse(((await recalculated.json()) as TestHealthProject).healthDetail.calculatedAt) >= Date.parse(red.healthDetail.calculatedAt),
+    true,
+  );
 
   // A summary must not contradict the project page it summarises.
   const readAtRisk = async () =>
@@ -3247,17 +3468,20 @@ async function main() {
       projectsAtRisk: number;
     }).projectsAtRisk;
 
-  const atRiskBefore = await readAtRisk();
-  await setHealth({ overall: 'critical' });
-  const atRiskPinned = await readAtRisk();
-  await setHealth({ overall: 'healthy' });
-  const atRiskHealthy = await readAtRisk();
-  await setHealth({});
+  const atRiskRed = await readAtRisk();
+  await setOverride({ levels: { overall: 'healthy' }, reason: 'Pinned green to check the dashboard follows.' });
+  const atRiskPinnedGreen = await readAtRisk();
+  await setOverride({ levels: {} });
+  check('pinning a red project green takes it out of the at-risk count', atRiskPinnedGreen, atRiskRed - 1);
 
-  // The count has to move with the pin in both directions, or a summary could
-  // still be reporting what the rules said while the project page shows a pin.
-  check('pinning a project critical raises the at-risk count', atRiskPinned > atRiskHealthy, true);
-  check('pinning it healthy removes it from the count', atRiskHealthy <= atRiskBefore, true);
+  // The spend and the rate are put back now, not only in the cleanup, so the
+  // sections after this one see the instance as they expect it.
+  if (healthTimeEntryId) {
+    await call(`/time-entries/${healthTimeEntryId}`, { method: 'DELETE', cookie: admin });
+    healthTimeEntryId = undefined;
+  }
+  await call(`/employees/${adminId}/rate`, { method: 'PATCH', cookie: admin, body: { hourlyRate: originalAdminRate } });
+  originalAdminRate = undefined;
 
   // --- Portfolios ------------------------------------------------------------
   //
@@ -4139,8 +4363,8 @@ async function main() {
     notifyHealthChange,
     notifyCapacityChange,
     notifySnapshotFailure,
-    evaluateHealthTransitions,
   } = await import('../domain/notifications.js');
+  const { recalculateNow } = await import('../domain/health.js');
   const { prisma: notificationDb } = await import('../db/prisma.js');
 
   // Scoped to this run so the assertions cannot be disturbed by anything else,
@@ -4244,6 +4468,24 @@ async function main() {
   // A pinned green must never read as a measured one.
   check('an override says so', improved?.body.includes('overridden'), true);
 
+  // Going red again on a later occasion is news again. The dedupe key used to
+  // be the level alone, so the second time a project went red nobody heard.
+  notificationKeys.push(
+    `health:${notifProject}:critical:2099-01-01`,
+    `health:${notifProject}:critical:2099-01-02`,
+  );
+  const transition = {
+    projectId: notifProject,
+    projectName: 'Probe',
+    ownerId: adminId,
+    previous: 'healthy' as const,
+    next: 'critical' as const,
+    overridden: false,
+  };
+  check('a transition on one day notifies', await notifyHealthChange({ ...transition, occurrence: '2099-01-01' }), 1);
+  check('the same transition that day does not', await notifyHealthChange({ ...transition, occurrence: '2099-01-01' }), 0);
+  check('the same transition on a later day does', await notifyHealthChange({ ...transition, occurrence: '2099-01-02' }), 1);
+
   // --- capacity trigger rules ---
   // A synthetic employee id, not a real one: earlier sections drive real
   // capacity mutations through the API, which produce these same notifications,
@@ -4303,22 +4545,52 @@ async function main() {
   check('its body carries no stack trace', failure?.body.includes(' at '), false);
   check('and no url', failure?.body.includes('http'), false);
 
-  // Evaluating the same live projects twice must not produce a second round.
-  const liveProjects = (await (await call('/projects', { cookie: admin })).json()) as {
-    id: string;
-    name: string;
-    ownerId: string;
-    status: string;
-    health: { overall: string };
-  }[];
-  await evaluateHealthTransitions(liveProjects as never);
-  const afterFirstPass = await notificationDb.notification.count();
-  await evaluateHealthTransitions(liveProjects as never);
-  check(
-    're-evaluating unchanged projects creates nothing',
-    await notificationDb.notification.count(),
-    afterFirstPass,
-  );
+  // Recalculating projects whose data has not moved must produce no second
+  // round of notifications and no journal entry.
+  if (createdId) {
+    await recalculateNow([createdId], 'manual');
+    const notificationsBefore = await notificationDb.notification.count();
+    const journalBefore = await notificationDb.auditEvent.count({ where: { projectId: createdId } });
+    await recalculateNow([createdId], 'manual');
+    check(
+      'recalculating an unchanged project notifies nobody',
+      await notificationDb.notification.count(),
+      notificationsBefore,
+    );
+    check(
+      'and journals nothing',
+      await notificationDb.auditEvent.count({ where: { projectId: createdId } }),
+      journalBefore,
+    );
+  }
+
+  // The journal is append-only below the application: the database itself
+  // refuses to change or remove an entry. Tried inside a transaction that is
+  // always rolled back, so even a broken trigger could not cost a real entry.
+  const someEntry = await notificationDb.auditEvent.findFirst({ select: { id: true } });
+  if (someEntry) {
+    const refused = async (attempt: (tx: typeof notificationDb) => Promise<unknown>) => {
+      try {
+        await notificationDb.$transaction(async (tx) => {
+          await attempt(tx as typeof notificationDb);
+          throw new Error('rollback');
+        });
+        return false;
+      } catch (error) {
+        return error instanceof Error && error.message.includes('append-only');
+      }
+    };
+    check(
+      'the database refuses to edit a journal entry',
+      await refused((tx) => tx.auditEvent.update({ where: { id: someEntry.id }, data: { summary: 'rewritten' } })),
+      true,
+    );
+    check(
+      'and refuses to delete one',
+      await refused((tx) => tx.auditEvent.delete({ where: { id: someEntry.id } })),
+      true,
+    );
+  }
 
   // --- the API ---
   const notificationsOf = async (cookie: string) =>
@@ -5356,16 +5628,28 @@ async function main() {
     console.log(`  (restored portfolio for ${originalProjectPortfolio.size} project(s))`);
   }
 
-  // Health pins first, through the API for the same reason.
-  for (const [id, override] of originalHealthOverride) {
-    await call(`/projects/${id}/health`, {
+  // Health: the probe time entry, the administrator's rate and the rules, each
+  // through the API for the same reason as everything else here.
+  if (healthTimeEntryId) {
+    await call(`/time-entries/${healthTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+    console.log('  (removed the health probe time entry)');
+  }
+  if (originalAdminRate !== undefined) {
+    await call(`/employees/${adminId}/rate`, {
       method: 'PATCH',
       cookie: admin,
-      body: override ?? {},
+      body: { hourlyRate: originalAdminRate },
     }).catch(() => undefined);
+    console.log("  (restored the administrator's hourly rate)");
   }
-  if (originalHealthOverride.size) {
-    console.log(`  (restored health overrides for ${originalHealthOverride.size} project(s))`);
+  if (originalHealthRules) {
+    // A 409 means they are already back, which is the outcome wanted.
+    const restoredRules = await call('/health/rules', {
+      method: 'PUT',
+      cookie: admin,
+      body: originalHealthRules,
+    }).catch(() => undefined);
+    if (restoredRules?.status === 200) console.log('  (restored the health rules)');
   }
 
   // Access first: anything still granted is revoked before the rest, because a

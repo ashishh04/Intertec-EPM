@@ -16,6 +16,11 @@ export const queryKeys = {
   project: (id: ID) => ['projects', 'detail', id] as const,
   projectMilestones: (id: ID) => ['projects', 'detail', id, 'milestones'] as const,
   projectChildren: (id: ID) => ['projects', 'detail', id, 'children'] as const,
+  // Beneath the project, so any project write refreshes its journal too.
+  projectJournal: (id: ID) => ['projects', 'detail', id, 'journal'] as const,
+  healthRules: () => ['health-rules'] as const,
+  healthRuleOptions: () => ['health-rules', 'options'] as const,
+  healthRuleHistory: () => ['health-rules', 'history'] as const,
 
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,

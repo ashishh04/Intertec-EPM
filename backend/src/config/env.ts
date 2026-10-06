@@ -89,6 +89,28 @@ const schema = z.object({
       .default(60 * 24),
   ),
 
+  // The health sweep (BR-205). On unless turned off, unlike the snapshot and
+  // reminder schedulers: health is recalculated when EPM sees a change, and the
+  // sweep is what catches the changes it does not see — time logged or dates
+  // moved directly in the instance with no webhook configured. Without it a
+  // project's stored health could stay wrong indefinitely. It sends nothing
+  // itself; an owner hears only when their project's health actually moves.
+  EPM_HEALTH_SWEEP_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+
+  // Floored at five minutes for the same reason as the snapshot interval.
+  EPM_HEALTH_SWEEP_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(5, 'EPM_HEALTH_SWEEP_INTERVAL_MINUTES must be at least 5.')
+      .max(60 * 24, 'EPM_HEALTH_SWEEP_INTERVAL_MINUTES cannot exceed a day.')
+      .default(60),
+  ),
+
   // Where the frontend lives, for links in email. Never derived from a request
   // header: a link that came from the Host header could be made to point
   // anywhere by whoever sent the request.
@@ -248,6 +270,9 @@ export function describeEnv() {
     // Neither is a secret; both are useful when a snapshot is missing.
     analyticsSnapshot: env.EPM_ANALYTICS_SNAPSHOT_ENABLED
       ? `every ${env.EPM_ANALYTICS_SNAPSHOT_INTERVAL_MINUTES} minutes`
+      : 'disabled',
+    healthSweep: env.EPM_HEALTH_SWEEP_ENABLED
+      ? `every ${env.EPM_HEALTH_SWEEP_INTERVAL_MINUTES} minutes`
       : 'disabled',
   };
 }

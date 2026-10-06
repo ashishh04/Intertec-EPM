@@ -46,6 +46,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'work-packages/priorities': catalog('priorities'),
   'projects/list': lazy(() => import('./ProjectsListPage')),
   'projects/settings': settingsSection('projects'),
+  'projects/health-rules': lazy(() => import('./HealthRulesPage')),
   'custom-fields': catalog('custom-fields'),
   'help-texts': lazy(() => import('./HelpTextsPage')),
   'calendars/working-days': lazy(() => import('./WorkingDaysPage')),

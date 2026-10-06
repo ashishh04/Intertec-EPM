@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import { env } from '../config/env.js';
+import { invalidateProjectCost } from '../domain/costs.js';
+import { requestHealthRecalc } from '../domain/health.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { EpmError } from '../lib/errors.js';
@@ -46,6 +48,23 @@ interface WebhookWorkPackage {
 interface WebhookBody {
   action?: string;
   work_package?: WebhookWorkPackage;
+  time_entry?: { id?: number; _links?: HalLinks };
+  project?: { id?: number };
+}
+
+/**
+ * Which project's health an event may have moved, if any.
+ *
+ * Work package and time entry events carry their project as a link; a project
+ * event is about the project itself. Anything else changes nothing health
+ * reads. Edits made through EPM already ask for a recalculation themselves —
+ * this is what catches the ones made directly in the instance.
+ */
+function healthRelevantProject(action: string, body: WebhookBody): string | undefined {
+  if (action.startsWith('work_package:')) return linkId(body.work_package?._links, 'project');
+  if (action.startsWith('time_entry:')) return linkId(body.time_entry?._links, 'project');
+  if (action.startsWith('project:') && typeof body.project?.id === 'number') return String(body.project.id);
+  return undefined;
 }
 
 /**
@@ -156,6 +175,14 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
     verifySignature(request);
 
     const action = request.body?.action ?? '';
+
+    // Before anything that can fail: a delivery that changes a project's
+    // health is worth a recalculation whatever happens to its email.
+    const projectId = healthRelevantProject(action, request.body ?? {});
+    if (projectId) {
+      if (action.startsWith('time_entry:')) invalidateProjectCost(projectId);
+      requestHealthRecalc(projectId);
+    }
 
     if (HANDLED_ACTIONS.has(action)) {
       try {

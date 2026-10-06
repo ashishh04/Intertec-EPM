@@ -5,13 +5,8 @@ import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { getCatalog } from '../mapping/catalog.js';
-import {
-  computeHealth,
-  effectiveHealth,
-  getProjectAggregates,
-  listProjects,
-  loadHealthOverrides,
-} from '../mapping/projects.js';
+import { getProjectAggregates, listProjects } from '../mapping/projects.js';
+import { healthViews, unassessedView } from '../domain/health.js';
 import { durationToHours } from '../lib/duration.js';
 import type { HalCollection, OpProject, OpTimeEntry, OpWorkPackage } from '../openproject/types.js';
 import type {
@@ -180,7 +175,6 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/reports/executive-insights', async (request) => {
     const signal = requestSignal(request);
-    const today = new Date().toISOString().slice(0, 10);
 
     const [projects, aggregates] = await Promise.all([
       listProjects(signal),
@@ -189,29 +183,30 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
 
     const active = projects.filter((project) => project.active);
 
-    // Pins are honoured, so a report never disagrees with the project page it
-    // summarises.
-    const healthOverrides = await loadHealthOverrides();
+    // The stored health with overrides applied, so a report never disagrees
+    // with the project page it summarises — and the calculated value and the
+    // override's reason travel with it, so a pin is never reported as measured.
+    const health = await healthViews(active);
     const matrix: PortfolioRow[] = active.map((project) => {
       const id = String(project.id);
-      const { health: calculated } = computeHealth({
-        total: aggregates.total.get(id) ?? 0,
-        completed: aggregates.completed.get(id) ?? 0,
-        overdue: aggregates.overdue.get(id) ?? 0,
-        today,
-      });
-      const health = effectiveHealth(calculated, healthOverrides.get(id));
+      const view = health.get(id) ?? unassessedView('Health has not been calculated yet.');
 
       return {
         projectId: id,
         projectName: project.name,
         identifier: project.identifier,
-        schedule: health.schedule,
-        scope: health.scope,
-        resources: health.resources,
-        overall: health.overall,
+        schedule: view.effective.schedule,
+        budget: view.effective.budget,
+        risks: view.effective.risks,
+        overdue: view.effective.overdue,
+        overall: view.effective.overall,
+        calculatedOverall: view.calculated.overall,
+        override: view.override
+          ? { reason: view.override.reason, setBy: view.override.setBy, setAt: view.override.setAt }
+          : undefined,
       };
     });
+    const openRisks = active.reduce((sum, project) => sum + (health.get(String(project.id))?.openRisks ?? 0), 0);
 
     const healthy = matrix.filter((row) => row.overall === 'healthy').length;
     const totalTasks = [...aggregates.total.values()].reduce((sum, value) => sum + value, 0);
@@ -224,7 +219,9 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
         completedTasks + overdueTasks > 0
           ? Math.round((completedTasks / (completedTasks + overdueTasks)) * 100)
           : 0,
-      openRisks: overdueTasks,
+      // Real risks: open work packages of a risk type. This tile used to show
+      // the overdue count under the name "risks".
+      openRisks,
       overdueTasks,
       // Needs a capacity model and logged time; this instance has almost none.
       teamUtilization: 0,

@@ -3,6 +3,8 @@ import { z } from 'zod';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
+import { invalidateProjectCost } from '../domain/costs.js';
+import { requestHealthRecalc } from '../domain/health.js';
 import { addDays, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
@@ -88,6 +90,16 @@ function numeric(value: string | undefined, what: string): string | undefined {
   if (value === undefined || value === '') return undefined;
   if (!/^\d+$/.test(value)) throw EpmError.badRequest(`That ${what} is not valid.`);
   return value;
+}
+
+/**
+ * Logged time is spend: the projects it touched need their actual cost read
+ * again and their health recalculated (BR-205).
+ */
+function spendChanged(...projectIds: (string | undefined)[]): void {
+  const ids = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
+  for (const id of ids) invalidateProjectCost(id);
+  if (ids.length > 0) requestHealthRecalc(ids);
 }
 
 function toEpmTimeEntry(entry: OpTimeEntry): EpmTimeEntry {
@@ -518,8 +530,10 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       })
       .catch(rethrow('That project'));
 
+    const entry = toEpmTimeEntry(created);
+    spendChanged(entry.projectId);
     reply.code(201);
-    return toEpmTimeEntry(created);
+    return entry;
   });
 
   app.patch<{ Params: { id: string }; Body: unknown }>('/time-entries/:id', async (request) => {
@@ -529,7 +543,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     // Read first so a caller who may not touch this entry is refused before
     // anything is written, and with OpenProject's own reason.
     const { id } = request.params;
-    await entryById(request, id);
+    const previous = toEpmTimeEntry(await entryById(request, id));
 
     const updated = await openProject
       .request<OpTimeEntry>(`/time_entries/${id}`, {
@@ -539,17 +553,24 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       })
       .catch(rethrow('That time entry'));
 
-    return toEpmTimeEntry(updated);
+    const entry = toEpmTimeEntry(updated);
+    // Both ends, in case the entry moved project.
+    spendChanged(previous.projectId, entry.projectId);
+    return entry;
   });
 
   app.delete<{ Params: { id: string } }>('/time-entries/:id', async (request, reply) => {
     const { id } = request.params;
     if (!/^\d+$/.test(id)) throw EpmError.notFound('That time entry');
 
+    // Read first: once it is gone, so is the project it was spent on.
+    const previous = toEpmTimeEntry(await entryById(request, id));
+
     await openProject
       .request<void>(`/time_entries/${id}`, { method: 'DELETE', signal: requestSignal(request) })
       .catch(rethrow('That time entry'));
 
+    spendChanged(previous.projectId);
     reply.code(204);
   });
 };

@@ -134,6 +134,15 @@ export async function notifyHealthChange(input: {
   previous: HealthLevel | null;
   next: HealthLevel;
   overridden: boolean;
+  /**
+   * What makes this transition distinct from an earlier one to the same level,
+   * e.g. the day it happened. Without it the dedupe key was the level alone,
+   * so a project that went red, recovered and went red again told nobody the
+   * second time.
+   */
+  occurrence?: string;
+  /** Which criteria moved, said in the body so the owner knows where to look. */
+  detail?: string;
 }): Promise<number> {
   // No transition, no news — whatever the evaluation count.
   if (input.previous === input.next) return 0;
@@ -154,79 +163,20 @@ export async function notifyHealthChange(input: {
     ? ' The value is currently overridden rather than calculated.'
     : '';
 
+  const detail = input.detail ? ` ${input.detail}` : '';
+
   return notify({
     recipients: [input.ownerId],
     category: 'system',
     title,
-    body: `${wasWhat}${because}`,
+    body: `${wasWhat}${detail}${because}`,
     link: `/projects/${input.projectId}`,
     // An improvement is information, not an alarm, however far it moved.
     severity: improved ? 'info' : HEALTH_SEVERITY[input.next],
-    dedupeKey: `health:${input.projectId}:${input.next}`,
+    dedupeKey: input.occurrence
+      ? `health:${input.projectId}:${input.next}:${input.occurrence}`
+      : `health:${input.projectId}:${input.next}`,
   });
-}
-
-/**
- * Evaluates every project's health against what was last reported.
- *
- * Run from the daily capture, which already computes each project's effective
- * health — so this adds no OpenProject call. A project whose health has not
- * moved produces nothing, however many times it is evaluated: the comparison
- * happens before anything is written, and the dedupe key would stop it anyway.
- *
- * `lastNotifiedHealth` is updated whether or not anyone was told, so a project
- * with no owner still records where it got to and does not re-fire the moment
- * one is assigned.
- */
-export async function evaluateHealthTransitions(
-  projects: {
-    id: string;
-    name: string;
-    ownerId: string;
-    health: { overall: HealthLevel };
-    healthOverride?: unknown;
-    status: string;
-  }[],
-): Promise<number> {
-  // Archived projects are not delivering, so their health is not news.
-  const active = projects.filter((project) => project.status !== 'paused');
-  if (active.length === 0) return 0;
-
-  const profiles = await prisma.projectProfile
-    .findMany({
-      where: { openProjectId: { in: active.map((project) => project.id) } },
-      select: { openProjectId: true, lastNotifiedHealth: true },
-    })
-    .catch(() => [] as { openProjectId: string; lastNotifiedHealth: string | null }[]);
-
-  const previousById = new Map(profiles.map((row) => [row.openProjectId, row.lastNotifiedHealth]));
-
-  let created = 0;
-
-  for (const project of active) {
-    const previous = (previousById.get(project.id) ?? null) as HealthLevel | null;
-    const next = project.health.overall;
-    if (previous === next) continue;
-
-    created += await notifyHealthChange({
-      projectId: project.id,
-      projectName: project.name,
-      ownerId: project.ownerId || undefined,
-      previous,
-      next,
-      overridden: Boolean(project.healthOverride),
-    });
-
-    await prisma.projectProfile
-      .upsert({
-        where: { openProjectId: project.id },
-        create: { openProjectId: project.id, lastNotifiedHealth: next },
-        update: { lastNotifiedHealth: next },
-      })
-      .catch(() => undefined);
-  }
-
-  return created;
 }
 
 /* -------------------------------------------------------------------------- */

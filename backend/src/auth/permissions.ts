@@ -60,6 +60,7 @@ export const PERMISSIONS = [
   'teams:manage',
   'employees:manage',
   'health:manage',
+  'health:configure',
   'portfolios:manage',
   'analytics:manage',
   'roles:manage',
@@ -112,6 +113,12 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // EPM's rules say about its delivery.
   'health:manage':
     'Project health is an EPM judgement; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Setting the rules every project's health is computed by is a different
+  // responsibility from overruling one project's result: an override is a
+  // judgement about one project, the rules are policy for all of them. Kept
+  // apart so a project manager trusted with the first is not handed the second.
+  'health:configure':
+    'The health rules are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
   // Grouping projects into portfolios is a structural responsibility of its
   // own, like departments and teams, and OpenProject has no portfolio concept
   // to derive it from. Granted from EPM's own permission grants.

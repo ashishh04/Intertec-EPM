@@ -6,6 +6,7 @@
  */
 
 import type {
+  AuditEvent,
   ActivityEntry,
   CalendarEvent,
   CreateTaskInput,
@@ -21,6 +22,7 @@ import type {
   EpmNotification,
   EpmProject,
   HealthOverride,
+  ProjectPlanInput,
   EpmSprint,
   EpmTask,
   EpmUser,
@@ -38,8 +40,17 @@ export interface ProjectRepository {
   getProject(id: ID): Promise<EpmProject>;
   getMilestones(projectId: ID): Promise<Milestone[]>;
   updateProject(id: ID, patch: Partial<EpmProject>): Promise<EpmProject>;
-  /** Pins health dimensions. EPM-owned, so its own endpoint and permission. */
-  setHealthOverride(id: ID, override: HealthOverride): Promise<EpmProject>;
+  /**
+   * Overrides calculated health with a reason, or clears it with `{}`.
+   * EPM-owned, so its own endpoint and permission.
+   */
+  setHealthOverride(id: ID, override: { levels: HealthOverride; reason?: string }): Promise<EpmProject>;
+  /** Planned start, planned finish and budget. `null` clears a field. */
+  updatePlan(id: ID, plan: ProjectPlanInput): Promise<EpmProject>;
+  /** Recalculates health now rather than at the next change or sweep. */
+  recalculateHealth(id: ID): Promise<EpmProject>;
+  /** What EPM recorded about the project, newest first. */
+  getJournal(id: ID, params?: { before?: number; limit?: number; action?: string }): Promise<AuditEvent[]>;
   /** The projects directly beneath this one. */
   getChildren(id: ID): Promise<EpmProject[]>;
   /** Moves it under another project, or to the top level with an empty id. */

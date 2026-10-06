@@ -1,9 +1,12 @@
-import type { Department, Team, UserProfile } from '@prisma/client';
+import type { Department, Prisma, Team, UserProfile } from '@prisma/client';
 
 import { EpmError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
 import { prisma } from '../db/prisma.js';
 import { referenceCache } from '../lib/cache.js';
+import { withAudit } from './audit.js';
+import { invalidateAllProjectCosts } from './costs.js';
+import { requestHealthRecalc } from './health.js';
 import type { EpmUser } from '../types/epm.js';
 
 /**
@@ -363,13 +366,44 @@ export async function setRate(
   if (!user) throw EpmError.notFound('That employee');
 
   const hourlyRate = validateRate(input.hourlyRate);
-
-  const profile = await prisma.userProfile.upsert({
+  const previous = await prisma.userProfile.findUnique({
     where: { openProjectId: id },
-    create: { openProjectId: id, hourlyRate },
-    update: { hourlyRate },
-    include: { departmentRef: true, team: true },
+    select: { hourlyRate: true },
   });
+
+  const describe = (rate: number | null | undefined) =>
+    rate === null || rate === undefined ? 'not costed' : `${rate}/h`;
+
+  // Journalled: a rate prices every hour this person has logged, so it moves
+  // the spend, and the budget variance, of every project they worked on. A
+  // health change traced back to it has to find who changed it and when.
+  const write = (tx: Prisma.TransactionClient) =>
+    tx.userProfile.upsert({
+      where: { openProjectId: id },
+      create: { openProjectId: id, hourlyRate },
+      update: { hourlyRate },
+      include: { departmentRef: true, team: true },
+    });
+
+  // Saving the rate somebody already has changes nothing worth recording.
+  const unchanged = (previous?.hourlyRate ?? null) === (hourlyRate ?? null);
+  const profile = unchanged
+    ? await write(prisma)
+    : await withAudit(write, {
+        entityType: 'employee',
+        entityId: id,
+        action: 'employee.rate.changed',
+        summary: `Hourly rate for ${user.name}: ${describe(previous?.hourlyRate)} → ${describe(hourlyRate)}.`,
+        before: { hourlyRate: previous?.hourlyRate ?? null },
+        after: { hourlyRate: hourlyRate ?? null },
+      });
+
+  if (!unchanged) {
+    // A rate prices every hour this person ever logged, on every project, so
+    // every project's actual cost — and its budget variance — is now different.
+    invalidateAllProjectCosts();
+    requestHealthRecalc('all');
+  }
 
   return toEpmEmployee(user, profile);
 }

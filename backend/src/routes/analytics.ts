@@ -5,7 +5,6 @@ import * as guard from '../auth/guard.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { captureSnapshot, coverage, trends, type ScopeType } from '../domain/analytics.js';
-import { evaluateHealthTransitions } from '../domain/notifications.js';
 import { listPortfolios, toPortfolioFacts } from '../domain/portfolios.js';
 import { loadProjects } from './projects.js';
 
@@ -58,15 +57,10 @@ export async function loadSnapshotInputs(signal: AbortSignal) {
  */
 export async function runSnapshot(signal: AbortSignal) {
   const { projects, portfolios } = await loadSnapshotInputs(signal);
-  const result = await captureSnapshot(projects, portfolios);
-
-  // The capture already computed every project's effective health, so this is
-  // the natural moment to notice one that moved — and it costs no extra
-  // OpenProject call. Deliberately after the capture: a notification failing
-  // must not cost the day's metrics.
-  await evaluateHealthTransitions(projects).catch(() => undefined);
-
-  return result;
+  // Health transitions are no longer noticed here: the health engine stores
+  // each project's health and tells the owner the moment it is recalculated
+  // into a different level, rather than once a day when this capture runs.
+  return captureSnapshot(projects, portfolios);
 }
 
 async function portfoliosFor(request: Parameters<typeof requestSignal>[0]) {

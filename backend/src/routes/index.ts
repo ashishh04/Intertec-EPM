@@ -15,6 +15,7 @@ import { departmentRoutes } from './departments.js';
 import { employeeRoutes } from './employees.js';
 import { documentRoutes } from './documents.js';
 import { formRoutes } from './forms.js';
+import { healthRoutes } from './health.js';
 import { integrationRoutes } from './integrations.js';
 import { accountRoutes } from './accounts.js';
 import { meetingRoutes } from './meetings.js';
@@ -47,6 +48,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(authRoutes);
   await app.register(userRoutes);
   await app.register(projectRoutes);
+  await app.register(healthRoutes);
   await app.register(taskRoutes);
   await app.register(timeEntryRoutes);
   await app.register(teamRoutes);

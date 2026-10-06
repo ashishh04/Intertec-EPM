@@ -191,6 +191,7 @@ export type Permission =
   | 'departments:manage'
   | 'employees:manage'
   | 'health:manage'
+  | 'health:configure'
   | 'portfolios:manage'
   | 'analytics:manage'
   | 'teams:manage'
@@ -206,20 +207,158 @@ export type PermissionMap = Record<string, Record<string, boolean>>;
 
 export type ProjectStatus = 'on_track' | 'at_risk' | 'delayed' | 'completed' | 'paused';
 
+/** Green, amber and red, in the words the product uses for them. */
 export type HealthLevel = 'healthy' | 'warning' | 'critical';
 
-/** The four measured dimensions, plus the overall derived from them. */
-export type HealthDimension = 'scope' | 'schedule' | 'resources' | 'budget' | 'overall';
+/**
+ * What project health is computed from (BR-204): how far the forecast finish
+ * is past the planned one, spend against the budget planned to date, open
+ * high-priority risks, and overdue work.
+ */
+export type HealthCriterion = 'schedule' | 'budget' | 'risks' | 'overdue';
 
-/** A partial pin over the calculated values. Absent means "not overridden". */
+/** The criteria, plus the overall derived from them. */
+export type HealthDimension = HealthCriterion | 'overall';
+
+/** Levels pinned over the calculated ones. Absent means "not overridden". */
 export type HealthOverride = Partial<Record<HealthDimension, HealthLevel>>;
 
+/**
+ * A level per criterion, and overall.
+ *
+ * A criterion is null when it could not be assessed — no planned finish, no
+ * budget, no risk type on the instance. That is not the same as green, and is
+ * shown as "not assessed" rather than borrowing green's colour.
+ */
 export interface ProjectHealth {
-  scope: HealthLevel;
-  schedule: HealthLevel;
-  resources: HealthLevel;
-  budget: HealthLevel;
+  schedule: HealthLevel | null;
+  budget: HealthLevel | null;
+  risks: HealthLevel | null;
+  overdue: HealthLevel | null;
   overall: HealthLevel;
+}
+
+export type HealthUnit = 'days' | 'percent' | 'count';
+
+/** One criterion's result: the figure it measured and the rule it met. */
+export interface HealthCriterionResult {
+  criterion: HealthCriterion;
+  /** Null when the criterion could not be assessed. */
+  level: HealthLevel | null;
+  /** The measured figure in `unit`. Null when not assessed. */
+  value: number | null;
+  unit: HealthUnit;
+  /** One plain sentence naming the figures and the threshold that applied. */
+  reason: string;
+  /** The weight it carries in the overall. Zero means shown but not counted. */
+  weight: number;
+  amberAt: number;
+  redAt: number;
+}
+
+/** The stored calculation behind a project's health (BR-205). */
+export interface ProjectHealthDetail {
+  criteria: HealthCriterionResult[];
+  /** Why overall is what it is, in one sentence. */
+  explanation: string;
+  calculatedAt: ISODate;
+  /** The version of the health rules the calculation used. */
+  ruleVersion: number;
+}
+
+/** An override in force: what is pinned, why, by whom and when (BR-206). */
+export interface HealthOverrideRecord {
+  levels: HealthOverride;
+  reason: string;
+  /** OpenProject user id, or `unknown` for a pin carried over from before reasons. */
+  setBy: ID;
+  setAt: ISODate;
+}
+
+/** One criterion's rule: whether it counts, how much, and where it turns. */
+export interface HealthCriterionRule {
+  enabled: boolean;
+  /** 0–100. Zero shows the criterion without letting it move the overall. */
+  weight: number;
+  /** The figure at which it turns amber, in the criterion's unit. */
+  amberAt: number;
+  /** The figure at which it turns red. Never below `amberAt`. */
+  redAt: number;
+}
+
+/**
+ * The administrator's health rules (BR-204).
+ *
+ * Overall is decided by weight: it is red when the red criteria carry at least
+ * `redShare` percent of the weight of everything assessed, and amber when the
+ * amber-or-red ones carry at least `amberShare`. With four criteria weighted
+ * equally and both shares at 25, any one breach moves the overall.
+ */
+export interface HealthRules {
+  /** Zero means the built-in defaults; every save makes a new version. */
+  version: number;
+  criteria: {
+    /** Days the forecast finish is past the planned finish. */
+    schedule: HealthCriterionRule;
+    /** Percent of the budget by which spend is ahead of the plan to date. */
+    budget: HealthCriterionRule;
+    /** Open risks at a high priority. */
+    risks: HealthCriterionRule & {
+      /** Work package types that are risks. Empty means types named "Risk". */
+      typeIds: ID[];
+      /** Priorities that count as high. Empty means High and above. */
+      priorityIds: ID[];
+    };
+    /** Open work packages past their due date. */
+    overdue: HealthCriterionRule;
+  };
+  redShare: number;
+  amberShare: number;
+  updatedAt?: ISODate;
+  updatedBy?: ID;
+}
+
+/** Choices the rules editor offers, read from the instance. */
+export interface HealthRuleOptions {
+  types: { id: ID; name: string }[];
+  priorities: { id: ID; name: string }[];
+  /** The types and priorities an empty selection resolves to today. */
+  defaultRiskTypeIds: ID[];
+  defaultHighPriorityIds: ID[];
+}
+
+/**
+ * A project's plan as the editor sends it. `null` clears a field; one left out
+ * is left alone. Every change is journalled with its before and after.
+ */
+export interface ProjectPlanInput {
+  plannedStart?: ISODate | null;
+  plannedFinish?: ISODate | null;
+  budgetTotal?: number | null;
+}
+
+/**
+ * One entry in the activity journal for EPM-owned data (BRL-02).
+ *
+ * Append-only: nothing in the API edits or deletes one, and the database
+ * refuses to as well.
+ */
+export interface AuditEvent {
+  id: ID;
+  /** Position in the journal; strictly increasing. */
+  seq: number;
+  occurredAt: ISODate;
+  /** Absent when EPM itself made the change, e.g. a scheduled recalculation. */
+  actorId?: ID;
+  actorKind: 'user' | 'system';
+  projectId?: ID;
+  entityType: string;
+  entityId: ID;
+  action: string;
+  summary: string;
+  reason?: string;
+  before?: unknown;
+  after?: unknown;
 }
 
 export interface EpmProject {
@@ -233,8 +372,16 @@ export interface EpmProject {
   progress: number;
   ownerId: ID;
   memberIds: ID[];
+  /** Planned (baseline) start. EPM's own; an OpenProject project has no dates. */
   startDate?: ISODate;
+  /** Planned (baseline) finish, which schedule variance is measured against. */
   dueDate?: ISODate;
+  /**
+   * When the open work is due to finish: the latest due date among it, and
+   * never earlier than today while overdue work remains. Absent when no open
+   * work has a date.
+   */
+  forecastFinish?: ISODate;
   priority: TaskPriority;
   /**
    * Effective health: what the rules produced, with any overridden dimension
@@ -246,12 +393,13 @@ export interface EpmProject {
    * never hides the signal underneath it from whoever is reading.
    */
   healthCalculated: ProjectHealth;
-  /** Present only where a dimension has been pinned. */
-  healthOverride?: HealthOverride;
-  /** One plain sentence per dimension naming the figures it came from. */
-  healthReasons: Record<HealthDimension, string>;
+  /** Present only while an override is in force. */
+  healthOverride?: HealthOverrideRecord;
+  /** The calculation itself: each criterion's figure, level and reason. */
+  healthDetail: ProjectHealthDetail;
   taskCount: number;
   completedTaskCount: number;
+  /** Open work packages of a risk type, at any priority. */
   openRiskCount: number;
   /**
    * The portfolio's name, resolved for display. Falls back to the legacy
@@ -268,7 +416,15 @@ export interface EpmProject {
   parentId?: ID;
   /** The parent's name, resolved for display. Absent when there is no parent. */
   parentName?: string;
+  /**
+   * Actual cost to date: every hour logged on the project at its person's
+   * hourly rate. Calculated, never typed in; hours from somebody with no rate
+   * are counted in `uncostedHours` rather than priced at zero.
+   */
   budgetUsed: number;
+  /** Hours logged by people with no hourly rate, left out of `budgetUsed`. */
+  uncostedHours: number;
+  /** The approved budget. Zero means none is set. */
   budgetTotal: number;
   /**
    * What the caller may do to the project itself, read from the resource's own
@@ -860,10 +1016,15 @@ export interface PortfolioRow {
   projectId: ID;
   projectName: string;
   identifier: string;
-  schedule: HealthLevel;
-  scope: HealthLevel;
-  resources: HealthLevel;
+  schedule: HealthLevel | null;
+  budget: HealthLevel | null;
+  risks: HealthLevel | null;
+  overdue: HealthLevel | null;
   overall: HealthLevel;
+  /** What the rules calculated overall, shown beside an override (BR-206). */
+  calculatedOverall: HealthLevel;
+  /** Present while an override is in force, so a report carries its reason. */
+  override?: { reason: string; setBy: ID; setAt: ISODate };
 }
 
 export interface ExecutiveInsights {

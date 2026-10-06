@@ -161,14 +161,36 @@ function trimProject(project: EpmProject, users: Map<string, EpmUser>) {
     name: project.name,
     status: project.status,
     health: project.health.overall,
+    // Why: the explanation and each criterion's figure and reason, so an answer
+    // about health quotes the same evidence the project page shows. And
+    // whether a person overrode it, with their reason — a pinned value is
+    // never to be presented as a measured one.
+    healthExplanation: project.healthDetail.explanation,
+    healthCriteria: project.healthDetail.criteria.map((criterion) => ({
+      criterion: criterion.criterion,
+      level: criterion.level ?? 'not assessed',
+      value: criterion.value,
+      unit: criterion.unit,
+      reason: criterion.reason,
+    })),
+    calculatedHealth: project.healthCalculated.overall,
+    healthOverride: project.healthOverride
+      ? {
+          reason: project.healthOverride.reason,
+          setBy: users.get(project.healthOverride.setBy)?.name ?? null,
+          setAt: project.healthOverride.setAt,
+        }
+      : null,
     progress: project.progress,
     owner: project.ownerId ? users.get(project.ownerId)?.name ?? null : null,
-    startDate: project.startDate ?? null,
-    dueDate: project.dueDate ?? null,
+    plannedStart: project.startDate ?? null,
+    plannedFinish: project.dueDate ?? null,
+    forecastFinish: project.forecastFinish ?? null,
     taskCount: project.taskCount,
     completedTaskCount: project.completedTaskCount,
     openRiskCount: project.openRiskCount,
-    budgetUsed: project.budgetUsed,
+    // Actual cost to date: logged hours at each person's rate.
+    spentToDate: project.budgetUsed,
     budgetTotal: project.budgetTotal,
   };
 }
@@ -335,7 +357,13 @@ const listProjects: ToolDefinition = {
       }),
       usersById(context),
     ]);
-    return projects.map((project) => trimProject(project, users));
+    // The list stays compact: the per-criterion evidence belongs to the
+    // single-project tool, and repeating it for every project would push
+    // whole projects out of the result cap.
+    return projects.map((project) => {
+      const { healthCriteria: _criteria, healthExplanation: _explanation, ...summary } = trimProject(project, users);
+      return summary;
+    });
   },
 };
 

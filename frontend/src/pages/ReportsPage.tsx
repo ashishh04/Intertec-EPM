@@ -16,6 +16,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { MetricCard, MetricCardSkeleton } from '@/components/common/MetricCard';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { Badge } from '@/components/ui/badge';
+import { InfoTooltip } from '@/components/ui/tooltip';
 import { HealthIndicator, ProjectStatusBadge } from '@/components/common/StatusBadge';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -69,7 +70,7 @@ import {
   useStatusDistribution,
   useTimeSummary,
 } from '@/hooks/useReports';
-import { PROJECT_STATUS_META } from '@/lib/domain';
+import { HEALTH_META, PROJECT_STATUS_META } from '@/lib/domain';
 import {
   daysFromToday,
   formatHours,
@@ -193,15 +194,45 @@ export default function ReportsPage() {
       case 'status':
         return {
           name: `project-status-${range}`,
-          headers: ['Project', 'Code', 'Status', 'Health', 'Progress %', 'Start', 'Due'],
+          // Both values travel with an override, and its reason: an export
+          // that carried only the pinned value would report it as measured.
+          headers: [
+            'Project',
+            'Code',
+            'Status',
+            'Health',
+            'Calculated health',
+            'Override reason',
+            'Overridden by',
+            'Overridden on',
+            'Schedule',
+            'Budget',
+            'Risks',
+            'Overdue',
+            'Progress %',
+            'Planned start',
+            'Planned finish',
+            'Forecast finish',
+          ],
           rows: projects.map((project) => [
             project.name,
             project.identifier,
             PROJECT_STATUS_META[project.status].label,
-            project.health.overall,
+            HEALTH_META[project.health.overall].label,
+            HEALTH_META[project.healthCalculated.overall].label,
+            project.healthOverride?.reason ?? null,
+            project.healthOverride
+              ? users?.find((user) => user.id === project.healthOverride!.setBy)?.name ?? project.healthOverride.setBy
+              : null,
+            project.healthOverride?.setAt.slice(0, 10) ?? null,
+            ...(['schedule', 'budget', 'risks', 'overdue'] as const).map((criterion) => {
+              const level = project.health[criterion];
+              return level ? HEALTH_META[level].label : 'Not assessed';
+            }),
             project.progress,
             project.startDate ?? null,
             project.dueDate ?? null,
+            project.forecastFinish ?? null,
           ]),
         };
       case 'team':
@@ -541,7 +572,7 @@ export default function ReportsPage() {
                     <TableHead className="min-w-36">Progress</TableHead>
                     <TableHead numeric>Tasks</TableHead>
                     <TableHead numeric>Risks</TableHead>
-                    <TableHead>Target</TableHead>
+                    <TableHead>Planned finish</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -557,9 +588,13 @@ export default function ReportsPage() {
                           {/* Says so when the value is pinned rather than
                               calculated, so a reader is not misled by it. */}
                           {project.healthOverride ? (
-                            <Badge tone="accent" className="text-2xs">
-                              Overridden
-                            </Badge>
+                            <InfoTooltip
+                              label={`Calculated ${HEALTH_META[project.healthCalculated.overall].label}. ${project.healthOverride.reason}`}
+                            >
+                              <Badge tone="accent" className="text-2xs" tabIndex={0}>
+                                Overridden
+                              </Badge>
+                            </InfoTooltip>
                           ) : null}
                         </span>
                       </TableCell>

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { projectService } from '@/services';
 import { apiClient } from '@/services/api/client';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
-import type { HealthOverride, ID } from '@/types';
+import type { HealthOverride, ID, ProjectPlanInput } from '@/types';
 
 export function useProjects(params?: { search?: string; status?: string[] }) {
   return useQuery({
@@ -100,8 +100,8 @@ export function useSetHealthOverride() {
   const client = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, override }: { id: ID; override: HealthOverride }) =>
-      projectService.setHealthOverride(id, override),
+    mutationFn: ({ id, levels, reason }: { id: ID; levels: HealthOverride; reason?: string }) =>
+      projectService.setHealthOverride(id, { levels, reason }),
     onSuccess: (_project, { id }) => {
       void client.invalidateQueries({ queryKey: queryKeys.project(id) });
       // The same set any project write invalidates: effective health feeds the
@@ -111,5 +111,56 @@ export function useSetHealthOverride() {
         void client.invalidateQueries({ queryKey: key });
       }
     },
+  });
+}
+
+/**
+ * Sets a project's planned dates and budget.
+ *
+ * The answer is already recalculated, so it is written straight into the
+ * project's cache: the health card shows what the new plan means the moment
+ * the dialog closes, rather than after a refetch.
+ */
+export function useUpdateProjectPlan() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, plan }: { id: ID; plan: ProjectPlanInput }) => projectService.updatePlan(id, plan),
+    onSuccess: (project, { id }) => {
+      if (project) client.setQueryData(queryKeys.project(id), project);
+      for (const key of invalidationGroups.projectWrite) {
+        void client.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
+}
+
+/** Recalculates one project's health now. */
+export function useRecalculateHealth() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: ID) => projectService.recalculateHealth(id),
+    onSuccess: (project, id) => {
+      if (project) client.setQueryData(queryKeys.project(id), project);
+      for (const key of invalidationGroups.projectWrite) {
+        void client.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
+}
+
+/**
+ * What EPM recorded about a project, newest first.
+ *
+ * Keyed beneath the project, so every project write refreshes it — an
+ * override saved in the dialog appears here without anything asking.
+ */
+export function useProjectJournal(id?: ID, params: { limit?: number; action?: string } = {}) {
+  return useQuery({
+    queryKey: [...queryKeys.projectJournal(id ?? 'unknown'), params],
+    queryFn: () => projectService.getJournal(id!, params),
+    enabled: Boolean(id),
+    staleTime: 30_000,
   });
 }

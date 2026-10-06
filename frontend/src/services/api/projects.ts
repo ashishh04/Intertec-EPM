@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import type { ProjectRepository } from '../repositories';
-import type { ID, Milestone, EpmProject, HealthOverride } from '@/types';
+import type { AuditEvent, ID, Milestone, EpmProject, HealthOverride, ProjectPlanInput } from '@/types';
 
 /**
  * Projects arrive from the EPM backend already normalized. The backend owns
@@ -27,15 +27,29 @@ export class ApiProjectRepository implements ProjectRepository {
   }
 
   /**
-   * Pins health dimensions. Its own endpoint, not part of the project patch:
-   * that one is gated on the OpenProject-derived project:edit, and health
-   * authority is EPM's.
+   * Overrides calculated health. Its own endpoint, not part of the project
+   * patch: that one is gated on the OpenProject-derived project:edit, and
+   * health authority is EPM's.
    *
-   * The body is the whole override — an omitted dimension is cleared, so `{}`
-   * clears every pin.
+   * `levels` is the whole override — an omitted criterion is cleared, so
+   * `{ levels: {} }` clears every pin. Setting one needs a reason, which is
+   * kept with it and shown wherever the overridden value is.
    */
-  setHealthOverride(id: ID, override: HealthOverride): Promise<EpmProject> {
+  setHealthOverride(id: ID, override: { levels: HealthOverride; reason?: string }): Promise<EpmProject> {
     return apiClient.patch<EpmProject>(`/projects/${id}/health`, override);
+  }
+
+  /** The answer is already recalculated, so it shows what the new plan means. */
+  updatePlan(id: ID, plan: ProjectPlanInput): Promise<EpmProject> {
+    return apiClient.patch<EpmProject>(`/projects/${id}/plan`, plan);
+  }
+
+  recalculateHealth(id: ID): Promise<EpmProject> {
+    return apiClient.post<EpmProject>(`/projects/${id}/health/recalculate`);
+  }
+
+  getJournal(id: ID, params: { before?: number; limit?: number; action?: string } = {}): Promise<AuditEvent[]> {
+    return apiClient.get<AuditEvent[]>(`/projects/${id}/journal`, params);
   }
 
   /** The projects directly beneath this one. */

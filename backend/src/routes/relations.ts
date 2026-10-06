@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
+import { requestHealthRecalc } from '../domain/health.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
@@ -230,7 +231,8 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
     // with a usable message rather than as an upstream validation error.
     if (!LABELS.has(type)) throw EpmError.badRequest(`${type} is not a relation type.`);
 
-    await guard.require(request, 'task:view', await guard.projectOfWorkPackage(request, id));
+    const projectId = await guard.projectOfWorkPackage(request, id);
+    await guard.require(request, 'task:view', projectId);
     await guard.requireLink(
       request,
       `/work_packages/${id}`,
@@ -251,6 +253,11 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
       signal: requestSignal(request),
     });
 
+    // A new dependency can push successors later, in either project — the
+    // instance reschedules them, and health has to see where they landed.
+    const relatedProject = await guard.projectOfWorkPackage(request, relatedId).catch(() => undefined);
+    requestHealthRecalc([projectId, ...(relatedProject ? [relatedProject] : [])]);
+
     reply.code(201);
     // Normalized back to the caller's point of view, so a reverse alias reads
     // the way it was asked for rather than the way it was stored.
@@ -268,6 +275,10 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
       signal: requestSignal(request),
     });
 
+    // Which projects the two ends were in is gone with the relation, and a
+    // removed dependency rarely moves anything; every project is recalculated
+    // rather than guessing.
+    requestHealthRecalc('all');
     reply.code(204);
   });
 };

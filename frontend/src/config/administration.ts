@@ -187,6 +187,13 @@ export const ADMIN_AREAS: AdminArea[] = [
         description: 'Defaults for new projects, such as enabled modules and visibility.',
       },
       {
+        id: 'health-rules',
+        label: 'Health rules',
+        kind: 'live',
+        description:
+          'How project health is calculated: the criteria, their weights and thresholds, and what counts as a high risk.',
+      },
+      {
         id: 'attributes',
         label: 'Project attributes',
         kind: 'managed',

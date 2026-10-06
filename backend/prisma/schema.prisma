@@ -125,9 +125,19 @@ model ProjectProfile {
   portfolioId    String?
   portfolioRef   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
   budgetTotal    Float?
+  /// Retired: a hand-typed "spent so far" figure. Actual cost is now calculated
+  /// from logged time (see `domain/costs.ts`), so nothing reads or writes this.
+  /// Kept rather than dropped so a deployment's old figures are not destroyed.
   budgetUsed     Float?
-  /// Set to pin a health dimension that the computed rules get wrong.
+  /// Retired: the unexplained pins that preceded `ProjectHealthOverride`.
+  /// The migration that introduced overrides moved every pin across, with a
+  /// reason saying it predates reasons. Nothing reads or writes this.
   healthOverride Json?
+  /// The planned (baseline) start and finish. EPM's own: an OpenProject
+  /// project has no dates at all. Schedule variance is measured against the
+  /// finish, and the budget planned to date is phased across the two.
+  plannedStart   DateTime? @db.Date
+  plannedFinish  DateTime? @db.Date
   /// The effective overall health as of the last notification evaluation.
   /// Without it a transition cannot be detected at all: health is computed per
   /// request and nothing else remembers what it was.
@@ -621,4 +631,114 @@ model WikiRevision {
 
   @@index([pageId, createdAt])
   @@map("wiki_revisions")
+}
+
+/// -------------------------------------------------------------------------
+/// Governance: the activity journal and project health (RAG)
+/// -------------------------------------------------------------------------
+
+/// The activity journal for EPM-owned data (BRL-02, NFR07).
+///
+/// OpenProject journals its own records under the user's token; nothing
+/// journalled what EPM owns. This is that journal: one row per change, naming
+/// who made it, what it was and, where the action requires one, why.
+///
+/// Append-only, and enforced below the application: the migration installs a
+/// trigger that refuses UPDATE, DELETE and TRUNCATE on this table, so no route,
+/// script or mistaken query can rewrite history. There is deliberately no
+/// write path here other than inserting.
+model AuditEvent {
+  id         String   @id @default(cuid())
+  /// Position in the journal. Timestamps can tie; this cannot, so "in
+  /// sequence" means something.
+  seq        Int      @unique @default(autoincrement())
+  occurredAt DateTime @default(now())
+  /// OpenProject user id of whoever caused it. Null when EPM itself did — a
+  /// scheduled recalculation, say — which `actorKind` then says.
+  actorId    String?
+  /// `user` or `system`.
+  actorKind  String
+  /// The project the event belongs to, for a project's own journal. Null for
+  /// instance-wide events such as a change to the health rules.
+  projectId  String?
+  /// What changed: `project`, `health-rules`, ...
+  entityType String
+  entityId   String
+  /// A dotted verb: `health.calculated`, `health.override.set`, ...
+  action     String
+  /// One readable sentence, written when the event is recorded.
+  summary    String
+  /// The justification, where the action demands one.
+  reason     String?
+  before     Json?
+  after      Json?
+  /// Anything else worth keeping: what triggered it, the rule version.
+  metadata   Json?
+
+  @@index([projectId, seq])
+  @@index([entityType, entityId, seq])
+  @@index([action, occurredAt])
+  @@map("audit_events")
+}
+
+/// The rules that compute project health (BR-204).
+///
+/// Versioned rather than edited: every save inserts a row and the highest
+/// version is in force, so any stored calculation can name exactly the rules
+/// it used. With no row at all, the defaults in `domain/health-rules.ts` apply
+/// as version 0.
+model HealthRuleSet {
+  id        String   @id @default(cuid())
+  version   Int      @unique
+  /// Criteria, thresholds, weights and the overall rule. Validated on the way
+  /// in and on the way out — see `domain/health-rules.ts`.
+  rules     Json
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@map("health_rule_sets")
+}
+
+/// The last calculated health of each project (BR-205).
+///
+/// Stored so health is one authoritative value per project rather than
+/// whatever each viewer's request happened to compute, and so a change can be
+/// noticed and journalled at all. Overwritten on every recalculation; the
+/// history of what it was lives in `AuditEvent`.
+model ProjectHealthState {
+  /// OpenProject project id. Not a foreign key, as everywhere else here.
+  projectId    String   @id
+  /// The calculated levels, one per criterion plus overall.
+  levels       Json
+  /// The per-criterion results: figure, unit, level, reason, thresholds.
+  criteria     Json
+  explanation  String
+  /// The figures the calculation used, so a value can be checked later.
+  inputs       Json
+  ruleVersion  Int
+  /// What started the calculation: `change`, `sweep`, `rules`, `read`.
+  trigger      String
+  calculatedAt DateTime
+  updatedAt    DateTime @updatedAt
+
+  @@map("project_health_states")
+}
+
+/// A manual override of a project's calculated health that is in force
+/// (BR-206).
+///
+/// One row per project at most: setting an override replaces it and clearing
+/// one deletes it. That is safe because every set and clear is also written to
+/// the journal with its reason — the journal is the history, and this table is
+/// only the current answer.
+model ProjectHealthOverride {
+  projectId String   @id
+  /// The pinned levels: `{ overall?, schedule?, budget?, risks?, overdue? }`.
+  levels    Json
+  /// Mandatory. A pin nobody can explain is the thing an auditor challenges.
+  reason    String
+  setBy     String
+  setAt     DateTime @default(now())
+
+  @@map("project_health_overrides")
 }

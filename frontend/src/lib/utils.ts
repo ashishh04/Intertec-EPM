@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { env } from '@/config/env';
 import {
   differenceInCalendarDays,
   format,
@@ -164,7 +165,7 @@ export function formatNumber(value: number): string {
  * thousands, and cents in it are noise — with `digits` for the odd place that
  * needs them.
  */
-export function formatCurrency(value: number, currency = 'USD', digits = 0): string {
+export function formatCurrency(value: number, currency = env.currency, digits = 0): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency,
