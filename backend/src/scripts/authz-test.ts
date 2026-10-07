@@ -24,6 +24,46 @@
  * administrator so a lockout cannot cost administrative access.
  */
 
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { Prisma } from '@prisma/client';
+
+/**
+ * The administrator's stored preferences while its email is off for a run
+ * (see "Identity and permissions"). Kept on disk as well as in memory: a run
+ * stopped before its cleanup — killed, or its terminal closed — would
+ * otherwise leave the administrator's email off for good. The next run finds
+ * this file and puts them back before anything else.
+ */
+const HELD_PREFERENCES = join(tmpdir(), 'epm-authz-admin-preferences.json');
+
+interface HeldPreferences {
+  userId: string;
+  /** The row as it was; `null` when there was none. */
+  stored: { data: Prisma.JsonValue } | null;
+}
+
+async function restoreAdminPreferences(held: HeldPreferences): Promise<boolean> {
+  const { prisma } = await import('../db/prisma.js');
+  const restored = held.stored
+    ? await prisma.userPreference
+        .upsert({
+          where: { openProjectId: held.userId },
+          create: { openProjectId: held.userId, data: held.stored.data as Prisma.InputJsonValue },
+          update: { data: held.stored.data as Prisma.InputJsonValue },
+        })
+        .then(() => true)
+        .catch(() => false)
+    : await prisma.userPreference
+        .deleteMany({ where: { openProjectId: held.userId } })
+        .then(() => true)
+        .catch(() => false);
+  if (restored) rmSync(HELD_PREFERENCES, { force: true });
+  return restored;
+}
+
 const BASE = process.env.AUTHZ_BASE_URL ?? 'http://localhost:8000/api';
 
 const ADMIN = {
@@ -129,6 +169,9 @@ async function main() {
   // files and the emails they queued — however far a run got.
   const reportScheduleIds: string[] = [];
   let reportGrantUserId: string | undefined;
+  // The administrator's stored preferences, while its email is switched off
+  // for the run: `null` when it had none. Put back as the very last step.
+  let adminPreferences: HeldPreferences | undefined;
   // Dedupe keys the notification tests create directly. Not the whole story:
   // the capacity, employee and portfolio sections mutate capacity through the
   // API, and each of those now produces a notification too. The timestamp below
@@ -199,6 +242,45 @@ async function main() {
 
   check('the two sessions are different identities', adminMe.id !== restrictedMe.id, true);
   const restrictedId = restrictedMe.id;
+
+  // The administrator's address is a real mailbox, and any mail worker on this
+  // database — a developer's own server — sends what the run queues: approval
+  // requests, "you have been added", rule and escalation notices. Its EPM email
+  // is switched off for the run (the outbox then queues nothing for it) and its
+  // stored preferences are put back exactly at the end. No check here reads an
+  // email addressed to the administrator.
+  {
+    const { prisma } = await import('../db/prisma.js');
+    // A run stopped before its cleanup left them off. Put back only while they
+    // still are: someone who has switched email on again since has decided.
+    if (existsSync(HELD_PREFERENCES)) {
+      const held = JSON.parse(readFileSync(HELD_PREFERENCES, 'utf8')) as HeldPreferences;
+      const current = await prisma.userPreference.findUnique({ where: { openProjectId: held.userId }, select: { data: true } });
+      const stillOff = (current?.data as { email?: { enabled?: boolean } } | null)?.email?.enabled === false;
+      if (stillOff) {
+        console.log(
+          (await restoreAdminPreferences(held))
+            ? "  (put back the administrator's email preferences an interrupted run had left off)"
+            : "  (COULD NOT put back the administrator's email preferences an interrupted run left off)",
+        );
+      } else {
+        rmSync(HELD_PREFERENCES, { force: true });
+      }
+    }
+    const stored = await prisma.userPreference.findUnique({ where: { openProjectId: adminMe.id }, select: { data: true } });
+    // On disk before the switch, so there is never a moment it is off with nothing to restore from.
+    writeFileSync(HELD_PREFERENCES, JSON.stringify({ userId: adminMe.id, stored } satisfies HeldPreferences));
+    const { setPreferences } = await import('../email/preferences.js');
+    await setPreferences(adminMe.id, { email: { enabled: false } });
+    adminPreferences = { userId: adminMe.id, stored };
+    // Stopped by hand: put them back on the way out.
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.once(signal, () => {
+        void (adminPreferences ? restoreAdminPreferences(adminPreferences) : Promise.resolve(true)).finally(() => process.exit(130));
+      });
+    }
+    console.log("  (the administrator's EPM email is off for this run, and is put back at the end)");
+  }
   check('admin may create projects', adminMe.permissions.project?.create, true);
   check('restricted user may not create projects', restrictedMe.permissions.project?.create ?? false, false);
 
@@ -7369,6 +7451,18 @@ async function main() {
       })
       .catch(() => ({ count: 0 }));
     console.log(`  (removed ${removed.count} test notification${removed.count === 1 ? '' : 's'})`);
+  }
+
+  // Last, after every cleanup step that could notify: the administrator's
+  // email preferences, exactly as they were — including having none.
+  if (adminPreferences) {
+    const restored = await restoreAdminPreferences(adminPreferences);
+    if (restored) adminPreferences = undefined;
+    console.log(
+      restored
+        ? "  (the administrator's email preferences are as they were)"
+        : `  (COULD NOT restore the administrator's email preferences; the next run retries from ${HELD_PREFERENCES})`,
+    );
   }
 
   }
