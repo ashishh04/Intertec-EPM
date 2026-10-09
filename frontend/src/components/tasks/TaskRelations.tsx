@@ -42,6 +42,8 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
 
   const [adding, setAdding] = useState(false);
   const [type, setType] = useState<string>();
+  /** Working days between a predecessor's finish and its successor's start. */
+  const [lag, setLag] = useState('0');
   const [term, setTerm] = useState('');
 
   const types = useRelationTypes(adding);
@@ -54,6 +56,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
   const close = () => {
     setAdding(false);
     setType(undefined);
+    setLag('0');
     setTerm('');
   };
 
@@ -106,6 +109,24 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
               </select>
             </div>
 
+            {/* Only a scheduling relation carries a lag, and only it moves dates. */}
+            {chosenType === 'follows' || chosenType === 'precedes' ? (
+              <div className="space-y-1">
+                <label htmlFor="relation-lag" className="text-2xs font-medium text-muted-foreground">
+                  Lag, in working days
+                </label>
+                <Input
+                  id="relation-lag"
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={lag}
+                  className="h-8 text-xs"
+                  onChange={(event) => setLag(event.target.value)}
+                />
+              </div>
+            ) : null}
+
             <div className="space-y-1">
               <label htmlFor="relation-search" className="text-2xs font-medium text-muted-foreground">
                 …this one
@@ -144,8 +165,10 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                       className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => {
                         if (!chosenType) return;
+                        const days = Math.max(0, Math.min(365, Math.round(Number(lag) || 0)));
+                        const scheduling = chosenType === 'follows' || chosenType === 'precedes';
                         create.mutate(
-                          { type: chosenType, relatedId: candidate.id },
+                          { type: chosenType, relatedId: candidate.id, ...(scheduling && days > 0 ? { lag: days } : {}) },
                           {
                             onSuccess: () => {
                               close();

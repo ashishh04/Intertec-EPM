@@ -14,6 +14,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -108,7 +109,21 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
 ];
 
 /** Figures are right-aligned so the digits line up down the column. */
-const NUMERIC_COLUMNS = new Set<ColumnKey>(['estimate', 'spent', 'progress', 'storyPoints']);
+const NUMERIC_COLUMNS = new Set<string>(['estimate', 'spent', 'progress', 'storyPoints']);
+
+/** A custom field column: `customField4`. Its values travel with each task. */
+const isCustomField = (column: string) => /^customField\d+$/.test(column);
+
+/** A sum as upstream sends it: a number, an ISO 8601 duration, or formatted money. */
+function formatSum(value: number | string): string {
+  if (typeof value === 'number') return formatNumber(value);
+  const duration = /^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?)?$/.exec(value);
+  if (duration && value !== 'P' && value !== 'PT') {
+    const [, days = '0', hours = '0', minutes = '0'] = duration;
+    return formatHours(Number(days) * 24 + Number(hours) + Number(minutes) / 60);
+  }
+  return value;
+}
 
 /**
  * How deep each row sits, counted only through parents present on this page.
@@ -172,8 +187,16 @@ export interface TaskTableProps {
   /**
    * Columns to show, driven by the query. When given, the table's own column
    * menu is hidden: the query owns the configuration and it is what gets saved.
+   * Custom fields are given by their upstream id, `customField4`.
    */
   columns?: string[];
+  /** Headers for custom field columns, which the instance names. */
+  columnLabels?: Record<string, string>;
+  /**
+   * Totals over the whole result, keyed by column. Shown in a footer row when
+   * given; a column without one is left blank there.
+   */
+  sums?: Record<string, number | string>;
   emptyAction?: { label: string; onClick: () => void };
   /**
    * Indent rows under a parent that is also on this page.
@@ -207,6 +230,8 @@ export function TaskTable({
   hideProjectColumn = false,
   showHierarchy = false,
   columns: controlledColumns,
+  columnLabels,
+  sums,
   sortable,
   groups,
   emptyAction,
@@ -218,13 +243,13 @@ export function TaskTable({
 
   // A controlled selection keeps the query's own order; the internal one keeps
   // the table's declaration order so toggling does not reshuffle headers.
-  const columns = useMemo(() => {
-    const renderable = new Set(Object.keys(COLUMN_LABEL) as ColumnKey[]);
+  const columns = useMemo((): string[] => {
+    const renderable = new Set<string>(Object.keys(COLUMN_LABEL));
 
     if (controlledColumns) {
       return controlledColumns.filter(
-        (column): column is ColumnKey =>
-          renderable.has(column as ColumnKey) && !(hideProjectColumn && column === 'project'),
+        (column) =>
+          (renderable.has(column) || isCustomField(column)) && !(hideProjectColumn && column === 'project'),
       );
     }
 
@@ -232,6 +257,21 @@ export function TaskTable({
       (column) => visibleColumns.includes(column) && !(hideProjectColumn && column === 'project'),
     );
   }, [controlledColumns, visibleColumns, hideProjectColumn]);
+
+  const labelOf = (column: string) =>
+    COLUMN_LABEL[column as ColumnKey] ?? columnLabels?.[column] ?? column;
+
+  // A custom field is a figure when its values are, or when upstream sums it.
+  const numericColumns = useMemo(() => {
+    const numeric = new Set(NUMERIC_COLUMNS);
+    for (const column of columns) {
+      if (!isCustomField(column)) continue;
+      if (sums?.[column] !== undefined || tasks.some((task) => typeof task.customValues?.[column] === 'number')) {
+        numeric.add(column);
+      }
+    }
+    return numeric;
+  }, [columns, sums, tasks]);
 
   const depths = useMemo(
     () => (showHierarchy ? hierarchyDepths(tasks) : new Map<ID, number>()),
@@ -289,7 +329,7 @@ export function TaskTable({
    * The third click removing the sort is what lets a user get back to the
    * view's own order without reloading it.
    */
-  const handleSort = (column: ColumnKey) => {
+  const handleSort = (column: string) => {
     if (!sortableColumns.has(column)) return;
 
     if (sortBy !== column) return onSortChange(column, 'asc');
@@ -484,7 +524,7 @@ export function TaskTable({
                 return (
                   <TableHead
                     key={column}
-                    numeric={NUMERIC_COLUMNS.has(column)}
+                    numeric={numericColumns.has(column)}
                     aria-sort={
                       isSorted ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined
                     }
@@ -496,7 +536,7 @@ export function TaskTable({
                         onClick={() => handleSort(column)}
                         className="inline-flex items-center gap-1 rounded transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        {COLUMN_LABEL[column]}
+                        {labelOf(column)}
                         {isSorted ? (
                           sortDir === 'asc' ? (
                             <ArrowUp className="h-3 w-3" aria-hidden />
@@ -508,7 +548,7 @@ export function TaskTable({
                         )}
                       </button>
                     ) : (
-                      COLUMN_LABEL[column]
+                      labelOf(column)
                     )}
                   </TableHead>
                 );
@@ -556,7 +596,7 @@ export function TaskTable({
                   </TableCell>
 
                   {columns.map((column) => (
-                    <TableCell key={column} numeric={NUMERIC_COLUMNS.has(column)}>
+                    <TableCell key={column} numeric={numericColumns.has(column)}>
                       {column === 'key' ? (
                         <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
                       ) : column === 'subject' ? (
@@ -644,6 +684,8 @@ export function TaskTable({
                         <DateCell value={task.createdAt} />
                       ) : column === 'updatedAt' ? (
                         <DateCell value={task.updatedAt} />
+                      ) : isCustomField(column) ? (
+                        <CustomValueCell value={task.customValues?.[column]} />
                       ) : null}
                     </TableCell>
                   ))}
@@ -651,10 +693,32 @@ export function TaskTable({
               );
             })}
           </TableBody>
+          {sums ? (
+            <TableFooter>
+              <TableRow>
+                <TableCell className="pr-0 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Sum
+                </TableCell>
+                {columns.map((column) => (
+                  <TableCell key={column} numeric={numericColumns.has(column)} className="font-medium">
+                    {sums[column] === undefined ? null : formatSum(sums[column]!)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableFooter>
+          ) : null}
         </Table>
       )}
     </TableCard>
   );
+}
+
+/** A custom field's value as the view shows it; a dash when it has none. */
+function CustomValueCell({ value }: { value?: number | boolean | string }) {
+  if (value === undefined || value === '') return <span className="text-muted-foreground">—</span>;
+  if (typeof value === 'boolean') return <span className="text-muted-foreground">{value ? 'Yes' : 'No'}</span>;
+  if (typeof value === 'number') return <span className="text-muted-foreground">{formatNumber(value)}</span>;
+  return <span className="block max-w-56 truncate text-muted-foreground" title={value}>{value}</span>;
 }
 
 /** A date column: short in the cell, the full date on hover. */

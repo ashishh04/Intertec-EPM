@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ListTree, Pencil, Star, Trash2 } from 'lucide-react';
+import { ListTree, Pencil, Sigma, Star, Trash2 } from 'lucide-react';
 
 import { ColumnPicker } from './ColumnPicker';
 import { QueryBuilder } from './QueryBuilder';
@@ -53,9 +53,11 @@ const NO_GROUP = '__nogroup__';
  * Upstream column ids the table has a renderer for.
  *
  * The table draws the normalized task model, so a column is showable only when
- * that model carries the attribute. Everything else OpenProject offers —
- * category, duration, custom field values and so on — is reported as
- * unavailable rather than rendered blank.
+ * that model carries the attribute. Custom fields are: their values travel
+ * with each task, so every `customField…` column is renderable too — among
+ * them the critical path fields (BR-103). Everything else OpenProject offers —
+ * category, duration and so on — is reported as unavailable rather than
+ * rendered blank.
  */
 const RENDERABLE_COLUMNS = [
   'id',
@@ -101,6 +103,10 @@ const COLUMN_TO_TABLE: Record<string, string> = {
 /** Without these the row cannot be identified or opened. */
 const REQUIRED_COLUMNS = ['id', 'subject'];
 
+const isCustomField = (id: string) => /^customField\d+$/.test(id);
+/** Upstream column id -> the table's key; a custom field keeps its own. */
+const tableKeyOf = (id: string): string | undefined => COLUMN_TO_TABLE[id] ?? (isCustomField(id) ? id : undefined);
+
 /** The table's own key -> the upstream column id, for sorting. */
 const TABLE_TO_COLUMN: Record<string, string> = Object.fromEntries(
   Object.entries(COLUMN_TO_TABLE).map(([column, key]) => [key, column]),
@@ -124,6 +130,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const [newName, setNewName] = useState('');
   const [columns, setColumns] = useState<string[]>();
   const [groupBy, setGroupBy] = useState<string>();
+  /** Sums under the table; the view's own setting until toggled. */
+  const [sums, setSums] = useState<boolean>();
   /*
    * Show the rows as a tree, as OpenProject's own list does by default.
    *
@@ -185,9 +193,10 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         : {}),
       ...(columns?.length ? { columns: columns.join(',') } : {}),
       ...(groupBy ? { groupBy } : {}),
+      ...(sums !== undefined ? { showSums: sums } : {}),
       showHierarchies: treeMode,
     }),
-    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns, groupBy, treeMode],
+    [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns, groupBy, sums, treeMode],
   );
 
   const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides);
@@ -212,14 +221,41 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   // a saved query's configuration on load.
   const effectiveColumns = columns ?? current?.columns.map((column) => column.id) ?? [];
   const tableColumns = effectiveColumns
-    .map((id) => COLUMN_TO_TABLE[id])
+    .map(tableKeyOf)
     .filter((key): key is string => Boolean(key));
 
   // Sortability is OpenProject's answer, translated into the table's keys.
   // A column can be shown without being sortable, and vice versa.
   const sortableColumns = (schemaQuery.data?.sortable ?? [])
-    .map((id) => COLUMN_TO_TABLE[id])
+    .map(tableKeyOf)
     .filter((key): key is string => Boolean(key));
+
+  // Custom fields are named by the instance, so their headers come from it.
+  const columnLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        (schemaQuery.data?.columns ?? [])
+          .filter((column) => isCustomField(column.id))
+          .map((column) => [column.id, column.name]),
+      ),
+    [schemaQuery.data],
+  );
+  const renderableColumns = useMemo(
+    () => [...RENDERABLE_COLUMNS, ...(schemaQuery.data?.columns ?? []).map((column) => column.id).filter(isCustomField)],
+    [schemaQuery.data],
+  );
+
+  const effectiveSums = sums ?? current?.sums ?? false;
+  // Sums arrive keyed by upstream attribute; the table wants its own keys.
+  const tableSums = useMemo(() => {
+    if (!effectiveSums || !result.data?.sums) return undefined;
+    return Object.fromEntries(
+      Object.entries(result.data.sums).flatMap(([id, value]) => {
+        const key = tableKeyOf(id);
+        return key ? [[key, value]] : [];
+      }),
+    );
+  }, [effectiveSums, result.data?.sums]);
 
   // As with columns and sort, the view's own grouping applies until overridden.
   const effectiveGroupBy = groupBy ?? current?.groupBy;
@@ -228,7 +264,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const activeSort =
     sort ??
     (current?.sortBy[0]
-      ? { field: COLUMN_TO_TABLE[current.sortBy[0].field] ?? '', direction: current.sortBy[0].direction }
+      ? { field: tableKeyOf(current.sortBy[0].field) ?? '', direction: current.sortBy[0].direction }
       : undefined);
   const selected = savedQueries.data?.find((q) => q.id === selectedQueryId);
 
@@ -241,6 +277,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     // Drop local overrides so the newly selected view's own configuration applies.
     setColumns(undefined);
     setGroupBy(undefined);
+    setSums(undefined);
   };
 
   const save = () => {
@@ -257,11 +294,20 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         view: {
           columns: effectiveColumns,
           groupBy: effectiveGroupBy || null,
-          filters: appliedFilters.map((filter) => ({
-            id: filter.id,
-            operator: filter.operator,
-            values: filter.values.map((value) => ({ id: String(value.id) })),
-          })),
+          sums: effectiveSums,
+          // A record — a status, a person — is sent by id; a number, a date or
+          // text as itself, which is what upstream expects of each.
+          filters: appliedFilters.map((filter) => {
+            const literal =
+              schemaQuery.data?.filters
+                .find((entry) => entry.id === filter.id)
+                ?.operators.find((operator) => operator.id === filter.operator)?.isResource === false;
+            return {
+              id: filter.id,
+              operator: filter.operator,
+              values: filter.values.map((value) => (literal ? { value: String(value.id) } : { id: String(value.id) })),
+            };
+          }),
         },
       },
       {
@@ -478,9 +524,24 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             </span>
           </InfoTooltip>
 
+          <InfoTooltip label="Show the total of each column that adds up, such as work, spent time and number fields like float, over the whole result.">
+            <span>
+              <Button
+                variant={effectiveSums ? 'secondary' : 'ghost'}
+                size="sm"
+                className="shrink-0"
+                aria-pressed={effectiveSums}
+                onClick={() => setSums(!effectiveSums)}
+              >
+                <Sigma className="h-3.5 w-3.5" />
+                Sums
+              </Button>
+            </span>
+          </InfoTooltip>
+
           <ColumnPicker
             available={schemaQuery.data?.columns ?? []}
-            renderable={RENDERABLE_COLUMNS}
+            renderable={renderableColumns}
             selected={effectiveColumns}
             onChange={setColumns}
             required={REQUIRED_COLUMNS}
@@ -532,6 +593,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           onBulkDelete={canAnywhere('task:edit') ? (ids: ID[]) => setDeletingTasks(ids) : undefined}
           groups={result.data?.groups}
           columns={tableColumns}
+          columnLabels={columnLabels}
+          sums={tableSums}
           hideProjectColumn={Boolean(projectId)}
           emptyAction={{
             label: 'New task',

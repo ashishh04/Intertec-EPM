@@ -88,6 +88,11 @@ export interface QueryResult {
   tasks: EpmTask[];
   /** Present only when the query groups. */
   groups?: TaskGroup[];
+  /**
+   * Present only when sums were asked for: per column id, over the whole
+   * result rather than the page. Durations are ISO 8601, money is formatted.
+   */
+  sums?: Record<string, number | string>;
   total: number;
   pageSize: number;
   page: number;
@@ -179,7 +184,10 @@ export class ApiQueryRepository {
     view?: {
       columns?: string[];
       groupBy?: string | null;
-      filters?: { id: string; operator: string; values: { id: string }[] }[];
+      /** Each value a record by `id`, or a literal — number, date, text — as `value`. */
+      filters?: { id: string; operator: string; values: ({ id: string } | { value: string })[] }[];
+      /** Show the sum of each summable column. */
+      sums?: boolean;
     };
   }): Promise<EpmQuery> {
     return apiClient.post<EpmQuery>('/queries', input);

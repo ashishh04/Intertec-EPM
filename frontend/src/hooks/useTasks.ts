@@ -15,6 +15,41 @@ export function useTasks(filters: TaskFilters = {}, options: { enabled?: boolean
   });
 }
 
+/** The most a timeline draws: five pages of the largest the API serves. */
+export const TIMELINE_LIMIT = 1_000;
+const TIMELINE_PAGE = 200;
+
+/**
+ * A project's work for its timeline, read across pages.
+ *
+ * A timeline is read as a whole, and its critical path view has to see all of
+ * a schedule to highlight it (BR-102), so one page is not enough. Pages after
+ * the first are read together. Stops at `TIMELINE_LIMIT`; `total` says when
+ * there is more than was drawn.
+ */
+export function useTaskTimeline(projectId?: ID) {
+  return useQuery({
+    queryKey: queryKeys.taskTimeline(projectId ?? ''),
+    queryFn: async () => {
+      const filters: TaskFilters = { projectId, pageSize: TIMELINE_PAGE, sortBy: 'dueDate', sortDir: 'asc' };
+      const first = await taskService.getTasks({ ...filters, page: 1 });
+      const pages = Math.min(Math.ceil(first.total / TIMELINE_PAGE), TIMELINE_LIMIT / TIMELINE_PAGE);
+      const rest = await Promise.all(
+        Array.from({ length: Math.max(0, pages - 1) }, (_, index) => taskService.getTasks({ ...filters, page: index + 2 })),
+      );
+      // A task edited between two page reads can appear on both.
+      const seen = new Set<ID>();
+      const items = [first, ...rest]
+        .flatMap((page) => page.items)
+        .filter((task) => (seen.has(task.id) ? false : (seen.add(task.id), true)));
+      return { items, total: first.total };
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+    placeholderData: (previous) => previous,
+  });
+}
+
 export function useTask(id?: ID) {
   return useQuery({
     queryKey: queryKeys.task(id ?? 'unknown'),

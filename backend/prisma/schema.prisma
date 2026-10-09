@@ -397,6 +397,95 @@ model PortfolioView {
   @@map("portfolio_views")
 }
 
+/// Critical path and float for one work package (BR-101, BR-103), as the
+/// last pass over the scheduling network computed them, in working days.
+///
+/// EPM's own record and the source of truth: the Gantt, the task view and the
+/// API read it, and the mirror copies it into OpenProject's schedule fields so
+/// its query engine can filter and sum on them. Keyed by the OpenProject work
+/// package id; a work package that leaves the network loses its row.
+model ScheduleFloat {
+  workPackageId Int      @id
+  projectId     Int
+  earlyStart    DateTime @db.Date
+  earlyFinish   DateTime @db.Date
+  lateStart     DateTime @db.Date
+  lateFinish    DateTime @db.Date
+  totalFloat    Int
+  freeFloat     Int
+  /// Total float of nought or less.
+  critical      Boolean
+  /// A parent: its figures are its children's, rolled up.
+  summary       Boolean  @default(false)
+  /// In a cycle of relations: scheduled as if the cycle's relations were not there.
+  inCycle       Boolean  @default(false)
+  /// The pass that last changed this row.
+  runId         String
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId, totalFloat])
+  @@map("schedule_floats")
+}
+
+/// A `follows` relation the last pass ran on (BR-102): OpenProject's own
+/// record, by its id, and whether it drives — its successor could start no
+/// sooner. The Gantt draws these; a driving link between critical items is
+/// the critical path.
+model ScheduleLink {
+  relationId           Int     @id
+  predecessorId        Int
+  successorId          Int
+  predecessorProjectId Int?
+  successorProjectId   Int?
+  lag                  Int     @default(0)
+  driving              Boolean @default(false)
+
+  @@index([predecessorProjectId])
+  @@index([successorProjectId])
+  @@map("schedule_links")
+}
+
+/// One pass over the network (BR-104): what started it, how big the network
+/// was, how long each step took and what it changed. A check that finds
+/// nothing moved leaves no row.
+model ScheduleRun {
+  id                 String    @id @default(cuid())
+  /// change | check | manual | startup
+  trigger            String
+  /// running | completed | failed
+  status             String    @default("running")
+  startedAt          DateTime  @default(now())
+  finishedAt         DateTime?
+  /// OpenProject's digests of the network the pass read, and of the values
+  /// its fields held once the mirror had written.
+  networkFingerprint String?
+  valuesFingerprint  String?
+  workPackages       Int       @default(0)
+  relations          Int       @default(0)
+  scheduled          Int       @default(0)
+  unscheduled        Int       @default(0)
+  /// Each cycle's members.
+  cycles             Json      @default("[]")
+  /// Rows of `schedule_floats` written and removed.
+  changed            Int       @default(0)
+  removed            Int       @default(0)
+  /// Work packages whose fields the mirror rewrote; values it could not write
+  /// because the work package's type does not hold the fields.
+  mirrored           Int       @default(0)
+  mirrorSkipped      Int       @default(0)
+  mirrorError        String?
+  readMs             Int?
+  computeMs          Int?
+  storeMs            Int?
+  mirrorMs           Int?
+  durationMs         Int?
+  error              String?
+
+  @@index([startedAt])
+  @@index([status, startedAt])
+  @@map("schedule_runs")
+}
+
 /// A message for one person about something they should know and would not
 /// otherwise see.
 ///

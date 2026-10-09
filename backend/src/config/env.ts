@@ -339,6 +339,44 @@ const schema = z.object({
   // JSON POST — monitoring that does not depend on the mail relay.
   EPM_OPS_ALERT_WEBHOOK_URL: z.preprocess((value) => (value === '' ? undefined : value), z.string().url().optional()),
 
+  // --- Critical path (BRQ-01) -----------------------------------------------
+  // Float is recalculated as soon as EPM sees a date or relation change, and a
+  // check catches the ones it does not see: every EPM_SCHEDULE_CHECK_SECONDS
+  // OpenProject is asked for a digest of the network — one small query there —
+  // and a pass runs only when it has moved. On unless "false".
+  EPM_SCHEDULE_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_SCHEDULE_CHECK_SECONDS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(10).max(3600).default(60),
+  ),
+  // A read waits for a pending pass while the network is at most this many
+  // work packages; above it, it answers at once with the figures stored and
+  // says a pass is on its way (BR-104). Changes never wait, whatever the size.
+  EPM_SCHEDULE_SYNC_LIMIT: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(0).max(1_000_000).default(500),
+  ),
+  // Near-critical: total float of at most this many working days (BR-102).
+  // The default each view starts from; a viewer can change it for theirs.
+  EPM_SCHEDULE_NEAR_CRITICAL_DAYS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(0).max(60).default(2),
+  ),
+  // Write float into OpenProject's schedule fields too, for its query engine
+  // (BR-103). Needs setup/schedule-fields.rb run on the instance. On unless "false".
+  EPM_SCHEDULE_MIRROR_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  // How long each pass's record is kept.
+  EPM_SCHEDULE_RUN_RETENTION_DAYS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(1).max(3650).default(30),
+  ),
+
   /*
    * The currency internal hourly rates are quoted in.
    *
@@ -486,6 +524,9 @@ export function describeEnv() {
       : 'disabled',
     analyticsRole: env.EPM_ANALYTICS_DATABASE_URL ? 'configured' : 'not configured',
     reportScheduler: env.EPM_REPORT_SCHEDULER_ENABLED ? `every ${env.EPM_REPORT_SCHEDULER_SECONDS} seconds` : 'disabled',
+    criticalPath: env.EPM_SCHEDULE_ENABLED
+      ? `on change and checked every ${env.EPM_SCHEDULE_CHECK_SECONDS} seconds; mirror ${env.EPM_SCHEDULE_MIRROR_ENABLED ? 'on' : 'off'}`
+      : 'disabled',
     opsAlerts: env.EPM_OPS_ALERT_WEBHOOK_URL ? 'in-app and webhook' : 'in-app',
   };
 }

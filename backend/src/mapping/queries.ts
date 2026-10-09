@@ -233,6 +233,8 @@ export interface EpmQuery {
 
 interface OpQueryFilter {
   name?: string;
+  /** A literal filter's values — a number, a date, text — which have no links. */
+  values?: unknown[];
   _links?: {
     filter?: HalLink;
     operator?: HalLink;
@@ -284,11 +286,15 @@ export function toEpmQuery(query: OpQuery): EpmQuery {
       id: filter._links?.filter?.href?.split('/').pop() ?? '',
       name: filter._links?.filter?.title ?? filter.name ?? '',
       operator: decodeURIComponent(filter._links?.operator?.href?.split('/').pop() ?? ''),
-      values: (filter._links?.values ?? []).map((value) => ({
-        // A value is either a link to a record or a bare literal in `href`.
-        id: value.href?.split('/').pop() ?? String(value.title ?? ''),
-        name: value.title ?? undefined,
-      })),
+      values: [
+        ...(filter._links?.values ?? []).map((value) => ({
+          // A value is either a link to a record or a bare literal in `href`.
+          id: value.href?.split('/').pop() ?? String(value.title ?? ''),
+          name: value.title ?? undefined,
+        })),
+        // Literals arrive as plain values beside the links.
+        ...(filter.values ?? []).map((value) => ({ id: String(value), name: String(value) })),
+      ],
     })),
 
     columns: (query._embedded?.columns ?? []).map((column) => ({

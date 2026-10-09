@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
 import { requestHealthRecalc } from '../domain/health.js';
+import { requestScheduleRecalc } from '../domain/schedule.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
@@ -257,6 +258,7 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
     // instance reschedules them, and health has to see where they landed.
     const relatedProject = await guard.projectOfWorkPackage(request, relatedId).catch(() => undefined);
     requestHealthRecalc([projectId, ...(relatedProject ? [relatedProject] : [])]);
+    requestScheduleRecalc();
 
     reply.code(201);
     // Normalized back to the caller's point of view, so a reverse alias reads
@@ -279,6 +281,7 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
     // removed dependency rarely moves anything; every project is recalculated
     // rather than guessing.
     requestHealthRecalc('all');
+    requestScheduleRecalc();
     reply.code(204);
   });
 };

@@ -115,7 +115,9 @@ export function useRelatable(workPackageId: ID, term: string, enabled: boolean) 
  *
  * A relation belongs to two work packages, and the other one's list is now
  * stale too — without this, opening it would show a relation that no longer
- * exists, or miss one that does.
+ * exists, or miss one that does. A dependency can also move dates — the
+ * instance reschedules automatically scheduled successors — and so float, so
+ * the timeline and the critical path are re-read as well.
  */
 function useRelationMutation(workPackageId: ID) {
   const client = useQueryClient();
@@ -123,6 +125,8 @@ function useRelationMutation(workPackageId: ID) {
   return (relatedId?: ID) => {
     void client.invalidateQueries({ queryKey: relationKeys.list(workPackageId) });
     if (relatedId) void client.invalidateQueries({ queryKey: relationKeys.list(relatedId) });
+    void client.invalidateQueries({ queryKey: ['schedule'] });
+    void client.invalidateQueries({ queryKey: ['tasks'] });
   };
 }
 
@@ -130,7 +134,7 @@ export function useCreateRelation(workPackageId: ID) {
   const settle = useRelationMutation(workPackageId);
 
   return useMutation({
-    mutationFn: (input: { type: string; relatedId: ID }) =>
+    mutationFn: (input: { type: string; relatedId: ID; lag?: number }) =>
       relationService.create(workPackageId, input),
     onSuccess: (relation) => settle(relation.related.id),
   });

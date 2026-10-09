@@ -96,7 +96,8 @@ export class ApiRelationRepository {
     );
   }
 
-  create(workPackageId: ID, input: { type: string; relatedId: ID }): Promise<EpmRelation> {
+  /** `lag` is in working days, on `follows` and `precedes` only. */
+  create(workPackageId: ID, input: { type: string; relatedId: ID; lag?: number }): Promise<EpmRelation> {
     return apiClient.post<EpmRelation>(`/work-packages/${workPackageId}/relations`, input);
   }
 

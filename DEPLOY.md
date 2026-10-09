@@ -166,6 +166,42 @@ and updated, to `https://<host>/api/webhooks/openproject`, signed with
 way. Rules and escalation policies are defined in EPM, under Administration →
 Rules and escalation.
 
+## Critical path
+
+EPM computes the critical path and the float of every scheduled work package
+itself, over the whole network at once, and keeps them in its own database:
+the Gantt's critical path view, each task's Schedule card and the API read
+them there. It recalculates soon after any change made through EPM, and its
+check — every `EPM_SCHEDULE_CHECK_SECONDS` — catches changes made in
+OpenProject itself, a holiday added to its calendar included. Nothing needs
+starting. `GET /api/schedule/status` reports the last pass: how big the network
+was and how long each step took.
+
+It also writes the figures into three work package fields — Total float
+(days), Free float (days) and On critical path — so saved views can show,
+filter, group and sum them. Create the fields once; the script is in the
+`epm-openproject` image and creates only what is missing:
+
+```bash
+docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openproject \
+  bundle exec rails runner /app/epm-setup/schedule-fields.rb
+```
+
+Run it again after adding a work package type, so the new type holds the fields
+too. Until it has run, the figures are shown everywhere in EPM and the fields
+simply do not exist; the status reports why. The values are written by
+`zzz_epm_schedule.rb` straight into the fields and kept out of the journal: a
+float moving because another task's date moved is not an edit, and no one's
+Activity shows it as one.
+
+A read waits for a pending recalculation while the network is at most
+`EPM_SCHEDULE_SYNC_LIMIT` work packages (500 by default), so what a person sees
+reflects the change they just made; above that it answers at once and says the
+figures are being recalculated. A change never waits. Near-critical means total
+float of at most `EPM_SCHEDULE_NEAR_CRITICAL_DAYS` working days unless a view
+chooses otherwise. `EPM_SCHEDULE_MIRROR_ENABLED=false` keeps the figures in EPM
+only.
+
 ## Analytics
 
 Reports and dashboards read EPM's analytics model, a schema of its own
@@ -249,13 +285,14 @@ id, permission) until roles can grant them.
 |---|---|
 | `epm-backend` | `dist`, production modules, the generated Prisma client, the Prisma CLI for migrations |
 | `epm-web` | the built bundle plus Caddy and the Caddyfile; no domain baked in |
-| `epm-openproject` | `openproject/openproject:15` plus the five EPM initializers and the setup scripts (governance types, automation account) |
+| `epm-openproject` | `openproject/openproject:15` plus the six EPM initializers and the setup scripts (governance types, automation account, schedule fields) |
 | `postgres:17-alpine` | pulled from the official library, nothing of ours in it |
 
 `epm-openproject` exists because EPM cannot use a stock OpenProject: sign-in
 depends on `zzz_epm_password_grant.rb` being loaded inside that container, and
-the other four add the administrative endpoints EPM reads and the history its
-analytics model loads. They
+the other five add the administrative endpoints EPM reads, the history its
+analytics model loads and the bridge its critical path pass reads and writes
+through. They
 used to be bind-mounted from a checkout, which made the host depend on this
 repository being present at the right commit — and a stack that comes up with
 the mount missing starts cleanly and then refuses every sign-in. Baked into the

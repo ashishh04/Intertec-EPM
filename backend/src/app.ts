@@ -14,6 +14,7 @@ import { publishCatalogue } from './domain/measures-store.js';
 import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
+import { createScheduleCheck } from './scheduler/schedule-check.js';
 import { createApprovalSweep } from './scheduler/approval-sweep.js';
 import { createEscalationSweep } from './scheduler/escalation-sweep.js';
 import { createRuleWorker } from './scheduler/rule-worker.js';
@@ -333,7 +334,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Report scheduler disabled; scheduled reports go out only when run by hand');
   }
 
+  // The critical path check (BR-104): float recalculated when OpenProject's
+  // network moves under EPM. On unless switched off.
+  const scheduleCheck = createScheduleCheck({ log: app.log });
+  if (env.EPM_SCHEDULE_ENABLED) {
+    scheduleCheck.start();
+  } else {
+    app.log.info('Critical path disabled; float is neither computed nor shown');
+  }
+
   app.addHook('onClose', async () => {
+    scheduleCheck.stop();
     reportScheduler.stop();
     analyticsRefresh.stop();
     ruleWorker.stop();

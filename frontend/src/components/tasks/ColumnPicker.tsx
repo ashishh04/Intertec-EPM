@@ -16,8 +16,8 @@ import type { QueryColumn } from '@/services/api/queries';
  * appears without a change.
  *
  * Not every upstream column can be shown. The table renders the normalized task
- * model, which does not carry attributes like category, duration or custom field
- * values, and inventing a renderer for data EPM does not hold would produce
+ * model, which carries custom field values but not attributes like category or
+ * duration, and inventing a renderer for data EPM does not hold would produce
  * blank columns that look like missing data. Those are listed as unavailable
  * with the reason rather than hidden, so the gap is visible instead of puzzling.
  */

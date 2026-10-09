@@ -72,7 +72,13 @@ export const queryKeys = {
   portfolioView: (id: string) => ['portfolio-views', 'detail', id] as const,
   portfolioViewOptions: () => ['portfolio-views', 'options'] as const,
 
+  // Critical path. Every write that can move a date sits behind `['schedule']`.
+  criticalPath: (projectId: string) => ['schedule', 'project', projectId] as const,
+  workPackageSchedule: (id: string) => ['schedule', 'work-package', id] as const,
+  scheduleStatus: () => ['schedule', 'status'] as const,
+
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
+  taskTimeline: (projectId: string) => ['tasks', 'timeline', projectId] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,
   taskHierarchy: (id: ID) => ['tasks', 'detail', id, 'hierarchy'] as const,
 
@@ -133,9 +139,12 @@ export const invalidationGroups = {
   // status it was read against has just invalidated. Named precisely rather
   // than clearing `catalog`, which holds instance reference data no task write
   // can change.
+  // `schedule` because a date, a parent or a deletion can move any float that
+  // relations reach; the server waits for its pass before answering.
   taskWrite: [
     ['tasks'],
     ['queries'],
+    ['schedule'],
     ['catalog', 'work-package-options'],
     ['dashboard'],
     ['activity'],

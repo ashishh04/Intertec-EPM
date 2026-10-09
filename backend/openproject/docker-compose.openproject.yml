@@ -70,3 +70,7 @@ services:
       # The EPM analytics export (/epm_admin/analytics/*): work package
       # history as rows, read-only, for the analytics model.
       - ./zzz_epm_analytics_api.rb:/app/config/initializers/zzz_epm_analytics_api.rb:ro
+      # The EPM schedule bridge (/epm_admin/schedule/*): the scheduling network
+      # out for EPM's critical path pass, and the float it computes back into
+      # the three schedule fields, kept out of the journal.
+      - ./zzz_epm_schedule.rb:/app/config/initializers/zzz_epm_schedule.rb:ro

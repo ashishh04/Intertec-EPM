@@ -4,10 +4,11 @@
 # ---------------------------------------------
 # EPM cannot run against a stock OpenProject. It signs people in on its own form
 # and exchanges their credentials for an OpenProject token, which needs
-# zzz_epm_password_grant.rb loaded inside the container; the other four add the
-# administrative endpoints EPM reads and the history its analytics model loads.
+# zzz_epm_password_grant.rb loaded inside the container; the other five add the
+# administrative endpoints EPM reads, the history its analytics model loads and
+# the bridge its critical path pass reads and writes through.
 #
-# Mounted from a working copy, those five files make the deployment host depend
+# Mounted from a working copy, those six files make the deployment host depend
 # on a checkout of this repository being present, at the right commit, at the
 # right path. A stack that comes up with the mount missing starts cleanly and
 # then refuses every sign-in, with nothing in any log that points at the cause.
@@ -36,12 +37,14 @@ COPY zzz_epm_admin_api.rb       /app/config/initializers/zzz_epm_admin_api.rb
 COPY zzz_epm_admin_settings.rb  /app/config/initializers/zzz_epm_admin_settings.rb
 COPY zzz_epm_admin_catalog.rb   /app/config/initializers/zzz_epm_admin_catalog.rb
 COPY zzz_epm_analytics_api.rb   /app/config/initializers/zzz_epm_analytics_api.rb
+COPY zzz_epm_schedule.rb        /app/config/initializers/zzz_epm_schedule.rb
 
 # Configuration scripts, run on demand rather than at boot — the governance
-# types (Change Request, Risk) the approval chains and health rules use, and the
-# automation account rules act as:
+# types (Change Request, Risk) the approval chains and health rules use, the
+# automation account rules act as, and the fields EPM writes float into:
 #   docker compose exec -T openproject bundle exec rails runner /app/epm-setup/governance-types.rb
 #   docker compose exec -T openproject bundle exec rails runner /app/epm-setup/automation-account.rb
+#   docker compose exec -T openproject bundle exec rails runner /app/epm-setup/schedule-fields.rb
 # They write OpenProject's own records through its own models, the way an
 # administrator would, and patch nothing.
 COPY setup/ /app/epm-setup/
