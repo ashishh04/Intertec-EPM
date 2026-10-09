@@ -151,6 +151,8 @@ interface QueryResponse {
   _embedded?: {
     results?: HalCollection<OpWorkPackage> & {
       total?: number;
+      /** Present when sums are asked for: the whole result set's, per summable column. */
+      totalSums?: Record<string, unknown>;
       /** Present only when the query groups; summarises the whole result set. */
       groups?: { value?: unknown; count?: number }[];
     };
@@ -167,6 +169,8 @@ async function runAndNormalize(
   tasks: EpmTask[];
   /** Present only when grouping; absent rather than empty when not. */
   groups?: TaskGroup[];
+  /** Present only when sums were asked for: per column id, over the whole result. */
+  sums?: Record<string, number | string>;
   total: number;
   pageSize: number;
   page: number;
@@ -227,10 +231,21 @@ async function runAndNormalize(
         )
       : undefined;
 
+  // Sums cover the whole result, not the page. Durations stay ISO 8601 and
+  // money stays as upstream formats it; empty sums are dropped.
+  const sums = results?.totalSums
+    ? Object.fromEntries(
+        Object.entries(results.totalSums).filter(
+          (entry): entry is [string, number | string] => typeof entry[1] === 'number' || (typeof entry[1] === 'string' && entry[1] !== ''),
+        ),
+      )
+    : undefined;
+
   return {
     query,
     tasks: elements.map((workPackage) => toEpmTask(workPackage, catalog, identifiers)),
     ...(groups ? { groups } : {}),
+    ...(sums ? { sums } : {}),
     total: results?.total ?? elements.length,
     pageSize: (results as { pageSize?: number } | undefined)?.pageSize ?? elements.length,
     page: (results as { offset?: number } | undefined)?.offset ?? 1,
@@ -412,7 +427,13 @@ interface QueryView {
   groupBy?: unknown;
   /** Sort criteria, upstream's `attribute-direction` form, e.g. `subject-desc`. */
   sort?: unknown;
+  /**
+   * `{ id, operator, values }`, each value a record as `{ id }` or `{ href }`,
+   * or a literal — a number, a date, text — as `{ value }`.
+   */
   filters?: unknown;
+  /** Show the sum of each summable column under the table. */
+  sums?: unknown;
 }
 
 /**
@@ -442,6 +463,7 @@ function toQueryPayload(view: QueryView): Record<string, unknown> {
   const sort = Array.isArray(view.sort) ? view.sort : [];
 
   return {
+    ...(view.sums === undefined ? {} : { sums: view.sums === true }),
     _links: {
       columns: columns.map((column) => ({
         href: `/api/v3/queries/columns/${attribute(column, 'column')}`,
@@ -459,6 +481,11 @@ function toQueryPayload(view: QueryView): Record<string, unknown> {
       const filter = (entry ?? {}) as { id?: unknown; operator?: unknown; values?: unknown };
       const operator = typeof filter.operator === 'string' ? filter.operator : '';
       if (!operator) throw EpmError.badRequest('A filter needs an operator.');
+      const given = Array.isArray(filter.values) ? filter.values : [];
+      const isLiteral = (value: unknown): value is { value: unknown } =>
+        typeof value === 'object' && value !== null && 'value' in value;
+      const literals = given.filter(isLiteral).map((value) => String(value.value));
+      const records = given.filter((value) => !isLiteral(value));
 
       return {
         _links: {
@@ -470,14 +497,25 @@ function toQueryPayload(view: QueryView): Record<string, unknown> {
           // filter is about — a status, a person, a type — so there is no one
           // collection to construct a link into. A client sends back the href
           // the schema gave it, which is echoing server data rather than
-          // knowing the upstream URL shape.
-          values: (Array.isArray(filter.values) ? filter.values : []).map((value) => {
-            const entry = (value ?? {}) as { href?: unknown; id?: unknown };
-            const href = typeof entry.href === 'string' ? entry.href : String(entry.id ?? value);
-            if (href.includes('..')) throw EpmError.badRequest('That filter value is not valid.');
-            return { href };
-          }),
+          // knowing the upstream URL shape. Absent for literals: upstream
+          // reads links first, and an empty list of them would blank the
+          // literal values below.
+          ...(literals.length > 0 && records.length === 0
+            ? {}
+            : {
+                values: records.map((value) => {
+                  const entry = (value ?? {}) as { href?: unknown; id?: unknown };
+                  const href = typeof entry.href === 'string' ? entry.href : String(entry.id ?? value);
+                  if (href.includes('..')) throw EpmError.badRequest('That filter value is not valid.');
+                  return { href };
+                }),
+              }),
         },
+        // A number, a date or some text is not a record and has no link:
+        // upstream takes it as itself, and refuses it as a link ("Total float
+        // (days) is not an integer"). The client says which it is, as the
+        // schema told it (`isResource`), by sending `{ value }`.
+        ...(literals.length > 0 ? { values: literals } : {}),
       };
     }),
   };

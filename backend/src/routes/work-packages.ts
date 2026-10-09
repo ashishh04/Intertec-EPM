@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import * as guard from '../auth/guard.js';
 import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
+import { requestScheduleRecalc } from '../domain/schedule.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { idFromHref, openProject } from '../openproject/client.js';
@@ -63,6 +64,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       );
 
       requestHealthRecalc(projectId);
+      requestScheduleRecalc();
       await noteRuleEvent({
         source: 'epm',
         kind: 'work_package.created',
@@ -124,6 +126,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       });
 
       requestHealthRecalc(projectId);
+      requestScheduleRecalc();
       await noteRuleEvent({
         source: 'epm',
         kind: 'work_package.updated',
@@ -151,6 +154,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       signal: requestSignal(request),
     });
     requestHealthRecalc(projectId);
+    requestScheduleRecalc();
     reply.code(204);
   });
 };

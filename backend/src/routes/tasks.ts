@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
+import { requestScheduleRecalc } from '../domain/schedule.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -270,6 +271,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
     // New work moves the project's counts, and perhaps its forecast finish.
     requestHealthRecalc(projectId);
+    requestScheduleRecalc();
     await noteRuleEvent({
       source: 'epm',
       kind: 'work_package.created',
@@ -299,6 +301,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       // A date, status, type or priority edit can move any criterion; the
       // recalculation decides whether one did.
       requestHealthRecalc(projectId);
+      requestScheduleRecalc();
       await noteRuleEvent({
         source: 'epm',
         kind: 'work_package.updated',
@@ -351,6 +354,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       } finally {
         // Whatever part of the batch landed has moved those projects.
         requestHealthRecalc([...projects]);
+        requestScheduleRecalc();
       }
       return updated;
     },
@@ -379,6 +383,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       }
     } finally {
       requestHealthRecalc([...projects]);
+      requestScheduleRecalc();
     }
 
     reply.status(204);

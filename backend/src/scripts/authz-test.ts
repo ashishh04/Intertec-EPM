@@ -186,6 +186,10 @@ async function main() {
   // drill is checked against. Removed however far a run got.
   const portfolioViewIds: string[] = [];
   let viewTimeEntryId: string | undefined;
+  // The critical path tests' own project (its work goes with it) and the
+  // saved view they make. Removed however far a run got.
+  let criticalPathProjectId: string | undefined;
+  let criticalPathQueryId: string | undefined;
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -7297,6 +7301,263 @@ async function main() {
     console.log('\n  SKIP  surfaces: the private project was not created');
   }
 
+  // --- Critical path (BR-101 to BR-104) ---------------------------------------
+  console.log('\nCritical path');
+  {
+    type Json = Record<string, any>;
+    const { prisma: pathDb } = await import('../db/prisma.js');
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json;
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const DAY = 86_400_000;
+    const isoOf = (time: number) => new Date(time).toISOString().slice(0, 10);
+    const addWorkdays = (from: number, count: number) => {
+      let at = from;
+      for (let left = count; left > 0; ) {
+        at += DAY;
+        const weekday = new Date(at).getUTCDay();
+        if (weekday !== 0 && weekday !== 6) left -= 1;
+      }
+      return at;
+    };
+
+    // A project of its own: the figures below are worked by hand, and dated
+    // work another section leaves in the suite's project would move its finish.
+    const stamp = Date.now();
+    const madeProject = await call('/projects', {
+      method: 'POST',
+      cookie: admin,
+      body: { payload: { name: `Critical Path Test ${stamp}`, identifier: `cp-test-${stamp}` } },
+    });
+    check('a project is made for the critical path tests', madeProject.status, 201);
+    criticalPathProjectId = ((await madeProject.json()) as Json).id as string | undefined;
+    const cpProject = String(criticalPathProjectId);
+
+    // The calendar the hand schedule assumes: Monday to Friday, and no
+    // holiday in the fortnight it runs across — the first such fortnight from
+    // a week on Monday.
+    const week = await asSystem(() => upstream.request<Json>('/days/week'));
+    const working = ((week._embedded?.elements ?? []) as Json[]).filter((day) => day.working).map((day) => day.day);
+    check('the instance works Monday to Friday', JSON.stringify(working), JSON.stringify([1, 2, 3, 4, 5]));
+    const now = new Date();
+    let base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + (((8 - now.getUTCDay()) % 7 || 7) + 7) * DAY;
+    for (let tries = 0; tries < 8; tries += 1) {
+      const holidays = await asSystem(() =>
+        upstream.getCollection<Json>('/days/non_working', {
+          filters: [{ field: 'date', operator: '<>d', values: [isoOf(base), isoOf(base + 13 * DAY)] }],
+        }),
+      );
+      if ((holidays.total ?? 0) === 0) break;
+      base += 7 * DAY;
+    }
+    const day = (n: number) => isoOf(addWorkdays(base, n));
+
+    /*
+     * The control set, worked by hand in working days from a Monday (day 0):
+     *
+     *   item  days  follows        ES EF LS LF  TF FF
+     *   A      3    —               0  2  0  2   0  0   critical
+     *   B      2    A               3  4  6  7   3  3   near-critical at 3 days
+     *   C      4    A, lag 1        4  7  4  7   0  0   critical
+     *   D      1    B and C         8  8  8  8   0  0   critical
+     *   E      2    — (its own)     0  1  7  8   7  7
+     *   F      no dates: not scheduled
+     */
+    const plan = [
+      { key: 'A', start: 0, end: 2, tf: 0, ff: 0, es: 0, ef: 2, ls: 0, lf: 2, critical: true },
+      { key: 'B', start: 3, end: 4, tf: 3, ff: 3, es: 3, ef: 4, ls: 6, lf: 7, critical: false },
+      { key: 'C', start: 4, end: 7, tf: 0, ff: 0, es: 4, ef: 7, ls: 4, lf: 7, critical: true },
+      { key: 'D', start: 8, end: 8, tf: 0, ff: 0, es: 8, ef: 8, ls: 8, lf: 8, critical: true },
+      { key: 'E', start: 0, end: 1, tf: 7, ff: 7, es: 0, ef: 1, ls: 7, lf: 8, critical: false },
+    ];
+    const ids: Record<string, string> = {};
+    for (const step of [...plan, { key: 'F' }] as Json[]) {
+      const made = await call('/tasks', {
+        method: 'POST',
+        cookie: admin,
+        body: {
+          projectId: cpProject,
+          subject: `Critical path ${step.key}`,
+          status: 'todo',
+          priority: 'medium',
+          ...(step.start !== undefined ? { startDate: day(step.start), dueDate: day(step.end) } : {}),
+        },
+      });
+      ids[step.key] = ((await made.json()) as Json).id;
+    }
+    const keyOf = (id: string) => Object.entries(ids).find(([, value]) => value === id)?.[0] ?? '?';
+    check('six work packages are made, five of them dated', Object.values(ids).filter(Boolean).length, 6);
+    const relate = (successor: string, predecessor: string, lag = 0) =>
+      call(`/work-packages/${ids[successor]}/relations`, {
+        method: 'POST',
+        cookie: admin,
+        body: { type: 'follows', relatedId: ids[predecessor], ...(lag ? { lag } : {}) },
+      });
+    const related = [await relate('B', 'A'), await relate('C', 'A', 1), await relate('D', 'B'), await relate('D', 'C')];
+    check('four follows relations join them, one with a day of lag', related.every((response) => response.status === 201), true);
+
+    // Drawing the relations queued a pass; wait for its figures.
+    let path: Json = {};
+    const itemOf = (key: string) => ((path.items ?? []) as Json[]).find((entry) => entry.id === ids[key]);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      path = await json(`/projects/${cpProject}/critical-path?near=3`);
+      if (!path.pending && plan.every((step) => itemOf(step.key)?.totalFloat === step.tf)) break;
+      await pause(1_000);
+    }
+    check('BR-101: every item’s total float matches the control set worked by hand', plan.every((step) => itemOf(step.key)?.totalFloat === step.tf), true);
+    check('so does its free float', plan.every((step) => itemOf(step.key)?.freeFloat === step.ff), true);
+    check(
+      'and its early and late dates, on the working calendar',
+      plan.every((step) => {
+        const item = itemOf(step.key);
+        return item?.earlyStart === day(step.es) && item?.earlyFinish === day(step.ef) && item?.lateStart === day(step.ls) && item?.lateFinish === day(step.lf);
+      }),
+      true,
+    );
+    check('the lag holds C back a working day after A', itemOf('C')?.earlyStart, day(4));
+    check('the critical items are A, C and D', plan.every((step) => itemOf(step.key)?.critical === step.critical), true);
+    check('an item without dates is left out', itemOf('F'), undefined);
+    check('the project finishes on day 8', path.finish, day(8));
+
+    // BR-102: near-critical within a threshold, and the critical chain.
+    check('BR-102: with a threshold of 3 days, B is near-critical and E is not', itemOf('B')?.nearCritical === true && itemOf('E')?.nearCritical === false, true);
+    check('the counts agree: 3 critical, 1 near-critical', `${path.counts?.critical}/${path.counts?.nearCritical}`, '3/1');
+    const tight = await json(`/projects/${cpProject}/critical-path?near=2`);
+    check('at 2 days, nothing is near-critical', ((tight.items ?? []) as Json[]).filter((entry) => entry.nearCritical).length, 0);
+    const linkNames = (filter: (link: Json) => boolean) =>
+      JSON.stringify(((path.links ?? []) as Json[]).filter(filter).map((link) => `${keyOf(link.predecessorId)}>${keyOf(link.successorId)}`).sort());
+    check('the relations that drive are A–B, A–C and C–D; B–D leaves slack', linkNames((link) => link.driving), JSON.stringify(['A>B', 'A>C', 'C>D']));
+    check('and the critical path drawn is A–C–D', linkNames((link) => link.critical), JSON.stringify(['A>C', 'C>D']));
+
+    // BR-103: in the API, and in OpenProject's fields for its query engine.
+    const own = await json(`/work-packages/${ids.B}/schedule`);
+    check('BR-103: a work package’s own figures are in the API', `${own.item?.totalFloat}/${own.item?.freeFloat}`, '3/3');
+    check(
+      'with the predecessor that holds it back',
+      JSON.stringify(((own.predecessors ?? []) as Json[]).filter((link) => link.driving).map((link) => link.predecessorId)),
+      JSON.stringify([ids.A]),
+    );
+    const schema = await json(`/queries/schema?projectId=${cpProject}`);
+    const columnId = (name: string) => ((schema.columns ?? []) as Json[]).find((column) => column.name === name)?.id as string | undefined;
+    const tfField = columnId('Total float (days)');
+    const ffField = columnId('Free float (days)');
+    const critField = columnId('On critical path');
+    check('the three schedule fields are columns a view can show', [tfField, ffField, critField].every(Boolean), true);
+    let fields: Json[] = [];
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      fields = await Promise.all(plan.map((step) => json(`/tasks/${ids[step.key]}`)));
+      if (plan.every((step, index) => fields[index]?.customValues?.[tfField!] === step.tf)) break;
+      await pause(1_000);
+    }
+    check(
+      'each item’s fields hold its total float, free float and whether it is critical',
+      plan.every((step, index) => {
+        const values = fields[index]?.customValues ?? {};
+        return values[tfField!] === step.tf && values[ffField!] === step.ff && values[critField!] === step.critical;
+      }),
+      true,
+    );
+    check('and an item without dates holds none', (await json(`/tasks/${ids.F}`)).customValues?.[tfField!], undefined);
+
+    const savedView = await call('/queries', {
+      method: 'POST',
+      cookie: admin,
+      body: {
+        name: `Float under 3 days ${stamp}`,
+        projectId: cpProject,
+        view: {
+          columns: ['id', 'subject', tfField, ffField, critField],
+          filters: [{ id: tfField, operator: '<=', values: [{ value: '2' }] }],
+          sums: true,
+        },
+      },
+    });
+    check('a view filtered to total float under 3 days is saved', savedView.status, 201);
+    criticalPathQueryId = ((await savedView.json()) as Json).id as string | undefined;
+    const viewRun = await json(`/queries/${criticalPathQueryId}`);
+    const viewTasks = (viewRun.tasks ?? []) as Json[];
+    check(
+      'BR-103: it returns exactly the items with less than 3 days of float',
+      JSON.stringify(viewTasks.map((task) => task.id).sort()),
+      JSON.stringify([ids.A, ids.C, ids.D].sort()),
+    );
+    check(
+      'and its columns show the computed values',
+      viewTasks.length === 3 &&
+        viewTasks.every((task) => task.customValues?.[tfField!] === 0 && task.customValues?.[ffField!] === 0 && task.customValues?.[critField!] === true),
+      true,
+    );
+    check('the view keeps its float columns', ((viewRun.query?.columns ?? []) as Json[]).some((column) => column.id === tfField), true);
+    check(
+      'and its filter, value and all, as saved',
+      JSON.stringify(((viewRun.query?.filters ?? []) as Json[]).map((filter) => [filter.id, filter.operator, ((filter.values ?? []) as Json[]).map((value) => value.id)])),
+      JSON.stringify([[tfField, '<=', ['2']]]),
+    );
+    const wider = await json(
+      `/queries/default?projectId=${cpProject}&showSums=true&filters=${encodeURIComponent(JSON.stringify([{ [tfField!]: { operator: '<=', values: ['3'] } }]))}`,
+    );
+    check('with float up to 3 days, B joins them, and the float is summed over them', `${(wider.tasks ?? []).length}/${wider.sums?.[tfField!]}`, '4/3');
+    const grouped = await json(`/queries/default?projectId=${cpProject}&groupBy=${critField}`);
+    check(
+      'grouped by “On critical path”, three are critical and two are not',
+      JSON.stringify(((grouped.groups ?? []) as Json[]).map((group) => group.count).sort()),
+      JSON.stringify([1, 2, 3]),
+    );
+
+    // Kept out of the journal: editing an item holding figures journals the edit and no figure.
+    check(
+      'an item holding figures can still be edited',
+      await status(`/tasks/${ids.A}`, { method: 'PATCH', cookie: admin, body: { subject: 'Critical path A, renamed' } }),
+      200,
+    );
+    const activities = await asSystem(() => upstream.request<Json>(`/work_packages/${ids.A}/activities`));
+    const details = ((activities._embedded?.elements ?? []) as Json[]).flatMap((entry) =>
+      ((entry.details ?? []) as Json[]).map((detail) => String(detail.raw ?? '')),
+    );
+    check('the edit is in its activity', details.some((detail) => /Subject/.test(detail)), true);
+    check('no float figure is, in any version', details.some((detail) => /Total float \(days\)|Free float \(days\)|On critical path/.test(detail)), false);
+
+    // BR-104: a change is recalculated without the change waiting for it.
+    const movedAt = performance.now();
+    const moved = await call(`/tasks/${ids.B}`, { method: 'PATCH', cookie: admin, body: { startDate: day(5), dueDate: day(6) } });
+    const movedMs = Math.round(performance.now() - movedAt);
+    check('BR-104: a date moves and the request answers', moved.status, 200);
+    check('before the recalculation it started has run', (await json('/schedule/status')).pending, true);
+    let movedItem: Json | undefined;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      movedItem = ((await json(`/projects/${cpProject}/critical-path`)).items as Json[] | undefined)?.find((entry) => entry.id === ids.B);
+      if (movedItem?.totalFloat === 1) break;
+      await pause(500);
+    }
+    check('then B has a day of float left, total and free', `${movedItem?.totalFloat}/${movedItem?.freeFloat}`, '1/1');
+    const lastPass = (await json('/schedule/status')).lastCompleted as Json | undefined;
+    check('and that pass took under five seconds', (lastPass?.durationMs ?? Infinity) < 5_000, true);
+    console.log(`        (the change answered in ${movedMs} ms; the pass took ${lastPass?.durationMs} ms over ${lastPass?.workPackages} work packages)`);
+
+    // Who may do what.
+    check('someone who cannot see the project cannot read its critical path', await status(`/projects/${cpProject}/critical-path`, { cookie: restricted }), 403);
+    check('nor a work package’s figures in it', await status(`/work-packages/${ids.A}/schedule`, { cookie: restricted }), 404);
+    check('nor recalculate', await status('/schedule/recalculate', { method: 'POST', cookie: restricted }), 403);
+    check('the passes’ status is open to anyone who works with work packages', await status('/schedule/status', { cookie: restricted }), 200);
+    check('an administrator can recalculate now', [200, 202].includes(await status('/schedule/recalculate', { method: 'POST', cookie: admin })), true);
+    check(
+      'which is journalled',
+      (await pathDb.auditEvent.count({ where: { action: 'schedule.recalculated', occurredAt: { gte: suiteStartedAt } } })) > 0,
+      true,
+    );
+    check('a non-numeric project is not found', await status('/projects/not-a-number/critical-path', { cookie: admin }), 404);
+
+    // Put things back: the view, and the project with its work.
+    if (criticalPathQueryId) {
+      check('the saved view is removed', await status(`/queries/${criticalPathQueryId}`, { method: 'DELETE', cookie: admin }), 204);
+      criticalPathQueryId = undefined;
+    }
+    check('the project is removed, with its work', await status(`/projects/${cpProject}`, { method: 'DELETE', cookie: admin }), 204);
+    criticalPathProjectId = undefined;
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -7818,6 +8079,14 @@ async function main() {
   // The portfolio view tests' views and their probe time entry.
   if (viewTimeEntryId) {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+  // The critical path tests' view and project, if the section stopped part-way.
+  if (criticalPathQueryId) {
+    await call(`/queries/${criticalPathQueryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+  if (criticalPathProjectId) {
+    const removed = await call(`/projects/${criticalPathProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+    console.log(`  (critical path test project ${criticalPathProjectId}: ${removed?.status === 204 ? 'deleted' : 'NOT deleted — remove it by hand'})`);
   }
   if (portfolioViewIds.length) {
     const { prisma } = await import('../db/prisma.js');

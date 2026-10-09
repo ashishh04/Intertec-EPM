@@ -4,6 +4,7 @@ import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fast
 import { env } from '../config/env.js';
 import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
+import { requestScheduleRecalc } from '../domain/schedule.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { EpmError } from '../lib/errors.js';
@@ -209,6 +210,9 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
       if (action.startsWith('time_entry:')) invalidateProjectCost(projectId);
       requestHealthRecalc(projectId);
     }
+    // A work package created or changed upstream can move float anywhere its
+    // relations reach; the pass works out whether it did.
+    if (action.startsWith('work_package:')) requestScheduleRecalc();
 
     if (HANDLED_ACTIONS.has(action)) {
       try {

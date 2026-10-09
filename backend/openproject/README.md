@@ -48,8 +48,10 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_admin_settings.rb` | The settings sections: work packages, projects, languages, repositories, emails, incoming email, aggregation, authentication, calendars, avatars. |
 | `zzz_epm_admin_catalog.rb` | Create, edit and delete for types, statuses, priorities, custom fields, webhooks and OAuth applications. |
 | `zzz_epm_analytics_api.rb` | Read-only export of every work package version (the journals) and of unit costs, for EPM's analytics model (below). |
+| `zzz_epm_schedule.rb` | The schedule bridge (below): the scheduling network out for EPM's critical path pass, and the float it computes back into three work package fields, kept out of the journal. |
 | `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
 | `setup/automation-account.rb` | Not an initializer: run by hand, like the one below. Creates EPM's automation account — the service principal rules act as — and its minimal "EPM Automation" project role with a complete workflow, and prints the account's API key once (`ROTATE=1` issues a new one). Not an administrator; EPM adds it to a project when a rule first acts there. |
+| `setup/schedule-fields.rb` | Not an initializer: run by hand. Creates the Total float (days), Free float (days) and On critical path work package fields, for all projects and usable as filters, and activates them on every type. Run it again after adding a type. Copied to `/app/epm-setup/` in the image. |
 | `setup/governance-types.rb` | Not an initializer: a one-off `rails runner` script, run by hand. Creates the Change Request and Risk types, the Pending approval / Approved / Rejected statuses with their workflow, and the Change value field that approval thresholds read. Creates only what is missing, so it is safe to run again. Copied to `/app/epm-setup/` in the image. |
 
 ## Container destination
@@ -60,6 +62,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 /app/config/initializers/zzz_epm_admin_settings.rb
 /app/config/initializers/zzz_epm_admin_catalog.rb
 /app/config/initializers/zzz_epm_analytics_api.rb
+/app/config/initializers/zzz_epm_schedule.rb
 ```
 
 The `zzz_` prefix matters: Rails loads initializers alphabetically, and the
@@ -140,6 +143,57 @@ curl -s -u apikey:<key> http://localhost:8080/epm_admin/analytics/journals/summa
 then run a full refresh (`npm run analytics -- refresh full`) and check that it
 reconciles; `npm run analytics -- capture` then `-- compare <id>` confirms that
 reconstruction still matches the instance field for field.
+
+## The schedule bridge (`zzz_epm_schedule.rb`)
+
+EPM computes the critical path and the float of every scheduled work package
+(BR-101 to BR-104) and keeps them as its own records. So that OpenProject's
+query engine — which EPM's saved views run on — can show, filter, sort, group
+and sum them (BR-103), EPM also writes them into three work package fields that
+`setup/schedule-fields.rb` creates:
+
+| Field | Format | Holds |
+| --- | --- | --- |
+| Total float (days) | integer | working days the item can slip without moving its project's finish |
+| Free float (days) | integer | working days it can slip without moving any successor |
+| On critical path | boolean | total float of nought |
+
+| Method | Path | Does |
+| --- | --- | --- |
+| GET | `/epm_admin/schedule/network` | Every work package of an active project with its dates, duration and scheduling mode; the `follows` relations; the working calendar; each one's values in the three fields now; and two digests |
+| GET | `/epm_admin/schedule/fingerprint` | The two digests alone — of the network, and of the values stored — so EPM's check costs one small query |
+| POST | `/epm_admin/schedule/values` | Writes `{ values: [{ id, totalFloat, freeFloat, critical }] }`; a null clears. Only what differs is written |
+
+**How values are written.** Not through `WorkPackages::UpdateService`: a float
+moving because another task's date moved is not an edit of this one, and the
+service would journal it under whoever's token EPM used, bump the lock version
+(so anyone editing that work package at that moment would be refused) and send
+it through notifications and webhooks. The rows are written straight into
+`custom_values` in one transaction, and each changed work package's
+`updated_at` moves on by one microsecond — invisible in every date OpenProject
+shows or filters on, but a new cache version, which API v3's cached work
+package representations are keyed on.
+
+**Kept out of the journal.** `Journals::CreateService::Customizable` is
+prepended so the three fields are left out of every version it records and of
+its "has anything changed" comparison; otherwise the next person to edit a work
+package would be shown as having changed its float. If upstream rewrites that
+SQL, the patch leaves it untouched and logs once — float would then be
+journalled like any field, which is noise, not harm.
+
+Fields are found by name: renaming one disconnects it, and EPM reports it
+missing. A work package holds the fields only when its type has them active.
+Admin only, identified as API v3 identifies a caller. After an upgrade:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/epm_admin/schedule/fingerprint   # 403
+curl -s -u apikey:<key> http://localhost:8080/epm_admin/schedule/fingerprint                      # two digests
+```
+
+then confirm the journal patch still applies: in `rails runner`,
+`Journals::CreateService::Customizable.ancestors.include?(EpmSchedule::Unjournaled)`
+should be true, and editing a work package's subject should add no float
+change to its Activity.
 
 ## Running it
 

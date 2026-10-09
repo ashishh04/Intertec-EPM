@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { ListSkeleton } from '@/components/common/DataTable';
 import { FactList } from '@/components/common/FactList';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { ScheduleStatusCard } from '@/components/schedule/ScheduleStatusCard';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -139,6 +140,8 @@ export default function WorkingDaysPage() {
           </QueryBoundary>
         </CardContent>
       </Card>
+
+      <ScheduleStatusCard />
 
       <Card>
         <CardHeader variant="compact">

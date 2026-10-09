@@ -665,6 +665,13 @@ export interface EpmTask {
   watcherIds: ID[];
   createdAt: ISODate;
   updatedAt: ISODate;
+  /**
+   * Custom field values by OpenProject attribute name (`customField4`), as
+   * shown: a number, a yes or no, or text — a list option's or a person's
+   * name. Absent when the work package has none. Includes the critical path
+   * fields EPM writes (BR-103), so a view can show them as columns.
+   */
+  customValues?: Record<string, number | boolean | string>;
 }
 
 /**
@@ -2767,4 +2774,116 @@ export interface PortfolioViewOptions {
   /** Project roles a view can be shared with. */
   roles: { id: ID; name: string }[];
   columns: PortfolioOverviewColumn[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Critical path (BRQ-01)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** One work package's place in the schedule, in working days (BR-101). */
+export interface ScheduleItem {
+  id: ID;
+  earlyStart: ISODate;
+  earlyFinish: ISODate;
+  lateStart: ISODate;
+  lateFinish: ISODate;
+  /** Working days it can slip without moving its project's finish. */
+  totalFloat: number;
+  /** Working days it can slip without moving any successor. */
+  freeFloat: number;
+  /** Total float of nought or less. */
+  critical: boolean;
+  /** Not critical, and total float within the threshold asked for (BR-102). */
+  nearCritical: boolean;
+  /** A parent: its figures are its children's, rolled up. */
+  summary: boolean;
+  /** Part of a cycle of relations, scheduled as if the cycle's relations were not there. */
+  inCycle: boolean;
+}
+
+/** A `follows` relation, and whether it sets its successor's early start. */
+export interface ScheduleLink {
+  id: ID;
+  predecessorId: ID;
+  successorId: ID;
+  /** Working days between the predecessor's finish and the successor's start. */
+  lag: number;
+  /** The successor could start no sooner: this predecessor holds it. */
+  driving: boolean;
+  /** Driving, between two critical items: a step of the critical path. */
+  critical: boolean;
+}
+
+export interface ScheduleMeta {
+  /** When the figures were computed; absent before the first pass. */
+  computedAt?: ISODate;
+  /** A pass is queued or running; the figures may be about to change. */
+  pending: boolean;
+  /** The near-critical threshold applied, in working days. */
+  nearCriticalDays: number;
+  /** The threshold a view starts from. */
+  defaultNearCriticalDays: number;
+  enabled: boolean;
+}
+
+/** A project's scheduled work with its float, and the relations between it. */
+export interface ProjectCriticalPath extends ScheduleMeta {
+  projectId: ID;
+  items: ScheduleItem[];
+  links: ScheduleLink[];
+  /** The latest early finish of the project's work. */
+  finish?: ISODate;
+  /** Cycles among the project's work: each one's members. */
+  cycles: ID[][];
+  /** Leaf work only; parents are their children rolled up. */
+  counts: { scheduled: number; critical: number; nearCritical: number };
+}
+
+/** One work package's figures, and the relations it is part of. */
+export interface WorkPackageSchedule extends ScheduleMeta {
+  workPackageId: ID;
+  /** Absent when it has no dates, or before the first pass. */
+  item?: ScheduleItem;
+  predecessors: ScheduleLink[];
+  successors: ScheduleLink[];
+}
+
+/** One pass over the network (BR-104). */
+export interface ScheduleRun {
+  id: ID;
+  trigger: 'change' | 'check' | 'manual' | 'startup' | string;
+  status: 'running' | 'completed' | 'failed' | string;
+  startedAt: ISODate;
+  finishedAt?: ISODate;
+  workPackages: number;
+  relations: number;
+  scheduled: number;
+  unscheduled: number;
+  cycles: number[][];
+  /** Stored figures written and removed. */
+  changed: number;
+  removed: number;
+  /** Work packages whose OpenProject fields were rewritten. */
+  mirrored: number;
+  /** Scheduled work packages whose type does not hold the fields. */
+  mirrorSkipped: number;
+  mirrorError?: string;
+  readMs?: number;
+  computeMs?: number;
+  storeMs?: number;
+  mirrorMs?: number;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface ScheduleStatus {
+  enabled: boolean;
+  mirrorEnabled: boolean;
+  checkSeconds: number;
+  /** Networks up to this size are waited for on a read; larger ones are not. */
+  syncLimit: number;
+  defaultNearCriticalDays: number;
+  pending: boolean;
+  lastRun?: ScheduleRun;
+  lastCompleted?: ScheduleRun;
 }

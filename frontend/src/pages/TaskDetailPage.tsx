@@ -48,6 +48,7 @@ import { ApprovalPanel } from '@/components/approvals/ApprovalPanel';
 import { TaskAttachments } from '@/components/tasks/TaskAttachments';
 import { TaskComments } from '@/components/tasks/TaskComments';
 import { TaskRelations } from '@/components/tasks/TaskRelations';
+import { TaskSchedule } from '@/components/tasks/TaskSchedule';
 import { TaskWatchers } from '@/components/tasks/TaskWatchers';
 import { HierarchyTrail, TaskSubItems } from '@/components/tasks/TaskHierarchy';
 import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
@@ -339,6 +340,10 @@ export default function TaskDetailPage() {
               deliberately: a parent-child breakdown is read far more often
               than a cross-cutting relation. */}
           <TaskSubItems taskId={task.id} />
+
+          {/* Its float and the predecessors holding it back: read-only, from
+              EPM's critical path pass over the dates and relations. */}
+          <TaskSchedule workPackageId={task.id} />
 
           {/* Both are affordance-gated inside: what a user may do is decided by
               what OpenProject offered on this record, not by a role check. */}

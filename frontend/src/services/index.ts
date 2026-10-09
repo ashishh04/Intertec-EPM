@@ -30,6 +30,7 @@ import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiInsightsRepository } from './api/insights';
 import { ApiScheduledReportRepository } from './api/scheduled-reports';
 import { ApiPortfolioViewRepository } from './api/portfolio-views';
+import { ApiScheduleRepository } from './api/schedule';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
 import { ApiApprovalRepository } from './api/approvals';
@@ -113,6 +114,8 @@ export const insightsService = new ApiInsightsRepository();
 export const scheduledReportService = new ApiScheduledReportRepository();
 /** Portfolios in one view, and saved views of them (BRQ-06). */
 export const portfolioViewService = new ApiPortfolioViewRepository();
+/** Critical path and float, computed by EPM over the whole network (BRQ-01). */
+export const scheduleService = new ApiScheduleRepository();
 
 /** Instance administration. Reads OpenProject's admin resources through the backend. */
 export const adminService = new ApiAdminRepository();

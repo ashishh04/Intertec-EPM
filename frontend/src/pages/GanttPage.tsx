@@ -11,18 +11,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useProjects, useProjectMilestones } from '@/hooks/useProjects';
-import { useTasks } from '@/hooks/useTasks';
+import { useProjectCriticalPath } from '@/hooks/useSchedule';
+import { useTaskTimeline } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
 import type { ID } from '@/types';
-
-/**
- * How many work packages the timeline draws at once.
- *
- * A timeline is read as a whole, so it loads in one go rather than paging.
- * What it must not do is stop short silently: the notice under the chart
- * says when a project has more scheduled work than is drawn.
- */
-const GANTT_PAGE_SIZE = 200;
 
 /** Portfolio timeline with a project switcher. */
 export default function GanttPage() {
@@ -33,12 +25,10 @@ export default function GanttPage() {
     if (!projectId && projectsQuery.data?.length) setProjectId(projectsQuery.data[0].id);
   }, [projectsQuery.data, projectId]);
 
-  const tasksQuery = useTasks({
-    projectId,
-    pageSize: GANTT_PAGE_SIZE,
-    sortBy: 'dueDate',
-    sortDir: 'asc',
-  });
+  // A timeline is read as a whole, so it loads every page; the notice under
+  // the chart says when a project has more scheduled work than is drawn.
+  const tasksQuery = useTaskTimeline(projectId);
+  const criticalPath = useProjectCriticalPath(projectId);
   const milestonesQuery = useProjectMilestones(projectId);
   const users = useUserMap();
 
@@ -81,7 +71,12 @@ export default function GanttPage() {
         skeleton={<GanttChartSkeleton />}
       >
         <div className="space-y-3">
-          <GanttChart tasks={tasks} users={users} milestones={milestonesQuery.data ?? []} />
+          <GanttChart
+            tasks={tasks}
+            users={users}
+            milestones={milestonesQuery.data ?? []}
+            schedule={criticalPath.data}
+          />
           <TruncationNotice shown={tasks.length} total={total} itemLabel="task" affected="The bars" />
         </div>
       </QueryBoundary>

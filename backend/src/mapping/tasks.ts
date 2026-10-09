@@ -95,7 +95,29 @@ export function toEpmTask(
     watcherIds: [],
     createdAt: workPackage.createdAt,
     updatedAt: workPackage.updatedAt,
+    ...withCustomValues(workPackage as unknown as Record<string, unknown>),
   };
+}
+
+/**
+ * Custom field values, as a view shows them: numbers and yes/no as they are,
+ * formatted text as its source, and a list option, person or version by name.
+ * Upstream carries the first kinds as properties and the last as links.
+ */
+function withCustomValues(workPackage: Record<string, unknown>): { customValues?: Record<string, number | boolean | string> } {
+  const values: Record<string, number | boolean | string> = {};
+  for (const [field, value] of Object.entries(workPackage)) {
+    if (!/^customField\d+$/.test(field) || value === null || value === undefined) continue;
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') values[field] = value;
+    else if (typeof value === 'object' && 'raw' in value) values[field] = String((value as { raw?: unknown }).raw ?? '');
+  }
+  const links = (workPackage._links ?? {}) as Record<string, { title?: string } | { title?: string }[] | undefined>;
+  for (const [field, link] of Object.entries(links)) {
+    if (!/^customField\d+$/.test(field) || !link) continue;
+    const titles = (Array.isArray(link) ? link : [link]).map((entry) => entry.title ?? '').filter(Boolean);
+    if (titles.length > 0) values[field] = titles.join(', ');
+  }
+  return Object.keys(values).length > 0 ? { customValues: values } : {};
 }
 
 /** Maps EPM filter values onto the OpenProject status/type/priority ids. */
