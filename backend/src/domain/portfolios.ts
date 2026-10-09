@@ -46,7 +46,7 @@ export interface EpmPortfolio {
    */
   taskCount: number;
   completedTaskCount: number;
-  /** Overdue work across its projects — the same signal a project calls risk. */
+  /** Open work packages of a risk type across its projects, as each project counts them. */
   openRiskCount: number;
   /**
    * How its projects' delivery status is distributed. Counted, not collapsed,

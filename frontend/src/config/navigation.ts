@@ -11,6 +11,7 @@ import {
   GanttChartSquare,
   Gauge,
   LayoutDashboard,
+  Layers,
   ListTodo,
   MailCheck,
   Megaphone,
@@ -87,6 +88,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Insights',
     items: [
       { label: 'Dashboards', to: '/insights', icon: PieChart, matchNested: true },
+      { label: 'Portfolio views', to: '/portfolio-views', icon: Layers, matchNested: true },
       { label: 'Reports', to: '/reports', icon: FileText },
       { label: 'Scheduled reports', to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
       { label: 'Time & Costs', to: '/time-and-costs', icon: Coins },

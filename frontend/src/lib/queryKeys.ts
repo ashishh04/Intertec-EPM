@@ -62,6 +62,16 @@ export const queryKeys = {
   reportRuns: (filter: object) => ['report-schedules', 'runs', filter] as const,
   reportRun: (id: string) => ['report-schedules', 'run', id] as const,
 
+  // Portfolio views. The overviews and cost entries read the analytics model, so they sit under
+  // ['insights'] with the dashboards; the saved views themselves are EPM rows of their own.
+  portfolioOverview: (id: string, query: object) => ['insights', 'portfolio-overview', id, query] as const,
+  portfolioViewOverview: (id: string, query: object) => ['insights', 'portfolio-view-overview', id, query] as const,
+  costEntries: (measureId: string, projectId: string, query: object) =>
+    ['insights', 'cost-entries', measureId, projectId, query] as const,
+  portfolioViews: () => ['portfolio-views', 'list'] as const,
+  portfolioView: (id: string) => ['portfolio-views', 'detail', id] as const,
+  portfolioViewOptions: () => ['portfolio-views', 'options'] as const,
+
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,
   taskHierarchy: (id: ID) => ['tasks', 'detail', id, 'hierarchy'] as const,

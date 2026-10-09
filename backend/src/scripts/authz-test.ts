@@ -169,6 +169,10 @@ async function main() {
   // files and the emails they queued — however far a run got.
   const reportScheduleIds: string[] = [];
   let reportGrantUserId: string | undefined;
+  // Saved portfolio views these tests make, and the time entry their cost
+  // drill is checked against. Removed however far a run got.
+  const portfolioViewIds: string[] = [];
+  let viewTimeEntryId: string | undefined;
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -6995,6 +6999,228 @@ async function main() {
     check('one that never ran is deleted', (await json(`/reports/schedules/${spare.id}`, admin, { method: 'DELETE' })).outcome, 'deleted');
   }
 
+  // --- Portfolio views (BR-201 to BR-203) ------------------------------------
+  console.log('\nPortfolio views');
+  {
+    type Json = Record<string, any>;
+    const { prisma: viewsDb } = await import('../db/prisma.js');
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json;
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const viewStamp = Date.now().toString(36);
+    const todayDay = new Date().toISOString().slice(0, 10);
+    const suiteProject = String(createdId);
+    const sumOf = (overview: Json, id: string) =>
+      ((overview.projects ?? []) as Json[]).reduce((sum, project) => sum + Number(project.figures?.[id]?.value ?? 0), 0);
+
+    // A project the restricted account can read, beside the suite's own, which it cannot.
+    const theirMe = await json('/me', restricted);
+    const theirProjects = Object.entries((theirMe.projectPermissions ?? {}) as Record<string, { project?: { view?: boolean } }>)
+      .filter(([, set]) => set.project?.view)
+      .map(([id]) => id)
+      .filter((id) => id !== suiteProject);
+    const allProjects = (await json('/projects')) as unknown as { id: string; status?: string }[];
+    const openProject = theirProjects.find((id) => allProjects.some((project) => String(project.id) === id && project.status !== 'paused'));
+    check('the restricted account can read an active project besides the suite’s', openProject !== undefined, true);
+
+    // Cost behind the suite's project: two hours by the administrator.
+    const logTime = (activityId?: string) =>
+      call('/time-entries', {
+        method: 'POST',
+        cookie: admin,
+        body: { projectId: suiteProject, hours: 2, spentOn: todayDay, comment: 'Portfolio view probe', ...(activityId ? { activityId } : {}) },
+      });
+    let logged = await logTime();
+    if (logged.status !== 201) {
+      const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: suiteProject } }));
+      logged = await logTime(/time_entries\/activities\/(\d+)/.exec(form)?.[1]);
+    }
+    check('time can be logged on the suite’s project', logged.status, 201);
+    viewTimeEntryId = logged.status === 201 ? ((await logged.json()) as { id: string }).id : undefined;
+
+    // BR-201: a portfolio in one view. The suite's project goes into a portfolio of its own.
+    const portfolioResponse = await call('/portfolios', {
+      method: 'POST',
+      cookie: admin,
+      body: { name: `Authz view portfolio ${viewStamp}`, code: `AVP${viewStamp}`.slice(0, 16).toUpperCase() },
+    });
+    const viewPortfolio = (await portfolioResponse.json()) as Json;
+    check('a portfolio is created for the view tests', portfolioResponse.status, 201);
+    if (viewPortfolio.id) portfolioIds.push(viewPortfolio.id);
+    if (!originalProjectPortfolio.has(suiteProject)) {
+      originalProjectPortfolio.set(suiteProject, ((await json(`/projects/${suiteProject}`)).portfolioId as string | undefined) ?? null);
+    }
+    check(
+      'the suite’s project joins it',
+      await status(`/projects/${suiteProject}/portfolio`, { method: 'PATCH', cookie: admin, body: { portfolioId: viewPortfolio.id } }),
+      200,
+    );
+
+    // The figures come from the analytics model: wait for it to see the portfolio and the time.
+    let portfolioOverview: Json = {};
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'incremental', wait: true } });
+      portfolioOverview = await json(`/portfolios/${viewPortfolio.id}/overview`);
+      if (portfolioOverview.set?.shown === 1 && Number(portfolioOverview.measures?.['cost.actual']?.value ?? 0) > 0) break;
+      await pause(2_000);
+    }
+    check('BR-201: the portfolio is in one view, with its project', portfolioOverview.set?.shown, 1);
+    check(
+      'showing status, schedule variance, budget consumption, open risks and milestones',
+      ['projects.atRisk', 'schedule.varianceDays', 'budget.consumed', 'risk.open', 'milestones.missed', 'milestones.upcoming'].every(
+        (id) => id in (portfolioOverview.measures ?? {}),
+      ),
+      true,
+    );
+    check('every figure adds up to its project', portfolioOverview.reconciled, true);
+    check('the logged time is in its cost', Number(portfolioOverview.measures?.['cost.actual']?.value ?? 0) > 0, true);
+    const theirPortfolio = await call(`/portfolios/${viewPortfolio.id}/overview`, { cookie: restricted });
+    check('someone who cannot see its project still gets the view, not an error', theirPortfolio.status, 200);
+    const theirPortfolioBody = (await theirPortfolio.json()) as Json;
+    check('with the project left out and counted', theirPortfolioBody.set?.hidden, 1);
+    check('and none of it shown', ((theirPortfolioBody.projects ?? []) as Json[]).length, 0);
+    check('an unknown portfolio is not found', await status('/portfolios/no-such-portfolio/overview', { cookie: admin }), 404);
+
+    // BR-203: saved views — over the suite's project and one the restricted account can read.
+    const definition = {
+      portfolioIds: [],
+      projectIds: [suiteProject, openProject],
+      health: [],
+      periodPreset: 'last-12-weeks',
+      columns: ['health', 'budget.consumed', 'budget.variancePct', 'risk.open', 'milestones.missed', 'work.overdue'],
+    };
+    const create = (body: Json, cookie = admin) => call('/portfolio-views', { method: 'POST', cookie, body });
+    const keep = async (response: Response) => {
+      const body = (await response.json()) as Json;
+      if (body.id) portfolioViewIds.push(body.id);
+      return body;
+    };
+    check('a view shared with roles needs them', (await create({ name: 'x', visibility: 'roles', roleIds: [], definition })).status, 400);
+    check(
+      'and they are roles a project member can hold',
+      (await create({ name: 'x', visibility: 'roles', roleIds: ['999999'], definition })).status,
+      400,
+    );
+    check(
+      'a view names portfolios that exist',
+      (await create({ name: 'x', visibility: 'private', definition: { ...definition, portfolioIds: ['no-such-portfolio'] } })).status,
+      400,
+    );
+    const publicCreated = await create({ name: `Authz public view ${viewStamp}`, visibility: 'public', definition });
+    check('anyone signed in can save a view', publicCreated.status, 201);
+    const publicView = await keep(publicCreated);
+    const privateView = await keep(await create({ name: `Authz private view ${viewStamp}`, visibility: 'private', definition }));
+
+    // BR-201 over two projects: every figure equals the roll-up of the rows.
+    const both = await json(`/portfolio-views/${publicView.id}/overview`);
+    check('BR-201: over two projects, every figure adds up to its projects', both.reconciled, true);
+    check(
+      'the counts are the sums of the rows',
+      ['work.open', 'work.overdue', 'risk.open', 'milestones.missed'].every((id) => sumOf(both, id) === Number(both.measures?.[id]?.value ?? 0)),
+      true,
+    );
+    check('and the cost is the sum of the rows', Math.abs(sumOf(both, 'cost.actual') - Number(both.measures?.['cost.actual']?.value ?? 0)) < 0.005, true);
+
+    // BR-203: what each person sees.
+    const theirList = (await json('/portfolio-views', restricted)) as unknown as Json[];
+    check('a public view is listed for everyone', theirList.some((view) => view.id === publicView.id), true);
+    check('a private one is not', theirList.some((view) => view.id === privateView.id), false);
+    check('and cannot be opened by anyone else', await status(`/portfolio-views/${privateView.id}`, { cookie: restricted }), 404);
+    check('nor its figures read', await status(`/portfolio-views/${privateView.id}/overview`, { cookie: restricted }), 404);
+    const theirs = await call(`/portfolio-views/${publicView.id}/overview`, { cookie: restricted });
+    check('BR-203: someone without access to a project in a shared view gets the view', theirs.status, 200);
+    const theirsBody = (await theirs.json()) as Json;
+    check('with that project left out', ((theirsBody.projects ?? []) as Json[]).some((project) => String(project.id) === suiteProject), false);
+    check('and counted, not an error', theirsBody.set?.hidden, 1);
+    check('the project they can see is there', ((theirsBody.projects ?? []) as Json[]).some((project) => String(project.id) === openProject), true);
+    check('and their figures add up too', theirsBody.reconciled, true);
+    check(
+      'a shared view is changed only by whoever made it',
+      await status(`/portfolio-views/${publicView.id}`, { method: 'PATCH', cookie: restricted, body: { name: 'Taken', visibility: 'public', definition } }),
+      403,
+    );
+    check('or deleted', await status(`/portfolio-views/${publicView.id}`, { method: 'DELETE', cookie: restricted }), 403);
+
+    // Shared with a role: whoever holds it on a project the view selects.
+    const roles = ((await json('/portfolio-views/options')).roles ?? []) as { id: string; name: string }[];
+    const givenRole = roles.find((role) => /reader/i.test(role.name)) ?? roles[0];
+    const otherRole = roles.find((role) => role.id !== givenRole?.id);
+    check('there are roles to share with', Boolean(givenRole && otherRole), true);
+    const suiteOnly = { ...definition, projectIds: [suiteProject] };
+    const roleView = await keep(await create({ name: `Authz role view ${viewStamp}`, visibility: 'roles', roleIds: [givenRole?.id], definition: suiteOnly }));
+    const otherRoleView = await keep(
+      await create({ name: `Authz other role view ${viewStamp}`, visibility: 'roles', roleIds: [otherRole?.id], definition: suiteOnly }),
+    );
+    check('a view shared with a role is not for someone without it', await status(`/portfolio-views/${roleView.id}`, { cookie: restricted }), 404);
+    const granted = (await (
+      await call(`/projects/${suiteProject}/members`, { method: 'POST', cookie: admin, body: { userId: restrictedId, roleIds: [givenRole?.id] } })
+    ).json()) as { membershipId?: string };
+    if (granted.membershipId) grantedMemberships.push({ projectId: suiteProject, membershipId: granted.membershipId });
+    check('BR-203: given the role on a project in it, they see it', await status(`/portfolio-views/${roleView.id}`, { cookie: restricted }), 200);
+    check('and its figures', await status(`/portfolio-views/${roleView.id}/overview`, { cookie: restricted }), 200);
+    check('but not a view shared with another role', await status(`/portfolio-views/${otherRoleView.id}`, { cookie: restricted }), 404);
+    if (granted.membershipId) {
+      await call(`/projects/${suiteProject}/members/${granted.membershipId}`, { method: 'DELETE', cookie: admin });
+      grantedMemberships.splice(
+        grantedMemberships.findIndex((membership) => membership.membershipId === granted.membershipId),
+        1,
+      );
+    }
+    check('without the role again, the view is gone for them', await status(`/portfolio-views/${roleView.id}`, { cookie: restricted }), 404);
+
+    // BR-202: a budget variance figure drills to its projects, and from a project to the time entries behind it.
+    const suiteRow = ((both.projects ?? []) as Json[]).find((project) => String(project.id) === suiteProject);
+    check('BR-202: the budget variance figure has the suite’s project among its rows', suiteRow?.figures?.['budget.variancePct'] !== undefined, true);
+    const entries = await json(`/measures/budget.variancePct/entries?scope=project:${suiteProject}`);
+    const probe = ((entries.entries ?? []) as Json[]).find((entry) => entry.id === viewTimeEntryId);
+    check('drilling a project’s share reaches the time entries behind it', probe !== undefined, true);
+    check('each priced by the labour cost rule', typeof probe?.cost === 'number' && probe.cost > 0, true);
+    check('and together they make the project’s cost', entries.figure?.matches, true);
+    check(
+      'the same cost the view’s figure was made from',
+      Math.abs(Number(entries.totals?.cost ?? 0) - Number(suiteRow?.figures?.['budget.variancePct']?.parts?.actual ?? -1)) < 0.005,
+      true,
+    );
+    check(
+      'the entries are not for someone who cannot see the project',
+      await status(`/measures/budget.variancePct/entries?scope=project:${suiteProject}`, { cookie: restricted }),
+      404,
+    );
+    check('a figure not made of logged time has none', await status(`/measures/risk.open/entries?scope=project:${suiteProject}`, { cookie: admin }), 400);
+    check('entries are listed one project at a time', await status('/measures/cost.actual/entries?scope=instance', { cookie: admin }), 400);
+
+    // The owner changes and deletes; every change is journalled.
+    const renamed = await call(`/portfolio-views/${privateView.id}`, {
+      method: 'PATCH',
+      cookie: admin,
+      body: { name: `Authz private view ${viewStamp} (renamed)`, visibility: 'private', definition },
+    });
+    check('the owner can change a view', renamed.status, 200);
+    check('and it is versioned', ((await renamed.json()) as Json).version, 2);
+    check('and delete it', await status(`/portfolio-views/${privateView.id}`, { method: 'DELETE', cookie: admin }), 204);
+    check('after which it is gone', await status(`/portfolio-views/${privateView.id}`, { cookie: admin }), 404);
+    const journalled = await viewsDb.auditEvent.findMany({
+      where: { entityType: 'portfolio_view', entityId: privateView.id },
+      select: { action: true },
+    });
+    check(
+      'its making, change and deletion are in the journal',
+      ['portfolio_view.created', 'portfolio_view.updated', 'portfolio_view.deleted'].every((action) => journalled.some((entry) => entry.action === action)),
+      true,
+    );
+
+    // Put things back: the time entry, and the project out of the portfolio.
+    if (viewTimeEntryId) {
+      check('the probe time entry is removed', await status(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }), 204);
+      viewTimeEntryId = undefined;
+    }
+    check(
+      'the suite’s project leaves the portfolio',
+      await status(`/projects/${suiteProject}/portfolio`, { method: 'PATCH', cookie: admin, body: {} }),
+      200,
+    );
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -7356,6 +7582,18 @@ async function main() {
           ` and ${removedChains.count} test chain${removedChains.count === 1 ? '' : 's'})`,
       )
     }
+  }
+
+  // The portfolio view tests' views and their probe time entry.
+  if (viewTimeEntryId) {
+    await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+  if (portfolioViewIds.length) {
+    const { prisma } = await import('../db/prisma.js');
+    const removedViews = await prisma.portfolioView
+      .deleteMany({ where: { id: { in: portfolioViewIds } } })
+      .catch(() => ({ count: 0 }));
+    console.log(`  (removed ${removedViews.count} test portfolio view${removedViews.count === 1 ? '' : 's'})`);
   }
 
   // The scheduled-report tests' schedules, with their runs, copies and files

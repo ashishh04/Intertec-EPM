@@ -6,6 +6,7 @@ import { useTask } from '@/hooks/useTasks';
 import { useTeam } from '@/hooks/useTeams';
 import { usePortfolio } from '@/hooks/usePortfolios';
 import { useDepartment } from '@/hooks/useDepartments';
+import { usePortfolioView } from '@/hooks/usePortfolioViews';
 import { cn } from '@/lib/utils';
 import { findAdminArea, findAdminPage } from '@/config/administration';
 
@@ -16,6 +17,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   employees: 'Employees',
   departments: 'Departments',
   portfolios: 'Portfolios',
+  'portfolio-views': 'Portfolio views',
   'my-work': 'My Work',
   projects: 'Projects',
   tasks: 'Tasks',
@@ -66,6 +68,7 @@ export function Breadcrumbs({ className }: { className?: string }) {
   const { data: team } = useTeam(params.teamId);
   const { data: portfolio } = usePortfolio(params.portfolioId);
   const { data: department } = useDepartment(params.departmentId);
+  const { data: view } = usePortfolioView(params.viewId);
 
   const segments = location.pathname.split('/').filter(Boolean);
   const crumbs: Crumb[] = [];
@@ -92,6 +95,10 @@ export function Breadcrumbs({ className }: { className?: string }) {
     }
     if (segment === params.departmentId) {
       crumbs.push({ label: department?.name ?? 'Department', to: path });
+      continue;
+    }
+    if (segment === params.viewId) {
+      crumbs.push({ label: view?.name ?? 'View', to: path });
       continue;
     }
 

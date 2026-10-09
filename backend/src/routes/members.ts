@@ -12,6 +12,7 @@ import { toEpmMemberCandidate, toEpmProjectMember, toEpmRole } from '../mapping/
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpRole } from '../openproject/types.js';
 import { automationUserId } from '../domain/automation-account.js';
+import { forgetViewRoles } from '../domain/portfolio-views.js';
 
 /**
  * Project membership.
@@ -251,6 +252,7 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
       });
 
       reply.code(201);
+      forgetViewRoles();
       return toEpmProjectMember(created, true);
     },
   );
@@ -272,6 +274,7 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
         signal: requestSignal(request),
       });
 
+      forgetViewRoles();
       return toEpmProjectMember(updated, true);
     },
   );
@@ -289,6 +292,7 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
         method: 'DELETE',
         signal: requestSignal(request),
       });
+      forgetViewRoles();
 
       reply.code(204);
     },

@@ -47,6 +47,7 @@ import {
 } from '@/hooks/useScheduledReports';
 import { useTimezones, useUserMap } from '@/hooks/useUsers';
 import { saveBlob } from '@/lib/download';
+import { PERIODS } from '@/lib/report-periods';
 import type { Tone } from '@/lib/domain';
 import { formatBytes, formatDateTime, formatRelative, formatShortDate } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
@@ -74,15 +75,6 @@ import type {
  * added them has approved them. Every run, every copy and every email's fate
  * is in the log, by report and by date, with the files as they were sent.
  */
-
-const PERIODS: { id: ReportPeriodPreset; label: string }[] = [
-  { id: 'previous-week', label: 'Previous week (Mon–Sun)' },
-  { id: 'previous-month', label: 'Previous calendar month' },
-  { id: 'last-4-weeks', label: 'Last 4 weeks' },
-  { id: 'last-12-weeks', label: 'Last 12 weeks' },
-  { id: 'month-to-date', label: 'Month to date' },
-  { id: 'year-to-date', label: 'Year to date' },
-];
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 

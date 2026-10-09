@@ -41,11 +41,16 @@ import { isDelivered, isDueSoon, isOpen, isOverdue } from './work-definitions.js
 /* Scope, period, viewer                                                      */
 /* -------------------------------------------------------------------------- */
 
-export type ScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'person';
+/**
+ * `set` is the projects a saved portfolio view selects (BR-203): always given
+ * with the set as `within`, measured exactly as a portfolio is. Internal — it
+ * is not a scope anyone names in a request.
+ */
+export type ScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'set';
 
 export interface Scope {
   kind: ScopeKind;
-  /** The portfolio, project, department, team or person; absent for the instance. */
+  /** The portfolio, project, department, team or person; absent for the instance and a set. */
   id?: string;
 }
 
@@ -107,6 +112,48 @@ export interface MeasureValue {
   parts?: Record<string, number | null>;
 }
 
+/**
+ * How a figure for several projects is made from each project's own (BR-201):
+ * `sum` adds them, `max` takes the largest, `ratio` divides summed parts. A
+ * portfolio's figure is checked against this roll-up of its project rows, so a
+ * total that does not add up is found rather than shown.
+ */
+export interface Rollup {
+  rule: 'sum' | 'max' | 'ratio';
+  /** In words, for the person reading the figure. */
+  describe: string;
+  from(values: MeasureValue[]): number | null;
+}
+
+const sumRollup: Rollup = {
+  rule: 'sum',
+  describe: 'The projects’ figures added together.',
+  from: (values) => {
+    const present = values.filter((value) => value.value !== null);
+    return present.length === 0 ? null : roundMoney(present.reduce((sum, value) => sum + (value.value ?? 0), 0));
+  },
+};
+
+const maxRollup: Rollup = {
+  rule: 'max',
+  describe: 'The largest of the projects’ figures.',
+  from: (values) => {
+    const present = values.map((value) => value.value).filter((value): value is number => value !== null);
+    return present.length === 0 ? null : Math.max(...present);
+  },
+};
+
+/** A share of summed parts: the parts of every project added, then divided. */
+function ratioRollup(numerator: string[], denominator: string[], describe: string): Rollup {
+  const total = (values: MeasureValue[], names: string[]) =>
+    values.reduce((sum, value) => sum + names.reduce((part, name) => part + (value.parts?.[name] ?? 0), 0), 0);
+  return {
+    rule: 'ratio',
+    describe,
+    from: (values) => pct(total(values, numerator), total(values, denominator)),
+  };
+}
+
 export interface MeasureDefinition {
   id: string;
   label: string;
@@ -121,6 +168,13 @@ export interface MeasureDefinition {
   trend?: 'period' | 'asAt';
   /** Raised when the definition changes, so a stored daily value says which one made it. */
   version: number;
+  /** How a set of projects' figure is made from each project's. Absent: not one to add up. */
+  rollup?: Rollup;
+  /**
+   * Money made of logged time: the drill-through ends at the priced time
+   * entries behind it (BR-202) — those to date, or those in the period.
+   */
+  entries?: 'to-date' | 'in-period';
   compute(context: MeasureContext): MeasureValue | Promise<MeasureValue>;
 }
 
@@ -193,9 +247,11 @@ function budgetPosition(context: MeasureContext) {
   let planned = 0;
   for (const project of projects) {
     budget += project.budget!;
-    planned += plannedBudgetToDate(project.budget!, project.plannedStart, project.plannedFinish, context.today).planned;
+    // Rounded per project and then added, as cost is per entry: a set's figure
+    // is then exactly the sum of its projects' figures, to the cent.
+    planned += roundMoney(plannedBudgetToDate(project.budget!, project.plannedStart, project.plannedFinish, context.today).planned);
   }
-  return { projects, budget, planned: roundMoney(planned), ...spent };
+  return { projects, budget: roundMoney(budget), planned: roundMoney(planned), ...spent };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -203,6 +259,9 @@ function budgetPosition(context: MeasureContext) {
 /* -------------------------------------------------------------------------- */
 
 const workIds = (work: WorkFact[]) => work.map((item) => item.id);
+
+/** How far ahead "coming up" looks for milestones. */
+export const MILESTONE_HORIZON_DAYS = 30;
 
 export const MEASURES: MeasureDefinition[] = [
   /* ------------------------------------------------------------------ work */
@@ -216,6 +275,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'asAt',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work }) => ({ value: work.length, members: workIds(work) }),
   },
   {
@@ -228,6 +288,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'asAt',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work }) => {
       const open = work.filter(isOpen);
       return { value: open.length, members: workIds(open) };
@@ -243,6 +304,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'asAt',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work, today }) => {
       const overdue = work.filter((item) => isOverdue(item, today));
       return { value: overdue.length, members: workIds(overdue) };
@@ -257,6 +319,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'work_package',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work, today }) => {
       const soon = work.filter((item) => isDueSoon(item, today));
       return { value: soon.length, members: workIds(soon) };
@@ -271,6 +334,7 @@ export const MEASURES: MeasureDefinition[] = [
     scopes: ALL_SCOPES,
     usesPeriod: false,
     version: 1,
+    rollup: ratioRollup(['closed'], ['total'], 'Closed work of all work, both added across the projects.'),
     compute: ({ work }) => {
       const closed = work.filter((item) => item.isClosed).length;
       return { value: pct(closed, work.length), parts: { closed, total: work.length } };
@@ -287,6 +351,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'period',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work, period }) => {
       const delivered = work.filter((item) => deliveredIn(item, period));
       return { value: delivered.length, members: workIds(delivered) };
@@ -302,6 +367,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'period',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work, period }) => {
       const created = work.filter((item) => inPeriod(dayOf(item.createdAt), period));
       return { value: created.length, members: workIds(created) };
@@ -429,6 +495,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'period',
     version: 1,
+    rollup: ratioRollup(['met'], ['met', 'missed'], 'Milestones met of those decided, both added across the projects.'),
     compute: ({ work, period, today }) => {
       const due = work.filter((item) => item.isMilestone && inPeriod(item.dueDate, period));
       const met = due.filter((item) => milestoneOutcome(item, today) === 'met');
@@ -437,6 +504,24 @@ export const MEASURES: MeasureDefinition[] = [
       return decided === 0
         ? { value: null, note: 'No milestone due in the period has been decided yet.', members: workIds(due) }
         : { value: pct(met.length, decided), members: workIds([...met, ...missed]), parts: { met: met.length, missed: missed.length } };
+    },
+  },
+  {
+    id: 'milestones.upcoming',
+    label: 'Milestones coming up',
+    unit: 'count',
+    definition: `Open milestones due today or in the next ${MILESTONE_HORIZON_DAYS - 1} days.`,
+    scopes: ALL_SCOPES,
+    usesPeriod: false,
+    memberKind: 'work_package',
+    version: 1,
+    rollup: sumRollup,
+    compute: ({ work, today }) => {
+      const horizon = addDays(today, MILESTONE_HORIZON_DAYS - 1);
+      const upcoming = work.filter(
+        (item) => item.isMilestone && isOpen(item) && item.dueDate !== null && item.dueDate >= today && item.dueDate <= horizon,
+      );
+      return { value: upcoming.length, members: workIds(upcoming) };
     },
   },
   {
@@ -449,6 +534,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'period',
     version: 1,
+    rollup: sumRollup,
     compute: ({ work, period, today }) => {
       const missed = work.filter(
         (item) => item.isMilestone && inPeriod(item.dueDate, period) && milestoneOutcome(item, today) === 'missed',
@@ -468,6 +554,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
+    rollup: maxRollup,
     compute: ({ projects, health }) => {
       const measured = projects
         .map((project) => ({ project, days: health.get(project.id)?.scheduleVarianceDays ?? null }))
@@ -486,6 +573,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
+    rollup: sumRollup,
     compute: ({ projects, health }) => {
       const slipping = projects.filter((project) => (health.get(project.id)?.scheduleVarianceDays ?? 0) > 0);
       return { value: slipping.length, members: slipping.map((project) => project.id) };
@@ -502,6 +590,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
+    rollup: sumRollup,
     compute: ({ projects }) => {
       const active = projects.filter((project) => project.active);
       return { value: active.length, members: active.map((project) => project.id) };
@@ -519,6 +608,7 @@ export const MEASURES: MeasureDefinition[] = [
       usesPeriod: false,
       memberKind: 'project',
       version: 1,
+      rollup: sumRollup,
       compute: ({ projects, health }) => {
         const matching = projects.filter(
           (project) => project.active && health.get(project.id)?.assessed && health.get(project.id)?.overall === level,
@@ -535,6 +625,7 @@ export const MEASURES: MeasureDefinition[] = [
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
+    rollup: ratioRollup(['green'], ['assessed'], 'Green projects of assessed ones, both added across the projects.'),
     compute: ({ projects, health }) => {
       const assessed = projects.filter((project) => project.active && health.get(project.id)?.assessed);
       const green = assessed.filter((project) => health.get(project.id)?.overall === 'healthy').length;
@@ -552,6 +643,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
+    rollup: sumRollup,
     compute: ({ projects, health }) => {
       const atRisk = projects.filter((project) => {
         const fact = health.get(project.id);
@@ -573,6 +665,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'asAt',
     version: 1,
+    rollup: sumRollup,
     compute: (context) => {
       if (!context.risk.configured) return { value: null, note: 'No type on this instance is a risk type.' };
       const open = context.work.filter((item) => isOpen(item) && isRisk(item, context));
@@ -590,6 +683,7 @@ export const MEASURES: MeasureDefinition[] = [
     memberKind: 'work_package',
     trend: 'asAt',
     version: 1,
+    rollup: sumRollup,
     compute: (context) => {
       if (!context.risk.configured) return { value: null, note: 'No type on this instance is a risk type.' };
       const high = context.work.filter((item) => isOpen(item) && isHighRisk(item, context));
@@ -605,6 +699,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'work_package',
     version: 1,
+    rollup: sumRollup,
     compute: (context) => {
       if (!context.risk.configured) return { value: null, note: 'No type on this instance is a risk type.' };
       const late = context.work.filter((item) => isRisk(item, context) && isOverdue(item, context.today));
@@ -622,6 +717,7 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
+    rollup: sumRollup,
     compute: (context) => {
       const projects = budgeted(context);
       return {
@@ -639,6 +735,8 @@ export const MEASURES: MeasureDefinition[] = [
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
+    rollup: sumRollup,
+    entries: 'to-date',
     compute: ({ time }) => {
       const spent = costOf(time);
       return {
@@ -658,6 +756,8 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: true,
     trend: 'period',
     version: 1,
+    rollup: sumRollup,
+    entries: 'in-period',
     compute: ({ time, period }) => {
       const spent = costOf(time.filter((entry) => inPeriod(entry.spentOn, period)));
       return { value: spent.cost, parts: { costedHours: spent.costedHours, uncostedHours: spent.uncostedHours } };
@@ -672,6 +772,7 @@ export const MEASURES: MeasureDefinition[] = [
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
+    rollup: sumRollup,
     compute: (context) => {
       const position = budgetPosition(context);
       return position.projects.length === 0
@@ -688,6 +789,8 @@ export const MEASURES: MeasureDefinition[] = [
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
+    rollup: sumRollup,
+    entries: 'to-date',
     compute: (context) => {
       const position = budgetPosition(context);
       return position.projects.length === 0
@@ -707,11 +810,23 @@ export const MEASURES: MeasureDefinition[] = [
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
+    rollup: {
+      rule: 'ratio',
+      describe: 'Actual cost minus planned to date, of the budgets — each added across the projects.',
+      from: (values) => {
+        const sum = (name: string) => values.reduce((total, value) => total + (value.parts?.[name] ?? 0), 0);
+        return sum('budget') > 0 ? budgetVariancePct(roundMoney(sum('actual')), roundMoney(sum('planned')), roundMoney(sum('budget'))) : null;
+      },
+    },
+    entries: 'to-date',
     compute: (context) => {
       const position = budgetPosition(context);
       return position.budget <= 0
         ? { value: null, note: 'No active project in scope has a budget.' }
-        : { value: budgetVariancePct(position.cost, position.planned, position.budget) };
+        : {
+            value: budgetVariancePct(position.cost, position.planned, position.budget),
+            parts: { actual: position.cost, planned: position.planned, budget: position.budget },
+          };
     },
   },
   {
@@ -723,6 +838,8 @@ export const MEASURES: MeasureDefinition[] = [
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
+    rollup: ratioRollup(['actual'], ['budget'], 'Actual cost of the budgets, both added across the projects.'),
+    entries: 'to-date',
     compute: (context) => {
       const position = budgetPosition(context);
       return position.budget <= 0
@@ -876,7 +993,10 @@ export function measureById(id: string): MeasureDefinition | undefined {
 
 /** The catalogue as data: what the API and the BI catalogue publish. */
 export function catalogue() {
-  return MEASURES.map(({ compute: _compute, ...definition }) => definition);
+  return MEASURES.map(({ compute: _compute, rollup, ...definition }) => ({
+    ...definition,
+    ...(rollup ? { rollup: { rule: rollup.rule, describe: rollup.describe } } : {}),
+  }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -971,6 +1091,11 @@ export function contextFor(
       break;
     case 'portfolio':
       projects = activeVisible.filter((project) => project.portfolioId === scope.id);
+      people = membersOf(projects, facts, activePeople);
+      break;
+    case 'set':
+      // The projects come from `within`; a set is otherwise a portfolio.
+      projects = activeVisible;
       people = membersOf(projects, facts, activePeople);
       break;
     case 'project':
@@ -1069,7 +1194,8 @@ export async function evaluateInContext(ids: string[], context: MeasureContext):
       definition: measure.definition,
       memberKind: measure.memberKind,
     };
-    if (!measure.scopes.includes(context.scope.kind)) {
+    const kind = context.scope.kind === 'set' ? 'portfolio' : context.scope.kind;
+    if (!measure.scopes.includes(kind)) {
       result[id] = { ...base, value: null, applicable: false, note: `Not measured for a ${context.scope.kind}.` };
       continue;
     }

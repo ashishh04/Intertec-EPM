@@ -88,7 +88,8 @@ export function DrillSheet({
   );
 }
 
-function MemberList({
+/** The items behind a figure: work packages, projects or people. Shared with the portfolio drill. */
+export function MemberList({
   members,
   onScope,
   onClose,

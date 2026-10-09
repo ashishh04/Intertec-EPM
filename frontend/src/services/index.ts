@@ -29,6 +29,7 @@ import { ApiEmployeeRepository } from './api/employees';
 import { ApiAnalyticsRepository } from './api/analytics';
 import { ApiInsightsRepository } from './api/insights';
 import { ApiScheduledReportRepository } from './api/scheduled-reports';
+import { ApiPortfolioViewRepository } from './api/portfolio-views';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
 import { ApiApprovalRepository } from './api/approvals';
@@ -110,6 +111,8 @@ export const analyticsService = new ApiAnalyticsRepository();
 export const insightsService = new ApiInsightsRepository();
 /** Reports sent on a timetable, each recipient's copy built with their access (BRQ-08). */
 export const scheduledReportService = new ApiScheduledReportRepository();
+/** Portfolios in one view, and saved views of them (BRQ-06). */
+export const portfolioViewService = new ApiPortfolioViewRepository();
 
 /** Instance administration. Reads OpenProject's admin resources through the backend. */
 export const adminService = new ApiAdminRepository();

@@ -129,6 +129,8 @@ function scopeName(shared: Shared, scope: Scope): string {
       return facts.teams.get(scope.id ?? '')?.name ?? 'Team';
     case 'person':
       return facts.people.get(Number(scope.id))?.name ?? 'Person';
+    case 'set':
+      return 'Selected projects';
   }
 }
 

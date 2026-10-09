@@ -2184,6 +2184,10 @@ export interface MeasureInfo {
   memberKind?: MeasureMemberKind;
   trend?: 'period' | 'asAt';
   version: number;
+  /** How a set of projects' figure is made from each project's (BR-201). */
+  rollup?: { rule: 'sum' | 'max' | 'ratio'; describe: string };
+  /** Money made of logged time: it drills to the priced time entries (BR-202). */
+  entries?: 'to-date' | 'in-period';
 }
 
 /** A measure's value for one scope, period and viewer. */
@@ -2558,4 +2562,136 @@ export interface ReportRunPage {
   total: number;
   page: number;
   pageSize: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Portfolio views (BRQ-06: BR-201 to BR-203)                                  */
+/* -------------------------------------------------------------------------- */
+
+/** One figure for one project, or for a whole set. */
+export interface OverviewFigure {
+  value: number | null;
+  parts?: Record<string, number | null>;
+  note?: string;
+}
+
+export interface PortfolioOverviewProject {
+  id: number;
+  name: string;
+  identifier: string | null;
+  portfolioId: string | null;
+  /** Effective overall health; null until assessed. */
+  health: HealthLevel | null;
+  /** Every overview measure, for this project alone. */
+  figures: Record<string, OverviewFigure>;
+  /** The next open milestone: the earliest due, which may already be past (negative days). */
+  nextMilestone: { id: number; subject: string; dueDate: ISODate; daysToGo: number } | null;
+}
+
+/** A set figure checked against the roll-up of its project rows (BR-201). */
+export interface ReconciliationLine {
+  measureId: string;
+  rule: 'sum' | 'max' | 'ratio';
+  aggregate: number | null;
+  fromProjects: number | null;
+  matches: boolean;
+}
+
+/** A portfolio, or a saved view's projects, in one view, for the person asking. */
+export interface PortfolioOverview {
+  set: {
+    kind: 'portfolio' | 'view';
+    id: ID;
+    name: string;
+    /** Active projects the set selects. */
+    projects: number;
+    /** Of those, shown to this person. */
+    shown: number;
+    /** Left out because this person cannot see them. */
+    hidden: number;
+    /** Left out by a saved view's health filter. */
+    filtered: number;
+  };
+  period: MeasurePeriod;
+  today: ISODate;
+  asOf: ISODate | null;
+  /** Each figure for the whole set. */
+  measures: Record<string, Omit<MeasureResult, 'members'>>;
+  projects: PortfolioOverviewProject[];
+  reconciliation: ReconciliationLine[];
+  /** Every set figure agrees with its project rows. */
+  reconciled: boolean;
+}
+
+/** A time entry behind a cost figure, priced by the labour cost rule (BR-202). */
+export interface CostEntry {
+  id: ID;
+  spentOn: ISODate;
+  hours: number;
+  userId: ID;
+  userName: string;
+  workPackageId?: ID;
+  workPackageSubject?: string;
+  activity?: string;
+  /** Null when the person has no hourly rate: such hours are not costed. */
+  cost: number | null;
+}
+
+export interface CostEntries {
+  measure: { id: string; label: string };
+  project: { id: ID; name: string };
+  /** Both null for every entry to date. */
+  window: { from: ISODate | null; to: ISODate | null };
+  entries: CostEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totals: { hours: number; costedHours: number; uncostedHours: number; cost: number };
+  /** The labour cost the figure was made from, for this project, and whether these entries add up to it. */
+  figure: { actual: number | null; matches: boolean };
+}
+
+export type PortfolioViewVisibility = 'private' | 'roles' | 'public';
+
+/** What a project row can show: its health, or any overview measure. */
+export type PortfolioOverviewColumn = 'health' | string;
+
+export interface PortfolioViewDefinition {
+  /** Projects in these portfolios… */
+  portfolioIds: ID[];
+  /** …and these projects; every project when both are empty. */
+  projectIds: ID[];
+  /** Only projects at these healths; empty for all. */
+  health: HealthLevel[];
+  periodPreset: ReportPeriodPreset;
+  columns: PortfolioOverviewColumn[];
+}
+
+export interface PortfolioViewInput {
+  name: string;
+  description?: string | null;
+  visibility: PortfolioViewVisibility;
+  /** OpenProject role ids, for `roles`. */
+  roleIds: ID[];
+  definition: PortfolioViewDefinition;
+}
+
+/** A saved portfolio view (BR-203). */
+export interface PortfolioView extends PortfolioViewInput {
+  id: ID;
+  description: string | null;
+  roles: { id: ID; name: string }[];
+  owner: { id: ID; name: string };
+  mine: boolean;
+  /** The owner may change it; so may someone who manages portfolios, once it is shared. */
+  canEdit: boolean;
+  version: number;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+export interface PortfolioViewOptions {
+  /** Project roles a view can be shared with. */
+  roles: { id: ID; name: string }[];
+  columns: PortfolioOverviewColumn[];
 }

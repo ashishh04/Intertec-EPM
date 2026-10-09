@@ -371,6 +371,32 @@ model Portfolio {
   @@map("portfolios")
 }
 
+/// A saved portfolio view (BR-203): a set of projects — portfolios, named
+/// projects, a health filter — the period and columns to show them with, and
+/// who it is shared with. Evaluated for each person with their own access, so
+/// sharing a view never shares a project: one they cannot see is left out.
+model PortfolioView {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  /// OpenProject user id of whoever made it.
+  ownerId     String
+  /// `private` (the owner), `roles` (anyone holding one of `roleIds` on a
+  /// project in the view) or `public` (anyone signed in).
+  visibility  String   @default("private")
+  /// OpenProject role ids, for `roles`.
+  roleIds     String[] @default([])
+  /// { portfolioIds, projectIds, health, periodPreset, columns }
+  definition  Json
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([visibility])
+  @@map("portfolio_views")
+}
+
 /// A message for one person about something they should know and would not
 /// otherwise see.
 ///

@@ -49,6 +49,8 @@ const GanttPage = lazy(() => import('@/pages/GanttPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
 const ScheduledReportsPage = lazy(() => import('@/pages/ScheduledReportsPage'));
+const PortfolioViewsPage = lazy(() => import('@/pages/PortfolioViewsPage'));
+const PortfolioViewPage = lazy(() => import('@/pages/PortfolioViewPage'));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
 const DocumentsPage = lazy(() => import('@/pages/DocumentsPage'));
 const MeetingsPage = lazy(() => import('@/pages/MeetingsPage'));
@@ -245,6 +247,11 @@ export function App() {
               who simply clicked the portfolio their project is in. The page
               still checks `portfolios:manage` before offering edit or archive. */}
           <Route path="/portfolios/:portfolioId" element={<PortfolioDetailPage />} />
+          {/* Saved portfolio views (BR-203). Open to everyone signed in: a view
+              shows each person only the projects they may read, and the
+              backend refuses a view that is not shared with them. */}
+          <Route path="/portfolio-views" element={<PortfolioViewsPage />} />
+          <Route path="/portfolio-views/:viewId" element={<PortfolioViewPage />} />
 
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/teams/:teamId" element={<TeamDetailPage />} />

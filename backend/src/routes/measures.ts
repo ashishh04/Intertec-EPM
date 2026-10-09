@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { addDays, daysBetween, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
+import { costEntries } from '../domain/cost-entries.js';
 import { buildDashboard, DASHBOARD_IDS, DASHBOARDS, type DashboardId } from '../domain/dashboards.js';
 import { modelFacts } from '../domain/measure-facts.js';
 import {
@@ -118,6 +119,28 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     return measureMembers(measure.id, scope, periodOf(query), await narrowedViewer(viewer, query.within), todayIso());
+  });
+
+  /**
+   * The priced time entries behind a cost figure, for one project (BR-202):
+   * the end of the drill from a portfolio's budget variance through its
+   * projects. Read with the caller's session, so OpenProject decides which
+   * entries they may see.
+   */
+  app.get<{ Params: { id: string } }>('/measures/:id/entries', async (request) => {
+    const query = scopeQuery
+      .extend({
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.coerce.number().int().min(1).max(200).default(50),
+      })
+      .parse(request.query);
+    const measure = measureById(request.params.id);
+    if (!measure) throw EpmError.notFound('That measure');
+    if (!measure.entries) throw EpmError.badRequest(`${measure.label} is not made of logged time.`);
+    const viewer = await viewerOf(request);
+    const scope = await scopeOf(query.scope, viewer);
+    if (scope.kind !== 'project') throw EpmError.badRequest('Time entries are listed for one project: scope=project:<id>.');
+    return costEntries(measure.id, scope.id!, periodOf(query), viewer, todayIso(), query.page, query.pageSize);
   });
 
   app.get<{ Params: { id: string } }>('/measures/:id/trend', async (request) => {

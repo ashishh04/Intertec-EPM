@@ -40,6 +40,19 @@ const TableBody = React.forwardRef<
 >(({ className, ...props }, ref) => <tbody ref={ref} className={cn(className)} {...props} />);
 TableBody.displayName = 'TableBody';
 
+/** Totals under a table: set apart by a rule and a sunken band, like the header. */
+const TableFooter = React.forwardRef<
+  HTMLTableSectionElement,
+  React.HTMLAttributes<HTMLTableSectionElement>
+>(({ className, ...props }, ref) => (
+  <tfoot
+    ref={ref}
+    className={cn('border-t border-border bg-surface-sunken/60 [&>tr]:hover:bg-transparent', className)}
+    {...props}
+  />
+));
+TableFooter.displayName = 'TableFooter';
+
 /**
  * Every body row gets a quiet hover so the eye can track across wide tables.
  * `interactive` adds the pointer and a stronger hover for rows that open
@@ -96,4 +109,4 @@ const TableCell = React.forwardRef<
 ));
 TableCell.displayName = 'TableCell';
 
-export { Table, TableHeader, TableBody, TableRow, TableHead, TableCell };
+export { Table, TableHeader, TableBody, TableFooter, TableRow, TableHead, TableCell };
