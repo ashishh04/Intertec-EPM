@@ -45,20 +45,21 @@ export default function IntegrationPage() {
       <PageHeader
         eyebrow="Administration"
         title="Delivery System Integration"
-        description="Connection health, synchronisation state and webhook delivery."
+        description="Connection health, record counts and webhook delivery."
         actions={
           <Button
             size="sm"
             loading={sync.isPending}
+            disabled={!isAdmin}
             onClick={() =>
               sync.mutate(undefined, {
-                onSuccess: () => toast.success('Synchronisation completed'),
-                onError: () => toast.error('Unable to trigger a synchronisation'),
+                onSuccess: () => toast.success('Connection checked and records counted'),
+                onError: () => toast.error('Unable to check the connection'),
               })
             }
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Sync now
+            Check now
           </Button>
         }
       />
@@ -88,8 +89,10 @@ export default function IntegrationPage() {
             <EmptyState
               icon={Server}
               title="No integration status yet"
-              description="The backend has not reported on the delivery system connection. Run a synchronisation to populate this page."
-              action={{ label: 'Sync now', onClick: () => sync.mutate(undefined) }}
+              description="The backend has not reported on the delivery system connection. Check the connection to populate this page."
+              action={
+                isAdmin ? { label: 'Check now', onClick: () => sync.mutate(undefined) } : undefined
+              }
             />
           </Card>
         }
@@ -115,15 +118,21 @@ export default function IntegrationPage() {
                   icon={Webhook}
                   label="Webhooks"
                   state={status.webhookState}
-                  detail="Change events subscribed"
+                  detail={
+                    status.webhookState !== 'connected'
+                      ? 'Not configured'
+                      : status.webhookLastReceivedAt
+                        ? `Last delivery ${formatRelative(status.webhookLastReceivedAt)}`
+                        : 'Signed deliveries accepted; none since the server started'
+                  }
                 />
                 <div>
-                  <p className="epm-eyebrow">Last sync</p>
+                  <p className="epm-eyebrow">Last check</p>
                   <p className="mt-1 font-mono text-sm font-semibold">
                     {formatRelative(status.lastSyncAt)}
                   </p>
                   <p className="mt-0.5 text-2xs text-muted-foreground">
-                    Incremental synchronisation
+                    Records counted on demand
                   </p>
                 </div>
               </CardContent>
@@ -143,7 +152,7 @@ export default function IntegrationPage() {
                     { label: 'API version', value: status.apiVersion },
                     {
                       label: 'Authentication',
-                      value: 'OAuth client credentials, held server-side',
+                      value: "A service key and each person's own token, held server-side",
                       mono: false,
                     },
                     {
@@ -161,8 +170,8 @@ export default function IntegrationPage() {
 
                 <Alert tone="neutral" icon={ShieldCheck}>
                   The browser never calls the delivery system directly. Every request goes through
-                  the EPM backend, which owns authentication, authorisation, rate limiting, response
-                  transformation and audit logging.
+                  the EPM backend, which owns authentication, authorisation, rate limiting and response
+                  transformation, and journals the changes EPM itself makes.
                 </Alert>
               </CardContent>
             </Card>
@@ -170,16 +179,17 @@ export default function IntegrationPage() {
             {/* Synced resources */}
             <Card className="overflow-hidden">
               <CardHeader className="border-b border-border">
-                <CardTitle>Synchronised resources</CardTitle>
+                <CardTitle>Records in the delivery system</CardTitle>
                 <CardDescription>
-                  What the backend keeps in step with the upstream instance.
+                  Counted at the last check. Nothing is copied: the delivery system stays the
+                  system of record and EPM reads it live.
                 </CardDescription>
               </CardHeader>
               {status.syncedResources.length === 0 ? (
                 <EmptyState
                   size="inline"
-                  title="Nothing synchronised yet"
-                  description="Resources appear here after the first successful synchronisation."
+                  title="Nothing counted yet"
+                  description="Resources appear here after the first successful check."
                 />
               ) : (
                 <div className="overflow-x-auto">
@@ -188,7 +198,7 @@ export default function IntegrationPage() {
                       <TableRow>
                         <TableHead>Resource</TableHead>
                         <TableHead>Records</TableHead>
-                        <TableHead>Last synchronised</TableHead>
+                        <TableHead>Counted</TableHead>
                         <TableHead>State</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -204,7 +214,7 @@ export default function IntegrationPage() {
                           </TableCell>
                           <TableCell>
                             <Badge tone="success" size="sm" dot>
-                              In sync
+                              Readable
                             </Badge>
                           </TableCell>
                         </TableRow>

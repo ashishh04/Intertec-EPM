@@ -7,12 +7,19 @@
  */
 export const DEFAULT_DESTINATION = '/dashboard';
 
+/**
+ * A path inside this app, and nothing that only looks like one.
+ *
+ * "//host/x" is a link to another site that merely starts with a slash, and a
+ * backslash is read as a slash in a URL, so "/\host" is the same thing by
+ * another name. Both are refused; so is anything with a scheme.
+ */
+export function isAppPath(value: string): boolean {
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
+}
+
 export function safeDestination(from: unknown): string {
-  if (typeof from !== 'string') return DEFAULT_DESTINATION;
-  if (!from.startsWith('/') || from.startsWith('//')) return DEFAULT_DESTINATION;
-  // A backslash is read as a slash in a URL, so a path starting "/" then "\"
-  // is "//host" by another name.
-  if (from.includes('\\')) return DEFAULT_DESTINATION;
+  if (typeof from !== 'string' || !isAppPath(from)) return DEFAULT_DESTINATION;
   if (from === '/login' || from.startsWith('/login?') || from.startsWith('/login#')) return DEFAULT_DESTINATION;
   return from;
 }

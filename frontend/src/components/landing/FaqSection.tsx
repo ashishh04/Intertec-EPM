@@ -29,7 +29,7 @@ const QUESTIONS = [
   },
   {
     q: 'Does any of our data leave the company?',
-    a: `No. ${APP_NAME} runs on ${ORG_NAME} infrastructure, and your browser only ever talks to the ${APP_NAME} backend — it is never given an upstream address, an API token or a credential. Nothing sensitive is kept in the browser between sessions.`,
+    a: `Only through services your administrators switch on. ${APP_NAME} runs on ${ORG_NAME} infrastructure, and your browser only ever talks to the ${APP_NAME} backend — it is never given an upstream address, an API token or a credential. What goes further: a question you ask Pragnya, with the records it reads to answer it, goes to the AI service in the region your administrators chose; email goes through the mail service they set up; and automation rules call only the addresses they allow. No password or token is kept in your browser, and the pages it caches for speed are cleared when you sign out.`,
   },
   {
     q: 'What will I be able to see?',

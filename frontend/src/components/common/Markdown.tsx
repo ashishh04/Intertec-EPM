@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
 
+import { isAppPath } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 
 /**
@@ -229,14 +230,15 @@ const INLINE = new RegExp(
 /**
  * Only schemes that cannot execute.
  *
- * A relative path is allowed — internal wiki links are written that way — but
- * anything with a scheme has to be http or https. `javascript:` is the obvious
- * one; `data:` is the less obvious one, and both render as plain text rather than
- * as a link somebody might click.
+ * A path inside the app is allowed — internal wiki links are written that way —
+ * but anything with a scheme has to be http or https. `javascript:` is the
+ * obvious one; `data:` is the less obvious one, and both render as plain text
+ * rather than as a link somebody might click. "//host" is refused as well: it
+ * starts with a slash but leads to another site, in the same tab.
  */
 function safeHref(href: string): string | undefined {
   const value = href.trim();
-  if (value.startsWith('/') || value.startsWith('#')) return value;
+  if (isAppPath(value) || value.startsWith('#')) return value;
   return /^https?:\/\//i.test(value) ? value : undefined;
 }
 

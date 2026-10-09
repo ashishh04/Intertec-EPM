@@ -1,0 +1,17 @@
+# Grype configuration for the image scans in release.yml and security.yml (BR-610).
+#
+# The ignore list holds findings that have been assessed and accepted, never
+# findings someone wanted to make go away. Each entry carries the same
+# advisory as its twin in security/accepted-advisories.json, where the
+# assessment and the review date are written down; remove both together.
+#
+# What the gates fail on is set in the workflows (severity and "only fixed"),
+# not here, so that one file cannot quietly loosen every scan at once.
+
+ignore:
+  # deepmerge-ts 7.1.5, pulled in by the Prisma CLI's configuration loader.
+  # Reached only when the container starts and runs `prisma migrate deploy`;
+  # no request data reaches it. No Prisma release ships a fixed version.
+  - vulnerability: GHSA-ggr8-5vv4-36mx
+    package:
+      name: deepmerge-ts

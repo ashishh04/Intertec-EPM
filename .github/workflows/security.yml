@@ -1,0 +1,118 @@
+# Security checks between releases (BR-610).
+#
+# release.yml checks what it is about to publish. This checks what is already
+# published, and the dependencies on the default branch, on a schedule: new
+# advisories are announced against software that has not changed, so a check
+# that only ran at release time would find them only by luck.
+#
+#   Every Monday 03:00 UTC      dependencies on the default branch, and the
+#                               images tagged `latest` in the registry.
+#   Pull requests               the dependency gate, when a lockfile, a Dockerfile,
+#                               a compose file, a workflow or security/ changes.
+#   By hand                     Actions -> Security checks -> Run workflow, with
+#                               any published tag.
+#
+# A failure here is a finding to triage under the vulnerability and patch
+# process, not a broken build: assess it, then patch, or record why EPM is not
+# at risk (security/accepted-advisories.json, security/grype.yaml). GitHub
+# emails a scheduled run's failure to whoever last edited the schedule below.
+#
+# Image scans fail on a fixable high or critical in EPM's own images — stricter
+# than the release gate, because nothing is waiting on this run. OpenProject's
+# image is listed only, as in release.yml.
+
+name: Security checks
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  pull_request:
+    paths:
+      - '**/package-lock.json'
+      - '**/Dockerfile'
+      - 'docker-compose*.yml'
+      - 'security/**'
+      - '.github/**'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published image tag to scan'
+        required: false
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    name: Production dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: No unassessed high or critical advisory
+        run: node security/audit-gate.mjs backend frontend
+
+  images:
+    name: Published ${{ matrix.image }}
+    # Pull requests from forks get no secrets, and a pull request changes no
+    # published image anyway.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: epm-backend
+            blocking: true
+          - image: epm-web
+            blocking: true
+          - image: epm-openproject
+            blocking: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # The images may be private (Docker Hub's free plan allows one), so read
+      # them with the release workflow's credentials.
+      - name: Sign in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull the published image
+        env:
+          REF: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ inputs.tag || 'latest' }}
+        run: docker pull "$REF"
+
+      - name: Scan it
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ inputs.tag || 'latest' }}
+          config: security/grype.yaml
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: ${{ matrix.blocking }}
+          output-format: json
+
+      - name: Summarise the scan
+        if: always() && steps.scan.outputs.json != ''
+        env:
+          REPORT: ${{ steps.scan.outputs.json }}
+          IMAGE: ${{ matrix.image }}:${{ inputs.tag || 'latest' }}
+          GATE: ${{ matrix.blocking && 'a fixable high or critical' || 'nothing (upstream image, listed only)' }}
+        run: node security/scan-summary.mjs "$REPORT" "$IMAGE" "$GATE" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the scan report
+        if: always() && steps.scan.outputs.json != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: scan-published-${{ matrix.image }}
+          path: ${{ steps.scan.outputs.json }}
+          retention-days: 90

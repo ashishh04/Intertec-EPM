@@ -63,10 +63,16 @@ export function SecuritySettings() {
             backend. No token or secret is ever stored in the browser.
           </Alert>
 
+          {/*
+            Only what is in force. Single sign-on and a second factor are not
+            part of EPM's sign-in today, so neither is listed; this page once
+            claimed both, and a claim a reviewer can disprove costs more than
+            the gap itself (BR-609). Add a row when one is configured.
+          */}
           <FactList
             facts={[
-              { label: 'Single sign-on', value: 'Microsoft Entra ID' },
-              { label: 'Multi-factor authentication', value: 'Enforced by policy' },
+              { label: 'Sign-in', value: "EPM's own form; the password is checked by OpenProject" },
+              { label: 'Password rules and lockout', value: "OpenProject's, as listed above" },
               { label: 'API credentials', value: 'Server-side only' },
             ]}
           />

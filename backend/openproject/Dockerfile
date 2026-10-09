@@ -28,8 +28,13 @@
 # These initializers reconfigure Doorkeeper and call `User.try_to_login`, both
 # internal OpenProject APIs. After changing the base tag below, verify sign-in
 # still works before calling the upgrade done — see README.md in this directory.
+#
+# Pinned by digest to the build EPM is tested against: 15.5.1, built 5 May
+# 2025. OpenProject supports only its latest major with security fixes, and
+# critical fixes at most for the last two; with 17 current, 15 receives none.
+# The upgrade is tracked under the vulnerability and patch process.
 
-FROM openproject/openproject:15
+FROM openproject/openproject:15@sha256:d9f71d33f3fa2b2059c4c8e3978a4cccd5044437d9023b2be284aca83a17e717
 
 COPY zzz_epm_password_grant.rb  /app/config/initializers/zzz_epm_password_grant.rb
 COPY zzz_epm_admin_api.rb       /app/config/initializers/zzz_epm_admin_api.rb

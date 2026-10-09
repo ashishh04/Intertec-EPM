@@ -26,6 +26,24 @@
 #                          hub.docker.com -> Account settings -> Personal access
 #                          tokens. Not your password: a token can be revoked
 #                          without changing how you sign in anywhere else.
+#
+# Supply chain (BR-610). Every action below is pinned to a full commit SHA, with
+# the version it was at in a comment: tags can be moved, and in March 2026 76 of
+# 77 trivy-action tags were (CVE-2026-33634). Dependabot moves SHA and comment
+# together. Before an image is published it is built, scanned and given an SBOM:
+#
+#   epm-backend, epm-web   a fixable critical vulnerability stops the release.
+#                          Fixable highs are listed on the run page and handled
+#                          under the patch process's service levels; a gate on
+#                          highs would block the very patch releases it exists
+#                          to speed up, over findings unrelated to the patch.
+#   epm-openproject        scanned and listed, never blocking: its contents are
+#                          upstream's, and the remedy is a newer upstream digest,
+#                          which Dependabot raises.
+#
+# The published images carry an SBOM and a provenance attestation in the
+# registry (`docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`),
+# and the run keeps a CycloneDX SBOM and the scan report as artifacts for 90 days.
 
 name: Release images
 
@@ -48,20 +66,23 @@ permissions:
   contents: read
 
 jobs:
-  # The one check that cannot run inside a build context. `npm run build` in the
+  # The checks that cannot run inside a build context. `npm run build` in the
   # backend verifies its copy of the domain models still matches
   # frontend/src/types/index.ts, which means reading across both directories — a
   # path that does not exist in an image built from ./backend alone. So the
   # backend's Dockerfile runs `build:image`, which skips it, and the check runs
   # here, where the whole repository is present. A drift means the API is about
   # to return a shape the UI does not expect, so it blocks the release.
+  #
+  # The dependency gate sits here for the same reason: it reads both lockfiles
+  # and security/accepted-advisories.json.
   contract:
-    name: Domain model contract
+    name: Contract and dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -75,6 +96,11 @@ jobs:
         working-directory: backend
         run: npm run types:check
 
+      # A high or critical advisory against a production dependency that has
+      # been neither patched nor assessed stops the release. See the script.
+      - name: Production dependencies carry no unassessed advisory
+        run: node security/audit-gate.mjs backend frontend
+
   images:
     name: ${{ matrix.image }}
     needs: contract
@@ -87,16 +113,19 @@ jobs:
         include:
           - image: epm-backend
             context: ./backend
+            blocking: true
           - image: epm-web
             context: ./frontend
-          # OpenProject plus the four EPM initializers. Large — most of the
-          # first push is the upstream base — but after that only the thin
-          # layer holding the initializers changes.
+            blocking: true
+          # OpenProject plus the EPM initializers. Large — most of the first
+          # push is the upstream base — but after that only the thin layer
+          # holding the initializers changes.
           - image: epm-openproject
             context: ./backend/openproject
+            blocking: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Said plainly here rather than as a login failure three steps down, which
       # reads as a credentials problem and sends you to the wrong place. The
@@ -118,17 +147,17 @@ jobs:
             exit 1
           fi
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Sign in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Work out the tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
           tags: |
@@ -136,19 +165,72 @@ jobs:
             type=raw,value=${{ inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=raw,value=latest,enable=${{ github.event_name == 'push' || inputs.latest }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      # Built into the runner's Docker first, so it can be scanned before
+      # anything is published; the push below reuses every layer from the cache.
+      - name: Build the candidate
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ${{ matrix.context }}
           # amd64 only. Building the Node images for arm64 under emulation takes
           # far longer than it is worth while every host is x86; add arm64 here
           # when one is not.
           platforms: linux/amd64
+          load: true
+          push: false
+          tags: epm-candidate/${{ matrix.image }}:${{ github.sha }}
+          # Layer cache in the Actions cache, so a release that changes only the
+          # frontend does not reinstall the backend's dependencies.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Scan the candidate
+        id: scan
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: epm-candidate/${{ matrix.image }}:${{ github.sha }}
+          config: security/grype.yaml
+          only-fixed: true
+          severity-cutoff: critical
+          fail-build: ${{ matrix.blocking }}
+          output-format: json
+
+      - name: Summarise the scan
+        if: always() && steps.scan.outputs.json != ''
+        env:
+          REPORT: ${{ steps.scan.outputs.json }}
+          IMAGE: ${{ matrix.image }}
+          GATE: ${{ matrix.blocking && 'a fixable critical' || 'nothing (upstream image, listed only)' }}
+        run: node security/scan-summary.mjs "$REPORT" "$IMAGE" "$GATE" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the scan report
+        if: always() && steps.scan.outputs.json != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: scan-${{ matrix.image }}
+          path: ${{ steps.scan.outputs.json }}
+          retention-days: 90
+
+      - name: SBOM for the run record
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: epm-candidate/${{ matrix.image }}:${{ github.sha }}
+          format: cyclonedx-json
+          artifact-name: sbom-${{ matrix.image }}.cdx.json
+          upload-artifact-retention: 90
+          upload-release-assets: false
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Layer cache in the Actions cache, so a release that changes only the
-          # frontend does not reinstall the backend's dependencies.
+          # Attestations stored with the image in the registry: what is in it,
+          # and how and from which commit it was built.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 

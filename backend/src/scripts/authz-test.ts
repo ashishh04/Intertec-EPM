@@ -4367,10 +4367,30 @@ async function main() {
       };
       check('assign: the item is assigned', after.assigneeId, adminId);
       check('transition status: its status moved', after.status?.name, inProgress!.name);
+      // Two days out, kept on a working day: OpenProject moves a due date that
+      // lands on a non-working day to the next working one (so on a Thursday
+      // or Friday "two days out" is the Monday). The working week and the
+      // instance's non-working days are read, not assumed.
+      const weekDays = (await (await call('/admin/week-days', { cookie: admin })).json()) as {
+        day: number;
+        working: boolean;
+      }[];
+      const nonWorking = new Set(
+        ((await (await call('/admin/non-working-days', { cookie: admin })).json()) as { date: string }[]).map(
+          (day) => day.date,
+        ),
+      );
+      const workingIso = new Set(weekDays.filter((day) => day.working).map((day) => day.day));
+      let due = new Date(Date.now() + 2 * 86_400_000);
+      for (let step = 0; step < 14; step += 1) {
+        const isoWeekday = ((due.getUTCDay() + 6) % 7) + 1;
+        if (workingIso.has(isoWeekday) && !nonWorking.has(due.toISOString().slice(0, 10))) break;
+        due = new Date(due.getTime() + 86_400_000);
+      }
       check(
-        'set attribute: its due date is two days out',
+        'set attribute: its due date is two days out (the next working day if that is not one)',
         after.dueDate?.slice(0, 10),
-        new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10),
+        due.toISOString().slice(0, 10),
       );
       const relations = (await (await call(`/work-packages/${hit}/relations`, { cookie: admin })).json()) as {
         type?: string;
@@ -7316,6 +7336,37 @@ async function main() {
       204,
     );
     check('the project is gone straight away', await readProjectRow(admin), undefined);
+  }
+
+  // --- Security and assurance (BR-608 to BR-610) ---------------------------
+  // The API's own Content-Security-Policy forbids everything, since nothing it
+  // returns is a page: an uploaded SVG opened in a tab can run nothing. And the
+  // integration page's one action is now as administrative as the page always
+  // told people it was.
+  console.log('\nSecurity and assurance');
+  {
+    const response = await call('/integrations/status', { cookie: admin });
+    const csp = response.headers.get('content-security-policy') ?? '';
+    check("API responses allow no source at all (default-src 'none')", csp.includes("default-src 'none'"), true);
+    check('API responses cannot be framed', csp.includes("frame-ancestors 'none'"), true);
+    check('an API response opened as a page is sandboxed', /(^|;)\s*sandbox\s*(;|$)/.test(csp), true);
+    check('API responses are not MIME-sniffed', response.headers.get('x-content-type-options'), 'nosniff');
+
+    check(
+      'anyone signed in can read integration health',
+      await status('/integrations/status', { cookie: restricted }),
+      200,
+    );
+    check(
+      'only an administrator can run the connection check',
+      await status('/integrations/status/sync', { method: 'POST', cookie: restricted }),
+      403,
+    );
+    check(
+      'an administrator can',
+      await status('/integrations/status/sync', { method: 'POST', cookie: admin }),
+      200,
+    );
   }
 
   // --- Session lifecycle ---------------------------------------------------

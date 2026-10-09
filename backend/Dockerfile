@@ -22,8 +22,12 @@
 # belongs where both directories are present — it runs in CI before the image is
 # built, see .github/workflows/release.yml.
 
+# Both stages are pinned by digest as well as tag, so a rebuild upstream never
+# changes a release unseen. Dependabot moves the digest when node:22-slim is
+# rebuilt, which is how Debian and Node security fixes arrive (BR-610).
+
 # ---------------------------------------------------------------- build
-FROM node:22-slim AS build
+FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
 
 # openssl in the build stage too, and not for TLS: `prisma generate` chooses its
 # query engine by detecting the OpenSSL version present, and with no libssl
@@ -51,7 +55,7 @@ RUN npx prisma generate && npm run build:image
 RUN npm prune --omit=dev
 
 # ---------------------------------------------------------------- runtime
-FROM node:22-slim AS runtime
+FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
 
 # libssl3 and the CA bundle, neither of which is in the slim base - checked,
 # not assumed: node:22-slim ships no libssl* and no
@@ -71,6 +75,14 @@ RUN for i in 1 2 3; do \
       echo "apt attempt $i failed"; [ "$i" = 3 ] && exit 1; sleep 5; \
     done \
  && rm -rf /var/lib/apt/lists/*
+
+# No package manager in the image that runs. It starts `node` and the Prisma
+# CLI straight from node_modules (see CMD); npm, npx, corepack and yarn would
+# only be more code for an intruder to use and more findings for a scanner.
+# Maintenance commands run as `node dist/scripts/...` (DEPLOY.md).
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
 
 WORKDIR /app
 ENV NODE_ENV=production

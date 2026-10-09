@@ -108,10 +108,61 @@ export function isConfigured(): boolean {
   return Boolean(configuredRegion() && env.BEDROCK_MODEL_ID);
 }
 
+const OUTSIDE_RESIDENCY =
+  'Pragnya is switched off: its configuration would send data outside the regions this deployment allows.';
+
+/**
+ * Why this configuration would send what the assistant reads outside the
+ * regions the deployment allows (NFR09, BRL-12) — or nothing, when it would
+ * not or no allow-list is set (EPM_ASSISTANT_REGIONS).
+ *
+ * Three things are checked, because each decides where a request goes: the
+ * region the client is built for; the model id, since a cross-region inference
+ * profile (`global.anthropic.…`, `us.anthropic.…`, `eu.…`) or an ARN is routed
+ * by AWS to other regions; and an endpoint override, which points the SDK
+ * somewhere this check cannot see.
+ *
+ * One thing cannot be checked from here: a region whose only Bedrock endpoint
+ * type is the global one routes requests across every region, whatever its
+ * name. Anthropic's Bedrock documentation listed me-central-1 that way in
+ * October 2026. So the allow-list must name only regions that offer in-region
+ * processing; the assurance pack's data residency section says the same.
+ */
+export function residencyProblem(): string | undefined {
+  const allowed = env.EPM_ASSISTANT_REGIONS;
+  if (allowed.length === 0 || !isConfigured()) return undefined;
+
+  const region = (configuredRegion() as string).toLowerCase();
+  if (!allowed.includes(region)) {
+    return `AWS region ${region} is not in EPM_ASSISTANT_REGIONS (${allowed.join(', ')}).`;
+  }
+  if (env.ANTHROPIC_BEDROCK_MANTLE_BASE_URL) {
+    return 'ANTHROPIC_BEDROCK_MANTLE_BASE_URL overrides the regional endpoint, so where requests go cannot be checked.';
+  }
+  if (!(env.BEDROCK_MODEL_ID as string).startsWith('anthropic.')) {
+    return `BEDROCK_MODEL_ID ${env.BEDROCK_MODEL_ID} is not a single-region model id; a cross-region inference profile can be served from other regions.`;
+  }
+  return undefined;
+}
+
+/**
+ * A line for the startup log when the assistant could reach beyond the
+ * deployment's regions, or when nothing restricts it in production.
+ */
+export function residencyWarning(): string | undefined {
+  if (!isConfigured()) return undefined;
+  const problem = residencyProblem();
+  if (problem) return `Assistant disabled for data residency: ${problem}`;
+  if (env.EPM_ASSISTANT_REGIONS.length === 0 && env.NODE_ENV === 'production') {
+    return `Assistant data residency is not restricted: EPM_ASSISTANT_REGIONS is unset, so requests go wherever AWS region ${configuredRegion()} sends them.`;
+  }
+  return undefined;
+}
+
 export function status(): AssistantStatus {
-  return isConfigured()
-    ? { available: true, model: env.BEDROCK_MODEL_ID as string }
-    : { available: false, reason: NOT_CONFIGURED };
+  if (!isConfigured()) return { available: false, reason: NOT_CONFIGURED };
+  if (residencyProblem()) return { available: false, reason: OUTSIDE_RESIDENCY };
+  return { available: true, model: env.BEDROCK_MODEL_ID as string };
 }
 
 let client: AnthropicBedrockMantle | undefined;
@@ -148,6 +199,7 @@ export async function* streamChat(
   options: StreamChatOptions,
 ): AsyncGenerator<ChatStreamEvent, void, undefined> {
   if (!isConfigured()) throw EpmError.unavailable(NOT_CONFIGURED);
+  if (residencyProblem()) throw EpmError.unavailable(OUTSIDE_RESIDENCY);
 
   const request: Anthropic.MessageStreamParams = {
     model: env.BEDROCK_MODEL_ID as string,

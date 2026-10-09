@@ -1,0 +1,41 @@
+{
+  "$comment": "Advisories against production dependencies that have been assessed and accepted rather than patched. Read by security/audit-gate.mjs. Each entry names the advisory, the package it is about (the vulnerable package, not the one that pulls it in), optionally the directory, why EPM is not at risk, and the date by which it must be looked at again. After that date the entry no longer counts. Process: the vulnerability and patch process in the assurance pack.",
+  "accepted": [
+    {
+      "advisory": "GHSA-ggr8-5vv4-36mx",
+      "package": "deepmerge-ts",
+      "directory": "backend",
+      "severity": "high",
+      "path": "prisma -> @prisma/config -> deepmerge-ts 7.1.5",
+      "assessment": "Stack exhaustion when merging a recursive object graph. deepmerge-ts is called only by the Prisma CLI, to merge its own configuration with defaults, when the container starts and runs `prisma migrate deploy`. No request, user or upstream data reaches it, so nobody outside the deployment can supply the recursive graph the attack needs. No fixed version is available: every Prisma release to date, 6.19.3 and 7.10.0 included, pins deepmerge-ts 7.1.5.",
+      "decision": "Accepted. Revisit when Prisma ships deepmerge-ts 8 or at the review date, whichever is first.",
+      "acceptedBy": "Platform engineering",
+      "acceptedOn": "2026-10-09",
+      "reviewBy": "2027-01-08"
+    },
+    {
+      "advisory": "GHSA-wrjc-x8rr-h8h6",
+      "package": "react-router",
+      "directory": "frontend",
+      "severity": "moderate",
+      "path": "react-router-dom 6.x -> react-router",
+      "assessment": "Open redirect when an attacker-controlled path containing a backslash reaches <Link> or useNavigate. EPM's only navigation to a destination it did not write itself is the return after sign-in, which comes from router state set by the app, not from the URL, and passes through safeDestination (frontend/src/lib/navigation.ts), which refuses anything not starting with a single '/' and anything containing a backslash. The fix needs react-router 7, a major upgrade.",
+      "decision": "Accepted until the react-router 7 upgrade is scheduled; not exploitable as EPM uses the router.",
+      "acceptedBy": "Platform engineering",
+      "acceptedOn": "2026-10-09",
+      "reviewBy": "2027-01-08"
+    },
+    {
+      "advisory": "GHSA-337j-9hxr-rhxg",
+      "package": "react-router",
+      "directory": "frontend",
+      "severity": "moderate",
+      "path": "react-router-dom 6.x -> react-router",
+      "assessment": "Constructor injection through deserializeErrors() during server-side rendering hydration. EPM is a client-rendered single-page app served as static files by Caddy; it never renders on a server and never hydrates serialized router errors, so the vulnerable code path does not run.",
+      "decision": "Not applicable. Goes away with the react-router 7 upgrade.",
+      "acceptedBy": "Platform engineering",
+      "acceptedOn": "2026-10-09",
+      "reviewBy": "2027-01-08"
+    }
+  ]
+}

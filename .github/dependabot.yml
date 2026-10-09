@@ -1,0 +1,109 @@
+# Dependabot keeps EPM's dependencies, base images and workflow actions current
+# (BR-610, the vulnerability and patch process).
+#
+# Two kinds of pull request come from here:
+#
+#   Security updates — raised as soon as an advisory affects a dependency,
+#   whatever the schedule below says. They need "Dependabot security updates"
+#   switched on under Settings -> Code security; this file does not do that.
+#
+#   Version updates — weekly, grouped, so a quiet week is one pull request per
+#   ecosystem rather than twenty.
+#
+# Base images are pinned by digest (Dockerfiles, production compose files), so
+# a rebuilt upstream image never changes a release silently. Dependabot is what
+# moves the digest when the tag it follows is rebuilt — which is how operating
+# system patches in node, caddy, postgres and openproject reach EPM. Majors of
+# those are deliberate project decisions and are not proposed.
+#
+# Workflow actions are pinned to full commit SHAs, not tags: tags can be moved,
+# and in March 2026 attackers force-pushed 76 of 77 trivy-action tags to
+# credential-stealing code (CVE-2026-33634). Dependabot updates the SHA and the
+# version comment beside it together.
+
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Dubai
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore
+    labels: [dependencies, backend]
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Dubai
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore
+    labels: [dependencies, frontend]
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories:
+      - /backend
+      - /frontend
+      - /backend/openproject
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Dubai
+    commit-message:
+      prefix: chore
+    labels: [dependencies, images]
+    ignore:
+      # The runtime line EPM is built and tested on. A new Node major is a
+      # project decision, not a weekly bump.
+      - dependency-name: node
+        update-types: [version-update:semver-major]
+      # A new OpenProject major can change the internal APIs the EPM
+      # initializers rely on; it is upgraded by hand and sign-in verified
+      # (backend/openproject/README.md). Digest and minor updates still come.
+      - dependency-name: openproject/openproject
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Dubai
+    commit-message:
+      prefix: chore
+    labels: [dependencies, images]
+    ignore:
+      # A PostgreSQL major needs the data directory upgraded (dump and restore
+      # or pg_upgrade); a new image alone would refuse to start on old data.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Asia/Dubai
+    commit-message:
+      prefix: chore
+    labels: [dependencies, ci]
+    groups:
+      actions:
+        patterns: ['*']

@@ -372,6 +372,25 @@ const schema = z.object({
   AWS_SESSION_TOKEN: z.string().optional(),
   // Carries the `anthropic.` provider prefix, e.g. anthropic.claude-sonnet-5.
   BEDROCK_MODEL_ID: z.string().optional(),
+  // Where the assistant may send what it reads (NFR09, BRL-12): the AWS
+  // regions this deployment allows, comma-separated. Unset means no
+  // restriction. When set, Pragnya stays unavailable unless its region is
+  // listed, its model is a single-region id rather than a cross-region
+  // inference profile, and no endpoint override is in place
+  // (assistant/bedrock.ts, residencyProblem).
+  EPM_ASSISTANT_REGIONS: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((region) => region.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  // Read by the Bedrock SDK itself, not by EPM. Declared so the residency
+  // check can see that requests would go somewhere other than the regional
+  // endpoint.
+  ANTHROPIC_BEDROCK_MANTLE_BASE_URL: z.string().optional(),
 
   EPM_ADMIN_USER_IDS: z
     .string()

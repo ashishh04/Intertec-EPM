@@ -65,7 +65,7 @@ services:
   postgres:
     # Official image, nothing of ours in it, so it is pulled straight from the
     # library rather than rebuilt under our namespace.
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     container_name: epm-postgres
     restart: unless-stopped
     environment:
@@ -99,7 +99,7 @@ services:
   #   npm run analytics -- role
   # (DEPLOY.md, "Analytics replica").
   postgres-replica:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     container_name: epm-postgres-replica
     profiles: [analytics]
     restart: unless-stopped
@@ -220,6 +220,7 @@ services:
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID}
+      EPM_ASSISTANT_REGIONS: ${EPM_ASSISTANT_REGIONS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       # Readiness, not liveness: this one fails while the database or OpenProject

@@ -29,9 +29,11 @@ import { formatLongDate, formatShortDate } from '@/lib/utils';
  * The languages offered.
  *
  * OpenProject publishes no list of its available locales over API v3, so this is
- * the set EPM's own interface is written for. Choosing one writes it to the
- * account, and the instance refuses a code it does not have — which is the
- * check, rather than a list here pretending to be one.
+ * a short list of common ones. Choosing one writes it to the account, and the
+ * instance refuses a code it does not have — which is the check, rather than a
+ * list here pretending to be one. It changes OpenProject's own screens and the
+ * emails OpenProject sends; EPM's interface and emails are English until there
+ * is a translation framework (BR-605), and the hint says so.
  */
 const LANGUAGES: { code: string; label: string }[] = [
   { code: 'en', label: 'English' },
@@ -92,7 +94,7 @@ export function LocaleSettings() {
         <div className="divide-y divide-border">
           <FieldRow
             label="Language"
-            hint="Set on your account, so anything the delivery system emails you uses it too."
+            hint="Set on your account, for the delivery system's own screens and emails. EPM's screens and emails are in English."
             htmlFor="locale-language"
           >
             <Select

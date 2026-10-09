@@ -1,11 +1,12 @@
 import { Fragment, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { isAppPath } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 
 /**
  * Just enough Markdown for an assistant reply: paragraphs, bullet and numbered
- * lists, **bold**, `code` and [links](/path). Deliberately not a full parser —
- * anything else is shown as the text it was, never dropped.
+ * lists, **bold**, `code` and [links](/path) into EPM. Deliberately not a full
+ * parser — anything else is shown as the text it was, never dropped.
  */
 
 type Block =
@@ -98,22 +99,24 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       );
     }
 
+    // Only links into EPM itself are clickable. An answer is written from task
+    // text, comments and wiki pages, which anyone with access can fill — so a
+    // planted instruction could ask for a link that carries data elsewhere or
+    // runs script. Anything that is not an app path shows as the text it was.
     const link = LINK.exec(part);
     if (link) {
       const [, label, href] = link;
-      const className = 'font-medium text-primary underline-offset-2 hover:underline';
-      if (href.startsWith('/')) {
+      if (isAppPath(href)) {
         return (
-          <Link key={key} to={href} className={className}>
+          <Link
+            key={key}
+            to={href}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+          >
             {label}
           </Link>
         );
       }
-      return (
-        <a key={key} href={href} target="_blank" rel="noreferrer" className={className}>
-          {label}
-        </a>
-      );
     }
 
     return <Fragment key={key}>{part}</Fragment>;

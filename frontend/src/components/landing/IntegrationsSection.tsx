@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion';
 import { Bot, CalendarClock, KeyRound, Mail, RadioTower, Workflow } from 'lucide-react';
 import { useLandingMotion } from './useLandingMotion';
-import { ORG_NAME } from '@/config/env';
 
 /*
  * The hero promises the platform is "connected to the systems teams already
@@ -24,8 +23,8 @@ const CONNECTIONS = [
   },
   {
     icon: KeyRound,
-    title: 'Directory accounts',
-    body: 'Access is provisioned by IT and arrives as an invitation. Project membership and roles follow you in, and there is no self-registration to get around them.',
+    title: 'Invitation-only accounts',
+    body: 'Access is provisioned by IT and arrives as an invitation, with your project membership and roles already set. There is no self-registration to get around them.',
     where: 'Invitation only',
   },
   {
@@ -37,7 +36,7 @@ const CONNECTIONS = [
   {
     icon: RadioTower,
     title: 'Changes made elsewhere',
-    body: 'Work updated outside EPM arrives as a signed delivery and is reflected without polling — so the board does not drift from the system behind it between refreshes.',
+    body: 'Work updated outside EPM arrives as a signed delivery that clears what EPM has cached at once — so the next refresh shows the change, not a copy minutes old.',
     where: 'Signed webhooks',
   },
   {
@@ -83,8 +82,8 @@ export function IntegrationsSection() {
             <em className="font-serif italic text-white/50">it does not replace it</em>
           </h2>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-white/50">
-            Every connection below terminates inside {ORG_NAME}. Your browser only ever talks to
-            EPM — no upstream address, token or credential is ever sent to it.
+            Every connection below is made by the EPM backend, never by your browser. Your browser
+            only ever talks to EPM — no upstream address, token or credential is ever sent to it.
           </p>
         </motion.div>
 

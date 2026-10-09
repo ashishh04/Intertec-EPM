@@ -1001,7 +1001,7 @@ function messageOf(error: unknown): string {
   return text.length > 500 ? `${text.slice(0, 500)}…` : text;
 }
 
-let inFlight: Promise<RefreshRun | null> | null = null;
+let inFlight: { kind: RefreshKind; run: Promise<RefreshRun | null> } | null = null;
 
 /**
  * Refreshes the model, or returns null when another server is refreshing it.
@@ -1011,12 +1011,21 @@ let inFlight: Promise<RefreshRun | null> | null = null;
  */
 export function refreshModel(kind: RefreshKind, trigger: RefreshTrigger): Promise<RefreshRun | null> {
   // One at a time in this process too: a change-triggered run and the timer
-  // must not load the same rows twice.
-  if (inFlight) return inFlight;
-  inFlight = runRefresh(kind, trigger).finally(() => {
-    inFlight = null;
-  });
-  return inFlight;
+  // must not load the same rows twice. A request joins the run in progress
+  // when that run does what it asks — anything joins a full refresh, an
+  // incremental joins an incremental. A full refresh asked for while an
+  // incremental one runs waits for it and then runs: handing back the
+  // incremental's result answered a question nobody asked (no window, and no
+  // run of the kind requested in the log).
+  if (inFlight && (inFlight.kind === 'full' || kind === 'incremental')) return inFlight.run;
+  const before = inFlight ? inFlight.run.catch(() => null) : Promise.resolve(null);
+  const run: Promise<RefreshRun | null> = before
+    .then(() => runRefresh(kind, trigger))
+    .finally(() => {
+      if (inFlight?.run === run) inFlight = null;
+    });
+  inFlight = { kind, run };
+  return run;
 }
 
 async function runRefresh(requested: RefreshKind, trigger: RefreshTrigger): Promise<RefreshRun | null> {

@@ -38,7 +38,7 @@ const PILLARS = [
   {
     icon: GitBranch,
     title: 'Connected to your tools',
-    body: 'Work packages stay in sync with the delivery systems your teams already use.',
+    body: 'Work packages are read and written live in the delivery system your teams already use.',
   },
 ];
 

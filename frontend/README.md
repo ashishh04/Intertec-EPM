@@ -17,7 +17,7 @@ OpenProject instance and presents only the workflows Intertec Systems delivery t
 The frontend never talks to OpenProject directly, never holds an OpenProject token, and knows
 nothing about OpenProject's HAL payloads or database schema. It speaks only to the EPM backend,
 which owns authentication, authorization, API credentials, transformation, pagination, caching,
-webhooks, audit logging and rate limiting.
+webhooks and rate limiting, and journals the changes EPM itself makes.
 
 ---
 

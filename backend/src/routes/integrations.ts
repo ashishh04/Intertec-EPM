@@ -1,7 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import * as guard from '../auth/guard.js';
 import { env } from '../config/env.js';
 import { optional, prisma } from '../db/prisma.js';
+import { lastWebhookReceived } from '../domain/rule-events.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import type { OpRoot } from '../openproject/types.js';
@@ -91,9 +93,11 @@ function toStatus(probe: Probe, lastSyncAt: string): IntegrationStatus {
   return {
     state: connectionState(probe.apiState, readable.length, probe.counts.length),
     apiState: probe.apiState,
-    // No webhook receiver is implemented yet; reporting anything else would
-    // claim a capability that does not exist.
-    webhookState: 'disconnected',
+    // The receiver accepts only signed deliveries, so it is working exactly
+    // when the shared secret is set. Whether OpenProject has been told to send
+    // is configured over there (DEPLOY.md); the last delivery shows whether it is.
+    webhookState: env.OPENPROJECT_WEBHOOK_SECRET ? 'connected' : 'disconnected',
+    webhookLastReceivedAt: lastWebhookReceived(),
     lastSyncAt,
     apiVersion: probe.apiVersion,
     syncedResources: readable.map((entry) => ({
@@ -156,8 +160,12 @@ export const integrationRoutes: FastifyPluginAsync = async (app) => {
    * Refreshes the counts and records the run. There is nothing to pull into a
    * local mirror — OpenProject stays the system of record — so a "sync" here is
    * a re-read plus the bookkeeping that gives `lastSyncAt` a real value.
+   *
+   * Administrators only, as the page says: it writes a row per resource on
+   * every press, and it is the page's one action.
    */
   app.post('/integrations/status/sync', async (request) => {
+    await guard.require(request, 'users:manage');
     const startedAt = new Date();
     const probe = await probeInstance(requestSignal(request), (err) =>
       request.log.error({ err }, 'OpenProject sync failed'),

@@ -22,13 +22,13 @@ import { BackToTop } from '@/components/landing/BackToTop';
 import { useLandingMotion } from '@/components/landing/useLandingMotion';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
 
-/** Illustrative figures for the hero strip — not read from the API. */
-const ILLUSTRATIVE_STATS = [
-  { value: '12', label: 'Portfolios' },
-  { value: '148', label: 'Active projects' },
-  { value: '1,204', label: 'Sprints tracked' },
-  { value: '37', label: 'Teams' },
-];
+/**
+ * What the hero strip names. It used to show counts beside these — figures
+ * made up for the design, not read from anywhere — and a reader takes a
+ * number on this page as a fact. This page is signed out, so real counts
+ * would be a disclosure; the strip names what EPM covers instead.
+ */
+const COVERAGE = ['Portfolios', 'Projects', 'Sprints', 'Teams'];
 
 /*
  * The three steps walk the brand gradient — crimson, its magenta midpoint,
@@ -53,7 +53,7 @@ const STEPS = [
   {
     number: '02',
     title: 'Your projects, teams and work queue are already there',
-    body: 'Membership and roles follow you from the directory.',
+    body: 'Your project memberships and roles come with your account.',
     numeral: 'text-highlight',
     dot: 'bg-highlight',
     ring: 'border-highlight',
@@ -77,8 +77,8 @@ const STEPS = [
  * page is read by the people whose data it describes.
  */
 const TRUST_POINTS = [
-  { icon: Lock, text: 'Nothing sensitive is ever stored in your browser' },
-  { icon: Server, text: `Your data never leaves ${ORG_NAME}` },
+  { icon: Lock, text: 'No password or token is ever stored in your browser' },
+  { icon: Server, text: `Hosted on ${ORG_NAME}'s own infrastructure` },
   { icon: UserCheck, text: 'Permissions follow your role, checked on every request' },
   { icon: ScrollText, text: 'Every change is recorded against the person who made it' },
 ];
@@ -199,24 +199,18 @@ export default function LandingPage() {
             className="relative z-10 flex flex-col items-center gap-4 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-6 pb-12 pt-10"
           >
             <p className="text-2xs text-white/40">
-              Used across delivery, PMO and engineering teams at {ORG_NAME}.
+              One place for delivery, PMO and engineering work at {ORG_NAME}.
             </p>
-            <dl className="flex flex-wrap items-center justify-center gap-3">
-              {ILLUSTRATIVE_STATS.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="liquid-glass flex items-baseline gap-2 rounded-full px-5 py-2.5"
+            <ul className="flex flex-wrap items-center justify-center gap-3">
+              {COVERAGE.map((area) => (
+                <li
+                  key={area}
+                  className="liquid-glass rounded-full px-5 py-2.5 text-xs font-medium text-white/70"
                 >
-                  <dt className="sr-only">{stat.label}</dt>
-                  <dd className="font-mono text-sm font-semibold tracking-tight text-white">
-                    {stat.value}
-                  </dd>
-                  <span aria-hidden className="text-xs text-white/50">
-                    {stat.label}
-                  </span>
-                </div>
+                  {area}
+                </li>
               ))}
-            </dl>
+            </ul>
           </motion.div>
         </section>
 

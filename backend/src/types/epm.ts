@@ -1103,7 +1103,10 @@ export type ConnectionState = 'connected' | 'degraded' | 'disconnected';
 export interface IntegrationStatus {
   state: ConnectionState;
   apiState: ConnectionState;
+  /** `connected` when the receiver can verify deliveries (its secret is set). */
   webhookState: ConnectionState;
+  /** The last signed delivery this server accepted, if any since it started. */
+  webhookLastReceivedAt?: ISODate;
   lastSyncAt: ISODate;
   apiVersion: string;
   syncedResources: { resource: string; count: number; lastSyncAt: ISODate }[];

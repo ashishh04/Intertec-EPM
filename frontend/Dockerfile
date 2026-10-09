@@ -15,8 +15,11 @@
 # cannot express: a backend on a different origin. Passing it ties the resulting
 # image to that address — do not pass it for the standard single-host deploy.
 
+# Base images are pinned by digest as well as tag, so a rebuild upstream never
+# changes a release unseen; Dependabot moves the digests (BR-610).
+
 # ---------------------------------------------------------------- build
-FROM node:22-slim AS build
+FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
 
 WORKDIR /app
 
@@ -35,7 +38,7 @@ ENV VITE_CURRENCY=$VITE_CURRENCY
 RUN npm run build
 
 # ---------------------------------------------------------------- runtime
-FROM caddy:2-alpine AS runtime
+FROM caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f AS runtime
 
 COPY --from=build /app/dist /srv
 COPY Caddyfile /etc/caddy/Caddyfile

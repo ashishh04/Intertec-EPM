@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { ZodError } from 'zod';
 
 import { env, isProduction } from './config/env.js';
+import { residencyWarning } from './assistant/bedrock.js';
 import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot.js';
 import { createAnalyticsRefreshScheduler } from './scheduler/analytics-refresh.js';
 import { createReportScheduler } from './scheduler/report-scheduler.js';
@@ -61,16 +62,27 @@ export async function buildApp(): Promise<FastifyInstance> {
       ...(isProduction ? {} : { transport: { target: 'pino-pretty' } }),
     },
     trustProxy: isProduction,
-    disableRequestLogging: false,
     // The frontend serializes array filters comma-joined (`status=todo,done`),
     // not as repeated keys, so the default parser is all we need.
     ajv: { customOptions: { coerceTypes: 'array' } },
   });
 
   await app.register(helmet, {
-    // This service only ever returns JSON to a separate origin; CSP here would
-    // describe a document it never serves.
-    contentSecurityPolicy: false,
+    // Nothing this service returns is a page: JSON, downloads, avatars and the
+    // assistant's event stream. So the policy allows nothing at all, and a
+    // response opened directly in a tab — an uploaded SVG, say — can neither
+    // run nor load anything. The app's own pages get their policy from Caddy,
+    // which does not apply it to /api (BRL-01, BR-608).
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+        frameAncestors: ["'none'"],
+        sandbox: [],
+      },
+    },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   });
 
@@ -263,6 +275,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   // through the app's logger from here on, wherever it is called from.
   useEmailLogger(app.log);
   useAppLogger(app.log);
+
+  // Where the assistant would send what it reads, said once at startup
+  // (NFR09): it is off when its configuration breaks the allowed regions, and
+  // a production deployment with no allow-list at all is worth a line too.
+  const residency = residencyWarning();
+  if (residency) app.log.warn(residency);
   const emailWorker = createEmailWorker({ log: app.log });
   if (env.EPM_EMAIL_WORKER_ENABLED) {
     emailWorker.start();
