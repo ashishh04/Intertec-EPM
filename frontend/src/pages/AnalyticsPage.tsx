@@ -62,15 +62,19 @@ export default function AnalyticsPage() {
 
   const history = overviewQuery.data?.history;
   const hasHistory = (history?.days ?? 0) > 0;
+  // The snapshots count the whole organisation, whoever reads them, so the
+  // API gives their series only to people who manage analytics (BRL-01).
+  const mayReadHistory = mayCapture;
 
   // Only asked for once there is something to ask about, so an empty database
   // does not produce a request per chart on every visit.
-  const projectTrends = useTrends({ metrics: ['projects.active', 'projects.total'], days: 90 }, hasHistory);
+  const loadTrends = hasHistory && mayReadHistory;
+  const projectTrends = useTrends({ metrics: ['projects.active', 'projects.total'], days: 90 }, loadTrends);
   const healthTrends = useTrends(
     { metrics: ['health.healthy', 'health.warning', 'health.critical'], days: 90 },
-    hasHistory,
+    loadTrends,
   );
-  const capacityTrends = useTrends({ metrics: ['capacity.hours', 'employees.mapped'], days: 90 }, hasHistory);
+  const capacityTrends = useTrends({ metrics: ['capacity.hours', 'employees.mapped'], days: 90 }, loadTrends);
 
   const insightsQuery = useExecutiveInsights();
   const trendsQuery = useDeliveryTrends();
@@ -311,6 +315,7 @@ export default function AnalyticsPage() {
         }
       />
 
+      {mayReadHistory ? (
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
           title="Projects over time"
@@ -356,6 +361,16 @@ export default function AnalyticsPage() {
           />
         </ChartCard>
       </div>
+      ) : (
+        <Card className="p-5 text-sm text-muted-foreground">
+          These snapshots count every project and person in the organisation, so they are shown to
+          people who manage analytics. Your own view, limited to the projects you can see, is under{' '}
+          <Link to="/insights" className="font-medium text-primary underline-offset-2 hover:underline">
+            Insights
+          </Link>
+          .
+        </Card>
+      )}
     </div>
   );
 }

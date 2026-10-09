@@ -33,7 +33,8 @@ const PUBLIC_PREFIXES = ['/invites/'];
 
 function isPublic(request: FastifyRequest, apiPrefix: string): boolean {
   const path = request.url.split('?')[0] ?? '';
-  if (path === '/health' || path === '/ready') return true;
+  // /metrics checks its own bearer token (routes/metrics.ts).
+  if (path === '/health' || path === '/ready' || path === '/metrics') return true;
 
   const relative = path.startsWith(apiPrefix) ? path.slice(apiPrefix.length) : path;
   return PUBLIC_PATHS.has(relative) || PUBLIC_PREFIXES.some((prefix) => relative.startsWith(prefix));
@@ -55,6 +56,11 @@ export function registerAuth(app: FastifyInstance, apiPrefix: string): void {
       userId: session.userId,
       sessionId: session.sessionId,
     };
+    // Who made the request, on its log lines from here on (NFR12) — the id,
+    // never a name or a token.
+    (request.log as { setBindings?: (bindings: Record<string, unknown>) => void }).setBindings?.({
+      userId: session.userId,
+    });
   });
 
   /**

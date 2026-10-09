@@ -39,6 +39,8 @@ const SEGMENT_LABEL: Record<string, string> = {
   documents: 'Documents',
   notifications: 'Notifications',
   approvals: 'Approvals',
+  journal: 'Audit journal',
+  'time-and-costs': 'Time & Costs',
   decide: 'Decision',
   profile: 'Profile',
   settings: 'Settings',

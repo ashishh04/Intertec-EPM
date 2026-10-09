@@ -236,16 +236,37 @@ export async function setMapping(
   if (!user) throw EpmError.notFound('That employee');
 
   const { departmentId, teamId } = await resolveMapping(input);
+  const previous = await prisma.userProfile.findUnique({
+    where: { openProjectId: id },
+    select: { departmentId: true, teamId: true, departmentRef: { select: { name: true } }, team: { select: { name: true } } },
+  });
 
   // Upsert: a person has no row until they are first mapped, and clearing a
   // mapping leaves the row rather than deleting it, because it also carries
   // capacity and timezone.
-  const profile = await prisma.userProfile.upsert({
-    where: { openProjectId: id },
-    create: { openProjectId: id, departmentId, teamId },
-    update: { departmentId, teamId },
-    include: { departmentRef: true, team: true },
-  });
+  const write = (tx: Prisma.TransactionClient) =>
+    tx.userProfile.upsert({
+      where: { openProjectId: id },
+      create: { openProjectId: id, departmentId, teamId },
+      update: { departmentId, teamId },
+      include: { departmentRef: true, team: true },
+    });
+
+  // Journalled (BRL-02): where a person sits decides whose capacity, workload
+  // and escalations they count in. Re-saving the same placement records nothing.
+  const placement = (department?: string | null, team?: string | null) =>
+    [department, team].filter(Boolean).join(' / ') || 'unplaced';
+  const unchanged = (previous?.departmentId ?? null) === departmentId && (previous?.teamId ?? null) === teamId;
+  const profile = unchanged
+    ? await write(prisma)
+    : await withAudit(write, (written) => ({
+        entityType: 'employee',
+        entityId: id,
+        action: 'employee.placement.changed',
+        summary: `Placement for ${user.name}: ${placement(previous?.departmentRef?.name, previous?.team?.name)} → ${placement(written.departmentRef?.name, written.team?.name)}.`,
+        before: { departmentId: previous?.departmentId ?? null, teamId: previous?.teamId ?? null },
+        after: { departmentId, teamId },
+      }));
 
   // The directory is cached for five minutes and carries the department name,
   // so it would otherwise keep reporting the old one.
@@ -298,12 +319,26 @@ export async function setCapacity(
     .catch(() => null);
   const previous = existing?.hoursCapacity ?? CAPACITY_DEFAULT;
 
-  const profile = await prisma.userProfile.upsert({
-    where: { openProjectId: id },
-    create: { openProjectId: id, hoursCapacity },
-    update: { hoursCapacity },
-    include: { departmentRef: true, team: true },
-  });
+  // Journalled (BRL-02) when it changes: capacity is what utilisation and
+  // over-allocation are measured against.
+  const write = (tx: Prisma.TransactionClient) =>
+    tx.userProfile.upsert({
+      where: { openProjectId: id },
+      create: { openProjectId: id, hoursCapacity },
+      update: { hoursCapacity },
+      include: { departmentRef: true, team: true },
+    });
+  const profile =
+    previous === hoursCapacity
+      ? await write(prisma)
+      : await withAudit(write, {
+          entityType: 'employee',
+          entityId: id,
+          action: 'employee.capacity.changed',
+          summary: `Weekly capacity for ${user.name}: ${previous} h → ${hoursCapacity} h.`,
+          before: { hoursCapacity: previous },
+          after: { hoursCapacity },
+        });
 
   // Only on a real change. Values are already quarter-hour rounded, so there is
   // no float noise to threshold against and a no-op write notifies nobody.

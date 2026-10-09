@@ -124,6 +124,13 @@ export const ADMIN_AREAS: AdminArea[] = [
         description: 'A matrix of every permission against every role.',
       },
       {
+        id: 'epm-permissions',
+        label: 'EPM permissions',
+        kind: 'live',
+        description:
+          "EPM's own permissions — staffing, health, rules, rates, the audit journal — and who holds each.",
+      },
+      {
         id: 'avatars',
         label: 'Avatars',
         kind: 'live',

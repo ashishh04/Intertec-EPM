@@ -783,7 +783,9 @@ const timeSummary: ToolDefinition = {
     'Hours logged over a date range, grouped, with what they cost. Use it for "how much time ' +
     'went on X", "what have we spent", timesheet and cost questions. Cost is partial by design: ' +
     'hours belonging to somebody with no hourly rate count as hours but are left out of the ' +
-    'money, and the result says how many those were. Report that gap rather than hiding it.',
+    'money, and the result says how many those were. Report that gap rather than hiding it. ' +
+    'When costHidden is true the person asking may not see hourly rates or costs: give hours ' +
+    'only and say that costs are not shown to them — never estimate a cost.',
   parameters: {
     type: 'object',
     properties: {
@@ -827,8 +829,11 @@ const timeSummary: ToolDefinition = {
       // Null rather than 0 when nothing in range was costed, matching the API:
       // zero is a real cost, and "nobody has a rate" is not zero.
       totalCost: report.totalCost ?? null,
+      // The report was built with the asker's own access: without leave to
+      // read rates it carries no money at all (BRL-01), and the model is told.
+      costHidden: report.costHidden ?? false,
       currency: report.currency,
-      hoursWithoutRate: report.hoursWithoutRate,
+      hoursWithoutRate: report.hoursWithoutRate ?? null,
       // The range held more entries than one report may read, so every figure
       // here is a floor. Carried through because a partial total presented as a
       // whole one is worse than no total at all.
@@ -838,7 +843,7 @@ const timeSummary: ToolDefinition = {
         hours: row.hours,
         entries: row.entries,
         cost: row.cost ?? null,
-        hoursWithoutRate: row.hoursWithoutRate,
+        hoursWithoutRate: row.hoursWithoutRate ?? null,
       })),
     };
   },

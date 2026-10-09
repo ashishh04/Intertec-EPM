@@ -43,6 +43,8 @@ import { userRoutes } from './users.js';
 import { watcherRoutes } from './watchers.js';
 import { wikiRoutes } from './wiki.js';
 import { workPackageRoutes } from './work-packages.js';
+import { permissionGrantRoutes } from './permission-grants.js';
+import { journalRoutes } from './journal.js';
 
 /**
  * The EPM API surface.
@@ -86,6 +88,9 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(scheduledReportRoutes);
   await app.register(portfolioViewRoutes);
   await app.register(adminRoutes);
+  // Governance (Module 16): EPM's own permission grants, and the whole journal.
+  await app.register(permissionGrantRoutes);
+  await app.register(journalRoutes);
   await app.register(preferencesRoutes);
   await app.register(sessionRoutes);
   await app.register(invitesRoutes);

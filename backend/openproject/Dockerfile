@@ -36,6 +36,17 @@
 
 FROM openproject/openproject:15@sha256:d9f71d33f3fa2b2059c4c8e3978a4cccd5044437d9023b2be284aca83a17e717
 
+# Library documents are kept
+# --------------------------
+# EPM's document library stores each file as an attachment with no container
+# (backend/src/routes/documents.ts says why). OpenProject takes those for
+# abandoned uploads: Attachments::CleanupUncontaineredJob runs nightly at 22:03
+# UTC and destroys every one older than this grace period, 180 minutes unless
+# set. A document filed in the morning would be gone by the next day. A hundred
+# years, in minutes, means that job deletes nothing EPM stored. Set in the image
+# rather than the env file because the library depends on it everywhere.
+ENV OPENPROJECT_ATTACHMENTS__GRACE__PERIOD=52560000
+
 COPY zzz_epm_password_grant.rb  /app/config/initializers/zzz_epm_password_grant.rb
 COPY zzz_epm_admin_api.rb       /app/config/initializers/zzz_epm_admin_api.rb
 COPY zzz_epm_admin_settings.rb  /app/config/initializers/zzz_epm_admin_settings.rb

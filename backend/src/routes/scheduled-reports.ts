@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
+import { recordAuditQuietly } from '../domain/audit.js';
 import { buildDashboard, DASHBOARD_IDS, type DashboardId } from '../domain/dashboards.js';
 import { modelFacts } from '../domain/measure-facts.js';
 import { documentOf, renderPdf, renderXlsx } from '../domain/report-render.js';
@@ -87,6 +88,18 @@ export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'reports:schedule');
     const outcome = await runSchedule(request.params.id, { trigger: 'manual', triggeredBy: request.auth!.userId });
     if (!outcome) throw EpmError.conflict('That report is running already.');
+    // Journalled (BRL-02): a run by hand sends the report to every recipient
+    // outside its timetable; the run's own log says who, this says it too in
+    // the one place all changes are read.
+    await recordAuditQuietly([
+      {
+        entityType: 'report_schedule',
+        entityId: request.params.id,
+        action: 'report_schedule.run_now',
+        summary: 'Ran a scheduled report by hand, outside its timetable',
+        metadata: { runId: outcome.runId },
+      },
+    ]);
     return getRun(outcome.runId);
   });
 

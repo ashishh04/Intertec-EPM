@@ -154,9 +154,14 @@ The account, "EPM Automation", is not an administrator: EPM makes it a member of
 a project, with its own minimal role, the first time a rule acts there. Its key
 is printed once (`ROTATE=1` issues a new one). Set it as
 `OPENPROJECT_AUTOMATION_API_KEY`, or put it in a file and set
-`OPENPROJECT_AUTOMATION_API_KEY_FILE` — any of EPM's secrets can be read from a
-file named by `<NAME>_FILE`, which is how a secret store hands them over — then
-`up -d`. Until it is set, rules notify and call out but change nothing in
+`OPENPROJECT_AUTOMATION_API_KEY_FILE` — EPM's own secrets (the OpenProject keys
+and OAuth secret, the webhook secrets, `SESSION_SECRET`, the mail credentials, `EPM_ANALYTICS_DATABASE_URL`,
+`EPM_OPS_ALERT_WEBHOOK_URL`, `EPM_METRICS_TOKEN`) can each be read from a file
+named by `<NAME>_FILE`, which is how a secret store hands them over. Two
+exceptions: `DATABASE_URL`, which Prisma and the migration step read from the
+environment themselves (the compose file builds it from `POSTGRES_PASSWORD`),
+and AWS credentials, which come from the AWS chain (a task role, or
+`AWS_SHARED_CREDENTIALS_FILE`) — then `up -d`. Until it is set, rules notify and call out but change nothing in
 OpenProject, and approval outcomes are moved with the service key.
 
 For rules to see changes made in OpenProject itself, its webhook (Administration
@@ -283,7 +288,15 @@ mounted disk, and a mounted disk can be snapshotted independently of the
 instance. `caddy-data` must survive a recreate — without it Caddy re-issues on
 every deploy and will meet Let's Encrypt's rate limit.
 
-```bash
-docker compose -f docker-compose.deploy.yml --env-file .env.prod exec postgres \
-  pg_dump -U epm epm | gzip > epm-$(date +%F).sql.gz
-```
+Backups are taken by `deploy/backup/epm-backup.sh` — EPM's database,
+OpenProject's database and its attachments, with checksums, a manifest and
+optional encryption and off-host copy — and put back by `epm-restore.sh`. The
+schedule, the recovery objectives, the restore test and the runbook are in
+`deploy/backup/README.md`.
+
+## Monitoring
+
+`/metrics` serves health, latency and error figures in the Prometheus format once
+`EPM_METRICS_TOKEN` is set; it is not routed by Caddy, so the scraper reaches the
+backend on the internal network. Alert rules and the scrape configuration are in
+`deploy/monitoring/`.

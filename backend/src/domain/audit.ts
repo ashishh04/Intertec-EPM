@@ -176,6 +176,59 @@ export async function listAuditPage(
   return { items: rows.map(toAuditEvent), total, page, pageSize };
 }
 
+export interface InstanceJournalQuery {
+  entityType?: string;
+  /** Only actions starting with this, e.g. `grant.` or `department.`. */
+  actionPrefix?: string;
+  actorId?: string;
+  projectId?: string;
+  /** Inclusive days, YYYY-MM-DD, in UTC. */
+  from?: string;
+  to?: string;
+  /** Words in the summary, case-insensitive. */
+  q?: string;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * The whole journal, filtered, one numbered page at a time, newest first —
+ * for the administrators' journal page (BRL-02). Every kind of entry, project
+ * or not, with the kinds the journal holds so the page can offer them.
+ */
+export async function listInstanceJournal(query: InstanceJournalQuery): Promise<{
+  items: AuditEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
+  entityTypes: string[];
+}> {
+  const occurredAt: Prisma.DateTimeFilter = {};
+  if (query.from) occurredAt.gte = new Date(`${query.from}T00:00:00.000Z`);
+  if (query.to) occurredAt.lt = new Date(new Date(`${query.to}T00:00:00.000Z`).getTime() + 86_400_000);
+  const where: Prisma.AuditEventWhereInput = {
+    ...(query.entityType ? { entityType: query.entityType } : {}),
+    ...(query.actionPrefix ? { action: { startsWith: query.actionPrefix } } : {}),
+    ...(query.actorId ? { actorId: query.actorId } : {}),
+    ...(query.projectId ? { projectId: query.projectId } : {}),
+    ...(query.from || query.to ? { occurredAt } : {}),
+    ...(query.q ? { summary: { contains: query.q, mode: 'insensitive' } } : {}),
+  };
+  const pageSize = Math.min(Math.max(query.pageSize, 1), 200);
+  const [total, kinds] = await Promise.all([
+    prisma.auditEvent.count({ where }),
+    prisma.auditEvent.findMany({ distinct: ['entityType'], select: { entityType: true }, orderBy: { entityType: 'asc' } }),
+  ]);
+  const page = Math.min(Math.max(query.page, 1), Math.max(1, Math.ceil(total / pageSize)));
+  const rows = await prisma.auditEvent.findMany({
+    where,
+    orderBy: { seq: 'desc' },
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+  });
+  return { items: rows.map(toAuditEvent), total, page, pageSize, entityTypes: kinds.map((row) => row.entityType) };
+}
+
 /** Newest first, paged by sequence number. */
 export async function listAudit(query: JournalQuery): Promise<AuditEvent[]> {
   const rows = await prisma.auditEvent.findMany({

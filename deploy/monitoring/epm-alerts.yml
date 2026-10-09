@@ -1,0 +1,102 @@
+# Alerting rules for EPM (NFR12), in Prometheus rule-file format. Load them in
+# Prometheus (`rule_files:`) or import them into whatever reads that format.
+# They assume the scrape job is named `epm-backend` (see README.md here).
+#
+# Figures read from the database (outbox, rule queue, analytics, reports) are
+# reported identically by every backend, so those rules take `max()` across
+# servers rather than alerting once per server.
+
+groups:
+  - name: epm
+    rules:
+      - alert: EpmBackendDown
+        expr: up{job="epm-backend"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: An EPM backend is not answering
+          description: '{{ $labels.instance }} has not answered a scrape for 2 minutes.'
+
+      - alert: EpmDependencyDown
+        expr: min by (dependency) (epm_dependency_up) == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: EPM cannot reach {{ $labels.dependency }}
+          description: The readiness check for {{ $labels.dependency }} has failed for 2 minutes; requests that need it are failing.
+
+      # NFR01: interactive views answer within 2 seconds at the 95th percentile.
+      - alert: EpmSlowResponses
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(epm_http_request_duration_seconds_bucket{route!~"/(health|ready|metrics)"}[10m]))
+          ) > 2
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: EPM's 95th-percentile response time is over 2 seconds
+          description: NFR01 sets 2 s at p95. Check epm_openproject_request_duration_seconds first — OpenProject is the usual cause.
+
+      - alert: EpmServerErrors
+        expr: |
+          sum(rate(epm_http_requests_total{status="5xx"}[10m]))
+            / clamp_min(sum(rate(epm_http_requests_total[10m])), 0.001) > 0.02
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 2% of EPM requests are failing on the server
+          description: The backend log has the requests, with route and user, at error level.
+
+      - alert: EpmOpenProjectFailing
+        expr: sum(rate(epm_openproject_requests_total{outcome=~"5xx|error|timeout"}[10m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Calls from EPM to OpenProject are failing or timing out
+          description: More than one failed call every ten seconds, sustained. Check the openproject container and its database.
+
+      - alert: EpmEmailBacklog
+        expr: max(epm_email_oldest_due_seconds) > 900
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Email is not going out
+          description: The oldest due email has waited over 15 minutes. Is EPM_EMAIL_WORKER_ENABLED on, and is the mail relay reachable?
+
+      - alert: EpmEmailGivingUp
+        expr: max(delta(epm_email_outbox_rows{status="failed"}[1h])) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: Emails failed after every retry
+          description: New rows reached `failed` in the last hour. Administration → Emails shows why; an operations alert was raised for each.
+
+      - alert: EpmRuleQueueStuck
+        expr: max(epm_rule_event_oldest_seconds) > 600
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Rules are not keeping up
+          description: A change has waited over 10 minutes for the rule worker. Is EPM_RULES_ENABLED on, and is the automation account's key valid?
+
+      - alert: EpmAnalyticsStale
+        expr: max(epm_analytics_refresh_last_seconds{kind="incremental"}) > 3600 or min(epm_analytics_refresh_last_ok) == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: Dashboards are not being refreshed
+          description: The analytics model has not refreshed for an hour, or its last refresh failed. Administration → Analytics shows the run log.
+
+      - alert: EpmReportRunsFailing
+        expr: max(epm_report_runs_failed_24h) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: A scheduled report failed to run
+          description: Scheduled reports → Log has the run and the reason.
+
+      - alert: EpmEventLoopBlocked
+        expr: max by (instance) (epm_event_loop_delay_p99_seconds) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: An EPM backend's event loop is stalling
+          description: '{{ $labels.instance }} is running timers half a second late; something is blocking the process.'

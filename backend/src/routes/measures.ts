@@ -140,7 +140,19 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     if (scope.kind !== 'project') throw EpmError.badRequest('Time entries are listed for one project: scope=project:<id>.');
-    return costEntries(measure.id, scope.id!, periodOf(query), viewer, todayIso(), query.page, query.pageSize);
+    const [entries, rates] = await Promise.all([
+      costEntries(measure.id, scope.id!, periodOf(query), viewer, todayIso(), query.page, query.pageSize),
+      guard.mayViewRates(request),
+    ]);
+    if (rates) return entries;
+    // One entry's cost is one person's rate times their hours (BRL-01). The
+    // entries and the project's total stay: the total is the project's labour
+    // cost, shown wherever the project is.
+    return {
+      ...entries,
+      costHidden: true,
+      entries: entries.entries.map((entry) => ({ ...entry, cost: null })),
+    };
   });
 
   app.get<{ Params: { id: string } }>('/measures/:id/trend', async (request) => {

@@ -198,6 +198,8 @@ export type Permission =
   | 'analytics:manage'
   | 'reports:schedule'
   | 'reports:approve'
+  | 'rates:view'
+  | 'audit:view'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -372,6 +374,58 @@ export interface AuditPage {
   total: number;
   page: number;
   pageSize: number;
+}
+
+/** A journal entry as the instance-wide journal shows it: with names, not only ids. */
+export interface JournalEntry extends AuditEvent {
+  actorName?: string;
+  projectName?: string;
+}
+
+/**
+ * One page of the instance-wide journal (BRL-02): every change EPM recorded,
+ * across projects and organisation data, newest first. For administrators and
+ * for people granted `audit:view`.
+ */
+export interface JournalPage {
+  items: JournalEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  /** Every kind of record the journal holds entries about, for the filter. */
+  entityTypes: string[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* EPM permission grants                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** A permission EPM owns and grants itself, because OpenProject has no equivalent. */
+export interface GrantablePermission {
+  permission: Permission;
+  label: string;
+  description: string;
+}
+
+export interface PermissionGrant {
+  userId: ID;
+  userName: string;
+  permission: Permission;
+  grantedAt: ISODate;
+  /** Absent for grants made before this page existed, or written by hand. */
+  grantedById?: ID;
+  grantedByName?: string;
+}
+
+export interface PermissionGrants {
+  catalogue: GrantablePermission[];
+  grants: PermissionGrant[];
+  /**
+   * People who hold every EPM permission from the server's configuration
+   * (`EPM_ADMIN_USER_IDS`). Listed so nobody is surprised by them; changed in
+   * configuration, not here.
+   */
+  configured: { userId: ID; userName: string }[];
 }
 
 export interface EpmProject {
@@ -905,10 +959,13 @@ export interface TimeReportRow {
   key: string;
   label: string;
   hours: number;
-  /** Absent when no hour in the row has a rate behind it. */
+  /** Absent when no hour in the row has a rate behind it, or when costs are hidden. */
   cost?: number;
-  /** Hours in this row that no rate applies to, so a total can say so. */
-  hoursWithoutRate: number;
+  /**
+   * Hours in this row that no rate applies to, so a total can say so. Absent
+   * when costs are hidden: per person, it would say who has a rate.
+   */
+  hoursWithoutRate?: number;
   entries: number;
 }
 
@@ -925,9 +982,15 @@ export interface TimeReport {
   to: ISODate;
   groupBy: TimeReportGrouping;
   totalHours: number;
-  /** Absent when nothing in range has a rate. */
+  /** Absent when nothing in range has a rate, or when costs are hidden. */
   totalCost?: number;
-  hoursWithoutRate: number;
+  /** Absent when costs are hidden. */
+  hoursWithoutRate?: number;
+  /**
+   * True when the caller may not read hourly rates (BRL-01): the report then
+   * carries hours only — no cost and no "without a rate" counts.
+   */
+  costHidden?: boolean;
   currency: string;
   rows: TimeReportRow[];
   /** Daily totals across the whole range, for the trend chart. */
@@ -2636,7 +2699,7 @@ export interface CostEntry {
   workPackageId?: ID;
   workPackageSubject?: string;
   activity?: string;
-  /** Null when the person has no hourly rate: such hours are not costed. */
+  /** Null when the person has no hourly rate (such hours are not costed), or when costs are hidden. */
   cost: number | null;
 }
 
@@ -2649,6 +2712,13 @@ export interface CostEntries {
   total: number;
   page: number;
   pageSize: number;
+  /**
+   * True when the caller may not read hourly rates (BRL-01): each entry's cost
+   * is withheld, since one entry's cost is one person's rate times hours. The
+   * project's total stays — it is the project's labour cost, shown wherever
+   * the project is.
+   */
+  costHidden?: boolean;
   totals: { hours: number; costedHours: number; uncostedHours: number; cost: number };
   /** The labour cost the figure was made from, for this project, and whether these entries add up to it. */
   figure: { actual: number | null; matches: boolean };

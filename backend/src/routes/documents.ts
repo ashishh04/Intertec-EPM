@@ -181,8 +181,16 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       throw EpmError.badRequest('That project is not valid.');
     }
 
+    // The project is EPM's label, not OpenProject's container (above), so
+    // OpenProject never sees it and cannot refuse it. Filing under a project is
+    // adding to it, which takes what adding a meeting or a wiki page there
+    // takes: seeing the project (domain/collaboration.ts). Without this, anyone
+    // allowed to upload at all could file under a project they cannot see — and
+    // the upload is announced to that project's members.
+    if (projectId) await guard.require(request, 'project:view', projectId);
+
     /*
-     * Not guarded here, and deliberately.
+     * Whether they may upload at all is not guarded here, and deliberately.
      *
      * `document:upload` has no action in the capabilities vocabulary, so EPM
      * has nothing authoritative to check it against — which is why it is

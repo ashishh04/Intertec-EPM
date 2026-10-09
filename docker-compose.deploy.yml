@@ -221,6 +221,7 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID}
       EPM_ASSISTANT_REGIONS: ${EPM_ASSISTANT_REGIONS:-}
+      EPM_METRICS_TOKEN: ${EPM_METRICS_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       # Readiness, not liveness: this one fails while the database or OpenProject

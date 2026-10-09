@@ -594,7 +594,13 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
             {data.figure.matches
               ? `These ${formatNumber(data.total)} entries make the project's labour cost: ${money(data.totals.cost)}.`
               : `These ${formatNumber(data.total)} entries come to ${money(data.totals.cost)}; the figure counts ${money(data.figure.actual)} — some time on this project may not be visible to you, or was logged since the figures were read.`}
-            {data.totals.uncostedHours > 0 ? ` ${formatNumber(data.totals.uncostedHours)} h by people without an hourly rate are not costed.` : ''}
+            {/* Without leave to read rates (BRL-01) the entries come without their
+                cost: one entry's cost is one person's rate times their hours. */}
+            {data.costHidden
+              ? " Each entry's cost is shown to people allowed to see hourly rates."
+              : data.totals.uncostedHours > 0
+                ? ` ${formatNumber(data.totals.uncostedHours)} h by people without an hourly rate are not costed.`
+                : ''}
           </p>
           <Table>
             <TableHeader>
@@ -603,7 +609,7 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
                 <TableHead>Person</TableHead>
                 <TableHead>Work package</TableHead>
                 <TableHead numeric>Hours</TableHead>
-                <TableHead numeric>Cost</TableHead>
+                {data.costHidden ? null : <TableHead numeric>Cost</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -623,9 +629,11 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
                   <TableCell numeric className="tabular-nums">
                     {formatNumber(entry.hours)}
                   </TableCell>
-                  <TableCell numeric className="tabular-nums">
-                    {entry.cost === null ? <span className="text-muted-foreground">not costed</span> : money(entry.cost)}
-                  </TableCell>
+                  {data.costHidden ? null : (
+                    <TableCell numeric className="tabular-nums">
+                      {entry.cost === null ? <span className="text-muted-foreground">not costed</span> : money(entry.cost)}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -638,9 +646,11 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
                 <TableCell numeric className="font-semibold tabular-nums">
                   {formatNumber(data.totals.hours)}
                 </TableCell>
-                <TableCell numeric className="font-semibold tabular-nums">
-                  {money(data.totals.cost)}
-                </TableCell>
+                {data.costHidden ? null : (
+                  <TableCell numeric className="font-semibold tabular-nums">
+                    {money(data.totals.cost)}
+                  </TableCell>
+                )}
               </TableRow>
             </TableFooter>
           </Table>

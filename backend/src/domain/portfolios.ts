@@ -2,6 +2,12 @@ import type { Portfolio } from '@prisma/client';
 
 import { EpmError } from '../lib/errors.js';
 import { prisma } from '../db/prisma.js';
+import { withAudit } from './audit.js';
+
+/** What the journal keeps of a portfolio: its own fields, not the roll-ups. */
+function portfolioRecord(row: Portfolio) {
+  return { name: row.name, code: row.code, description: row.description, active: row.active };
+}
 import type { HealthLevel, ProjectStatus } from '../types/epm.js';
 
 /**
@@ -371,7 +377,17 @@ export async function createPortfolio(
   await assertNameAvailable(name);
 
   // `active` is not accepted from the caller: the lifecycle routes own it.
-  const row = await prisma.portfolio.create({ data: { name, code, description } }).catch(asConflict);
+  // Journalled in the same transaction (BRL-02).
+  const row = await withAudit(
+    (tx) => tx.portfolio.create({ data: { name, code, description } }).catch(asConflict),
+    (created) => ({
+      entityType: 'portfolio',
+      entityId: created.id,
+      action: 'portfolio.created',
+      summary: `Created portfolio ${created.name}`,
+      after: portfolioRecord(created),
+    }),
+  );
 
   return toEpmPortfolio(row, (await rollupsFor(facts)).get(row.id));
 }
@@ -381,7 +397,7 @@ export async function updatePortfolio(
   input: PortfolioInput,
   facts: PortfolioProjectFacts[],
 ): Promise<EpmPortfolio> {
-  const existing = await prisma.portfolio.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.portfolio.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That portfolio');
 
   // Only what was sent is changed, so a partial update cannot blank a field by
@@ -399,7 +415,17 @@ export async function updatePortfolio(
     throw EpmError.badRequest('There is nothing to update.');
   }
 
-  const row = await prisma.portfolio.update({ where: { id }, data }).catch(asConflict);
+  const row = await withAudit(
+    (tx) => tx.portfolio.update({ where: { id }, data }).catch(asConflict),
+    (updated) => ({
+      entityType: 'portfolio',
+      entityId: id,
+      action: 'portfolio.updated',
+      summary: `Changed portfolio ${updated.name}`,
+      before: portfolioRecord(existing),
+      after: portfolioRecord(updated),
+    }),
+  );
 
   return toEpmPortfolio(row, (await rollupsFor(facts)).get(id));
 }
@@ -416,10 +442,20 @@ export async function setPortfolioActive(
   active: boolean,
   facts: PortfolioProjectFacts[],
 ): Promise<EpmPortfolio> {
-  const existing = await prisma.portfolio.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.portfolio.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That portfolio');
 
-  const row = await prisma.portfolio.update({ where: { id }, data: { active } });
+  const row = await withAudit(
+    (tx) => tx.portfolio.update({ where: { id }, data: { active } }),
+    (updated) => ({
+      entityType: 'portfolio',
+      entityId: id,
+      action: active ? 'portfolio.restored' : 'portfolio.archived',
+      summary: `${active ? 'Restored' : 'Archived'} portfolio ${updated.name}`,
+      before: { active: existing.active },
+      after: { active: updated.active },
+    }),
+  );
 
   return toEpmPortfolio(row, (await rollupsFor(facts)).get(id));
 }
@@ -469,7 +505,7 @@ export async function setProjectPortfolio(
  * unlinking the projects in it.
  */
 export async function deletePortfolio(id: string): Promise<void> {
-  const existing = await prisma.portfolio.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.portfolio.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That portfolio');
 
   const projects = await prisma.projectProfile.count({ where: { portfolioId: id } });
@@ -481,5 +517,11 @@ export async function deletePortfolio(id: string): Promise<void> {
     );
   }
 
-  await prisma.portfolio.delete({ where: { id } });
+  await withAudit((tx) => tx.portfolio.delete({ where: { id } }), {
+    entityType: 'portfolio',
+    entityId: id,
+    action: 'portfolio.deleted',
+    summary: `Deleted portfolio ${existing.name}`,
+    before: portfolioRecord(existing),
+  });
 }

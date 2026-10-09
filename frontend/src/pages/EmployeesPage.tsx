@@ -80,6 +80,9 @@ const ACCOUNT_STATUS_TONE: Record<AccountStatus, Tone> = {
 export default function EmployeesPage() {
   const { can } = useAuth();
   const mayManage = can('employees:manage');
+  // Rates are pay information: the API leaves them out for everyone else
+  // (BRL-01), so the column would only ever say "not costed" — wrongly.
+  const mayReadRates = mayManage || can('rates:view');
 
   const [search, setSearch] = useState('');
   const [departmentId, setDepartmentId] = useState(ALL);
@@ -179,7 +182,7 @@ export default function EmployeesPage() {
 
   // The skeleton mirrors the real table, so the optional columns count too.
   const columnCount =
-    4 + (mayManageAccounts ? 1 : 0) + (mayManage || mayManageAccounts ? 1 : 0);
+    4 + (mayReadRates ? 1 : 0) + (mayManageAccounts ? 1 : 0) + (mayManage || mayManageAccounts ? 1 : 0);
 
   return (
     <div className="space-y-5">
@@ -272,7 +275,7 @@ export default function EmployeesPage() {
                 <TableHead>Department</TableHead>
                 <TableHead>Team</TableHead>
                 <TableHead numeric>Capacity</TableHead>
-                <TableHead numeric>Rate</TableHead>
+                {mayReadRates ? <TableHead numeric>Rate</TableHead> : null}
                 {mayManageAccounts ? <TableHead>Account</TableHead> : null}
                 {mayManage || mayManageAccounts ? <TableHead className="w-44" /> : null}
               </TableRow>
@@ -336,18 +339,20 @@ export default function EmployeesPage() {
                   {/* Absent rather than zero: nobody has costed this person, and
                       Time & Costs reports their hours as uncosted rather than
                       pricing them at nothing. */}
-                  <TableCell numeric>
-                    {employee.hourlyRate === undefined ? (
-                      <span className="text-muted-foreground" title="Not costed">
-                        &mdash;
-                      </span>
-                    ) : (
-                      <>
-                        {formatCurrency(employee.hourlyRate, env.currency, 2)}
-                        <span className="text-muted-foreground">/h</span>
-                      </>
-                    )}
-                  </TableCell>
+                  {mayReadRates ? (
+                    <TableCell numeric>
+                      {employee.hourlyRate === undefined ? (
+                        <span className="text-muted-foreground" title="Not costed">
+                          &mdash;
+                        </span>
+                      ) : (
+                        <>
+                          {formatCurrency(employee.hourlyRate, env.currency, 2)}
+                          <span className="text-muted-foreground">/h</span>
+                        </>
+                      )}
+                    </TableCell>
+                  ) : null}
 
                   {mayManageAccounts ? (
                     <TableCell>

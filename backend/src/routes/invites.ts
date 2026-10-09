@@ -8,6 +8,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import { checkPassword } from '../domain/password-policy.js';
+import { recordAuditQuietly } from '../domain/audit.js';
 import type { OpPrincipal } from '../openproject/types.js';
 import type { InviteInfo } from '../types/epm.js';
 
@@ -95,11 +96,32 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.badRequest(`That password needs: ${failures.join(', ')}.`);
       }
 
-      const account = await openProject.request<OpPrincipal>(`/users/${invite.openProjectId}`, {
-        method: 'PATCH',
-        body: { password },
-        signal: requestSignal(request),
+      // Claimed before the password is written, and atomically: two requests
+      // racing with the same link both passed the check above and both set a
+      // password. Only the request whose update still finds the token unused
+      // goes on. If the write upstream then fails, the claim is released — a
+      // token burnt by a failure that was not the person's would leave them
+      // with no way in.
+      const claimedAt = new Date();
+      const claim = await prisma.inviteToken.updateMany({
+        where: { id: invite.id, usedAt: null, expiresAt: { gt: claimedAt } },
+        data: { usedAt: claimedAt },
       });
+      if (claim.count !== 1) throw EpmError.gone('This invitation has already been used.');
+
+      let account: OpPrincipal;
+      try {
+        account = await openProject.request<OpPrincipal>(`/users/${invite.openProjectId}`, {
+          method: 'PATCH',
+          body: { password },
+          signal: requestSignal(request),
+        });
+      } catch (error) {
+        await prisma.inviteToken
+          .updateMany({ where: { id: invite.id, usedAt: claimedAt }, data: { usedAt: null } })
+          .catch(() => undefined);
+        throw error;
+      }
 
       // The handover gate exists for a password an administrator chose. This
       // one the person chose themselves.
@@ -107,9 +129,19 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
         .updateMany({ where: { openProjectId: invite.openProjectId }, data: { mustChangePassword: false } })
         .catch(() => undefined);
 
-      // Marked used after the password is set, not before: a token burnt by a
-      // failed upstream write would leave the person with no way in.
-      await prisma.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } });
+      // Journalled with the invitee as the actor (BRL-02): nobody is signed in
+      // on this route, and the token is what identified them. The password is
+      // set already, so a journal failure is logged, not thrown.
+      await recordAuditQuietly([
+        {
+          actorId: invite.openProjectId,
+          actorKind: 'user',
+          entityType: 'invitation',
+          entityId: invite.id,
+          action: 'invitation.accepted',
+          summary: `Invitation for ${invite.email} accepted; the person set their own password`,
+        },
+      ]);
 
       return { login: account.login ?? '' };
     },

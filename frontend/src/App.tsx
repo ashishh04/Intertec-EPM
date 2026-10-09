@@ -52,6 +52,7 @@ const ScheduledReportsPage = lazy(() => import('@/pages/ScheduledReportsPage'));
 const PortfolioViewsPage = lazy(() => import('@/pages/PortfolioViewsPage'));
 const PortfolioViewPage = lazy(() => import('@/pages/PortfolioViewPage'));
 const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
+const JournalPage = lazy(() => import('@/pages/JournalPage'));
 const DocumentsPage = lazy(() => import('@/pages/DocumentsPage'));
 const MeetingsPage = lazy(() => import('@/pages/MeetingsPage'));
 const MeetingDetailPage = lazy(() => import('@/pages/MeetingDetailPage'));
@@ -230,6 +231,14 @@ export function App() {
             element={
               <RequirePermission permission="employees:manage">
                 <EmployeesPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/journal"
+            element={
+              <RequirePermission permission="audit:view">
+                <JournalPage />
               </RequirePermission>
             }
           />

@@ -392,6 +392,14 @@ const schema = z.object({
   // endpoint.
   ANTHROPIC_BEDROCK_MANTLE_BASE_URL: z.string().optional(),
 
+  // --- Monitoring (NFR12) ----------------------------------------------------
+  // The bearer token a scraper sends to read /metrics. Unset, /metrics is off.
+  // Long and random: `openssl rand -hex 24`.
+  EPM_METRICS_TOKEN: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(24, 'EPM_METRICS_TOKEN must be at least 24 characters.').optional(),
+  ),
+
   EPM_ADMIN_USER_IDS: z
     .string()
     .default('')
@@ -421,6 +429,8 @@ const FILE_SECRETS = [
   'SMTP_PASSWORD',
   'EPM_RULES_WEBHOOK_SECRET',
   'EPM_ANALYTICS_DATABASE_URL',
+  'EPM_METRICS_TOKEN',
+  'EPM_OPS_ALERT_WEBHOOK_URL',
 ] as const;
 
 function withSecretFiles(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

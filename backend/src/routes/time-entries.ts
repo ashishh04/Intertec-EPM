@@ -15,6 +15,22 @@ import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/cl
 import type { HalLink } from '../openproject/types.js';
 import type { EpmTimeEntry, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
 import { automationUserId } from '../domain/automation-account.js';
+import { mayViewRates } from '../auth/guard.js';
+
+/**
+ * The report with every figure that prices one person's time taken out
+ * (BRL-01). Grouped by person or filtered to one, a cost is that person's rate
+ * times their hours, and "hours without a rate" says who has one. Hours stay:
+ * OpenProject has already decided the caller may see the time itself.
+ */
+function withoutCosts(report: TimeReport): TimeReport {
+  const { totalCost: _cost, hoursWithoutRate: _uncosted, ...rest } = report;
+  return {
+    ...rest,
+    costHidden: true,
+    rows: report.rows.map(({ cost: _rowCost, hoursWithoutRate: _rowUncosted, ...row }) => row),
+  };
+}
 
 /**
  * Logged time.
@@ -419,7 +435,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
      * people. Sequencing them would triple the latency of the slowest page in
      * the product for no reason.
      */
-    const [collection, rates, users] = await Promise.all([
+    const [collection, rates, users, ratesVisible] = await Promise.all([
       openProject
         .getAll<OpTimeEntry>(
           '/time_entries',
@@ -438,6 +454,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       // Names only matter when grouping by person, but the report also needs
       // them for nothing else, so this is skipped otherwise.
       query.groupBy === 'user' ? getUsers(signal).catch(() => []) : Promise.resolve([]),
+      mayViewRates(request),
     ]);
 
     const rateOf = new Map(rates.map((row) => [row.openProjectId, row.hourlyRate ?? 0]));
@@ -445,7 +462,9 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
 
     const entries = collection.items.map(toEpmTimeEntry);
 
-    const rows = new Map<string, TimeReportRow>();
+    // Counted here whatever the caller may see; `withoutCosts` takes out what
+    // they may not before the report leaves.
+    const rows = new Map<string, TimeReportRow & { hoursWithoutRate: number }>();
     // Pre-seeded with every day in range so the chart has a flat line rather
     // than a gap where nobody logged anything.
     const byDay = new Map<string, number>();
@@ -491,7 +510,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       query.groupBy,
     );
 
-    return {
+    const report: TimeReport = {
       from: query.from,
       to: query.to,
       groupBy: query.groupBy,
@@ -505,6 +524,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       byDay: [...byDay.entries()].map(([date, hours]) => ({ date, hours: round(hours) })),
       truncated: collection.truncated,
     };
+    return ratesVisible ? report : withoutCosts(report);
   });
 
   app.get<{ Params: { id: string } }>('/time-entries/:id', async (request) => {

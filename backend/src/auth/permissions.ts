@@ -67,6 +67,8 @@ export const PERMISSIONS = [
   'analytics:manage',
   'reports:schedule',
   'reports:approve',
+  'rates:view',
+  'audit:view',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -152,6 +154,17 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // the person who adds an outside address is not the one who lets it receive.
   'reports:approve':
     'Approving external recipients of scheduled reports is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // A person's internal hourly rate, and the cost of one person's time, are
+  // pay information: not something every signed-in colleague should read
+  // (BRL-01). The rates are EPM's, so the permission is too. Whoever sets
+  // rates (employees:manage) sees them without it.
+  'rates:view':
+    'Hourly rates are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Reading the whole journal — every change EPM recorded, across projects and
+  // organisation data — is an oversight role (audit, security), kept apart
+  // from administering anything.
+  'audit:view':
+    'The instance-wide journal is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

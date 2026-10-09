@@ -2,6 +2,7 @@ import { currentAuth, isAutomation } from '../auth/context.js';
 import { env } from '../config/env.js';
 import { OpenProjectError, EpmError } from '../lib/errors.js';
 import { appLog } from '../lib/log.js';
+import { observeUpstream, statusClass } from '../lib/metrics.js';
 import type { HalCollection, HalLink, OpErrorBody } from './types.js';
 
 /**
@@ -259,6 +260,10 @@ export class OpenProjectClient {
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const composed = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      // Every attempt is timed for /metrics (NFR12): a slow or failing
+      // OpenProject is the commonest reason EPM is slow.
+      const attemptStarted = performance.now();
+      const seconds = () => (performance.now() - attemptStarted) / 1000;
 
       try {
         const response = await fetch(url, {
@@ -283,6 +288,7 @@ export class OpenProjectClient {
           },
           body: body === undefined ? undefined : isFormData ? (body as FormData) : JSON.stringify(body),
         });
+        observeUpstream(method, statusClass(response.status), seconds());
 
         if (response.ok) {
           if (response.status === 204) return undefined as T;
@@ -303,6 +309,9 @@ export class OpenProjectClient {
 
         // The caller gave up (client disconnected) — don't retry, don't mask it.
         if (signal?.aborted) throw EpmError.timeout('The request was cancelled.');
+
+        const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
+        observeUpstream(method, timedOut ? 'timeout' : 'error', seconds());
 
         if (error instanceof DOMException && error.name === 'TimeoutError') {
           if (attempt < MAX_ATTEMPTS - 1) {

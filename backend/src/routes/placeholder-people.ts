@@ -5,6 +5,29 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
+import { withAudit } from '../domain/audit.js';
+
+/**
+ * What the journal keeps of a placeholder (BRL-02): planned capacity counts
+ * toward team and portfolio figures, so who planned it, and when, matters.
+ */
+function placeholderRecord(row: {
+  name: string;
+  note: string | null;
+  teamId: string | null;
+  departmentId: string | null;
+  hoursCapacity: number;
+  convertedTo?: string | null;
+}) {
+  return {
+    name: row.name,
+    note: row.note,
+    teamId: row.teamId,
+    departmentId: row.departmentId,
+    hoursCapacity: row.hoursCapacity,
+    convertedTo: row.convertedTo ?? null,
+  };
+}
 import type { EpmPlaceholderPerson } from '../types/epm.js';
 
 /**
@@ -141,17 +164,27 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
     const input = writeBody.parse(request.body ?? {});
     const mapping = await resolveMapping(input);
 
-    const created = await prisma.placeholderPerson
-      .create({
-        data: {
-          name: input.name,
-          note: input.note || null,
-          ...mapping,
-          ...(input.hoursCapacity === undefined ? {} : { hoursCapacity: input.hoursCapacity }),
-        },
-        include,
-      })
-      .catch(rethrowWrite(input.name));
+    const created = await withAudit(
+      (tx) =>
+        tx.placeholderPerson
+          .create({
+            data: {
+              name: input.name,
+              note: input.note || null,
+              ...mapping,
+              ...(input.hoursCapacity === undefined ? {} : { hoursCapacity: input.hoursCapacity }),
+            },
+            include,
+          })
+          .catch(rethrowWrite(input.name)),
+      (row) => ({
+        entityType: 'placeholder',
+        entityId: row.id,
+        action: 'placeholder.created',
+        summary: `Created placeholder ${row.name}`,
+        after: placeholderRecord(row),
+      }),
+    );
 
     reply.code(201);
     return toEpm(created);
@@ -179,18 +212,29 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
           })
         : {};
 
-      const updated = await prisma.placeholderPerson
-        .update({
-          where: { id: request.params.id },
-          data: {
-            ...(input.name === undefined ? {} : { name: input.name }),
-            ...(input.note === undefined ? {} : { note: input.note || null }),
-            ...(input.hoursCapacity === undefined ? {} : { hoursCapacity: input.hoursCapacity }),
-            ...mapping,
-          },
-          include,
-        })
-        .catch(rethrowWrite(input.name ?? existing.name));
+      const updated = await withAudit(
+        (tx) =>
+          tx.placeholderPerson
+            .update({
+              where: { id: request.params.id },
+              data: {
+                ...(input.name === undefined ? {} : { name: input.name }),
+                ...(input.note === undefined ? {} : { note: input.note || null }),
+                ...(input.hoursCapacity === undefined ? {} : { hoursCapacity: input.hoursCapacity }),
+                ...mapping,
+              },
+              include,
+            })
+            .catch(rethrowWrite(input.name ?? existing.name)),
+        (row) => ({
+          entityType: 'placeholder',
+          entityId: row.id,
+          action: 'placeholder.updated',
+          summary: `Changed placeholder ${row.name}`,
+          before: placeholderRecord(existing),
+          after: placeholderRecord(row),
+        }),
+      );
 
       return toEpm(updated);
     },
@@ -223,27 +267,37 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.conflict('That placeholder has already become a real person.');
       }
 
-      const [, converted] = await prisma.$transaction([
-        prisma.userProfile.upsert({
-          where: { openProjectId: userId },
-          create: {
-            openProjectId: userId,
-            teamId: existing.teamId,
-            departmentId: existing.departmentId,
-            hoursCapacity: existing.hoursCapacity,
-          },
-          update: {
-            teamId: existing.teamId,
-            departmentId: existing.departmentId,
-            hoursCapacity: existing.hoursCapacity,
-          },
+      const converted = await withAudit(
+        async (tx) => {
+          await tx.userProfile.upsert({
+            where: { openProjectId: userId },
+            create: {
+              openProjectId: userId,
+              teamId: existing.teamId,
+              departmentId: existing.departmentId,
+              hoursCapacity: existing.hoursCapacity,
+            },
+            update: {
+              teamId: existing.teamId,
+              departmentId: existing.departmentId,
+              hoursCapacity: existing.hoursCapacity,
+            },
+          });
+          return tx.placeholderPerson.update({
+            where: { id: request.params.id },
+            data: { convertedTo: userId, convertedAt: new Date() },
+            include,
+          });
+        },
+        (row) => ({
+          entityType: 'placeholder',
+          entityId: row.id,
+          action: 'placeholder.converted',
+          summary: `Placeholder ${row.name} filled by user ${userId}, who takes on its team, department and capacity`,
+          before: placeholderRecord(existing),
+          after: placeholderRecord(row),
         }),
-        prisma.placeholderPerson.update({
-          where: { id: request.params.id },
-          data: { convertedTo: userId, convertedAt: new Date() },
-          include,
-        }),
-      ]);
+      );
 
       return toEpm(converted);
     },
@@ -251,9 +305,15 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete<{ Params: { id: string } }>('/placeholder-people/:id', async (request, reply) => {
     await guard.require(request, 'employees:manage');
-    await byId(request.params.id);
+    const existing = await byId(request.params.id);
 
-    await prisma.placeholderPerson.delete({ where: { id: request.params.id } });
+    await withAudit((tx) => tx.placeholderPerson.delete({ where: { id: request.params.id } }), {
+      entityType: 'placeholder',
+      entityId: request.params.id,
+      action: 'placeholder.deleted',
+      summary: `Deleted placeholder ${existing.name}`,
+      before: placeholderRecord(existing),
+    });
     reply.code(204);
   });
 };

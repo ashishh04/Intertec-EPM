@@ -8,6 +8,8 @@ import { ZodError } from 'zod';
 
 import { env, isProduction } from './config/env.js';
 import { residencyWarning } from './assistant/bedrock.js';
+import { httpDuration, httpRequests, statusClass } from './lib/metrics.js';
+import { registerMetrics } from './routes/metrics.js';
 import { createAnalyticsSnapshotScheduler } from './scheduler/analytics-snapshot.js';
 import { createAnalyticsRefreshScheduler } from './scheduler/analytics-refresh.js';
 import { createReportScheduler } from './scheduler/report-scheduler.js';
@@ -217,6 +219,25 @@ export async function buildApp(): Promise<FastifyInstance> {
       status: ready ? 'ready' : 'unavailable',
       checks: { database, openProject: upstream },
     });
+  });
+
+  // Scrape target for monitoring (NFR12); off unless EPM_METRICS_TOKEN is set.
+  registerMetrics(app);
+
+  // Request figures for /metrics, labelled by the route's pattern
+  // (`/api/projects/:id`, not every id) so the set of series stays bounded.
+  // The same label goes on the request's log lines, with the person once the
+  // session is known (auth/hook.ts), so a slow or failing call can be traced.
+  app.addHook('onRequest', async (request) => {
+    (request.log as { setBindings?: (bindings: Record<string, unknown>) => void }).setBindings?.({
+      route: request.routeOptions.url ?? 'unmatched',
+    });
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    const route = request.routeOptions.url ?? 'unmatched';
+    if (route === '/metrics') return;
+    httpRequests.inc({ method: request.method, route, status: statusClass(reply.statusCode) });
+    httpDuration.observe({ method: request.method, route }, reply.elapsedTime / 1000);
   });
 
   registerRequestSignal(app);

@@ -36,8 +36,21 @@ import type { Prisma } from '@prisma/client';
  * stopped before its cleanup — killed, or its terminal closed — would
  * otherwise leave the administrator's email off for good. The next run finds
  * this file and puts them back before anything else.
+ *
+ * Named for the database the run writes to: two suites on one machine against
+ * different databases (parallel worktrees) must never put one's held
+ * preferences back into the other.
  */
-const HELD_PREFERENCES = join(tmpdir(), 'epm-authz-admin-preferences.json');
+const HELD_PREFERENCES = join(tmpdir(), `epm-authz-admin-preferences-${databaseKey()}.json`);
+
+function databaseKey(): string {
+  try {
+    const url = new URL(process.env.DATABASE_URL ?? '');
+    return `${url.hostname}-${url.port || '5432'}-${url.pathname.slice(1)}`.replace(/[^\w.-]/g, '_');
+  } catch {
+    return 'default';
+  }
+}
 
 interface HeldPreferences {
   userId: string;
@@ -176,6 +189,14 @@ async function main() {
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
+  // "Read hourly rates", lent to the restricted account to show it takes
+  // effect; taken back in the section, and again in the cleanup if a run
+  // stopped in between.
+  let ratesGrantLent = false;
+  let restrictedIdForCleanup = '';
+  // Removals the surfaces section (authz-surfaces.ts) registers as each of its
+  // records comes into being; run newest first at the top of the cleanup.
+  const surfaceCleanups: (() => Promise<void>)[] = [];
   // Dedupe keys the notification tests create directly. Not the whole story:
   // the capacity, employee and portfolio sections mutate capacity through the
   // API, and each of those now produces a notification too. The timestamp below
@@ -246,6 +267,7 @@ async function main() {
 
   check('the two sessions are different identities', adminMe.id !== restrictedMe.id, true);
   const restrictedId = restrictedMe.id;
+  restrictedIdForCleanup = restrictedId;
 
   // The administrator's address is a real mailbox, and any mail worker on this
   // database — a developer's own server — sends what the run queues: approval
@@ -5346,14 +5368,20 @@ async function main() {
   // A capture slower than the interval must be skipped, not queued behind
   // itself, or a slow instance would pile up work indefinitely.
   let started = 0;
+  // Sticky, so a capture that begins after the release returns at once rather
+  // than waiting for a release that has already happened — which left the run
+  // awaiting a promise that never settled, and Node exited without cleaning up.
+  let released = false;
   let releaseCapture: (() => void) | undefined;
   const slow = createAnalyticsSnapshotScheduler({
     log: testLog,
     capture: async () => {
       started += 1;
-      await new Promise<void>((resolve) => {
-        releaseCapture = resolve;
-      });
+      if (!released) {
+        await new Promise<void>((resolve) => {
+          releaseCapture = resolve;
+        });
+      }
       return { sampledOn: '2026-01-01', records: 7, scopes: {} };
     },
     intervalMs: 60 * 60_000,
@@ -5361,11 +5389,16 @@ async function main() {
   });
 
   const inFlight = slow.tick();
-  await new Promise((resolve) => setImmediate(resolve));
   check('a capture in flight is reported as running', slow.running, true);
+  // The tick takes the scheduler's lease first, a database round trip, so the
+  // capture begins a moment after the tick rather than within it.
+  for (let waited = 0; started === 0 && waited < 10_000; waited += 20) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   await slow.tick();
   check('an overlapping tick is skipped rather than queued', started, 1);
   check('and says so', logLines.some((line) => line.includes('skipped')), true);
+  released = true;
   releaseCapture?.();
   await inFlight;
   check('the flag clears when it finishes', slow.running, false);
@@ -7241,6 +7274,29 @@ async function main() {
     );
   }
 
+  // --- Surfaces ---------------------------------------------------------------
+  // Meetings, news, the wiki, documents, logged time, the assistant, the
+  // webhook receiver, sessions, invitations and preferences, each held to the
+  // same rule against the private project: authz-surfaces.ts.
+  if (createdId) {
+    const { surfaceChecks } = await import('./authz-surfaces.js');
+    await surfaceChecks({
+      call,
+      status,
+      check,
+      admin,
+      restricted,
+      adminId,
+      restrictedId,
+      projectId: createdId,
+      base: BASE,
+      signInRestricted: () => signIn(RESTRICTED),
+      cleanup: { onCleanup: (fn) => surfaceCleanups.push(fn) },
+    });
+  } else {
+    console.log('\n  SKIP  surfaces: the private project was not created');
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -7367,6 +7423,127 @@ async function main() {
       await status('/integrations/status/sync', { method: 'POST', cookie: admin }),
       200,
     );
+
+    // --- Rates and per-person cost (BRL-01) -------------------------------
+    // A rate is pay information. The administrator's rate was set by the
+    // health section above, so there is one to see — or not.
+    type Person = { id: string; hourlyRate?: number };
+    const adminDirectory = (await (await call('/employees', { cookie: admin })).json()) as Person[];
+    const restrictedDirectory = (await (await call('/employees', { cookie: restricted })).json()) as Person[];
+    check('whoever sets rates sees them in the directory', adminDirectory.some((person) => person.hourlyRate !== undefined), true);
+    check(
+      'nobody else sees any rate in it',
+      restrictedDirectory.length > 0 && restrictedDirectory.every((person) => !('hourlyRate' in person)),
+      true,
+    );
+    const ownRecord = (await (await call(`/employees/${adminId}`, { cookie: restricted })).json()) as Person;
+    check('not even by asking for one person', 'hourlyRate' in ownRecord, false);
+
+    type Report = { costHidden?: boolean; totalCost?: number; hoursWithoutRate?: number; rows: Record<string, unknown>[] };
+    const range = `from=${new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`;
+    const reportAs = async (cookie: string) =>
+      (await (await call(`/time-entries/report?${range}&groupBy=user`, { cookie })).json()) as Report;
+    const hidden = await reportAs(restricted);
+    check('Time & Costs tells someone without rates that costs are hidden', hidden.costHidden, true);
+    check(
+      'and carries no money and no "without a rate" counts',
+      hidden.totalCost === undefined &&
+        hidden.hoursWithoutRate === undefined &&
+        hidden.rows.every((row) => !('cost' in row) && !('hoursWithoutRate' in row)),
+      true,
+    );
+    check('whoever may read rates gets the costs', (await reportAs(admin)).costHidden === undefined, true);
+
+    // --- EPM's own permission grants ---------------------------------------
+    check(
+      'only an administrator lists EPM permission grants',
+      await status('/admin/permission-grants', { cookie: restricted }),
+      403,
+    );
+    check(
+      'or grants one',
+      await status('/admin/permission-grants', {
+        method: 'POST',
+        cookie: restricted,
+        body: { userId: restrictedId, permission: 'rates:view' },
+      }),
+      403,
+    );
+    check(
+      'a permission OpenProject decides cannot be granted here',
+      await status('/admin/permission-grants', {
+        method: 'POST',
+        cookie: admin,
+        body: { userId: restrictedId, permission: 'users:manage' },
+      }),
+      400,
+    );
+    const lend = await call('/admin/permission-grants', {
+      method: 'POST',
+      cookie: admin,
+      body: { userId: restrictedId, permission: 'rates:view' },
+    });
+    if (lend.status === 201) ratesGrantLent = true;
+    check('an administrator grants "Read hourly rates"', lend.status, 201);
+    check(
+      'granting it twice is refused',
+      await status('/admin/permission-grants', {
+        method: 'POST',
+        cookie: admin,
+        body: { userId: restrictedId, permission: 'rates:view' },
+      }),
+      409,
+    );
+    check('with it, the costs are there at once', (await reportAs(restricted)).costHidden === undefined, true);
+    check(
+      'and the rates',
+      ((await (await call('/employees', { cookie: restricted })).json()) as Person[]).some((person) => 'hourlyRate' in person) ||
+        restrictedDirectory.every((person) => person.id !== adminId),
+      true,
+    );
+    const taken = await status(`/admin/permission-grants/${restrictedId}/rates:view`, { method: 'DELETE', cookie: admin });
+    if (taken === 204) ratesGrantLent = false;
+    check('removing it', taken, 204);
+    check('takes them away again', (await reportAs(restricted)).costHidden, true);
+
+    // --- Trends from organisation-wide snapshots ---------------------------
+    check(
+      'organisation-wide trends are refused to someone who does not manage analytics',
+      await status('/analytics/trends?metrics=projects.total', { cookie: restricted }),
+      403,
+    );
+    check(
+      'a person reads their own series',
+      await status(`/analytics/trends?metrics=myTasks&scopeType=user&scopeId=${restrictedId}`, { cookie: restricted }),
+      200,
+    );
+    check(
+      "but not someone else's",
+      await status(`/analytics/trends?metrics=myTasks&scopeType=user&scopeId=${adminId}`, { cookie: restricted }),
+      403,
+    );
+    check('an analytics manager reads the organisation', await status('/analytics/trends?metrics=projects.total', { cookie: admin }), 200);
+
+    // --- The audit journal (BRL-02) ---------------------------------------
+    check('the audit journal is refused to someone without "Read the audit journal"', await status('/journal', { cookie: restricted }), 403);
+    check('and to nobody signed in', await status('/journal'), 401);
+    type JournalPage = { items: { action: string; entityId: string; actorId?: string }[]; entityTypes: string[] };
+    const grants = (await (
+      await call(`/journal?entityType=permission_grant&pageSize=20`, { cookie: admin })
+    ).json()) as JournalPage;
+    const lentAndTaken = grants.items.filter((entry) => entry.entityId === `${restrictedId}:rates:view`);
+    check(
+      'the grant and its removal are both in the journal, made by the administrator',
+      lentAndTaken.some((entry) => entry.action === 'grant.created' && entry.actorId === adminId) &&
+        lentAndTaken.some((entry) => entry.action === 'grant.removed' && entry.actorId === adminId),
+      true,
+    );
+    const organisation = (await (await call('/journal?pageSize=200', { cookie: admin })).json()) as JournalPage;
+    check(
+      'organisation changes made earlier in this run are journalled too',
+      ['department', 'team'].every((kind) => organisation.entityTypes.includes(kind)),
+      true,
+    );
   }
 
   // --- Session lifecycle ---------------------------------------------------
@@ -7381,6 +7558,9 @@ async function main() {
 
   } finally {
   // --- Cleanup -------------------------------------------------------------
+  // The surfaces section's records first: most are in the project deleted next.
+  for (const undo of surfaceCleanups.reverse()) await undo().catch(() => undefined);
+
   if (createdId) {
     // Deleted, not archived. Archiving was the only option when this was
     // written; it meant every run left a project behind, and the instance
@@ -7742,6 +7922,19 @@ async function main() {
     console.log(`  (removed ${removed.count} test notification${removed.count === 1 ? '' : 's'})`);
   }
 
+  // "Read hourly rates", if a run stopped between lending and taking it back.
+  if (ratesGrantLent) {
+    const taken = await call(`/admin/permission-grants/${restrictedIdForCleanup}/rates:view`, {
+      method: 'DELETE',
+      cookie: admin,
+    }).catch(() => undefined);
+    console.log(
+      taken?.status === 204
+        ? '  (took back the lent "Read hourly rates" grant)'
+        : '  (COULD NOT take back the lent "Read hourly rates" grant: remove it under Administration → EPM permissions)',
+    );
+  }
+
   // Last, after every cleanup step that could notify: the administrator's
   // email preferences, exactly as they were — including having none.
   if (adminPreferences) {
@@ -7757,8 +7950,24 @@ async function main() {
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
+  finished = true;
   if (failed > 0) process.exit(1);
 }
+
+// A test awaiting a promise that never settles does not hang the run: Node
+// finds nothing left to wait for and exits, with status 0 and without the
+// cleanup in main's finally. That happened twice; now it fails, and says what
+// to clear up.
+let finished = false;
+process.once('beforeExit', () => {
+  if (finished) return;
+  console.error(
+    `\nAuthorization tests STOPPED PART-WAY (${passed} passed, ${failed} failed so far): an awaited promise ` +
+      'never settled, so the cleanup did not run. Remove the run’s test project and memberships by hand; ' +
+      `the administrator's preferences are put back by the next run, from ${HELD_PREFERENCES}.`,
+  );
+  process.exit(1);
+});
 
 main().catch((error: unknown) => {
   console.error(`\nAuthorization tests could not run: ${error instanceof Error ? error.message : String(error)}`);

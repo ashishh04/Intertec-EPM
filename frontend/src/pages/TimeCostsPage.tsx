@@ -139,15 +139,20 @@ export default function TimeCostsPage() {
     // so rather than hand over a file containing nothing but headers.
     if (!data || data.rows.length === 0) return null;
 
+    const group = GROUPINGS.find((option) => option.value === data.groupBy)?.label ?? 'Group';
+    // Without leave to read rates the report carries no money (BRL-01), and
+    // the export carries no empty money columns pretending otherwise.
+    if (data.costHidden) {
+      return {
+        name: `time-${data.from}-to-${data.to}`,
+        headers: [group, 'Hours', 'Entries'],
+        rows: data.rows.map((row) => [row.label, row.hours, row.entries]),
+      };
+    }
+
     return {
       name: `time-and-costs-${data.from}-to-${data.to}`,
-      headers: [
-        GROUPINGS.find((option) => option.value === data.groupBy)?.label ?? 'Group',
-        'Hours',
-        'Entries',
-        `Cost (${data.currency})`,
-        'Uncosted hours',
-      ],
+      headers: [group, 'Hours', 'Entries', `Cost (${data.currency})`, 'Uncosted hours'],
       rows: data.rows.map((row) => [
         row.label,
         row.hours,
@@ -155,7 +160,7 @@ export default function TimeCostsPage() {
         // Blank, not zero. A row nobody has costed has no cost, and a zero would
         // be summed into a total that then understates the real one.
         row.cost ?? null,
-        row.hoursWithoutRate,
+        row.hoursWithoutRate ?? null,
       ]),
     };
   };
@@ -176,10 +181,10 @@ export default function TimeCostsPage() {
     });
   };
 
+  const uncosted = data?.hoursWithoutRate ?? 0;
   const costedShare =
-    data && data.totalHours > 0
-      ? Math.round(((data.totalHours - data.hoursWithoutRate) / data.totalHours) * 100)
-      : 0;
+    data && data.totalHours > 0 ? Math.round(((data.totalHours - uncosted) / data.totalHours) * 100) : 0;
+  const costHidden = data?.costHidden === true;
 
   return (
     <div className="space-y-5">
@@ -358,26 +363,28 @@ export default function TimeCostsPage() {
             />
             <MetricCard
               label="Cost"
-              value={data.totalCost === undefined ? '—' : formatCurrency(data.totalCost, data.currency)}
+              value={
+                costHidden || data.totalCost === undefined ? '—' : formatCurrency(data.totalCost, data.currency)
+              }
               support={
-                data.totalCost === undefined
-                  ? 'No hourly rates are set'
-                  : `${costedShare}% of hours are costed`
+                costHidden
+                  ? 'Shown to people allowed to see hourly rates'
+                  : data.totalCost === undefined
+                    ? 'No hourly rates are set'
+                    : `${costedShare}% of hours are costed`
               }
               icon={Coins}
               tone="accent"
             />
-            <MetricCard
-              label="Uncosted hours"
-              value={formatHours(data.hoursWithoutRate)}
-              support={
-                data.hoursWithoutRate > 0
-                  ? 'Set rates on the Employees page'
-                  : 'Every hour has a rate behind it'
-              }
-              icon={Hash}
-              tone={data.hoursWithoutRate > 0 ? 'warning' : 'success'}
-            />
+            {costHidden ? null : (
+              <MetricCard
+                label="Uncosted hours"
+                value={formatHours(uncosted)}
+                support={uncosted > 0 ? 'Set rates on the Employees page' : 'Every hour has a rate behind it'}
+                icon={Hash}
+                tone={uncosted > 0 ? 'warning' : 'success'}
+              />
+            )}
           </>
         )}
       </section>
@@ -435,7 +442,7 @@ export default function TimeCostsPage() {
                 <TableHead className="w-48">Share</TableHead>
                 <TableHead className="text-right">Hours</TableHead>
                 <TableHead className="text-right">Entries</TableHead>
-                <TableHead className="text-right">Cost</TableHead>
+                {costHidden ? null : <TableHead className="text-right">Cost</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -457,27 +464,29 @@ export default function TimeCostsPage() {
                   <TableCell className="text-right font-mono text-muted-foreground">
                     {formatNumber(row.entries)}
                   </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {row.cost === undefined ? (
-                      <span className="text-muted-foreground" title="Nobody in this row has a rate">
-                        —
-                      </span>
-                    ) : (
-                      <>
-                        {formatCurrency(row.cost, data!.currency)}
-                        {/* A part-costed row is the one case where a number is
-                            true and misleading at once, so it is flagged. */}
-                        {row.hoursWithoutRate > 0 ? (
-                          <span
-                            className="ml-1 text-2xs text-warning"
-                            title={`${formatHours(row.hoursWithoutRate)} in this row have no rate`}
-                          >
-                            partial
-                          </span>
-                        ) : null}
-                      </>
-                    )}
-                  </TableCell>
+                  {costHidden ? null : (
+                    <TableCell className="text-right font-mono">
+                      {row.cost === undefined ? (
+                        <span className="text-muted-foreground" title="Nobody in this row has a rate">
+                          —
+                        </span>
+                      ) : (
+                        <>
+                          {formatCurrency(row.cost, data!.currency)}
+                          {/* A part-costed row is the one case where a number is
+                              true and misleading at once, so it is flagged. */}
+                          {(row.hoursWithoutRate ?? 0) > 0 ? (
+                            <span
+                              className="ml-1 text-2xs text-warning"
+                              title={`${formatHours(row.hoursWithoutRate ?? 0)} in this row have no rate`}
+                            >
+                              partial
+                            </span>
+                          ) : null}
+                        </>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

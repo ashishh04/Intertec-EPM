@@ -39,6 +39,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'users/groups': lazy(() => import('./GroupsPage')),
   'users/roles': lazy(() => import('./RolesPage')),
   'users/permissions-report': lazy(() => import('./PermissionsReportPage')),
+  'users/epm-permissions': lazy(() => import('./PermissionGrantsPage')),
   'users/avatars': settingsSection('avatars'),
   'work-packages/settings': settingsSection('work-packages'),
   'work-packages/types': catalog('types'),

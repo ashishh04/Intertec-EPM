@@ -39,6 +39,9 @@ services:
       OPENPROJECT_HOST__NAME: ${OPENPROJECT_HOST__NAME:-localhost:8080}
       OPENPROJECT_HTTPS: ${OPENPROJECT_HTTPS:-false}
       OPENPROJECT_DEFAULT__LANGUAGE: en
+      # Keeps EPM's library documents, which are attachments with no container,
+      # from the nightly cleanup of abandoned uploads. See the Dockerfile.
+      OPENPROJECT_ATTACHMENTS__GRACE__PERIOD: '52560000'
       # Concurrency.
       #
       # The image defaults to two Puma workers, which is the single hardest

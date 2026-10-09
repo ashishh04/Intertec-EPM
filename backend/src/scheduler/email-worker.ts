@@ -1,5 +1,7 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
+
+import { INSTANCE_ID } from '../domain/job-lease.js';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
@@ -61,11 +63,11 @@ export interface EmailWorkerOptions {
   /** Overridable so a test can be "now" whenever it likes. */
   now?: () => Date;
   /**
-   * Confines a tick to the rows a test made. Every worker shares one outbox:
+   * Confines a tick to one row a test made. Every worker shares one outbox:
    * a check that moved its clock forward would otherwise claim — and fail, or
    * send — everybody else's queued mail, and reclaim their sends in flight.
    */
-  only?: Prisma.EmailOutboxWhereInput;
+  only?: { id: string };
 }
 
 interface OutboxRow {
@@ -142,46 +144,49 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
   /** The UTC day the digest last completed, so it runs once per day. */
   let lastDigestDay: string | undefined;
 
-  /** Rows a previous tick claimed and never resolved, back to the queue. */
+  /**
+   * Rows a tick claimed and never resolved, back to the queue — judged by the
+   * age of the claim. It used to be judged by when the email was due, so a
+   * backlog row another server had only just claimed could be put back mid-send
+   * and go twice. Rows claimed before claims were timed fall back to that rule.
+   */
   async function recoverStaleClaims(): Promise<void> {
+    const cutoff = new Date(now().getTime() - STALE_CLAIM_MS);
     const result = await prisma.emailOutbox.updateMany({
-      where: { status: 'sending', scheduledFor: { lte: new Date(now().getTime() - STALE_CLAIM_MS) }, ...options.only },
-      data: { status: 'queued', lastError: 'reclaimed after a stalled send' },
+      where: {
+        status: 'sending',
+        OR: [{ claimedAt: { lte: cutoff } }, { claimedAt: null, scheduledFor: { lte: cutoff } }],
+        ...options.only,
+      },
+      data: { status: 'queued', claimedAt: null, claimedBy: null, lastError: 'reclaimed after a stalled send' },
     });
     if (result.count > 0) log.warn({ rows: result.count }, 'Email rows reclaimed from a stalled send');
   }
 
   /**
-   * Claims due immediate rows by moving them to `sending` in one transaction,
-   * so that even a second worker (a hot reload that built the app twice)
-   * could not send the same row.
+   * Claims due immediate rows by moving them to `sending` (NFR03).
+   *
+   * One statement: the rows are chosen and locked with FOR UPDATE SKIP LOCKED
+   * and marked in the same UPDATE, so two servers ticking together each get
+   * different rows — a row locked by one is skipped by the other, never sent
+   * by both. The claim records when and by which process, for the recovery
+   * above and for anyone tracing a send.
    */
   async function claimDue(): Promise<OutboxRow[]> {
-    return prisma.$transaction(async (tx) => {
-      const rows = await tx.emailOutbox.findMany({
-        where: { status: 'queued', channel: 'immediate', scheduledFor: { lte: now() }, ...options.only },
-        orderBy: { scheduledFor: 'asc' },
-        take: RESEND_BATCH_LIMIT,
-        select: {
-          id: true,
-          dedupeKey: true,
-          recipientId: true,
-          toEmail: true,
-          template: true,
-          subject: true,
-          payload: true,
-          attempts: true,
-        },
-      });
-      if (rows.length === 0) return [];
-
-      await tx.emailOutbox.updateMany({
-        where: { id: { in: rows.map((row) => row.id) }, status: 'queued' },
-        data: { status: 'sending' },
-      });
-
-      return rows;
-    });
+    const onlyId = options.only?.id;
+    return prisma.$queryRaw<OutboxRow[]>`
+      UPDATE email_outbox
+         SET status = 'sending', "claimedAt" = now(), "claimedBy" = ${INSTANCE_ID}
+       WHERE id IN (
+         SELECT id FROM email_outbox
+          WHERE status = 'queued'
+            AND channel = 'immediate'
+            AND "scheduledFor" <= ${now()}
+            ${onlyId ? Prisma.sql`AND id = ${onlyId}` : Prisma.empty}
+          ORDER BY "scheduledFor" ASC
+          LIMIT ${RESEND_BATCH_LIMIT}
+          FOR UPDATE SKIP LOCKED)
+      RETURNING id, "dedupeKey", "recipientId", "toEmail", template, subject, payload, attempts`;
   }
 
   async function sendDue(): Promise<{ sent: number; requeued: number; failed: number }> {

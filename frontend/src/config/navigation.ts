@@ -17,6 +17,7 @@ import {
   Megaphone,
   PieChart,
   Plug,
+  ScrollText,
   Settings,
   ShieldCheck,
   SquareKanban,
@@ -119,6 +120,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: 'Departments', to: '/departments', icon: Building2, permission: 'departments:manage' },
       { label: 'Employees', to: '/employees', icon: UserRound, permission: 'employees:manage' },
       { label: 'Integration', to: '/settings/integration', icon: Plug, permission: 'users:manage' },
+      { label: 'Audit journal', to: '/journal', icon: ScrollText, permission: 'audit:view' },
     ],
   },
   {

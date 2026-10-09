@@ -4,6 +4,19 @@ import { EpmError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
 import { rollups, type Rollup } from './employees.js';
 import { prisma } from '../db/prisma.js';
+import { withAudit } from './audit.js';
+
+/** What the journal keeps of a team: its own fields, not derived figures. */
+function teamRecord(row: Team) {
+  return {
+    name: row.name,
+    code: row.code,
+    description: row.description,
+    departmentId: row.departmentId,
+    leadId: row.leadId,
+    active: row.active,
+  };
+}
 
 /**
  * Teams — validation and storage.
@@ -252,12 +265,23 @@ export async function createTeam(input: TeamInput, signal: AbortSignal): Promise
   await assertNameAvailable(name);
 
   // `active` is not accepted from the caller: the lifecycle routes own it.
-  const row = await prisma.team
-    .create({
-      data: { name, code, description, departmentId, leadId },
-      include: { department: true },
-    })
-    .catch(asConflict);
+  // Journalled in the same transaction (BRL-02).
+  const row = await withAudit(
+    (tx) =>
+      tx.team
+        .create({
+          data: { name, code, description, departmentId, leadId },
+          include: { department: true },
+        })
+        .catch(asConflict),
+    (created) => ({
+      entityType: 'team',
+      entityId: created.id,
+      action: 'team.created',
+      summary: `Created team ${created.name}`,
+      after: teamRecord(created),
+    }),
+  );
 
   return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
@@ -267,7 +291,7 @@ export async function updateTeam(
   input: TeamInput,
   signal: AbortSignal,
 ): Promise<EpmTeam> {
-  const existing = await prisma.team.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.team.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That team');
 
   // Only what was sent is changed, so a partial update cannot blank a field by
@@ -295,9 +319,17 @@ export async function updateTeam(
     throw EpmError.badRequest('There is nothing to update.');
   }
 
-  const row = await prisma.team
-    .update({ where: { id }, data, include: { department: true } })
-    .catch(asConflict);
+  const row = await withAudit(
+    (tx) => tx.team.update({ where: { id }, data, include: { department: true } }).catch(asConflict),
+    (updated) => ({
+      entityType: 'team',
+      entityId: id,
+      action: 'team.updated',
+      summary: `Changed team ${updated.name}`,
+      before: teamRecord(existing),
+      after: teamRecord(updated),
+    }),
+  );
 
   return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
@@ -315,14 +347,20 @@ export async function setTeamActive(
   active: boolean,
   signal: AbortSignal,
 ): Promise<EpmTeam> {
-  const existing = await prisma.team.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.team.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That team');
 
-  const row = await prisma.team.update({
-    where: { id },
-    data: { active },
-    include: { department: true },
-  });
+  const row = await withAudit(
+    (tx) => tx.team.update({ where: { id }, data: { active }, include: { department: true } }),
+    (updated) => ({
+      entityType: 'team',
+      entityId: id,
+      action: active ? 'team.restored' : 'team.archived',
+      summary: `${active ? 'Restored' : 'Archived'} team ${updated.name}`,
+      before: { active: existing.active },
+      after: { active: updated.active },
+    }),
+  );
 
   return toEpmTeam(row, await leadNames(signal), (await rollups(signal)).byTeam);
 }
@@ -335,7 +373,7 @@ export async function setTeamActive(
  * people to make itself succeed.
  */
 export async function deleteTeam(id: string): Promise<void> {
-  const existing = await prisma.team.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.team.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That team');
 
   const people = await prisma.userProfile.count({ where: { teamId: id } });
@@ -347,5 +385,11 @@ export async function deleteTeam(id: string): Promise<void> {
     );
   }
 
-  await prisma.team.delete({ where: { id } });
+  await withAudit((tx) => tx.team.delete({ where: { id } }), {
+    entityType: 'team',
+    entityId: id,
+    action: 'team.deleted',
+    summary: `Deleted team ${existing.name}`,
+    before: teamRecord(existing),
+  });
 }

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
+import { appLog } from '../lib/log.js';
 // Sign-in reaches OpenProject directly rather than through OpenProjectClient,
 // so it needs the same header for the same reason — see the constant's comment.
 // Without it the token endpoint answers 301 to a host with no TLS listener, the
@@ -167,9 +168,12 @@ export interface ResolvedSession {
  * could see. Once every two hours, per active session, under exactly the
  * concurrency real use produces and a single developer never does.
  *
- * So one refresh runs and the rest await its result. Scoped to this process,
- * which matches how the service is deployed; more than one instance would need
- * the same guard in the database, since the token is shared state.
+ * So one refresh runs and the rest await its result — at two levels. In this
+ * process, the map below: requests on one server share one refresh. Across
+ * servers (NFR03), a database lock on the session: the token is shared state,
+ * so a second server that reaches the same moment waits for the first, then
+ * finds the row already holds fresh tokens and uses those instead of spending
+ * the old, now rotated, refresh token.
  */
 const refreshing = new Map<string, Promise<string | undefined>>();
 
@@ -179,25 +183,48 @@ async function performRefresh(
   storedRefreshToken: string | null,
 ): Promise<string | undefined> {
   try {
-    const refreshed = await exchange({ grant_type: 'refresh_token', refresh_token: refreshToken });
+    return await prisma.$transaction(
+      async (tx) => {
+        // Held to the end of this transaction, keyed on the session. Run with
+        // $executeRaw: the function returns void, which $queryRaw cannot read.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`epm-refresh:${sessionId}`}, 0))`;
 
-    await prisma.session.update({
-      where: { id: sessionId },
-      data: {
-        accessToken: encryptToken(refreshed.access_token),
-        // Keep the newest or the next refresh fails and the user is signed out
-        // for no reason.
-        refreshToken: refreshed.refresh_token
-          ? encryptToken(refreshed.refresh_token)
-          : storedRefreshToken,
-        tokenExpiresAt: refreshed.expires_in
-          ? new Date(Date.now() + refreshed.expires_in * 1000)
-          : null,
+        const current = await tx.session.findUnique({ where: { id: sessionId } });
+        if (!current) return undefined;
+        // Another server refreshed while this one waited: its tokens are in the
+        // row, and the refresh token this one holds has been spent.
+        if (current.refreshToken !== storedRefreshToken) {
+          return decryptToken(current.accessToken) || undefined;
+        }
+
+        const refreshed = await exchange({ grant_type: 'refresh_token', refresh_token: refreshToken });
+
+        await tx.session.update({
+          where: { id: sessionId },
+          data: {
+            accessToken: encryptToken(refreshed.access_token),
+            // Keep the newest or the next refresh fails and the user is signed
+            // out for no reason.
+            refreshToken: refreshed.refresh_token
+              ? encryptToken(refreshed.refresh_token)
+              : storedRefreshToken,
+            tokenExpiresAt: refreshed.expires_in
+              ? new Date(Date.now() + refreshed.expires_in * 1000)
+              : null,
+          },
+        });
+
+        return refreshed.access_token;
       },
-    });
-
-    return refreshed.access_token;
-  } catch {
+      // The exchange with OpenProject happens inside, so the transaction may
+      // last as long as that call is allowed to; Prisma's five-second default
+      // would end a slow refresh and sign the person out.
+      { timeout: env.OPENPROJECT_TIMEOUT_MS + 5_000, maxWait: 10_000 },
+    );
+  } catch (error) {
+    // Said, not swallowed: a refresh that fails signs the person out, and
+    // without a line here nobody can tell a revoked token from a fault.
+    appLog.warn({ err: error }, 'Token refresh failed; the session is ended');
     await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
     return undefined;
   }

@@ -3,6 +3,10 @@ import type { FastifyBaseLogger } from 'fastify';
 import { env } from '../config/env.js';
 import { notifySnapshotFailure } from '../domain/notifications.js';
 import { runSnapshot } from '../routes/analytics.js';
+import { acquireLease, releaseLease } from '../domain/job-lease.js';
+
+/** One server captures per tick (NFR03); see domain/job-lease.ts. */
+const LEASE = 'analytics-snapshot';
 
 /**
  * Periodic analytics capture.
@@ -71,8 +75,19 @@ export function createAnalyticsSnapshotScheduler(options: SchedulerOptions): Sna
       log.warn('Analytics snapshot skipped: the previous capture is still running');
       return;
     }
-
+    // Claimed before anything is awaited: with an await between the check and
+    // the claim, two overlapping ticks both passed the check.
     running = true;
+
+    // Every server runs this timer. The rows are upserted per day, so a second
+    // capture would overwrite rather than duplicate — but it would read every
+    // project again, with the service key, for nothing.
+    if (!(await acquireLease(LEASE, timeoutMs + 60_000).catch(() => false))) {
+      running = false;
+      log.debug('Analytics snapshot skipped: another server is capturing');
+      return;
+    }
+
     const startedAt = Date.now();
     log.debug('Analytics snapshot starting');
 
@@ -106,6 +121,7 @@ export function createAnalyticsSnapshotScheduler(options: SchedulerOptions): Sna
         });
     } finally {
       running = false;
+      await releaseLease(LEASE).catch(() => undefined);
     }
   }
 

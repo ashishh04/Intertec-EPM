@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
+import { acquireLease, releaseLease } from '../domain/job-lease.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
@@ -40,6 +41,9 @@ import type { OpWorkPackage } from '../openproject/types.js';
 const FIRST_RUN_DELAY_MS = 60_000;
 /** The timer ticks hourly; each recipient is only mailed in their own hour. */
 const TICK_MS = 60 * 60_000;
+
+/** One server sweeps per tick (NFR03); see domain/job-lease.ts. */
+const LEASE = 'due-reminders';
 
 export interface DueReminderScheduler {
   start(): void;
@@ -140,10 +144,20 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
       log.warn('Due reminder sweep skipped: the previous one is still running');
       return 0;
     }
-
-    if (!force && !(await anybodyExpectsAReminder())) return 0;
-
+    // Claimed before anything is awaited: with an await between the check and
+    // the claim, two overlapping ticks both passed the check.
     running = true;
+
+    // One server walks OpenProject per tick (NFR03). The outbox's
+    // once-per-person-per-day key already stops a second email; the lease
+    // stops every server reading every open work package to find that out.
+    const wanted = force || (await anybodyExpectsAReminder().catch(() => false));
+    if (!wanted || !(await acquireLease(LEASE, timeoutMs + 60_000).catch(() => false))) {
+      running = false;
+      if (wanted) log.debug('Due reminder sweep skipped: another server holds it');
+      return 0;
+    }
+
     const startedAt = Date.now();
     const day = today();
 
@@ -247,6 +261,7 @@ export function createDueReminderScheduler(options: DueReminderOptions): DueRemi
       return 0;
     } finally {
       running = false;
+      await releaseLease(LEASE).catch(() => undefined);
     }
   }
 

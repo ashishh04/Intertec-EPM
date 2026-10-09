@@ -15,6 +15,25 @@ import { getCurrentUser } from '../mapping/users.js';
 import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AccountRevocation, EpmAccount } from '../types/epm.js';
+import { recordAuditQuietly } from '../domain/audit.js';
+
+/*
+ * Account administration is journalled (BRL-02): creating, inviting,
+ * changing, locking, unlocking, revoking and deleting accounts are privileged
+ * actions, and OpenProject keeps no record of them that EPM can show. Each
+ * entry is written after the change succeeded upstream, so it cannot share a
+ * transaction with it; a failure to journal is logged rather than undoing a
+ * change that has already happened. Passwords never appear in an entry.
+ */
+const accountName = (account: OpPrincipal): string =>
+  account.name?.trim() || account.login || `user ${account.id}`;
+
+const ACCOUNT_FIELDS = ['firstName', 'lastName', 'email', 'login', 'language', 'admin'] as const;
+
+function accountFields(account: OpPrincipal, fields: readonly string[]): Record<string, unknown> {
+  const source = account as unknown as Record<string, unknown>;
+  return Object.fromEntries(fields.map((field) => [field, source[field] ?? null]));
+}
 
 /**
  * User accounts.
@@ -313,6 +332,23 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         );
       }
 
+      await recordAuditQuietly([
+        {
+          entityType: 'account',
+          entityId: id,
+          action: 'account.created',
+          summary:
+            `Created account ${created.login ?? id} for ${accountName(created)}` +
+            (created.admin ? ', with administrator rights' : '') +
+            (sendInvite
+              ? inviteSent
+                ? '; invitation sent'
+                : '; the invitation could not be sent'
+              : '; a starting password was set for handover'),
+          after: accountFields(created, ['login', 'email', 'admin', 'status']),
+        },
+      ]);
+
       reply.code(201);
 
       const account: EpmAccount & { placementProblems?: string[]; inviteSent: boolean } = {
@@ -344,6 +380,15 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       createdBy: request.auth?.userId ?? '',
       signal: requestSignal(request),
     });
+
+    await recordAuditQuietly([
+      {
+        entityType: 'account',
+        entityId: id,
+        action: 'account.invited',
+        summary: `Sent ${accountName(account)} a new invitation${inviteSent ? '' : ' (it could not be queued)'}; earlier links stop working`,
+      },
+    ]);
 
     return { inviteSent };
   });
@@ -385,6 +430,21 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       referenceCache.invalidatePrefix('users');
       forgetRecipient(id);
 
+      const changed = ACCOUNT_FIELDS.filter((field) => field in patch);
+      await recordAuditQuietly([
+        {
+          entityType: 'account',
+          entityId: id,
+          action: 'admin' in patch ? 'account.admin.changed' : 'account.updated',
+          summary:
+            'admin' in patch
+              ? `${patch.admin ? 'Gave' : 'Removed'} administrator rights ${patch.admin ? 'to' : 'from'} ${accountName(updated)}`
+              : `Changed ${changed.join(', ')} for ${accountName(updated)}`,
+          before: accountFields(account, changed),
+          after: accountFields(updated, changed),
+        },
+      ]);
+
       return toEpmAccount(updated);
     },
   );
@@ -413,6 +473,9 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     });
 
     referenceCache.invalidatePrefix('users');
+    await recordAuditQuietly([
+      { entityType: 'account', entityId: id, action: 'account.locked', summary: `Deactivated ${accountName(account)}` },
+    ]);
     return toEpmAccount(locked);
   });
 
@@ -431,6 +494,9 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     });
 
     referenceCache.invalidatePrefix('users');
+    await recordAuditQuietly([
+      { entityType: 'account', entityId: id, action: 'account.unlocked', summary: `Reactivated ${accountName(account)}` },
+    ]);
     return toEpmAccount(unlocked);
   });
 
@@ -572,6 +638,19 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     };
     if (problems.length > 0) revocation.problems = problems;
 
+    await recordAuditQuietly([
+      {
+        entityType: 'account',
+        entityId: id,
+        action: 'account.access_revoked',
+        summary:
+          `Revoked access for ${accountName(account)}: ${sessions.count} session(s) ended, ` +
+          `${membershipsRemoved} project membership(s) removed${adminRevoked ? ', administrator rights removed' : ''}` +
+          (problems.length > 0 ? `; ${problems.length} step(s) did not complete` : ''),
+        metadata: { ...revocation },
+      },
+    ]);
+
     return revocation;
   });
 
@@ -638,6 +717,16 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     }
 
     referenceCache.invalidatePrefix('users');
+
+    await recordAuditQuietly([
+      {
+        entityType: 'account',
+        entityId: id,
+        action: 'account.deleted',
+        summary: `Deleted the account of ${accountName(account)}${gone ? '' : ' (still being removed upstream)'}`,
+        before: accountFields(account, ['login', 'email', 'admin', 'status']),
+      },
+    ]);
 
     // 202 when it has not finished: the work was accepted and is still running,
     // which is the truth rather than a 204 claiming it is done.

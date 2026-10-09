@@ -10,8 +10,18 @@ import {
   setRate,
   type CapacityInput,
   type MappingInput,
+  type EpmEmployee,
   type RateInput,
 } from '../domain/employees.js';
+
+/**
+ * A person's hourly rate is pay information (BRL-01): the directory is open to
+ * everyone signed in, the rate in it only to those allowed to read rates.
+ */
+export function withoutRate(employee: EpmEmployee): EpmEmployee {
+  const { hourlyRate: _rate, ...rest } = employee;
+  return rest;
+}
 
 /**
  * Employees.
@@ -21,7 +31,8 @@ import {
  * writable here is the mapping: which department and team they belong to.
  *
  * Reading is open to any signed-in caller, as for departments and teams; the
- * directory itself is already readable at `/users`. Assigning requires
+ * directory itself is already readable at `/users`. The hourly rate in it is
+ * not: it is left out unless the caller may read rates. Assigning requires
  * `employees:manage`, which is a different responsibility from designing the org
  * structure and so is a permission of its own. See `auth/grants.ts`.
  */
@@ -31,19 +42,27 @@ export const employeeRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Querystring: { departmentId?: string; teamId?: string; unmapped?: string; q?: string };
   }>('/employees', async (request) => {
-    return listEmployees(
-      {
-        departmentId: request.query.departmentId || undefined,
-        teamId: request.query.teamId || undefined,
-        unmapped: request.query.unmapped === 'true',
-        q: request.query.q?.trim() || undefined,
-      },
-      requestSignal(request),
-    );
+    const [employees, rates] = await Promise.all([
+      listEmployees(
+        {
+          departmentId: request.query.departmentId || undefined,
+          teamId: request.query.teamId || undefined,
+          unmapped: request.query.unmapped === 'true',
+          q: request.query.q?.trim() || undefined,
+        },
+        requestSignal(request),
+      ),
+      guard.mayViewRates(request),
+    ]);
+    return rates ? employees : employees.map(withoutRate);
   });
 
   app.get<{ Params: { id: string } }>('/employees/:id', async (request) => {
-    return getEmployee(request.params.id, requestSignal(request));
+    const [employee, rates] = await Promise.all([
+      getEmployee(request.params.id, requestSignal(request)),
+      guard.mayViewRates(request),
+    ]);
+    return rates ? employee : withoutRate(employee);
   });
 
   /**

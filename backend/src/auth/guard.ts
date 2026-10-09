@@ -57,6 +57,31 @@ export async function require(
 }
 
 /**
+ * Whether the caller holds a permission, without refusing them.
+ *
+ * For shaping what a response contains — leaving out what they may not read —
+ * never for deciding whether a write may happen; that is `require`.
+ */
+export async function holds(
+  request: FastifyRequest,
+  permission: Permission,
+  projectId?: string,
+): Promise<boolean> {
+  return allows(await permissionsFor(request), permission, projectId);
+}
+
+/**
+ * Whether the caller may read hourly rates and the cost of one person's time
+ * (BRL-01). Granted as `rates:view`; whoever sets rates (`employees:manage`)
+ * reads them too. Costs above the person — a project's labour cost — are
+ * project information and follow the project instead.
+ */
+export async function mayViewRates(request: FastifyRequest): Promise<boolean> {
+  const permissions = await permissionsFor(request);
+  return allows(permissions, 'rates:view') || allows(permissions, 'employees:manage');
+}
+
+/**
  * Groups whose name is not simply pluralised.
  *
  * `task` reads better as the thing it maps to upstream, and `health` is a mass

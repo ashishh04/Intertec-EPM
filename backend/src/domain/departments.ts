@@ -4,6 +4,12 @@ import { EpmError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
 import { rollups, type Rollup } from './employees.js';
 import { prisma } from '../db/prisma.js';
+import { withAudit } from './audit.js';
+
+/** What the journal keeps of a department: its own fields, not derived figures. */
+function departmentRecord(row: Department) {
+  return { name: row.name, code: row.code, description: row.description, managerId: row.managerId, active: row.active };
+}
 
 /**
  * Departments — validation and storage.
@@ -226,9 +232,18 @@ export async function createDepartment(
 
   // `active` is not accepted from the caller: the lifecycle routes own it, so a
   // department cannot be created already archived.
-  const row = await prisma.department
-    .create({ data: { name, code, description, managerId } })
-    .catch(asConflict);
+  // Journalled in the same transaction (BRL-02): organisation data is EPM's,
+  // and nothing else records who changed it.
+  const row = await withAudit(
+    (tx) => tx.department.create({ data: { name, code, description, managerId } }).catch(asConflict),
+    (created) => ({
+      entityType: 'department',
+      entityId: created.id,
+      action: 'department.created',
+      summary: `Created department ${created.name}`,
+      after: departmentRecord(created),
+    }),
+  );
 
   return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
@@ -238,7 +253,7 @@ export async function updateDepartment(
   input: DepartmentInput,
   signal: AbortSignal,
 ): Promise<EpmDepartment> {
-  const existing = await prisma.department.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.department.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That department');
 
   // Only what was sent is changed, so a partial update cannot blank a field by
@@ -259,7 +274,17 @@ export async function updateDepartment(
     throw EpmError.badRequest('There is nothing to update.');
   }
 
-  const row = await prisma.department.update({ where: { id }, data }).catch(asConflict);
+  const row = await withAudit(
+    (tx) => tx.department.update({ where: { id }, data }).catch(asConflict),
+    (updated) => ({
+      entityType: 'department',
+      entityId: id,
+      action: 'department.updated',
+      summary: `Changed department ${updated.name}`,
+      before: departmentRecord(existing),
+      after: departmentRecord(updated),
+    }),
+  );
 
   return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
@@ -276,10 +301,20 @@ export async function setDepartmentActive(
   active: boolean,
   signal: AbortSignal,
 ): Promise<EpmDepartment> {
-  const existing = await prisma.department.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.department.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That department');
 
-  const row = await prisma.department.update({ where: { id }, data: { active } });
+  const row = await withAudit(
+    (tx) => tx.department.update({ where: { id }, data: { active } }),
+    (updated) => ({
+      entityType: 'department',
+      entityId: id,
+      action: active ? 'department.restored' : 'department.archived',
+      summary: `${active ? 'Restored' : 'Archived'} department ${updated.name}`,
+      before: { active: existing.active },
+      after: { active: updated.active },
+    }),
+  );
 
   return toEpmDepartment(row, await managerNames(signal), (await rollups(signal)).byDepartment);
 }
@@ -297,7 +332,7 @@ export async function setDepartmentActive(
  * without that is a dead end.
  */
 export async function deleteDepartment(id: string): Promise<void> {
-  const existing = await prisma.department.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.department.findUnique({ where: { id } });
   if (!existing) throw EpmError.notFound('That department');
 
   const [teams, people] = await Promise.all([
@@ -317,5 +352,11 @@ export async function deleteDepartment(id: string): Promise<void> {
     );
   }
 
-  await prisma.department.delete({ where: { id } });
+  await withAudit((tx) => tx.department.delete({ where: { id } }), {
+    entityType: 'department',
+    entityId: id,
+    action: 'department.deleted',
+    summary: `Deleted department ${existing.name}`,
+    before: departmentRecord(existing),
+  });
 }

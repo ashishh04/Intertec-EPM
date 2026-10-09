@@ -8,6 +8,7 @@ import { optional, prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { CAPACITY_DEFAULT, listTeamMembers, memberIdsOfTeam } from '../domain/employees.js';
+import { withoutRate } from './employees.js';
 import {
   createTeam,
   getTeam,
@@ -170,7 +171,12 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
    * groups, which is what teams used to be read from.
    */
   app.get<{ Params: { id: string } }>('/teams/:id/members', async (request) => {
-    return listTeamMembers(request.params.id, requestSignal(request));
+    const [members, rates] = await Promise.all([
+      listTeamMembers(request.params.id, requestSignal(request)),
+      guard.mayViewRates(request),
+    ]);
+    // A member is an employee record; its rate follows the same rule (BRL-01).
+    return rates ? members : members.map(withoutRate);
   });
 
   app.post<{ Body: TeamInput }>('/teams', async (request, reply) => {

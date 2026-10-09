@@ -11,9 +11,11 @@ import { loadProjects } from './projects.js';
 /**
  * Analytics.
  *
- * Reading is open to any signed-in caller, as for every other EPM read surface.
- * Capturing a snapshot is not: it writes the historical record, and a bad or
- * partial run is not something an ordinary user should be able to cause.
+ * The overview is open to any signed-in caller. Trends are not: the snapshots
+ * behind them see the whole organisation, so organisation-wide series need
+ * `analytics:manage` and a personal series is its owner's (BRL-01). Capturing
+ * a snapshot writes the historical record, and a bad or partial run is not
+ * something an ordinary user should be able to cause.
  *
  * Trend queries touch only the snapshot table. That is the point of
  * snapshotting — the expensive work happens once a day, not on every page load.
@@ -113,6 +115,23 @@ export const analyticsRoutes: FastifyPluginAsync = async (app) => {
     const scopeType = (query.scopeType ?? 'instance') as ScopeType;
     if (!SCOPE_TYPES.includes(scopeType)) {
       throw EpmError.badRequest(`${query.scopeType} is not a scope type.`);
+    }
+
+    // The snapshots are captured with the service key, so they count every
+    // project and every person whoever reads them later (BRL-01). Series about
+    // the organisation are for those who manage analytics; a personal series
+    // is for its owner. Everyone's own view of the organisation, limited to
+    // their access, is the Insights dashboards (Module 12).
+    const manager = await guard.holds(request, 'analytics:manage');
+    if (scopeType === 'user') {
+      if (!query.scopeId) throw EpmError.badRequest('A personal series needs scopeId.');
+      if (!manager && query.scopeId !== request.auth?.userId) {
+        throw EpmError.forbidden("You can read your own trends, not another person's.");
+      }
+    } else if (!manager) {
+      throw EpmError.forbidden(
+        'Organisation-wide trends are for people who manage analytics. Your own view of the organisation is under Insights.',
+      );
     }
 
     return trends({

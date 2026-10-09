@@ -468,6 +468,10 @@ model EmailOutbox {
   scheduledFor DateTime  @default(now())
   sentAt       DateTime?
   createdAt    DateTime  @default(now())
+  /// When a worker took the row to send, and which (NFR03): claims are made
+  /// with FOR UPDATE SKIP LOCKED, and a stalled one is put back by its age.
+  claimedAt    DateTime?
+  claimedBy    String?
 
   @@unique([recipientId, dedupeKey])
   @@index([status, scheduledFor])
