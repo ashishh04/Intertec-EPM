@@ -701,7 +701,10 @@ model LevellingRun {
   appliedBy String?
   undoneAt  DateTime?
   undoneBy  String?
+  /// What went wrong, in English, as the journal keeps it.
   error     String?
+  /// The same as a message, to be read in each reader's language.
+  errorMessage Json?
   items     LevellingItem[]
 
   @@index([createdAt])

@@ -8175,6 +8175,9 @@ async function main() {
     check('B is changed after the second proposal', moved.status, 200);
     check('so applying it is refused', await status(`/resources/levelling/${again.id}/apply`, { method: 'POST', cookie: admin }), 409);
     check('and nothing moved', `${(await read(ids.C)).startDate}/${(await json(`/resources/levelling/${again.id}`)).status}`, `${day(7)}/stale`);
+    // Why, kept as a message, reads in each reader's language.
+    const staleInArabic = (await (await fetch(`${BASE}/resources/levelling/${again.id}`, { headers: { cookie: admin, 'Accept-Language': 'ar' } })).json()) as Json;
+    check('and why is kept for every reader: in Arabic too', String(staleInArabic.error ?? '').startsWith('تغيّرت منذ المقترح'), true);
 
     // Working days near today, by the instance's calendar: one for logged time, and two for work delivered on time and late.
     const nearHolidays = await asSystem(() =>

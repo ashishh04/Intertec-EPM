@@ -1,9 +1,10 @@
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 import { prisma } from '../db/prisma.js';
 import { today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
-import { message } from '../lib/i18n.js';
+import { message, render, renderStored, type Message } from '../lib/i18n.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type {
   LevellingMove,
@@ -400,7 +401,7 @@ export async function getLevellingRun(id: string): Promise<LevellingRunView> {
     appliedBy: run.appliedBy,
     undoneAt: run.undoneAt?.toISOString() ?? null,
     undoneBy: run.undoneBy,
-    error: run.error,
+    error: run.error === null ? null : renderStored(run.error, run.errorMessage),
     scope: summary.scope,
     options: { keepManual: options.keepManual ?? false, horizonWeeks: options.horizonWeeks ?? DEFAULT_HORIZON_WEEKS },
     moves,
@@ -510,7 +511,29 @@ async function writeAll(
   }
 }
 
-const describeError = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** A failure levelling describes itself: its words are kept as a message, for each reader's language. */
+class LevellingFailure extends Error {
+  constructor(readonly why: Message) {
+    super(render('en', why));
+  }
+}
+
+/**
+ * What went wrong, for the run's record: the English the journal keeps, and
+ * the message it came from where there is one — OpenProject's own refusals are
+ * its words, in English.
+ */
+function failureOf(error: unknown): { error: string; errorMessage: Prisma.InputJsonValue | typeof Prisma.DbNull } {
+  const why = error instanceof LevellingFailure ? error.why : error instanceof EpmError ? error.source : undefined;
+  return {
+    error: error instanceof Error ? error.message : String(error),
+    errorMessage: why ? (why as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
+  };
+}
+
+/** The same, as an argument to a message: translated where it can be. */
+const reasonOf = (error: unknown): Message | string =>
+  error instanceof LevellingFailure ? error.why : error instanceof EpmError ? error.source : error instanceof Error ? error.message : String(error);
 
 /**
  * Applies a proposal: every move, or none (BR-112). Refused when any item has
@@ -538,7 +561,7 @@ export async function applyLevelling(id: string, actorId: string): Promise<Level
   if (changed.length > 0) {
     await prisma.levellingRun.update({
       where: { id },
-      data: { status: 'stale', error: `Changed since the proposal: ${changed.join(', ')}.` },
+      data: { status: 'stale', ...failureOf(new LevellingFailure(message('Changed since the proposal: {items}.', { items: changed.join(', ') }))) },
     });
     throw EpmError.conflict(message('The plan changed after this proposal ({items}): level again.', { items: changed.join(', ') }));
   }
@@ -567,18 +590,18 @@ export async function applyLevelling(id: string, actorId: string): Promise<Level
     }
     if (off.length > 0) {
       for (const target of [...forward].reverse()) await write(back(target)).catch(() => undefined);
-      throw new Error(`OpenProject did not keep the new dates of ${off.join(', ')}; everything was put back.`);
+      throw new LevellingFailure(message('OpenProject did not keep the new dates of {items}; everything was put back.', { items: off.join(', ') }));
     }
   } catch (error) {
     await prisma.levellingItem.updateMany({ where: { runId: id }, data: { state: 'pending' } });
-    await prisma.levellingRun.update({ where: { id }, data: { status: 'failed', error: describeError(error) } });
+    await prisma.levellingRun.update({ where: { id }, data: { status: 'failed', ...failureOf(error) } });
     requestScheduleRecalc();
     forgetShared();
-    throw EpmError.conflict(message('Levelling was not applied, and nothing was changed: {reason}', { reason: describeError(error) }));
+    throw EpmError.conflict(message('Levelling was not applied, and nothing was changed: {reason}', { reason: reasonOf(error) }));
   }
 
   await withAudit(
-    (tx) => tx.levellingRun.update({ where: { id }, data: { status: 'applied', appliedAt: new Date(), appliedBy: actorId, error: null } }),
+    (tx) => tx.levellingRun.update({ where: { id }, data: { status: 'applied', appliedAt: new Date(), appliedBy: actorId, error: null, errorMessage: Prisma.DbNull } }),
     () => ({
       actorId,
       entityType: 'levelling-run',
@@ -639,17 +662,17 @@ export async function undoLevelling(id: string, actorId: string): Promise<Levell
       const current = await read(target.workPackageId);
       if (current.startDate !== target.start || current.dueDate !== target.due) off.push(`#${target.workPackageId}`);
     }
-    if (off.length > 0) throw new Error(`OpenProject did not return ${off.join(', ')} to the dates before.`);
+    if (off.length > 0) throw new LevellingFailure(message('OpenProject did not return {items} to the dates before.', { items: off.join(', ') }));
   } catch (error) {
     await prisma.levellingItem.updateMany({ where: { runId: id }, data: { state: 'applied' } });
-    await prisma.levellingRun.update({ where: { id }, data: { status: 'applied', error: describeError(error) } });
+    await prisma.levellingRun.update({ where: { id }, data: { status: 'applied', ...failureOf(error) } });
     requestScheduleRecalc();
     forgetShared();
-    throw EpmError.conflict(message('The undo did not complete, and the levelled dates stand: {reason}', { reason: describeError(error) }));
+    throw EpmError.conflict(message('The undo did not complete, and the levelled dates stand: {reason}', { reason: reasonOf(error) }));
   }
 
   await withAudit(
-    (tx) => tx.levellingRun.update({ where: { id }, data: { status: 'undone', undoneAt: new Date(), undoneBy: actorId, error: null } }),
+    (tx) => tx.levellingRun.update({ where: { id }, data: { status: 'undone', undoneAt: new Date(), undoneBy: actorId, error: null, errorMessage: Prisma.DbNull } }),
     () => ({
       actorId,
       entityType: 'levelling-run',
