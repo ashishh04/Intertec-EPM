@@ -22,7 +22,7 @@ import { recordAuditQuietly, withAudit } from './audit.js';
 import { notifyPeople, sentences } from './notifications.js';
 import { resolvePeople, type PersonContext } from './people.js';
 import { personSpecSchema } from './rule-model.js';
-import { message, type Message } from '../lib/i18n.js';
+import { listOf, message, render, renderStored, type Message } from '../lib/i18n.js';
 
 /**
  * Escalation policies (BRQ-10: BR-218).
@@ -165,7 +165,7 @@ export async function createPolicy(input: unknown, actorId: string): Promise<Esc
       entityType: 'escalation-policy',
       entityId: created.id,
       action: 'escalation.policy.created',
-      summary: `Escalation policy "${created.name}" created.`,
+      summary: message('Escalation policy "{name}" created.', { name: created.name }),
       after: policy,
     }),
   );
@@ -183,7 +183,10 @@ export async function updatePolicy(id: string, input: unknown, actorId: string):
       entityType: 'escalation-policy',
       entityId: id,
       action: 'escalation.policy.updated',
-      summary: `Escalation policy "${updated.name}" changed${updated.active === existing.active ? '' : updated.active ? ' and switched on' : ' and switched off'}.`,
+      summary: message(
+        'Escalation policy "{name}" changed{switched, select, on { and switched on} off { and switched off} other {}}.',
+        { name: updated.name, switched: updated.active === existing.active ? 'same' : updated.active ? 'on' : 'off' },
+      ),
       before: toPolicy(existing),
       after: policy,
     }),
@@ -208,7 +211,7 @@ export async function deletePolicy(id: string, actorId: string): Promise<void> {
     entityType: 'escalation-policy',
     entityId: id,
     action: 'escalation.policy.deleted',
-    summary: `Escalation policy "${existing.name}" deleted.`,
+    summary: message('Escalation policy "{name}" deleted.', { name: existing.name }),
     before: toPolicy(existing),
   });
 }
@@ -359,18 +362,22 @@ function candidatesFor(policy: EscalationPolicy, now: Date) {
 
 const keyOf = (subjectType: string, subjectId: string, episode: string | null) => `${subjectType}:${subjectId}:${episode ?? ''}`;
 
-function phrase(trigger: EscalationTrigger, elapsed: number): string {
-  if (trigger === 'approval_sla') {
-    const hours = Math.floor(elapsed);
-    return `waiting ${hours} ${hours === 1 ? 'hour' : 'hours'} past its approval SLA`;
-  }
-  const days = Math.floor(elapsed);
-  return trigger === 'untouched' ? `untouched for ${days} ${days === 1 ? 'day' : 'days'}` : `overdue by ${days} ${days === 1 ? 'day' : 'days'}`;
+/**
+ * Why an item escalated, as the event and the journal keep it: in English,
+ * which is the record, and as this message, so each reader is shown it in
+ * their own language. Its figure is a plain argument, so the English reads
+ * exactly as it always has.
+ */
+function recordedReason(trigger: EscalationTrigger, title: string, elapsed: number): Message {
+  return message(
+    '{title} has been {trigger, select, approval_sla {waiting {count, plural, one {{count} hour} other {{count} hours}} past its approval SLA} untouched {untouched for {count, plural, one {{count} day} other {{count} days}}} other {overdue by {count, plural, one {{count} day} other {{count} days}}}}.',
+    { title, trigger, count: Math.floor(elapsed) },
+  );
 }
 
 /**
- * The same reason as a message, for the people told, who read it in their own
- * language; the event and the journal keep the English above.
+ * The same reason for the people told, who read it in their own language and
+ * number format.
  */
 function reasonMessage(trigger: EscalationTrigger, title: string, elapsed: number): Message {
   if (trigger === 'approval_sla') {
@@ -395,7 +402,8 @@ async function recipientsFor(level: EscalationLevel, people: PersonContext): Pro
 async function raise(policy: EscalationPolicy, candidate: Candidate, level: number, now: Date): Promise<boolean> {
   const definition = policy.levels[level - 1]!;
   const { ids, fellBack } = await recipientsFor(definition, candidate.people);
-  const reason = `${candidate.title} has been ${phrase(policy.trigger, candidate.elapsed)}.`;
+  const why = recordedReason(policy.trigger, candidate.title, candidate.elapsed);
+  const reason = render('en', why);
   const dedupeKey = `policy:${policy.id}:${candidate.subjectType}:${candidate.subjectId}:${candidate.episode}:L${level}`;
 
   let event: EscalationEvent;
@@ -411,6 +419,7 @@ async function raise(policy: EscalationPolicy, candidate: Candidate, level: numb
         level,
         raisedFor: ids,
         reason,
+        reasonMessage: why as unknown as Prisma.InputJsonValue,
         dedupeKey,
         raisedAt: now,
         metadata: {
@@ -429,7 +438,10 @@ async function raise(policy: EscalationPolicy, candidate: Candidate, level: numb
   }
 
   const names = new Map((await runAsSystem(() => getUsers()).catch(() => [])).map((user) => [user.id, user.name]));
-  const who = ids.map((id) => names.get(id) ?? `user ${id}`).join(', ') || 'nobody (the project has no owner)';
+  const who =
+    ids.length > 0
+      ? listOf(ids.map((id) => names.get(id) ?? message('user {id}', { id })))
+      : message('nobody (the project has no owner)');
   await recordAuditQuietly([
     {
       actorId: null,
@@ -437,7 +449,12 @@ async function raise(policy: EscalationPolicy, candidate: Candidate, level: numb
       entityType: candidate.subjectType === 'work_package' ? 'work-package' : 'approval-request',
       entityId: candidate.subjectId,
       action: 'escalation.raised',
-      summary: `Escalated to level ${level} of "${policy.name}", to ${who}: ${reason}`,
+      summary: message('Escalated to level {level} of "{policy}", to {who}: {reason}', {
+        level,
+        policy: policy.name,
+        who,
+        reason: why,
+      }),
       metadata: { policyId: policy.id, eventId: event.id, level },
     },
   ]);
@@ -617,7 +634,8 @@ export async function listEscalations(query: {
       projectName: row.projectId ? projectName.get(row.projectId) : undefined,
       level: row.level,
       raisedFor: row.raisedFor,
-      reason: row.reason,
+      // In the language of the request; stored English when no message was kept.
+      reason: renderStored(row.reason, row.reasonMessage),
       raisedAt: row.raisedAt.toISOString(),
       resolvedAt: row.resolvedAt?.toISOString(),
     };

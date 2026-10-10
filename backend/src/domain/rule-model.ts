@@ -11,6 +11,7 @@ import type {
   RuleFieldValue,
   RuleSubjectType,
 } from '../types/epm.js';
+import { msg } from '../lib/i18n.js';
 
 /**
  * The rules engine's vocabulary (BR-216, BR-217), with no I/O: what a rule may
@@ -475,13 +476,13 @@ export function resolveDate(value: RuleFieldValue, facts: RuleFacts, now: Date):
 }
 
 export const PERSON_WORDS: Record<PersonSpec['kind'], string> = {
-  user: 'a named person',
-  assignee: 'the assignee',
-  responsible: 'the accountable person',
-  author: 'the author',
-  project_owner: 'the project owner',
-  team_lead: "the assignee's team lead",
-  department_manager: "the assignee's department manager",
-  project_role: 'everyone in a project role',
-  approvers: 'the approvers',
+  user: msg('a named person'),
+  assignee: msg('the assignee'),
+  responsible: msg('the accountable person'),
+  author: msg('the author'),
+  project_owner: msg('the project owner'),
+  team_lead: msg("the assignee's team lead"),
+  department_manager: msg("the assignee's department manager"),
+  project_role: msg('everyone in a project role'),
+  approvers: msg('the approvers'),
 };

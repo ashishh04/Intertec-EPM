@@ -6,12 +6,28 @@ import { loadPermissions } from '../auth/capabilities.js';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { enqueueEmail } from '../email/outbox.js';
+import { getPreferences } from '../email/preferences.js';
 import { EpmError } from '../lib/errors.js';
+import {
+  contextLanguage,
+  dateOf,
+  message,
+  msg,
+  render,
+  renderStored,
+  runWithLanguage,
+  t,
+  toLanguage,
+  type Conventions,
+  type Language,
+  type Message,
+  type ParamValue,
+} from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpWorkPackage } from '../openproject/types.js';
 import { recordAuditQuietly } from './audit.js';
-import { buildDashboard, DASHBOARD_IDS, DASHBOARDS, type DashboardId, type DashboardTable } from './dashboards.js';
+import { buildDashboard, DASHBOARD_IDS, dashboardsIn, type DashboardId, type DashboardTable } from './dashboards.js';
 import { modelFacts } from './measure-facts.js';
 import { contextFor, prepare, type Scope, type Viewer } from './measures.js';
 import { documentOf, formatValue, renderPdf, renderXlsx, type ReportDocument } from './report-render.js';
@@ -42,6 +58,11 @@ import { isOverdue } from './work-definitions.js';
  * External addresses are sent to only once someone other than whoever set
  * them has approved them; their copy is rendered with the schedule owner's
  * access, since an outside address has none of its own.
+ *
+ * Each copy is written in its reader's language (BR-604): a person's, from
+ * their EPM preferences, with their calendar and digits; an outside address's
+ * in English, since nobody has said otherwise. The figures, the files and the
+ * email all agree on it.
  */
 
 type Schedule = Prisma.ReportScheduleGetPayload<object>;
@@ -58,45 +79,45 @@ const CONTENT_TYPES: Record<Format, string> = {
 /* Definitions                                                                */
 /* -------------------------------------------------------------------------- */
 
-const EMAIL = z.string().trim().toLowerCase().email('That is not an email address.');
+const EMAIL = z.string().trim().toLowerCase().email(msg('That is not an email address.'));
 
 export const scheduleInput = z
   .object({
-    name: z.string().trim().min(1, 'A schedule needs a name.').max(120),
+    name: z.string().trim().min(1, msg('A schedule needs a name.')).max(120),
     description: z.string().trim().max(1000).optional().nullable(),
     active: z.boolean().default(true),
     sourceKind: z.enum(['dashboard', 'view']),
-    sourceId: z.string().trim().min(1, 'Choose what the report shows.'),
+    sourceId: z.string().trim().min(1, msg('Choose what the report shows.')),
     scope: z
       .string()
-      .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|person:\d+)$/, 'That scope is not one EPM knows.')
+      .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|person:\d+)$/, msg('That scope is not one EPM knows.'))
       .default('instance'),
     periodPreset: z.enum(PERIOD_PRESETS).default('last-4-weeks'),
     frequency: z.enum(['daily', 'weekly', 'monthly']),
     weekday: z.number().int().min(1).max(7).optional().nullable(),
     dayOfMonth: z.number().int().min(0).max(28).optional().nullable(),
-    timeOfDay: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'The time is HH:MM, e.g. 07:00.'),
-    timezone: z.string().refine(isTimeZone, 'That is not a time zone this server knows.').default('UTC'),
+    timeOfDay: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, msg('The time is HH:MM, e.g. 07:00.')),
+    timezone: z.string().refine(isTimeZone, msg('That is not a time zone this server knows.')).default('UTC'),
     windowMinutes: z.number().int().min(5).max(24 * 60).default(120),
-    formats: z.array(z.enum(FORMATS)).min(1, 'Choose at least one format.').max(2),
+    formats: z.array(z.enum(FORMATS)).min(1, msg('Choose at least one format.')).max(2),
     recipientUserIds: z.array(z.string().regex(/^\d+$/)).max(200).default([]),
     externalEmails: z.array(EMAIL).max(50).default([]),
   })
   .superRefine((input, context) => {
     if (input.sourceKind === 'dashboard' && !DASHBOARD_IDS.includes(input.sourceId as DashboardId)) {
-      context.addIssue({ code: 'custom', path: ['sourceId'], message: 'That is not a dashboard.' });
+      context.addIssue({ code: 'custom', path: ['sourceId'], message: msg('That is not a dashboard.') });
     }
     if (input.sourceKind === 'view' && !/^\d+$/.test(input.sourceId)) {
-      context.addIssue({ code: 'custom', path: ['sourceId'], message: 'That is not a saved view.' });
+      context.addIssue({ code: 'custom', path: ['sourceId'], message: msg('That is not a saved view.') });
     }
     if (input.frequency === 'weekly' && !input.weekday) {
-      context.addIssue({ code: 'custom', path: ['weekday'], message: 'A weekly report needs a day of the week.' });
+      context.addIssue({ code: 'custom', path: ['weekday'], message: msg('A weekly report needs a day of the week.') });
     }
     if (input.frequency === 'monthly' && (input.dayOfMonth === undefined || input.dayOfMonth === null)) {
-      context.addIssue({ code: 'custom', path: ['dayOfMonth'], message: 'A monthly report needs a day of the month.' });
+      context.addIssue({ code: 'custom', path: ['dayOfMonth'], message: msg('A monthly report needs a day of the month.') });
     }
     if (input.recipientUserIds.length + input.externalEmails.length === 0) {
-      context.addIssue({ code: 'custom', path: ['recipientUserIds'], message: 'A report needs at least one recipient.' });
+      context.addIssue({ code: 'custom', path: ['recipientUserIds'], message: msg('A report needs at least one recipient.') });
     }
   });
 
@@ -110,14 +131,16 @@ const timingOf = (schedule: Pick<Schedule, 'frequency' | 'weekday' | 'dayOfMonth
   timeZone: schedule.timezone,
 });
 
+/** What a schedule sends, in the language of the request being served. */
 async function sourceLabel(schedule: Pick<Schedule, 'sourceKind' | 'sourceId' | 'scope'>): Promise<string> {
-  if (schedule.sourceKind === 'view') return `Saved view #${schedule.sourceId}`;
-  const dashboard = DASHBOARDS.find((entry) => entry.id === schedule.sourceId)?.title ?? schedule.sourceId;
-  return `${dashboard} — ${await scopeName(schedule.scope)}`;
+  const language = contextLanguage();
+  if (schedule.sourceKind === 'view') return t(language, 'Saved view #{id}', { id: schedule.sourceId });
+  const dashboard = dashboardsIn(language).find((entry) => entry.id === schedule.sourceId)?.title ?? schedule.sourceId;
+  return t(language, '{title} — {scope}', { title: dashboard, scope: await scopeName(schedule.scope, language) });
 }
 
-async function scopeName(scope: string): Promise<string> {
-  if (scope === 'instance') return 'All projects';
+async function scopeName(scope: string, language: Language): Promise<string> {
+  if (scope === 'instance') return t(language, 'All projects');
   const [kind, id] = scope.split(':') as [string, string];
   const facts = await modelFacts();
   const name =
@@ -130,7 +153,7 @@ async function scopeName(scope: string): Promise<string> {
           : kind === 'team'
             ? facts.teams.get(id)?.name
             : facts.people.get(Number(id))?.name;
-  return name ?? `${kind} ${id}`;
+  return name ?? t(language, '{kind} {id}', { kind, id });
 }
 
 export interface ScheduleView {
@@ -221,7 +244,14 @@ export async function getSchedule(id: string): Promise<ScheduleView> {
 
 const sameList = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join('\n') === [...b].sort().join('\n');
 
-function journal(scheduleId: string, action: string, summary: string, actorId: string, extra: { reason?: string; before?: unknown; after?: unknown } = {}) {
+/** A journal entry; a summary given as a message is shown in each reader's language. */
+function journal(
+  scheduleId: string,
+  action: string,
+  summary: string | Message,
+  actorId: string,
+  extra: { reason?: string; before?: unknown; after?: unknown } = {},
+) {
   return recordAuditQuietly([
     { actorId, entityType: 'report_schedule', entityId: scheduleId, action, summary, ...extra },
   ]);
@@ -241,7 +271,9 @@ export async function createSchedule(raw: unknown, actorId: string): Promise<Sch
       nextRunAt: input.active ? nextOccurrence(timingOf({ ...input, weekday: input.weekday ?? null, dayOfMonth: input.dayOfMonth ?? null }), now) : null,
     },
   });
-  await journal(schedule.id, 'report.schedule.created', `Scheduled report "${schedule.name}" created`, actorId, { after: input });
+  await journal(schedule.id, 'report.schedule.created', message('Scheduled report "{name}" created', { name: schedule.name }), actorId, {
+    after: input,
+  });
   return toView(schedule);
 }
 
@@ -267,7 +299,7 @@ export async function updateSchedule(id: string, raw: unknown, actorId: string):
       version: { increment: 1 },
     },
   });
-  await journal(id, 'report.schedule.updated', `Scheduled report "${schedule.name}" changed`, actorId, {
+  await journal(id, 'report.schedule.updated', message('Scheduled report "{name}" changed', { name: schedule.name }), actorId, {
     before: { ...existing, nextRunAt: undefined, lastRunAt: undefined },
     after: input,
   });
@@ -280,11 +312,16 @@ export async function deleteSchedule(id: string, actorId: string): Promise<'dele
   if (!existing) throw EpmError.notFound('That scheduled report');
   if (existing._count.runs > 0) {
     await prisma.reportSchedule.update({ where: { id }, data: { active: false, nextRunAt: null } });
-    await journal(id, 'report.schedule.deactivated', `Scheduled report "${existing.name}" switched off (it has runs, so it is kept)`, actorId);
+    await journal(
+      id,
+      'report.schedule.deactivated',
+      message('Scheduled report "{name}" switched off (it has runs, so it is kept)', { name: existing.name }),
+      actorId,
+    );
     return 'deactivated';
   }
   await prisma.reportSchedule.delete({ where: { id } });
-  await journal(id, 'report.schedule.deleted', `Scheduled report "${existing.name}" deleted`, actorId);
+  await journal(id, 'report.schedule.deleted', message('Scheduled report "{name}" deleted', { name: existing.name }), actorId);
   return 'deleted';
 }
 
@@ -300,7 +337,7 @@ export async function approveExternal(id: string, actorId: string): Promise<Sche
     where: { id },
     data: { externalApprovedBy: actorId, externalApprovedAt: new Date() },
   });
-  await journal(id, 'report.schedule.external_approved', `External recipients of "${schedule.name}" approved`, actorId, {
+  await journal(id, 'report.schedule.external_approved', message('External recipients of "{name}" approved', { name: schedule.name }), actorId, {
     after: { externalEmails: schedule.externalEmails },
   });
   return toView(schedule);
@@ -331,7 +368,11 @@ interface Copy {
   excluded: number;
 }
 
-/** A dashboard as this recipient may see it, and how much of its scope they cannot. */
+/**
+ * A dashboard as this recipient may see it, and how much of its scope they
+ * cannot. In the language being written (`contextLanguage()`): the run sets
+ * the recipient's.
+ */
 async function dashboardCopy(schedule: Schedule, viewer: Viewer, period: { from: string; to: string }, today: string): Promise<Copy | { withheld: string }> {
   const scope = parseScope(schedule.scope);
   const facts = await modelFacts();
@@ -341,21 +382,26 @@ async function dashboardCopy(schedule: Schedule, viewer: Viewer, period: { from:
   const mine = contextFor(theirs, scope, period, today).projects.map((project) => project.id);
 
   if (scope.kind === 'project' && mine.length === 0) {
-    return { withheld: 'They cannot access the project this report is about.' };
+    return { withheld: msg('They cannot access the project this report is about.') };
   }
   const dashboard = await buildDashboard(schedule.sourceId as DashboardId, scope, period, viewer, today, theirs);
+  const language = contextLanguage();
   return {
     document: documentOf(dashboard),
-    title: `${dashboard.title} — ${dashboard.scope.name}`,
+    title:
+      language === 'en'
+        ? `${dashboard.title} — ${dashboard.scope.name}`
+        : t(language, '{title} — {scope}', { title: dashboard.title, scope: dashboard.scope.name }),
     projectIds: mine,
     excluded: all.filter((id) => !mine.includes(id)).length,
   };
 }
 
-/** A saved view's work packages, as this recipient may see them. */
+/** A saved view's work packages, as this recipient may see them, in the language being written. */
 async function viewCopy(schedule: Schedule, viewer: Viewer, period: { from: string; to: string }, today: string): Promise<Copy | { withheld: string }> {
+  const language = contextLanguage();
   const rows: OpWorkPackage[] = [];
-  let name = `Saved view #${schedule.sourceId}`;
+  let name = t(language, 'Saved view #{id}', { id: schedule.sourceId });
   for (let offset = 1; offset <= 50; offset += 1) {
     const page = await runAsSystem(() =>
       openProject.request<{ name?: string; _embedded?: { results?: { total?: number; _embedded?: { elements?: OpWorkPackage[] } } } }>(
@@ -380,12 +426,12 @@ async function viewCopy(schedule: Schedule, viewer: Viewer, period: { from: stri
     id: 'work',
     title: name,
     columns: [
-      { key: 'name', label: 'Work package' },
-      { key: 'project', label: 'Project' },
-      { key: 'type', label: 'Type' },
-      { key: 'status', label: 'Status' },
-      { key: 'assignee', label: 'Assignee' },
-      { key: 'due', label: 'Due' },
+      { key: 'name', label: t(language, 'Work package') },
+      { key: 'project', label: t(language, 'Project') },
+      { key: 'type', label: t(language, 'Type') },
+      { key: 'status', label: t(language, 'Status') },
+      { key: 'assignee', label: t(language, 'Assignee') },
+      { key: 'due', label: t(language, 'Due') },
     ],
     rows: visible.map((wp) => ({
       key: `wp:${wp.id}`,
@@ -415,8 +461,15 @@ async function viewCopy(schedule: Schedule, viewer: Viewer, period: { from: stri
       asOf: new Date().toISOString(),
       tiles: ['view.count', 'view.overdue'],
       measures: {
-        'view.count': measure('view.count', 'Work packages', visible.length, `The work packages the saved view "${name}" selects.`),
-        'view.overdue': measure('view.overdue', 'Overdue', overdue.length, 'Of those, open and due before today.'),
+        'view.count': measure(
+          'view.count',
+          t(language, 'Work packages'),
+          visible.length,
+          language === 'en'
+            ? `The work packages the saved view "${name}" selects.`
+            : t(language, 'The work packages the saved view "{name}" selects.', { name }),
+        ),
+        'view.overdue': measure('view.overdue', t(language, 'Overdue'), overdue.length, t(language, 'Of those, open and due before today.')),
       },
       tables: [table],
       series: [],
@@ -431,9 +484,6 @@ async function viewCopy(schedule: Schedule, viewer: Viewer, period: { from: stri
 /* A run                                                                      */
 /* -------------------------------------------------------------------------- */
 
-const dayLabel = (iso: string) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'report';
 
 interface Recipient {
@@ -441,8 +491,31 @@ interface Recipient {
   userId?: string;
   email?: string;
   name: string;
+  /** Empty for an outside address: the email then greets without a name. */
   firstName: string;
+  /** What their copy is written in. */
+  language: Language;
+  /** Their calendar and digits, in another language than English. */
+  conventions: Conventions;
 }
+
+/**
+ * The language a person reads EPM in, from their preferences, and their
+ * calendar and digits with it. English is written as it always has been,
+ * whatever calendar or digits are chosen.
+ */
+async function readerOf(userId: string): Promise<Pick<Recipient, 'language' | 'conventions'>> {
+  const { locale } = await getPreferences(userId);
+  const language = toLanguage(locale.language);
+  return { language, conventions: language === 'en' ? {} : { calendar: locale.calendar, numerals: locale.numerals } };
+}
+
+/** Why a copy is held back, by the account's state upstream: catalogue entries, read in the reader's language. */
+const ACCOUNT_STATES: Record<string, string> = {
+  locked: msg('Their account is locked.'),
+  invited: msg('Their account is invited.'),
+  registered: msg('Their account is registered.'),
+};
 
 async function recipientsOf(schedule: Schedule): Promise<{ recipients: Recipient[]; inactive: Map<string, string> }> {
   const facts = await modelFacts();
@@ -451,11 +524,14 @@ async function recipientsOf(schedule: Schedule): Promise<{ recipients: Recipient
   for (const userId of schedule.recipientUserIds) {
     const person = facts.users.get(Number(userId));
     const status = facts.people.get(Number(userId))?.status;
-    if (person && status && status !== 'active') inactive.set(userId, `Their account is ${status}.`);
-    const name = person?.name ?? `User ${userId}`;
-    recipients.push({ kind: 'user', userId, name, firstName: name.split(' ')[0] ?? name });
+    if (person && status && status !== 'active') inactive.set(userId, ACCOUNT_STATES[status] ?? `Their account is ${status}.`);
+    const reader = await readerOf(userId);
+    const name = person?.name ?? t(reader.language, 'User {id}', { id: userId });
+    recipients.push({ kind: 'user', userId, name, firstName: name.split(' ')[0] ?? name, ...reader });
   }
-  for (const email of schedule.externalEmails) recipients.push({ kind: 'external', email, name: email, firstName: 'there' });
+  for (const email of schedule.externalEmails) {
+    recipients.push({ kind: 'external', email, name: email, firstName: '', language: 'en', conventions: {} });
+  }
   return { recipients, inactive };
 }
 
@@ -508,9 +584,12 @@ export async function runSchedule(
     const { recipients, inactive } = await recipientsOf(schedule);
     const externalApproved = Boolean(schedule.externalApprovedAt);
     const ownerViewer = await viewerForUser(schedule.ownerId);
-    const periodLabel = `${dayLabel(period.from)} – ${dayLabel(period.to)}`;
 
     for (const recipient of recipients) {
+      const { language, conventions } = recipient;
+      const tr = (source: string, params?: Record<string, ParamValue>) => t(language, source, params, conventions);
+      // "14 Sept 2026 – 11 Oct 2026" in English, as it has always been written.
+      const periodLabel = tr('{from} – {to}', { from: dateOf(period.from), to: dateOf(period.to) });
       const base = {
         runId: run.id,
         recipientKind: recipient.kind,
@@ -523,7 +602,7 @@ export async function runSchedule(
       };
 
       if (recipient.kind === 'external' && !externalApproved) {
-        await withhold('External recipients have not been approved.');
+        await withhold(msg('External recipients have not been approved.'));
         continue;
       }
       if (recipient.userId && inactive.has(recipient.userId)) {
@@ -533,30 +612,56 @@ export async function runSchedule(
 
       try {
         const viewer = recipient.kind === 'user' ? await viewerForUser(recipient.userId!) : ownerViewer;
-        const copy =
-          schedule.sourceKind === 'view'
-            ? await viewCopy(schedule, viewer, period, today)
-            : await dashboardCopy(schedule, viewer, period, today);
+        // Measures, dashboard and view are written in the recipient's language, calendar and digits.
+        const copy = await runWithLanguage(
+          language,
+          () => (schedule.sourceKind === 'view' ? viewCopy(schedule, viewer, period, today) : dashboardCopy(schedule, viewer, period, today)),
+          conventions,
+        );
         if ('withheld' in copy) {
           await withhold(copy.withheld);
           continue;
         }
 
+        // English is composed as it always was, names inserted as they are, so
+        // an English copy is byte for byte what it was; any other language
+        // through its catalogue.
+        const english = language === 'en';
         const preparedFor =
           recipient.kind === 'user'
-            ? `Prepared for ${recipient.name}, with their access`
-            : `Prepared for ${recipient.email}, with the access of the report's owner`;
+            ? english
+              ? `Prepared for ${recipient.name}, with their access`
+              : tr('Prepared for {name}, with their access', { name: recipient.name })
+            : english
+              ? `Prepared for ${recipient.email}, with the access of the report's owner`
+              : tr('Prepared for {email}, with the access of the report\'s owner', { email: recipient.email });
         const visibilityNote =
-          copy.excluded > 0
-            ? `${copy.excluded} ${copy.excluded === 1 ? 'project' : 'projects'} in this report's scope ${copy.excluded === 1 ? 'is' : 'are'} not included: ${recipient.kind === 'user' ? 'you do not have access to' : 'the report owner has no access to'} ${copy.excluded === 1 ? 'it' : 'them'}.`
-            : undefined;
+          copy.excluded === 0
+            ? undefined
+            : recipient.kind === 'user'
+              ? tr(
+                  '{count, plural, one {{count} project in this report\'s scope is not included: you do not have access to it.} other {{count} projects in this report\'s scope are not included: you do not have access to them.}}',
+                  { count: copy.excluded },
+                )
+              : tr(
+                  '{count, plural, one {{count} project in this report\'s scope is not included: the report owner has no access to it.} other {{count} projects in this report\'s scope are not included: the report owner has no access to them.}}',
+                  { count: copy.excluded },
+                );
+        const asOf = copy.document.asOf ? copy.document.asOf.slice(0, 16).replace('T', ' ') : null;
+        const subtitle = english
+          ? `${schedule.name} · ${periodLabel}${asOf ? ` · data as of ${asOf} UTC` : ''}`
+          : asOf
+            ? tr('{name} · {period} · data as of {asOf} UTC', { name: schedule.name, period: periodLabel, asOf })
+            : tr('{name} · {period}', { name: schedule.name, period: periodLabel });
         const content = {
           title: copy.title,
-          subtitle: `${schedule.name} · ${periodLabel}${copy.document.asOf ? ` · data as of ${copy.document.asOf.slice(0, 16).replace('T', ' ')} UTC` : ''}`,
+          subtitle,
           preparedFor,
           visibilityNote,
           generatedAt: now,
           document: copy.document,
+          language,
+          conventions,
         };
 
         const delivery = await prisma.reportDelivery.create({
@@ -591,7 +696,7 @@ export async function runSchedule(
           .map((id) => copy.document.measures[id])
           .filter((measure): measure is NonNullable<typeof measure> => Boolean(measure))
           .slice(0, 8)
-          .map((measure) => ({ label: measure.label, value: formatValue(measure.value, measure.unit) }));
+          .map((measure) => ({ label: measure.label, value: formatValue(measure.value, measure.unit, language, conventions) }));
         const url =
           recipient.kind === 'user' && schedule.sourceKind === 'dashboard'
             ? `${env.APP_BASE_URL.replace(/\/+$/, '')}/insights/${schedule.sourceId}?${schedule.scope !== 'instance' ? `scope=${encodeURIComponent(schedule.scope)}&` : ''}from=${period.from}&to=${period.to}`
@@ -625,12 +730,12 @@ export async function runSchedule(
           deliveries += 1;
         } else {
           const reasons: Record<string, string> = {
-            'no-address': 'They have no email address.',
-            'opted-out': 'Email is turned off in their settings.',
-            paused: 'Their notifications are paused.',
-            away: 'They are out of office.',
-            duplicate: 'Already sent.',
-            error: 'The email could not be queued.',
+            'no-address': msg('They have no email address.'),
+            'opted-out': msg('Email is turned off in their settings.'),
+            paused: msg('Their notifications are paused.'),
+            away: msg('They are out of office.'),
+            duplicate: msg('Already sent.'),
+            error: msg('The email could not be queued.'),
           };
           await prisma.reportDelivery.update({
             where: { id: delivery.id },
@@ -639,7 +744,7 @@ export async function runSchedule(
           withheld += 1;
         }
       } catch (error) {
-        const reason = error instanceof Error ? error.message.slice(0, 300) : 'The copy could not be rendered.';
+        const reason = error instanceof Error ? error.message.slice(0, 300) : msg('The copy could not be rendered.');
         await prisma.reportDelivery.create({ data: { ...base, renderStatus: 'failed', reason } });
         appLog.warn({ err: error, scheduleId, runId: run.id }, 'A scheduled report copy could not be rendered');
       }
@@ -649,7 +754,7 @@ export async function runSchedule(
     await prisma.reportSchedule.update({ where: { id: scheduleId }, data: { lastRunAt: now } });
     return { runId: run.id, status: 'rendered', deliveries, withheld };
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 500) : 'The run did not complete.';
+    const message = error instanceof Error ? error.message.slice(0, 500) : msg('The run did not complete.');
     await prisma.reportRun.update({ where: { id: run.id }, data: { status: 'failed', finishedAt: new Date(), error: message } });
     appLog.warn({ err: error, scheduleId, runId: run.id }, 'A scheduled report run failed');
     return { runId: run.id, status: 'failed', deliveries, withheld };
@@ -683,7 +788,7 @@ export async function runDue(now = new Date()): Promise<{ ran: number; missed: n
               status: 'missed',
               definition: { ...schedule, nextRunAt: undefined, lastRunAt: undefined } as unknown as Prisma.InputJsonValue,
               finishedAt: now,
-              error: `Not sent: the scheduler was not running within ${schedule.windowMinutes} minutes of the time it was due.`,
+              error: render('en', missedRun(schedule.windowMinutes)),
             },
           })
           .catch((error: unknown) => {
@@ -747,6 +852,25 @@ type RunWithDeliveries = Prisma.ReportRunGetPayload<{
   include: { schedule: { select: { name: true } }; deliveries: { include: { artifacts: { select: { id: true; format: true; filename: true; size: true } } } } };
 }>;
 
+/** Why a run was missed. The run keeps it in English; a reader sees it in theirs (`runError`). */
+const missedRun = (windowMinutes: number): Message =>
+  message('Not sent: the scheduler was not running within {minutes} minutes of the time it was due.', { minutes: windowMinutes });
+
+/**
+ * Why a run did not complete, in the language of the request being served. A
+ * missed run's sentence is written again from the definition it ran with; the
+ * fixed phrases are translated (`renderStored`); an error's own text is shown
+ * as it was recorded. A copy's reason is read the same way.
+ */
+function runError(status: string, error: string, definition: Prisma.JsonValue): string {
+  const minutes = (definition as { windowMinutes?: unknown } | null)?.windowMinutes;
+  if (status === 'missed' && typeof minutes === 'number') {
+    const missed = missedRun(minutes);
+    if (render('en', missed) === error) return renderStored(error, missed);
+  }
+  return renderStored(error);
+}
+
 async function runViews(runs: RunWithDeliveries[], withDeliveries: boolean): Promise<RunView[]> {
   const outboxIds = runs.flatMap((run) => run.deliveries.map((delivery) => delivery.outboxId)).filter((id): id is string => Boolean(id));
   const outbox = new Map(
@@ -767,7 +891,7 @@ async function runViews(runs: RunWithDeliveries[], withDeliveries: boolean): Pro
         recipientUserId: delivery.recipientUserId ?? undefined,
         recipientEmail: delivery.recipientEmail ?? undefined,
         renderStatus: delivery.renderStatus as DeliveryView['renderStatus'],
-        reason: delivery.reason ?? undefined,
+        reason: delivery.reason ? renderStored(delivery.reason) : undefined,
         projectCount: delivery.projectIds.length,
         excludedProjects: delivery.excludedProjects,
         emailStatus: delivery.renderStatus !== 'rendered' ? 'withheld' : email ? (email.status as DeliveryView['emailStatus']) : 'none',
@@ -806,7 +930,7 @@ async function runViews(runs: RunWithDeliveries[], withDeliveries: boolean): Pro
       periodTo: run.periodTo ?? undefined,
       startedAt: run.startedAt.toISOString(),
       finishedAt: run.finishedAt?.toISOString(),
-      error: run.error ?? undefined,
+      error: run.error ? runError(run.status, run.error, run.definition) : undefined,
       recipients: deliveries.length,
       delivered,
       failed,
@@ -888,5 +1012,5 @@ export async function sourceOptions(): Promise<{ dashboards: { id: string; title
     .getAll<{ id: number; name: string }>('/queries', { pageSize: 100 })
     .then((result) => result.items.map((query) => ({ id: String(query.id), name: query.name })))
     .catch(() => [] as { id: string; name: string }[]);
-  return { dashboards: DASHBOARDS.map(({ id, title }) => ({ id, title })), views };
+  return { dashboards: dashboardsIn(contextLanguage()).map(({ id, title }) => ({ id, title })), views };
 }

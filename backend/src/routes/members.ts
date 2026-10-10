@@ -4,9 +4,11 @@ import * as guard from '../auth/guard.js';
 import { allows } from '../auth/capabilities.js';
 import { permissionsFor } from '../auth/guard.js';
 import { enqueueEmail } from '../email/outbox.js';
+import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { env } from '../config/env.js';
 import { EpmError } from '../lib/errors.js';
+import { t, toLanguage, type Language } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { toEpmMemberCandidate, toEpmProjectMember, toEpmRole } from '../mapping/members.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
@@ -126,13 +128,19 @@ async function notifyMemberAdded(
     ? await resolveRecipient(request.auth.userId).catch(() => undefined)
     : undefined;
 
+  // What stands in for a project or a role the membership did not name is
+  // written in the language the email will be: the new member's, from their
+  // preferences, as the outbox reads it. Asked only when something is missing.
+  const project = linkTitle(membership._links, 'project');
+  const language: Language = project !== undefined && roles ? 'en' : toLanguage((await getPreferences(userId)).locale.language);
+
   await enqueueEmail({
     recipientId: userId,
     template: 'project-member-added',
     payload: {
       firstName: recipient.firstName,
-      projectName: linkTitle(membership._links, 'project') ?? 'a project',
-      roles: roles || 'Member',
+      projectName: project ?? t(language, 'a project'),
+      roles: roles || t(language, 'Member'),
       addedBy: actor?.name ?? '',
       url: `${env.APP_BASE_URL}/projects/${projectId}`,
     },

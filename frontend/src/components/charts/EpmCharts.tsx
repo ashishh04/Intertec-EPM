@@ -19,7 +19,7 @@ import {
 import { BarChart3, PieChart as PieChartIcon, TrendingUp, type LucideIcon } from 'lucide-react';
 import { EmptyState } from '@/components/common/EmptyState';
 import { TASK_STATUS_META, TONE_VAR, type Tone } from '@/lib/domain';
-import { currentLanguage, isRightToLeft, t } from '@/lib/i18n';
+import { currentConventions, currentLanguage, formatLocalNumber, intlLocale, isRightToLeft, t } from '@/lib/i18n';
 import { formatShortDate } from '@/lib/utils';
 import type { BurndownPoint, DeliveryTrendPoint, StatusDistribution } from '@/types';
 
@@ -408,10 +408,24 @@ export function TrendChart({
 
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** "6 Oct" for a week, "Oct 26" for a month: the bucket's first day. */
+/**
+ * "6 Oct" for a week, "Oct 26" for a month: the bucket's first day. English
+ * keeps that wording exactly; another language gets its own month names and
+ * digits from `Intl`. Always Gregorian, whatever calendar the reader chose:
+ * the buckets are Gregorian weeks and months, and a Hijri label would name a
+ * month the bucket does not match.
+ */
 function bucketLabel(from: string, bucket: 'week' | 'month'): string {
   const [year, month, day] = from.split('-').map(Number) as [number, number, number];
-  return bucket === 'month' ? `${SHORT_MONTHS[month - 1]} ${String(year).slice(2)}` : `${day} ${SHORT_MONTHS[month - 1]}`;
+  if (currentLanguage() === 'en') {
+    return bucket === 'month' ? `${SHORT_MONTHS[month - 1]} ${String(year).slice(2)}` : `${day} ${SHORT_MONTHS[month - 1]}`;
+  }
+  return new Intl.DateTimeFormat(
+    intlLocale({ ...currentConventions(), calendar: 'gregory' }),
+    bucket === 'month'
+      ? { month: 'short', year: '2-digit', timeZone: 'UTC' }
+      : { day: 'numeric', month: 'short', timeZone: 'UTC' },
+  ).format(new Date(Date.UTC(year, month - 1, day)));
 }
 
 /**
@@ -436,13 +450,13 @@ export function MeasureSeriesChart({
   tone?: Tone;
 }) {
   if (points.length === 0 || points.every((point) => point.value === null)) {
-    return <ChartEmpty icon={TrendingUp} title="Nothing to draw yet" description="No value in this period." />;
+    return <ChartEmpty icon={TrendingUp} title={t('Nothing to draw yet')} description={t('No value in this period.')} />;
   }
 
   const rows = points.map((point) => ({ label: bucketLabel(point.from, bucket), value: point.value }));
   // The axis carries magnitudes, the tooltip the exact figure: "AED 25,000"
   // does not fit beside a chart, "25K" does.
-  const tick = (value: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+  const tick = (value: number) => new Intl.NumberFormat(intlLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(value);
   const tooltip = (
     <Tooltip
       {...TOOLTIP_STYLE}
@@ -454,18 +468,18 @@ export function MeasureSeriesChart({
   return (
     <ResponsiveContainer width="100%" height="100%">
       {kind === 'bars' ? (
-        <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+        <BarChart data={rows} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: -12 })}>
           <CartesianGrid {...GRID} />
-          <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
-          <YAxis {...AXIS} width={40} tickFormatter={tick} />
+          <XAxis dataKey="label" {...AXIS} {...timeAxis()} interval="preserveStartEnd" />
+          <YAxis {...AXIS} {...valueAxis()} width={40} tickFormatter={tick} />
           {tooltip}
           <Bar dataKey="value" name={label} radius={[4, 4, 0, 0]} maxBarSize={30} fill={TONE_VAR[tone]} />
         </BarChart>
       ) : (
-        <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+        <LineChart data={rows} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: -12 })}>
           <CartesianGrid {...GRID} />
-          <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
-          <YAxis {...AXIS} width={40} tickFormatter={tick} allowDecimals={false} />
+          <XAxis dataKey="label" {...AXIS} {...timeAxis()} interval="preserveStartEnd" />
+          <YAxis {...AXIS} {...valueAxis()} width={40} tickFormatter={tick} allowDecimals={false} />
           {tooltip}
           <Line
             type="monotone"
@@ -483,7 +497,15 @@ export function MeasureSeriesChart({
 }
 
 /** Axis ticks as magnitudes: "25K", not "AED 25,000". */
-const compactTick = (value: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+const compactTick = (value: number) => new Intl.NumberFormat(intlLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+
+/**
+ * An index tick to one decimal ("0.9", "1.0") in the reader's digits. Rounded
+ * by `toFixed`, as it always was — `Intl` rounds 0.95 up where `toFixed` gives
+ * 0.9 — so only the digits change, and English reads exactly as before.
+ */
+const indexTick = (value: number) =>
+  formatLocalNumber(Number(value.toFixed(1)), { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false });
 
 /**
  * Several measures on the same axes over the same buckets — earned value's
@@ -505,7 +527,7 @@ export function MeasureLinesChart({
 }) {
   const first = lines[0];
   if (!first || lines.every((line) => line.points.every((point) => point.value === null))) {
-    return <ChartEmpty icon={TrendingUp} title="Nothing to draw yet" description="No value in this period." />;
+    return <ChartEmpty icon={TrendingUp} title={t('Nothing to draw yet')} description={t('No value in this period.')} />;
   }
 
   // Keys without dots: Recharts reads a dot in a data key as a path.
@@ -520,13 +542,14 @@ export function MeasureLinesChart({
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+      <LineChart data={rows} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: 0 })}>
         <CartesianGrid {...GRID} />
-        <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
+        <XAxis dataKey="label" {...AXIS} {...timeAxis()} interval="preserveStartEnd" />
         <YAxis
           {...AXIS}
+          {...valueAxis()}
           width={48}
-          tickFormatter={index ? (value: number) => value.toFixed(1) : compactTick}
+          tickFormatter={index ? indexTick : compactTick}
           allowDecimals={index}
         />
         <Tooltip

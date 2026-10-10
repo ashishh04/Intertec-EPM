@@ -4,7 +4,7 @@ import { prisma } from '../db/prisma.js';
 import { aggregateCache } from '../lib/cache.js';
 import { appLog } from '../lib/log.js';
 import { daysBetween, today as todayIso } from '../lib/dates.js';
-import { message, type Message } from '../lib/i18n.js';
+import { dateOf, listOf, message, render, renderStored, type Message } from '../lib/i18n.js';
 import { countsByProject, listProjects, type ProjectHealthView } from '../mapping/projects.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
 import type {
@@ -20,7 +20,7 @@ import type {
 } from '../types/epm.js';
 import { recordAuditQuietly, type AuditInput } from './audit.js';
 import { projectCosts, type ProjectCost } from './costs.js';
-import { HEALTH_CRITERIA, getHealthRules, resolveRiskSelection } from './health-rules.js';
+import { HEALTH_CRITERIA, criterionName, getHealthRules, resolveRiskSelection } from './health-rules.js';
 import { clauses, notifyHealthChange } from './notifications.js';
 import { noteRuleEvent } from './rule-events.js';
 import { OVERDUE_DUE_FILTER } from './work-definitions.js';
@@ -68,21 +68,22 @@ export interface HealthInputs {
   today: string;
 }
 
-export interface HealthComputation {
-  levels: ProjectHealth;
-  criteria: HealthCriterionResult[];
-  explanation: string;
-  forecastFinish?: string;
+/**
+ * A criterion's result as it is stored: the reason in English, which is the
+ * record, and as the message it was written from, so each reader is shown it
+ * in their own language (BR-605). The message never leaves the server.
+ */
+export interface StoredCriterion extends HealthCriterionResult {
+  reasonMessage?: Message;
 }
 
-const LABELS: Record<HealthCriterion, string> = {
-  schedule: 'Schedule variance',
-  budget: 'Budget variance',
-  risks: 'Open high risks',
-  overdue: 'Overdue items',
-};
-
-const LEVEL_WORDS: Record<HealthLevel, string> = { healthy: 'green', warning: 'amber', critical: 'red' };
+export interface HealthComputation {
+  levels: ProjectHealth;
+  criteria: StoredCriterion[];
+  explanation: string;
+  explanationMessage: Message;
+  forecastFinish?: string;
+}
 
 function levelFor(value: number, rule: HealthCriterionRule): HealthLevel {
   if (value >= rule.redAt) return 'critical';
@@ -90,18 +91,23 @@ function levelFor(value: number, rule: HealthCriterionRule): HealthLevel {
   return 'healthy';
 }
 
-const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+/*
+ * The reasons are messages. In the English their figures are plain arguments —
+ * `{days}`, not `#` or `{days, number}`, which would write "1,200" where the
+ * stored English has always said "1200" — so the English reads exactly as it
+ * always has; a translation writes them in its reader's format. Amounts are
+ * written in the house format below and passed as text, for the same reason.
+ */
 
 function money(value: number): string {
   return `${env.EPM_CURRENCY} ${Math.round(value).toLocaleString('en-US')}`;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "30 Sep 2026". Spelled out by hand: locale data abbreviates September as "Sept". */
-function day(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+/** What one criterion measured, and why it stands where it does. */
+interface Measured {
+  level: HealthLevel | null;
+  value: number | null;
+  reason: Message;
 }
 
 /** Calendar days from `from` to `to`; negative when `to` is earlier. */
@@ -125,16 +131,15 @@ export function forecastFinish(inputs: HealthInputs): string | undefined {
   return forecast;
 }
 
-function scheduleCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
-  const thresholds = `amber from ${rule.amberAt}, red from ${rule.redAt} days`;
+function scheduleCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measured {
   if (!inputs.plannedFinish) {
-    return { level: null, value: null, reason: 'No planned finish is set, so schedule variance is not measured.' };
+    return { level: null, value: null, reason: message('No planned finish is set, so schedule variance is not measured.') };
   }
   if (inputs.total === 0) {
-    return { level: null, value: null, reason: 'No work is planned yet, so there is no finish to forecast.' };
+    return { level: null, value: null, reason: message('No work is planned yet, so there is no finish to forecast.') };
   }
   if (inputs.open === 0) {
-    return { level: 'healthy' as const, value: 0, reason: 'All work is complete.' };
+    return { level: 'healthy', value: 0, reason: message('All work is complete.') };
   }
 
   const forecast = forecastFinish(inputs);
@@ -142,21 +147,25 @@ function scheduleCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
     return {
       level: null,
       value: null,
-      reason: 'None of the open work has a due date, so no finish can be forecast.',
+      reason: message('None of the open work has a due date, so no finish can be forecast.'),
     };
   }
 
   const variance = dayDifference(inputs.plannedFinish, forecast);
-  const where =
-    variance > 0
-      ? `${plural(variance, 'day')} after`
-      : variance < 0
-        ? `${plural(-variance, 'day')} before`
-        : 'on';
   return {
     level: levelFor(variance, rule),
     value: variance,
-    reason: `Open work is forecast to finish on ${day(forecast)}, ${where} the planned finish of ${day(inputs.plannedFinish)} (${thresholds}).`,
+    reason: message(
+      'Open work is forecast to finish on {forecast}, {direction, select, after {{days, plural, one {{days} day} other {{days} days}} after} before {{days, plural, one {{days} day} other {{days} days}} before} other {on}} the planned finish of {planned} (amber from {amberAt}, red from {redAt} days).',
+      {
+        forecast: dateOf(forecast),
+        direction: variance > 0 ? 'after' : variance < 0 ? 'before' : 'on',
+        days: Math.abs(variance),
+        planned: dateOf(inputs.plannedFinish),
+        amberAt: rule.amberAt,
+        redAt: rule.redAt,
+      },
+    ),
   };
 }
 
@@ -198,16 +207,15 @@ export function plannedBudgetToDate(
  * share of the whole budget, so it means the same on a large project as on a
  * small one. Phased budgets (BR-310) will replace the even spread here.
  */
-function budgetCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
-  const thresholds = `amber from ${rule.amberAt}%, red from ${rule.redAt}% of the budget`;
+function budgetCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measured {
   if (!inputs.budget || inputs.budget <= 0) {
-    return { level: null, value: null, reason: 'No budget is set, so budget variance is not measured.' };
+    return { level: null, value: null, reason: message('No budget is set, so budget variance is not measured.') };
   }
   if (!inputs.cost) {
     return {
       level: null,
       value: null,
-      reason: 'Logged time could not be read, so spend to date is not known.',
+      reason: message('Logged time could not be read, so spend to date is not known.'),
     };
   }
 
@@ -215,52 +223,67 @@ function budgetCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
   const { planned, share } = plannedBudgetToDate(budget, inputs.plannedStart, inputs.plannedFinish, inputs.today);
   const basis =
     share === null
-      ? 'with no planned dates to phase it over, all of it counts as planned'
-      : `${money(planned)} of it was planned by today, ${Math.round(share * 100)}% of the way through the schedule`;
+      ? message('with no planned dates to phase it over, all of it counts as planned')
+      : message('{planned} of it was planned by today, {share}% of the way through the schedule', {
+          planned: money(planned),
+          share: Math.round(share * 100),
+        });
 
   const variance = budgetVariancePct(cost.cost, planned, budget);
-  const direction =
-    variance > 0
-      ? `${variance}% of the budget over plan`
-      : variance < 0
-        ? `${-variance}% of the budget under plan`
-        : 'exactly on plan';
-  const uncosted =
-    cost.uncostedHours > 0
-      ? ` ${plural(cost.uncostedHours, 'hour')} logged by people with no hourly rate are not included.`
-      : '';
-
   return {
     level: levelFor(variance, rule),
     value: variance,
-    reason: `Spent ${money(cost.cost)} of the ${money(budget)} budget; ${basis}. That is ${direction} (${thresholds}).${uncosted}`,
+    reason: message(
+      'Spent {spent} of the {budget} budget; {basis}. That is {direction, select, over {{variance}% of the budget over plan} under {{variance}% of the budget under plan} other {exactly on plan}} (amber from {amberAt}%, red from {redAt}% of the budget).{uncosted, plural, =0 {} one { {uncosted} hour logged by people with no hourly rate are not included.} other { {uncosted} hours logged by people with no hourly rate are not included.}}',
+      {
+        spent: money(cost.cost),
+        budget: money(budget),
+        basis,
+        direction: variance > 0 ? 'over' : variance < 0 ? 'under' : 'on',
+        variance: Math.abs(variance),
+        amberAt: rule.amberAt,
+        redAt: rule.redAt,
+        uncosted: cost.uncostedHours > 0 ? cost.uncostedHours : 0,
+      },
+    ),
   };
 }
 
-function risksCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
+function risksCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measured {
   if (!inputs.riskTypesConfigured) {
     return {
       level: null,
       value: null,
-      reason: 'No work package type is set up as a risk, so risks are not counted.',
+      reason: message('No work package type is set up as a risk, so risks are not counted.'),
     };
   }
-  const of = inputs.openRisks > inputs.openHighRisks ? ` (of ${plural(inputs.openRisks, 'open risk')})` : '';
   return {
     level: levelFor(inputs.openHighRisks, rule),
     value: inputs.openHighRisks,
-    reason: `${plural(inputs.openHighRisks, 'open risk')} at high priority${of} (amber from ${rule.amberAt}, red from ${rule.redAt}).`,
+    reason: message(
+      '{high, plural, one {{high} open risk} other {{high} open risks}} at high priority{wider, select, yes { (of {all, plural, one {{all} open risk} other {{all} open risks}})} other {}} (amber from {amberAt}, red from {redAt}).',
+      {
+        high: inputs.openHighRisks,
+        wider: inputs.openRisks > inputs.openHighRisks ? 'yes' : 'no',
+        all: inputs.openRisks,
+        amberAt: rule.amberAt,
+        redAt: rule.redAt,
+      },
+    ),
   };
 }
 
-function overdueCriterion(inputs: HealthInputs, rule: HealthCriterionRule) {
+function overdueCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measured {
   if (inputs.total === 0) {
-    return { level: 'healthy' as const, value: 0, reason: 'This project has no work packages yet.' };
+    return { level: 'healthy', value: 0, reason: message('This project has no work packages yet.') };
   }
   return {
     level: levelFor(inputs.overdue, rule),
     value: inputs.overdue,
-    reason: `${inputs.overdue} of ${plural(inputs.open, 'open work package')} ${inputs.overdue === 1 ? 'is' : 'are'} past the due date (amber from ${rule.amberAt}, red from ${rule.redAt}).`,
+    reason: message(
+      '{overdue} of {open, plural, one {{open} open work package} other {{open} open work packages}} {overdue, plural, one {is} other {are}} past the due date (amber from {amberAt}, red from {redAt}).',
+      { overdue: inputs.overdue, open: inputs.open, amberAt: rule.amberAt, redAt: rule.redAt },
+    ),
   };
 }
 
@@ -278,7 +301,10 @@ const UNITS = { schedule: 'days', budget: 'percent', risks: 'count', overdue: 'c
 export function aggregateHealth(
   levels: Partial<Record<HealthCriterion, HealthLevel | null>>,
   rules: HealthRules,
-): { overall: HealthLevel; explanation: string } {
+): { overall: HealthLevel; explanation: string; explanationMessage: Message } {
+  // The English is the record; the message is how each reader is shown it.
+  const explained = (overall: HealthLevel, why: Message) => ({ overall, explanation: render('en', why), explanationMessage: why });
+
   const counted = HEALTH_CRITERIA.filter((key) => {
     const rule = rules.criteria[key];
     return rule.enabled && rule.weight > 0 && levels[key] != null;
@@ -286,10 +312,10 @@ export function aggregateHealth(
 
   const total = counted.reduce((sum, key) => sum + rules.criteria[key].weight, 0);
   if (total === 0) {
-    return {
-      overall: 'healthy',
-      explanation: 'Nothing could be assessed yet, so the overall stays green until something can be measured.',
-    };
+    return explained(
+      'healthy',
+      message('Nothing could be assessed yet, so the overall stays green until something can be measured.'),
+    );
   }
 
   const weightOf = (keys: HealthCriterion[]) => keys.reduce((sum, key) => sum + rules.criteria[key].weight, 0);
@@ -298,42 +324,53 @@ export function aggregateHealth(
   const redShare = Math.round((weightOf(red) / total) * 100);
   const nonGreenShare = Math.round((weightOf(nonGreen) / total) * 100);
 
+  // "schedule variance, budget variance and overdue items", joined the way the
+  // reader's language joins them.
   const names = (keys: HealthCriterion[]) => {
-    const words = keys.map((key) => LABELS[key].toLowerCase());
-    return words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`;
+    const words = keys.map(criterionName);
+    return words.length <= 2 ? listOf(words, 'and') : listOf([listOf(words.slice(0, -1)), words.at(-1)!], 'and');
   };
 
   if (red.length > 0 && redShare >= rules.redShare) {
-    return {
-      overall: 'critical',
-      explanation: `Red: ${names(red)} ${red.length === 1 ? 'is' : 'are'} red, carrying ${redShare}% of the weight assessed (red from ${rules.redShare}%).`,
-    };
+    return explained(
+      'critical',
+      message(
+        'Red: {criteria} {count, plural, one {is} other {are}} red, carrying {share}% of the weight assessed (red from {threshold}%).',
+        { criteria: names(red), count: red.length, share: redShare, threshold: rules.redShare },
+      ),
+    );
   }
   if (nonGreen.length > 0 && nonGreenShare >= rules.amberShare) {
-    return {
-      overall: 'warning',
-      explanation: `Amber: ${names(nonGreen)} ${nonGreen.length === 1 ? 'is' : 'are'} amber or red, carrying ${nonGreenShare}% of the weight assessed (amber from ${rules.amberShare}%).`,
-    };
+    return explained(
+      'warning',
+      message(
+        'Amber: {criteria} {count, plural, one {is} other {are}} amber or red, carrying {share}% of the weight assessed (amber from {threshold}%).',
+        { criteria: names(nonGreen), count: nonGreen.length, share: nonGreenShare, threshold: rules.amberShare },
+      ),
+    );
   }
   if (nonGreen.length > 0) {
-    return {
-      overall: 'healthy',
-      explanation: `Green: ${names(nonGreen)} ${nonGreen.length === 1 ? 'is' : 'are'} amber or red but ${nonGreen.length === 1 ? 'carries' : 'carry'} only ${nonGreenShare}% of the weight assessed, below the ${rules.amberShare}% that turns the overall amber.`,
-    };
+    return explained(
+      'healthy',
+      message(
+        'Green: {criteria} {count, plural, one {is amber or red but carries} other {are amber or red but carry}} only {share}% of the weight assessed, below the {threshold}% that turns the overall amber.',
+        { criteria: names(nonGreen), count: nonGreen.length, share: nonGreenShare, threshold: rules.amberShare },
+      ),
+    );
   }
-  return { overall: 'healthy', explanation: 'Green: every criterion assessed is green.' };
+  return explained('healthy', message('Green: every criterion assessed is green.'));
 }
 
 /** One project's health, from its inputs and the rules. Pure. */
 export function computeHealth(inputs: HealthInputs, rules: HealthRules): HealthComputation {
-  const measured: Record<HealthCriterion, { level: HealthLevel | null; value: number | null; reason: string }> = {
+  const measured: Record<HealthCriterion, Measured> = {
     schedule: scheduleCriterion(inputs, rules.criteria.schedule),
     budget: budgetCriterion(inputs, rules.criteria.budget),
     risks: risksCriterion(inputs, rules.criteria.risks),
     overdue: overdueCriterion(inputs, rules.criteria.overdue),
   };
 
-  const criteria: HealthCriterionResult[] = [];
+  const criteria: StoredCriterion[] = [];
   const levels: Partial<Record<HealthCriterion, HealthLevel | null>> = {};
 
   for (const key of HEALTH_CRITERIA) {
@@ -350,14 +387,15 @@ export function computeHealth(inputs: HealthInputs, rules: HealthRules): HealthC
       level: result.level,
       value: result.value,
       unit: UNITS[key],
-      reason: result.reason,
+      reason: render('en', result.reason),
+      reasonMessage: result.reason,
       weight: rule.weight,
       amberAt: rule.amberAt,
       redAt: rule.redAt,
     });
   }
 
-  const { overall, explanation } = aggregateHealth(levels, rules);
+  const { overall, explanation, explanationMessage } = aggregateHealth(levels, rules);
 
   return {
     levels: {
@@ -369,6 +407,7 @@ export function computeHealth(inputs: HealthInputs, rules: HealthRules): HealthC
     },
     criteria,
     explanation,
+    explanationMessage,
     forecastFinish: forecastFinish(inputs),
   };
 }
@@ -425,21 +464,52 @@ export function parseOverrideLevels(value: unknown): HealthOverride {
 
 export type HealthTrigger = 'change' | 'sweep' | 'rules' | 'read' | 'manual';
 
-/** A project's stored calculation, ready to merge into the project. */
+/**
+ * A project's stored calculation, ready to merge into the project.
+ *
+ * Its sentences are the stored English, each criterion carrying the message
+ * its reason was written from; `presentedDetail` writes them out for a reader.
+ */
 export interface StoredHealth {
   calculated: ProjectHealth;
   detail: ProjectHealthDetail;
+  /** The explanation's message, when one was kept. */
+  explanationMessage?: unknown;
   forecastFinish?: string;
   cost?: ProjectCost;
   openRisks: number;
 }
 
 /** What a project looks like before anything has been calculated for it. */
-export function unassessedHealth(reason: string): StoredHealth {
+export function unassessedHealth(reason: string | Message): StoredHealth {
   return {
     calculated: { schedule: null, budget: null, risks: null, overdue: null, overall: 'healthy' },
-    detail: { criteria: [], explanation: reason, calculatedAt: new Date(0).toISOString(), ruleVersion: 0 },
+    detail: {
+      criteria: [],
+      explanation: typeof reason === 'string' ? reason : render('en', reason),
+      calculatedAt: new Date(0).toISOString(),
+      ruleVersion: 0,
+    },
+    explanationMessage: typeof reason === 'string' ? undefined : reason,
     openRisks: 0,
+  };
+}
+
+/**
+ * A stored calculation as a reader is shown it: each reason and the
+ * explanation in the language of the request being served, from the messages
+ * kept with them — English, or a calculation stored before there were
+ * messages, reads as stored.
+ */
+export function presentedDetail(stored: Pick<StoredHealth, 'detail' | 'explanationMessage'>): ProjectHealthDetail {
+  const { detail } = stored;
+  return {
+    ...detail,
+    criteria: detail.criteria.map((criterion) => {
+      const { reasonMessage, ...shown } = criterion as StoredCriterion;
+      return { ...shown, reason: renderStored(shown.reason, reasonMessage) };
+    }),
+    explanation: renderStored(detail.explanation, stored.explanationMessage),
   };
 }
 
@@ -462,11 +532,12 @@ function fromRow(row: StateRow): StoredHealth {
   return {
     calculated: levelsFromJson(row.levels),
     detail: {
-      criteria: Array.isArray(row.criteria) ? (row.criteria as unknown as HealthCriterionResult[]) : [],
+      criteria: Array.isArray(row.criteria) ? (row.criteria as unknown as StoredCriterion[]) : [],
       explanation: row.explanation,
       calculatedAt: row.calculatedAt.toISOString(),
       ruleVersion: row.ruleVersion,
     },
+    explanationMessage: row.explanationMessage ?? undefined,
     forecastFinish: inputs.forecastFinish,
     cost: inputs.cost,
     openRisks: inputs.openRisks ?? 0,
@@ -623,15 +694,10 @@ async function gatherInputs(scope: string[] | 'all', rules: HealthRules, refresh
 /* Recalculating                                                               */
 /* -------------------------------------------------------------------------- */
 
-function changedCriteria(before: ProjectHealth, after: ProjectHealth): string[] {
-  return HEALTH_CRITERIA.filter((key) => before[key] !== after[key]).map((key) => {
-    const from = before[key] ? LEVEL_WORDS[before[key]] : 'not assessed';
-    const to = after[key] ? LEVEL_WORDS[after[key]] : 'not assessed';
-    return `${LABELS[key].toLowerCase()} ${from} → ${to}`;
-  });
-}
-
-/** The same, as messages for the owner, who reads them in their own language. */
+/**
+ * What moved between two calculations — "schedule variance green → amber" —
+ * for the journal and for the owner, who read them in their own language.
+ */
 function changedCriteriaMessages(before: ProjectHealth, after: ProjectHealth): Message[] {
   return HEALTH_CRITERIA.filter((key) => before[key] !== after[key]).map((key) =>
     message(
@@ -694,6 +760,7 @@ export async function recalculateHealth(
         calculatedAt: calculatedAt.toISOString(),
         ruleVersion: rules.version,
       },
+      explanationMessage: computed.explanationMessage,
       forecastFinish: computed.forecastFinish,
       cost: inputs.cost,
       openRisks: inputs.openRisks,
@@ -709,6 +776,7 @@ export async function recalculateHealth(
           levels: computed.levels as unknown as object,
           criteria: computed.criteria as unknown as object,
           explanation: computed.explanation,
+          explanationMessage: computed.explanationMessage as unknown as object,
           inputs: {
             ...inputs,
             forecastFinish: computed.forecastFinish,
@@ -723,6 +791,7 @@ export async function recalculateHealth(
           levels: computed.levels as unknown as object,
           criteria: computed.criteria as unknown as object,
           explanation: computed.explanation,
+          explanationMessage: computed.explanationMessage as unknown as object,
           inputs: {
             ...inputs,
             forecastFinish: computed.forecastFinish,
@@ -742,6 +811,7 @@ export async function recalculateHealth(
     if (!persisted) continue;
 
     const name = names.get(id) ?? `Project ${id}`;
+    const project = names.get(id) ?? message('Project {id}', { id });
     if (!before) {
       journal.push({
         actorId: null,
@@ -749,7 +819,10 @@ export async function recalculateHealth(
         entityType: 'project',
         entityId: id,
         action: 'health.calculated',
-        summary: `Health first calculated for ${name}: overall ${LEVEL_WORDS[computed.levels.overall]}.`,
+        summary: message(
+          'Health first calculated for {project}: overall {level, select, healthy {green} warning {amber} other {red}}.',
+          { project, level: computed.levels.overall },
+        ),
         after: computed.levels,
         metadata: { trigger, ruleVersion: rules.version, baseline: true },
       });
@@ -757,8 +830,10 @@ export async function recalculateHealth(
     }
     if (sameLevels(before.calculated, computed.levels)) continue;
 
-    const moved = changedCriteria(before.calculated, computed.levels);
+    const moved = changedCriteriaMessages(before.calculated, computed.levels);
     const overallMoved = before.calculated.overall !== computed.levels.overall;
+    const from = before.calculated.overall;
+    const to = computed.levels.overall;
     journal.push({
       actorId: null,
       projectId: id,
@@ -766,8 +841,19 @@ export async function recalculateHealth(
       entityId: id,
       action: 'health.calculated',
       summary: overallMoved
-        ? `Calculated health moved from ${LEVEL_WORDS[before.calculated.overall]} to ${LEVEL_WORDS[computed.levels.overall]}${moved.length ? `: ${moved.join('; ')}` : ''}.`
-        : `Calculated criteria moved: ${moved.join('; ')}. Overall stays ${LEVEL_WORDS[computed.levels.overall]}.`,
+        ? moved.length
+          ? message(
+              'Calculated health moved from {from, select, healthy {green} warning {amber} other {red}} to {to, select, healthy {green} warning {amber} other {red}}: {changes}.',
+              { from, to, changes: clauses(moved) },
+            )
+          : message(
+              'Calculated health moved from {from, select, healthy {green} warning {amber} other {red}} to {to, select, healthy {green} warning {amber} other {red}}.',
+              { from, to },
+            )
+        : message(
+            'Calculated criteria moved: {changes}. Overall stays {level, select, healthy {green} warning {amber} other {red}}.',
+            { changes: moved.length ? clauses(moved) : '', level: to },
+          ),
       before: before.calculated,
       after: computed.levels,
       metadata: { trigger, ruleVersion: rules.version },
@@ -788,9 +874,7 @@ export async function recalculateHealth(
         next: nowEffective,
         overridden: Boolean(pinned),
         occurrence: calculatedAt.toISOString().slice(0, 10),
-        detail: moved.length
-          ? message('What moved: {changes}.', { changes: clauses(changedCriteriaMessages(before.calculated, computed.levels)) })
-          : undefined,
+        detail: moved.length ? message('What moved: {changes}.', { changes: clauses(moved) }) : undefined,
       });
     }
   }
@@ -864,11 +948,19 @@ export async function healthFor(
  * an archived project is not delivering, so it keeps whatever was last
  * calculated, or says it was never assessed — it is not worth a calculation
  * on every read to find that out again.
+ *
+ * The reasons and explanation come out in the language of the request being
+ * served, so a cache that holds views has to be keyed by language too.
  */
 /** The view for a project nothing could be calculated for — never a missing project. */
-export function unassessedView(reason: string): ProjectHealthView {
+export function unassessedView(reason: string | Message): ProjectHealthView {
   const stored = unassessedHealth(reason);
-  return { ...stored, effective: stored.calculated };
+  return {
+    calculated: stored.calculated,
+    effective: stored.calculated,
+    detail: presentedDetail(stored),
+    openRisks: stored.openRisks,
+  };
 }
 
 export async function healthViews(
@@ -891,14 +983,15 @@ export async function healthViews(
       frozen.get(id) ??
       unassessedHealth(
         archived.includes(id)
-          ? 'Archived before its health was ever calculated, so it has not been assessed.'
-          : 'Health could not be calculated just now; it will be on the next recalculation.',
+          ? message('Archived before its health was ever calculated, so it has not been assessed.')
+          : message('Health could not be calculated just now; it will be on the next recalculation.'),
       );
     const override = overrides.get(id);
     views.set(id, {
       calculated: stored.calculated,
       effective: effectiveHealth(stored.calculated, override?.levels, rules),
-      detail: stored.detail,
+      // In the language of the request being served.
+      detail: presentedDetail(stored),
       override,
       forecastFinish: stored.forecastFinish,
       cost: stored.cost,

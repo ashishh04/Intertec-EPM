@@ -28,17 +28,11 @@ const write = process.argv.includes('--write');
 const only = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
 
 /**
- * Files left alone for now. Module 11 (earned value) is changing these on
- * another branch; converting them here would collide with that work. They are
- * converted by running this again once it is merged.
+ * Files to leave alone for now — work in flight on another branch that this
+ * would collide with. Empty since Module 11 was merged; add to it the same way
+ * when two branches are open at once, and run this again once they meet.
  */
-const DEFERRED = new Set([
-  'pages/InsightsPage.tsx',
-  'pages/TaskDetailPage.tsx',
-  'components/insights/MeasureSeriesChart.tsx',
-  'components/insights/format.ts',
-  'config/administration.ts',
-]);
+const DEFERRED = new Set([]);
 
 /**
  * Files whose left and right are physical on purpose. The sheet's `side` prop

@@ -21,7 +21,7 @@ import {
  * covered less than the reader assumed would be worse than none.
  */
 export interface ScheduledReportPayload {
-  /** "there" when the recipient has no account, and so no name. */
+  /** Empty when the recipient has no account, and so no name: the greeting is then "Hello,". */
   firstName: string;
   reportName: string;
   /** "Portfolio health — All projects". */

@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDashboard, useMeasureCatalogue } from '@/hooks/useInsights';
 import { saveBlob } from '@/lib/download';
+import { formatLocalNumber, t } from '@/lib/i18n';
 import { formatDateTime, formatRelative } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { insightsService } from '@/services';
@@ -51,19 +52,19 @@ import type { DashboardId, MeasureScopeKind } from '@/types';
  */
 
 const DASHBOARDS: { id: DashboardId; label: string }[] = [
-  { id: 'portfolio-health', label: 'Portfolio health' },
-  { id: 'delivery', label: 'Delivery' },
-  { id: 'utilisation', label: 'Utilisation' },
-  { id: 'budget', label: 'Budget' },
-  { id: 'earned-value', label: 'Earned value' },
-  { id: 'risk', label: 'Risk exposure' },
+  { id: 'portfolio-health', get label() { return t('Portfolio health'); } },
+  { id: 'delivery', get label() { return t('Delivery'); } },
+  { id: 'utilisation', get label() { return t('Utilisation'); } },
+  { id: 'budget', get label() { return t('Budget'); } },
+  { id: 'earned-value', get label() { return t('Earned value'); } },
+  { id: 'risk', get label() { return t('Risk exposure'); } },
 ];
 
 const PRESETS = [
-  { id: '4w', label: 'Last 4 weeks', days: 28 },
-  { id: '12w', label: 'Last 12 weeks', days: 84 },
-  { id: '26w', label: 'Last 6 months', days: 182 },
-  { id: '52w', label: 'Last 12 months', days: 365 },
+  { id: '4w', get label() { return t('Last 4 weeks'); }, days: 28 },
+  { id: '12w', get label() { return t('Last 12 weeks'); }, days: 84 },
+  { id: '26w', get label() { return t('Last 6 months'); }, days: 182 },
+  { id: '52w', get label() { return t('Last 12 months'); }, days: 365 },
 ] as const;
 
 const DAY_MS = 86_400_000;
@@ -119,17 +120,19 @@ export default function InsightsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow={data ? data.scope.name : 'Dashboards'}
-        title={DASHBOARDS.find((entry) => entry.id === dashboardId)?.label ?? 'Dashboards'}
+        eyebrow={data ? <span dir="auto">{data.scope.name}</span> : t('Dashboards')}
+        title={DASHBOARDS.find((entry) => entry.id === dashboardId)?.label ?? t('Dashboards')}
         description={
           data?.description ??
-          'Portfolio health, delivery, utilisation, budget, earned value and risk. Every figure is defined once, and opens on what is behind it.'
+          t(
+            'Portfolio health, delivery, utilisation, budget, earned value and risk. Every figure is defined once, and opens on what is behind it.',
+          )
         }
         meta={
           data?.asOf ? (
             <Badge tone="neutral" size="sm">
               <Clock3 className="h-3 w-3" aria-hidden />
-              <span title={formatDateTime(data.asOf)}>Data {formatRelative(data.asOf)}</span>
+              <span title={formatDateTime(data.asOf)}>{t('Data {when}', { when: formatRelative(data.asOf) })}</span>
             </Badge>
           ) : null
         }
@@ -138,7 +141,7 @@ export default function InsightsPage() {
             {scope !== 'instance' ? (
               <Button size="sm" variant="outline" onClick={() => setScope('instance', '')}>
                 <Undo2 className="h-3.5 w-3.5" />
-                All projects
+                {t('All projects')}
               </Button>
             ) : null}
             <ExportMenu dashboardId={dashboardId} query={query} scopeName={data?.scope.name} />
@@ -154,7 +157,7 @@ export default function InsightsPage() {
                 }
               >
                 <CalendarClock className="h-3.5 w-3.5" />
-                Schedule
+                {t('Schedule report')}
               </Button>
             ) : null}
           </>
@@ -179,7 +182,7 @@ export default function InsightsPage() {
           onChange={(value) => update({ scope: value })}
         />
         <div className="space-y-1.5">
-          <Label htmlFor="insights-period">Period</Label>
+          <Label htmlFor="insights-period">{t('Period')}</Label>
           <Select
             value={presetId ?? 'custom'}
             onValueChange={(value) => {
@@ -197,13 +200,13 @@ export default function InsightsPage() {
                 </SelectItem>
               ))}
               <SelectItem value="custom" disabled>
-                Custom dates
+                {t('Custom dates')}
               </SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="insights-from">From</Label>
+          <Label htmlFor="insights-from">{t('From')}</Label>
           <Input
             id="insights-from"
             type="date"
@@ -214,7 +217,7 @@ export default function InsightsPage() {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="insights-to">To</Label>
+          <Label htmlFor="insights-to">{t('To')}</Label>
           <Input
             id="insights-to"
             type="date"
@@ -232,7 +235,7 @@ export default function InsightsPage() {
         isError={dashboard.isError}
         error={dashboard.error}
         onRetry={() => dashboard.refetch()}
-        errorTitle="Unable to load this dashboard"
+        errorTitle={t('Unable to load this dashboard')}
         skeleton={
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -266,7 +269,10 @@ export default function InsightsPage() {
                       <ChartCard
                         key={series.id}
                         title={series.title}
-                        description={`${series.bucket === 'week' ? 'By week' : 'By month'} · as it stood at the end of each; ahead of today, the plan alone`}
+                        description={t(
+                          '{bucket, select, week {By week} other {By month}} · as it stood at the end of each; ahead of today, the plan alone',
+                          { bucket: series.bucket },
+                        )}
                       >
                         <MeasureLinesChart
                           lines={[{ label: series.label ?? series.title, points: series.points }, ...series.lines]}
@@ -281,7 +287,11 @@ export default function InsightsPage() {
                     <ChartCard
                       key={series.id}
                       title={series.title}
-                      description={`${series.bucket === 'week' ? 'By week' : 'By month'} · ${asAt ? 'as it stood at the end of each' : 'within each'}`}
+                      description={
+                        asAt
+                          ? t('{bucket, select, week {By week} other {By month}} · as it stood at the end of each', { bucket: series.bucket })
+                          : t('{bucket, select, week {By week} other {By month}} · within each', { bucket: series.bucket })
+                      }
                     >
                       <MeasureSeriesChart
                         points={series.points}
@@ -315,10 +325,19 @@ export default function InsightsPage() {
             <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-muted-foreground">
               <span className="inline-flex items-center gap-1">
                 <Gauge className="h-3 w-3" aria-hidden />
-                Answered in {data.timing.serverMs} ms, against a target of {data.timing.targetMs} ms
-                {data.timing.withinTarget ? '' : ' — over target'}
+                {data.timing.withinTarget
+                  ? t('Answered in {server} ms, against a target of {target} ms', {
+                      server: formatLocalNumber(data.timing.serverMs, { useGrouping: false }),
+                      target: formatLocalNumber(data.timing.targetMs, { useGrouping: false }),
+                    })
+                  : t('Answered in {server} ms, against a target of {target} ms — over target', {
+                      server: formatLocalNumber(data.timing.serverMs, { useGrouping: false }),
+                      target: formatLocalNumber(data.timing.targetMs, { useGrouping: false }),
+                    })}
               </span>
-              {data.asOf ? <span>Data read {formatDateTime(data.asOf)}; refreshed within a minute of each change.</span> : null}
+              {data.asOf ? (
+                <span>{t('Data read {when}; refreshed within a minute of each change.', { when: formatDateTime(data.asOf) })}</span>
+              ) : null}
             </p>
           </div>
         ) : null}
@@ -342,9 +361,9 @@ function Definitions({
   return (
     <Card>
       <CardHeader variant="compact">
-        <CardTitle>How these are counted</CardTitle>
+        <CardTitle>{t('How these are counted')}</CardTitle>
         <CardDescription className="text-2xs">
-          Each figure is a measure of EPM&rsquo;s semantic layer: defined once, and the same wherever it is shown.
+          {t('Each figure is a measure of EPM’s semantic layer: defined once, and the same wherever it is shown.')}
         </CardDescription>
       </CardHeader>
       <dl className="grid gap-x-6 gap-y-3 p-4 pt-0 sm:grid-cols-2">
@@ -371,7 +390,7 @@ function ExportMenu({ dashboardId, query, scopeName }: { dashboardId: DashboardI
       const blob = await insightsService.exportDashboard(dashboardId, format, query);
       saveBlob(blob, `${dashboardId}-${fileSlug(scopeName ?? 'all projects')}-${query.to}.${format}`);
     } catch (error) {
-      toast.error('The file could not be made', { description: error instanceof Error ? error.message : undefined });
+      toast.error(t('The file could not be made'), { description: error instanceof Error ? error.message : undefined });
     } finally {
       setBusy(false);
     }
@@ -382,19 +401,19 @@ function ExportMenu({ dashboardId, query, scopeName }: { dashboardId: DashboardI
       <DropdownMenuTrigger asChild>
         <Button size="sm" variant="secondary" loading={busy}>
           <Download className="h-3.5 w-3.5" />
-          Export
+          {t('Export')}
           <ChevronDown className="h-3 w-3" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuLabel className="text-2xs font-normal text-muted-foreground">This dashboard, as you see it</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-2xs font-normal text-muted-foreground">{t('This dashboard, as you see it')}</DropdownMenuLabel>
         <DropdownMenuItem onSelect={() => void download('pdf')}>
           <FileText className="h-3.5 w-3.5" />
           PDF
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void download('xlsx')}>
           <FileSpreadsheet className="h-3.5 w-3.5" />
-          Excel workbook
+          {t('Excel workbook')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

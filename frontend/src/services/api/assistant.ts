@@ -1,6 +1,6 @@
 import { apiClient, ApiError } from './client';
 import { env } from '@/config/env';
-import { currentLanguage, t } from '@/lib/i18n';
+import { intlLocale, t } from '@/lib/i18n';
 import type {
   AssistantConversation,
   AssistantMessage,
@@ -91,7 +91,7 @@ export async function streamChat(
         Accept: 'text/event-stream',
         'Content-Type': 'application/json',
         // The backend answers in the language this page is showing (BR-605).
-        'Accept-Language': currentLanguage(),
+        'Accept-Language': intlLocale(),
       },
       body: JSON.stringify(input),
     });

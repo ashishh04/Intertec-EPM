@@ -5,6 +5,7 @@ import * as guard from '../auth/guard.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, idFromHref, linkTitle } from '../openproject/client.js';
+import { translateDescriptors } from '../lib/i18n.js';
 import type { HalCollection, HalLink, HalLinks } from '../openproject/types.js';
 // Shared with the frontend rather than restated here: a section's shape is
 // what the browser renders from, so both sides read it from one declaration.
@@ -644,14 +645,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/catalog', async (request): Promise<AdminCatalogSummary[]> => {
     await guard.require(request, 'users:manage');
     const body = await instance<{ catalogues: AdminCatalogSummary[] }>(request, '/catalog');
-    return body.catalogues;
+    return translateDescriptors(body.catalogues);
   });
 
   app.get<{ Params: { resource: string } }>('/admin/catalog/:resource', async (request) => {
     await guard.require(request, 'users:manage');
-    return instance<AdminCatalog>(request, `/catalog/${encodeURIComponent(request.params.resource)}`, {
-      missing: 'That catalogue',
-    });
+    return translateDescriptors(
+      await instance<AdminCatalog>(request, `/catalog/${encodeURIComponent(request.params.resource)}`, {
+        missing: 'That catalogue',
+      }),
+    );
   });
 
   app.post<{ Params: { resource: string }; Body: unknown }>(
@@ -710,14 +713,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get('/admin/sections', async (request): Promise<AdminSettingsSectionSummary[]> => {
     await guard.require(request, 'users:manage');
     const body = await instance<{ sections: AdminSettingsSectionSummary[] }>(request, '/sections');
-    return body.sections;
+    return translateDescriptors(body.sections);
   });
 
   app.get<{ Params: { id: string } }>('/admin/sections/:id', async (request) => {
     await guard.require(request, 'users:manage');
-    return instance<AdminSettingsSection>(request, `/sections/${encodeURIComponent(request.params.id)}`, {
-      missing: 'That settings section',
-    });
+    return translateDescriptors(
+      await instance<AdminSettingsSection>(request, `/sections/${encodeURIComponent(request.params.id)}`, {
+        missing: 'That settings section',
+      }),
+    );
   });
 
   /**

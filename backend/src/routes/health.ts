@@ -12,6 +12,7 @@ import {
 } from '../domain/health-rules.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { today } from '../lib/dates.js';
+import { contextLanguage, message, render, renderStored } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import type { HealthLevel, HealthRules } from '../types/epm.js';
 import { loadProjects } from './projects.js';
@@ -79,7 +80,8 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
         projectName: names.get(state.projectId) ?? state.projectId,
         current: now.levels,
         preview: next.levels,
-        explanation: next.explanation,
+        // In the language of the request.
+        explanation: renderStored(next.explanation, next.explanationMessage),
         changed: now.levels.overall !== next.levels.overall,
         stored: levels.overall ?? null,
       };
@@ -94,7 +96,10 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
       changed: rows.filter((row) => row.changed).length,
       note: sameRiskSelection
         ? undefined
-        : 'Risk counts are shown with the current risk types and priorities; the new selection applies once saved.',
+        : render(
+            contextLanguage(),
+            message('Risk counts are shown with the current risk types and priorities; the new selection applies once saved.'),
+          ),
     };
   });
 

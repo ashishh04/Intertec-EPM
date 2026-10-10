@@ -151,6 +151,36 @@ function lookup(language: Language, source: string): string {
   return language === 'en' ? source : (CATALOGUES[language][source] ?? source);
 }
 
+/** The keys of a field descriptor that people read. */
+const DESCRIPTOR_TEXT = new Set(['label', 'description', 'help', 'title']);
+
+/**
+ * A field descriptor from EPM's OpenProject add-on — the administration
+ * catalogues and settings sections — with the words people read in `language`.
+ *
+ * The add-on describes its fields in English (`label`, `description`, `help`),
+ * and the descriptor passes through here on its way to the screen. Only exact
+ * catalogue entries are replaced and nothing is parsed as a message, so data
+ * that happens to sit under the same keys (a type's name, a field's own
+ * description) passes through untouched.
+ */
+export function translateDescriptors<T>(value: T, language: Language = contextLanguage()): T {
+  if (language === 'en') return value;
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (node && typeof node === 'object') {
+      return Object.fromEntries(
+        Object.entries(node).map(([key, item]) => [
+          key,
+          typeof item === 'string' && DESCRIPTOR_TEXT.has(key) ? lookup(language, item) : walk(item),
+        ]),
+      );
+    }
+    return node;
+  };
+  return walk(value) as T;
+}
+
 /**
  * Translates `source` into `language` and fills in its arguments. String
  * arguments that are themselves catalogue entries are translated too, which is
@@ -191,13 +221,19 @@ export function t(
 function formatDate(language: Language, value: DateParam, conventions: Conventions): string {
   const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value.date) ? `${value.date}T00:00:00Z` : value.date);
   if (Number.isNaN(date.getTime())) return value.date;
-  const locale = language === 'en' && (conventions.calendar ?? 'gregory') === 'gregory' ? 'en-GB' : intlLocale(language, conventions);
-  return new Intl.DateTimeFormat(locale, {
+  const english = language === 'en' && (conventions.calendar ?? 'gregory') === 'gregory';
+  const format = new Intl.DateTimeFormat(english ? 'en-GB' : intlLocale(language, conventions), {
     day: 'numeric',
     month: value.style === 'long' ? 'long' : 'short',
     year: 'numeric',
     timeZone: 'UTC',
-  }).format(date);
+  });
+  if (!english || value.style === 'long') return format.format(date);
+  // en-GB shortens September to "Sept"; EPM's English has always written "Sep".
+  return format
+    .formatToParts(date)
+    .map((part) => (part.type === 'month' ? part.value.slice(0, 3) : part.value))
+    .join('');
 }
 
 function formatMoney(language: Language, value: MoneyParam, conventions: Conventions): string {
@@ -252,11 +288,21 @@ export function issueMessage(
   }
 }
 
-const requestLanguages = new AsyncLocalStorage<Language>();
+interface Reader {
+  language: Language;
+  conventions: Conventions;
+}
 
-/** Serves `fn` in `language`: everything it calls can ask `contextLanguage()`. */
-export function runWithLanguage<T>(language: Language, fn: () => T): T {
-  return requestLanguages.run(language, fn);
+const readers = new AsyncLocalStorage<Reader>();
+
+/**
+ * Serves `fn` for a reader of `language`, with their calendar and digits:
+ * everything it calls can ask `contextLanguage()` and `contextConventions()`.
+ * English is written as it always has been, whatever calendar or digits are
+ * chosen.
+ */
+export function runWithLanguage<T>(language: Language, fn: () => T, conventions: Conventions = {}): T {
+  return readers.run({ language, conventions: language === 'en' ? {} : conventions }, fn);
 }
 
 /**
@@ -266,23 +312,58 @@ export function runWithLanguage<T>(language: Language, fn: () => T): T {
  * reader's language itself.
  */
 export function contextLanguage(): Language {
-  return requestLanguages.getStore() ?? 'en';
+  return readers.getStore()?.language ?? 'en';
 }
 
-/** Stored English, or its message when one was kept, in the current request's language. */
-export function renderStored(english: string, stored: unknown): string {
-  if (!isMessage(stored)) return english;
-  const language = contextLanguage();
-  return language === 'en' ? english : render(language, stored);
+/** The calendar and digits of the reader being served (BR-607); none outside a request. */
+export function contextConventions(): Conventions {
+  return readers.getStore()?.conventions ?? {};
+}
+
+/** The reader being served as one string, for a cache that holds what was written for them. */
+export function contextReader(): string {
+  return intlLocale(contextLanguage(), contextConventions());
 }
 
 /**
- * The language a request asked for. The frontend sends the language it is
- * showing as `Accept-Language`; a caller that sends none, or one EPM does not
- * have, gets English.
+ * Stored English in the current request's language: from the message kept
+ * beside it when there is one; otherwise the English itself, translated when it
+ * is one of EPM's fixed phrases ("The call failed.") and left as it is when it
+ * is anyone else's words.
  */
-export function requestLanguage(request: { headers: Record<string, string | string[] | undefined> }): Language {
+export function renderStored(english: string, stored?: unknown): string {
+  const language = contextLanguage();
+  if (language === 'en') return english;
+  return isMessage(stored) ? render(language, stored, contextConventions()) : lookup(language, english);
+}
+
+type Request = { headers: Record<string, string | string[] | undefined> };
+
+/** The first tag of a request's `Accept-Language`, in lower case. */
+function requestTag(request: Request): string {
   const header = request.headers['accept-language'];
-  const first = (Array.isArray(header) ? header[0] : header)?.split(',')[0]?.split(';')[0];
-  return toLanguage(first);
+  return (Array.isArray(header) ? header[0] : header)?.split(',')[0]?.split(';')[0]?.trim().toLowerCase() ?? '';
+}
+
+/**
+ * The language a request asked for. The frontend sends the locale it is
+ * showing as `Accept-Language` (`ar-AE-u-nu-latn`); a caller that sends none,
+ * or one EPM does not have, gets English.
+ */
+export function requestLanguage(request: Request): Language {
+  return toLanguage(requestTag(request));
+}
+
+/**
+ * The calendar and digits a request asked for, from the same tag's Unicode
+ * extension — `ar-AE-u-ca-islamic-umalqura-nu-arab` — so what the server
+ * formats matches the screen (BR-607).
+ */
+export function requestConventions(request: Request): Conventions {
+  const extension = `-${requestTag(request).split('-u-')[1] ?? ''}-`;
+  const numerals = extension.includes('-nu-arab-') ? 'arab' : extension.includes('-nu-latn-') ? 'latn' : undefined;
+  return {
+    ...(extension.includes('-ca-islamic-umalqura-') ? { calendar: 'islamic-umalqura' as const } : {}),
+    ...(numerals ? { numerals } : {}),
+  };
 }

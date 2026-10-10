@@ -5,7 +5,7 @@ import * as guard from '../auth/guard.js';
 import { today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { recordAuditQuietly } from '../domain/audit.js';
-import { buildDashboard, DASHBOARD_IDS, type DashboardId } from '../domain/dashboards.js';
+import { buildDashboard, DASHBOARD_IDS, scopeName, type DashboardId } from '../domain/dashboards.js';
 import { modelFacts } from '../domain/measure-facts.js';
 import { documentOf, renderPdf, renderXlsx } from '../domain/report-render.js';
 import {
@@ -22,7 +22,7 @@ import {
   updateSchedule,
 } from '../domain/scheduled-reports.js';
 import { narrowedViewer, periodOf, scopeOf, scopeQuery, viewerOf } from './measures.js';
-import { listOf, message } from '../lib/i18n.js';
+import { contextConventions, dateOf, listOf, message, requestLanguage, t } from '../lib/i18n.js';
 
 /**
  * Scheduled reports (BRQ-08) and downloading a dashboard.
@@ -97,7 +97,7 @@ export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'report_schedule',
         entityId: request.params.id,
         action: 'report_schedule.run_now',
-        summary: 'Ran a scheduled report by hand, outside its timetable',
+        summary: message('Ran a scheduled report by hand, outside its timetable'),
         metadata: { runId: outcome.runId },
       },
     ]);
@@ -134,25 +134,49 @@ export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(Buffer.from(file.content));
   });
 
-  /** The dashboard on the screen, as a file: the same figures, for the same person. */
+  /**
+   * The dashboard on the screen, as a file: the same figures, for the same
+   * person, in the language their screen is in (BR-604).
+   */
   app.get<{ Params: { id: string } }>('/dashboards/:id/export', async (request, reply) => {
     const query = scopeQuery.extend({ format: z.enum(['pdf', 'xlsx']).default('pdf') }).parse(request.query);
     if (!DASHBOARD_IDS.includes(request.params.id as DashboardId)) throw EpmError.notFound('That dashboard');
+    const language = requestLanguage(request);
+    const conventions = contextConventions();
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     const period = periodOf(query);
+    // Built in the request's language, like the screen's.
     const dashboard = await buildDashboard(request.params.id as DashboardId, scope, period, await narrowedViewer(viewer, query.within), todayIso());
     const facts = await modelFacts();
-    const name = facts.users.get(Number(request.auth!.userId))?.name ?? 'you';
+    const name = facts.users.get(Number(request.auth!.userId))?.name;
+    const asOf = dashboard.asOf ? dashboard.asOf.slice(0, 16).replace('T', ' ') : null;
+    // English is composed as it always was; another language through its catalogue.
+    const english = language === 'en';
     const content = {
-      title: `${dashboard.title} — ${dashboard.scope.name}`,
-      subtitle: `${period.from} to ${period.to}${dashboard.asOf ? ` · data as of ${dashboard.asOf.slice(0, 16).replace('T', ' ')} UTC` : ''}`,
-      preparedFor: `Prepared for ${name}, with their access`,
+      title: english
+        ? `${dashboard.title} — ${dashboard.scope.name}`
+        : t(language, '{title} — {scope}', { title: dashboard.title, scope: dashboard.scope.name }),
+      subtitle: english
+        ? `${period.from} to ${period.to}${asOf ? ` · data as of ${asOf} UTC` : ''}`
+        : asOf
+          ? t(language, '{from} to {to} · data as of {asOf} UTC', { from: dateOf(period.from), to: dateOf(period.to), asOf }, conventions)
+          : t(language, '{from} to {to}', { from: dateOf(period.from), to: dateOf(period.to) }, conventions),
+      preparedFor: english
+        ? `Prepared for ${name ?? 'you'}, with their access`
+        : name
+          ? t(language, 'Prepared for {name}, with their access', { name })
+          : t(language, 'Prepared for you, with your access'),
       generatedAt: new Date(),
       document: documentOf(dashboard),
+      language,
+      conventions,
     };
     const bytes = query.format === 'pdf' ? renderPdf(content) : renderXlsx(content);
-    const filename = `${dashboard.id}-${dashboard.scope.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${period.to}.${query.format}`;
+    // Named from the scope's English name whatever the language, so the same
+    // download has the same name.
+    const fileScope = scopeName({ facts }, scope, 'en');
+    const filename = `${dashboard.id}-${fileScope.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${period.to}.${query.format}`;
     reply
       .header('Content-Type', query.format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       .header('Content-Disposition', `attachment; filename="${filename}"`)

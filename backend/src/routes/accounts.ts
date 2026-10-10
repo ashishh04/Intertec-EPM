@@ -16,7 +16,7 @@ import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AccountRevocation, EpmAccount } from '../types/epm.js';
 import { recordAuditQuietly } from '../domain/audit.js';
-import { listOf, message } from '../lib/i18n.js';
+import { listOf, message, msg, type Message } from '../lib/i18n.js';
 
 /*
  * Account administration is journalled (BRL-02): creating, inviting,
@@ -25,9 +25,12 @@ import { listOf, message } from '../lib/i18n.js';
  * entry is written after the change succeeded upstream, so it cannot share a
  * transaction with it; a failure to journal is logged rather than undoing a
  * change that has already happened. Passwords never appear in an entry.
+ *
+ * Each summary is a message, so the journal reads in its reader's language
+ * (BR-605); names, logins and field keys are data inside it.
  */
-const accountName = (account: OpPrincipal): string =>
-  account.name?.trim() || account.login || `user ${account.id}`;
+const accountName = (account: OpPrincipal): string | Message =>
+  account.name?.trim() || account.login || message('user {id}', { id: String(account.id) });
 
 const ACCOUNT_FIELDS = ['firstName', 'lastName', 'email', 'login', 'language', 'admin'] as const;
 
@@ -170,9 +173,11 @@ async function sendInvitation(input: {
   if (!email) throw EpmError.badRequest('This person has no email address to invite.');
 
   // Named in the email, so the person knows who to ask if the link expires.
+  // The fallback is a phrase, not a name: the email writes it in the
+  // recipient's language, as it does any argument that is a catalogue entry.
   const invitedBy = await getCurrentUser(input.signal)
     .then((user) => user.name)
-    .catch(() => 'Your administrator');
+    .catch(() => msg('Your administrator'));
 
   const { token, expiresAt } = await createInvite({ openProjectId: id, email, createdBy: input.createdBy });
 
@@ -338,14 +343,15 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'account',
           entityId: id,
           action: 'account.created',
-          summary:
-            `Created account ${created.login ?? id} for ${accountName(created)}` +
-            (created.admin ? ', with administrator rights' : '') +
-            (sendInvite
-              ? inviteSent
-                ? '; invitation sent'
-                : '; the invitation could not be sent'
-              : '; a starting password was set for handover'),
+          summary: message(
+            'Created account {login} for {name}{admin, select, yes {, with administrator rights} other {}}{handover, select, invited {; invitation sent} failed {; the invitation could not be sent} other {; a starting password was set for handover}}',
+            {
+              login: created.login ?? id,
+              name: accountName(created),
+              admin: created.admin ? 'yes' : 'no',
+              handover: sendInvite ? (inviteSent ? 'invited' : 'failed') : 'password',
+            },
+          ),
           after: accountFields(created, ['login', 'email', 'admin', 'status']),
         },
       ]);
@@ -387,7 +393,10 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'account',
         entityId: id,
         action: 'account.invited',
-        summary: `Sent ${accountName(account)} a new invitation${inviteSent ? '' : ' (it could not be queued)'}; earlier links stop working`,
+        summary: message(
+          'Sent {name} a new invitation{queued, select, no { (it could not be queued)} other {}}; earlier links stop working',
+          { name: accountName(account), queued: inviteSent ? 'yes' : 'no' },
+        ),
       },
     ]);
 
@@ -439,8 +448,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
           action: 'admin' in patch ? 'account.admin.changed' : 'account.updated',
           summary:
             'admin' in patch
-              ? `${patch.admin ? 'Gave' : 'Removed'} administrator rights ${patch.admin ? 'to' : 'from'} ${accountName(updated)}`
-              : `Changed ${changed.join(', ')} for ${accountName(updated)}`,
+              ? message('{admin, select, yes {Gave administrator rights to {name}} other {Removed administrator rights from {name}}}', {
+                  admin: patch.admin ? 'yes' : 'no',
+                  name: accountName(updated),
+                })
+              : // The fields by their keys, as they always read; each is a phrase in the catalogue.
+                message('Changed {fields} for {name}', { fields: listOf(changed), name: accountName(updated) }),
           before: accountFields(account, changed),
           after: accountFields(updated, changed),
         },
@@ -475,7 +488,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
     referenceCache.invalidatePrefix('users');
     await recordAuditQuietly([
-      { entityType: 'account', entityId: id, action: 'account.locked', summary: `Deactivated ${accountName(account)}` },
+      {
+        entityType: 'account',
+        entityId: id,
+        action: 'account.locked',
+        summary: message('Deactivated {name}', { name: accountName(account) }),
+      },
     ]);
     return toEpmAccount(locked);
   });
@@ -496,7 +514,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
     referenceCache.invalidatePrefix('users');
     await recordAuditQuietly([
-      { entityType: 'account', entityId: id, action: 'account.unlocked', summary: `Reactivated ${accountName(account)}` },
+      {
+        entityType: 'account',
+        entityId: id,
+        action: 'account.unlocked',
+        summary: message('Reactivated {name}', { name: accountName(account) }),
+      },
     ]);
     return toEpmAccount(unlocked);
   });
@@ -644,10 +667,16 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'account',
         entityId: id,
         action: 'account.access_revoked',
-        summary:
-          `Revoked access for ${accountName(account)}: ${sessions.count} session(s) ended, ` +
-          `${membershipsRemoved} project membership(s) removed${adminRevoked ? ', administrator rights removed' : ''}` +
-          (problems.length > 0 ? `; ${problems.length} step(s) did not complete` : ''),
+        summary: message(
+          'Revoked access for {name}: {sessions} session(s) ended, {memberships} project membership(s) removed{admin, select, yes {, administrator rights removed} other {}}{problems, plural, =0 {} other {; {problems} step(s) did not complete}}',
+          {
+            name: accountName(account),
+            sessions: sessions.count,
+            memberships: membershipsRemoved,
+            admin: adminRevoked ? 'yes' : 'no',
+            problems: problems.length,
+          },
+        ),
         metadata: { ...revocation },
       },
     ]);
@@ -724,7 +753,10 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'account',
         entityId: id,
         action: 'account.deleted',
-        summary: `Deleted the account of ${accountName(account)}${gone ? '' : ' (still being removed upstream)'}`,
+        summary: message('Deleted the account of {name}{gone, select, no { (still being removed upstream)} other {}}', {
+          name: accountName(account),
+          gone: gone ? 'yes' : 'no',
+        }),
         before: accountFields(account, ['login', 'email', 'admin', 'status']),
       },
     ]);

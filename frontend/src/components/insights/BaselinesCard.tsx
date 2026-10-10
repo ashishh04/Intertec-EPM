@@ -9,7 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useBaselines, useSetBaseline } from '@/hooks/useEarnedValue';
 import { useUserMap } from '@/hooks/useUsers';
-import { formatDateTime, formatNumber } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type { ID } from '@/types';
 import { formatMeasure } from './format';
@@ -33,11 +34,14 @@ export function BaselinesCard({ projectId }: { projectId: ID }) {
     setBaseline.mutate(reason, {
       onSuccess: (baseline) => {
         setOpen(false);
-        toast.success(`Baseline ${baseline.number} set`, {
-          description: `${formatNumber(baseline.items)} work packages, budget at completion ${formatMeasure(baseline.bac, 'money')}.`,
+        toast.success(t('Baseline {number, number} set', { number: baseline.number }), {
+          description: t('{items, number} work packages, budget at completion {bac}.', {
+            items: baseline.items,
+            bac: formatMeasure(baseline.bac, 'money'),
+          }),
         });
       },
-      onError: (error) => toast.error('The baseline was not set', { description: error instanceof Error ? error.message : undefined }),
+      onError: (error) => toast.error(t('The baseline was not set'), { description: error instanceof Error ? error.message : undefined }),
     });
 
   return (
@@ -45,16 +49,17 @@ export function BaselinesCard({ projectId }: { projectId: ID }) {
       <CardHeader variant="compact">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle>Baselines</CardTitle>
+            <CardTitle>{t('Baselines')}</CardTitle>
             <CardDescription>
-              Planned value is measured against the last baseline set by each date — or, before the first, against the first.
-              With none, it is measured against the plan as it stands, and moves whenever the plan does.
+              {t(
+                'Planned value is measured against the last baseline set by each date — or, before the first, against the first. With none, it is measured against the plan as it stands, and moves whenever the plan does.',
+              )}
             </CardDescription>
           </div>
           {canSet ? (
             <Button size="sm" variant="secondary" className="shrink-0" onClick={() => setOpen(true)}>
               <Flag className="h-3.5 w-3.5" />
-              Set baseline
+              {t('Set baseline')}
             </Button>
           ) : null}
         </div>
@@ -64,28 +69,42 @@ export function BaselinesCard({ projectId }: { projectId: ID }) {
           <Skeleton className="h-12 w-full" />
         ) : list.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No baseline yet: the figures above are measured against the current plan.
-            {canSet ? ' Set one to fix what this project is measured against.' : ''}
+            {canSet
+              ? t(
+                  'No baseline yet: the figures above are measured against the current plan. Set one to fix what this project is measured against.',
+                )
+              : t('No baseline yet: the figures above are measured against the current plan.')}
           </p>
         ) : (
           <ul className="divide-y divide-border">
             {list.map((baseline, index) => (
               <li key={baseline.id} className="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-2 text-xs first:pt-0 last:pb-0">
-                <span className="font-medium text-foreground">Baseline {baseline.number}</span>
+                <span className="font-medium text-foreground">{t('Baseline {number, number}', { number: baseline.number })}</span>
                 {index === 0 ? (
                   <Badge tone="primary" size="sm">
-                    In force
+                    {t('In force')}
                   </Badge>
                 ) : null}
                 <span className="text-muted-foreground">
-                  Set {formatDateTime(baseline.setAt)} by {users.get(baseline.setBy)?.name ?? 'someone'}
+                  {users.get(baseline.setBy)?.name === undefined
+                    ? t('Set {when} by someone', { when: formatDateTime(baseline.setAt) })
+                    : t('Set {when} by {name}', { when: formatDateTime(baseline.setAt), name: users.get(baseline.setBy)?.name })}
                 </span>
                 <span className="text-muted-foreground">
-                  BAC {formatMeasure(baseline.bac, 'money')} · {formatNumber(baseline.items)} work packages
-                  {baseline.unpriced ? ` · ${formatNumber(baseline.unpriced)} with no rate` : ''}
-                  {baseline.undated ? ` · ${formatNumber(baseline.undated)} undated` : ''}
+                  {[
+                    t('BAC {bac}', { bac: formatMeasure(baseline.bac, 'money') }),
+                    t('{count, number} work packages', { count: baseline.items }),
+                    baseline.unpriced ? t('{count, number} with no rate', { count: baseline.unpriced }) : '',
+                    baseline.undated ? t('{count, number} undated', { count: baseline.undated }) : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </span>
-                {baseline.reason ? <span className="basis-full text-muted-foreground">“{baseline.reason}”</span> : null}
+                {baseline.reason ? (
+                  <span dir="auto" className="basis-full text-muted-foreground">
+                    “{baseline.reason}”
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -94,11 +113,13 @@ export function BaselinesCard({ projectId }: { projectId: ID }) {
       <PromptDialog
         open={open}
         onOpenChange={setOpen}
-        title="Set a baseline"
-        description="Freezes every work package's estimate, priced at its assignee's hourly rate, and its planned dates, as they stand now. It cannot be changed afterwards: a new plan is a new baseline. It is journalled."
-        label="Why now"
-        placeholder="e.g. Plan approved at the steering committee on 12 October"
-        confirmLabel="Set baseline"
+        title={t('Set a baseline')}
+        description={t(
+          'Freezes every work package\'s estimate, priced at its assignee\'s hourly rate, and its planned dates, as they stand now. It cannot be changed afterwards: a new plan is a new baseline. It is journalled.',
+        )}
+        label={t('Why now')}
+        placeholder={t('e.g. Plan approved at the steering committee on 12 October')}
+        confirmLabel={t('Set baseline')}
         pending={setBaseline.isPending}
         onSubmit={submit}
       />

@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
-import { EARNING_METHODS } from '../domain/earned-value.js';
+import { earningMethodsIn } from '../domain/earned-value.js';
 import {
   evaluateProjects,
   getEvmSettings,
@@ -19,6 +19,7 @@ import { loadResourceShared } from '../domain/resources-store.js';
 import { contextFor, type Shared } from '../domain/measures.js';
 import { today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
+import { message, msg, requestLanguage, t, type Message } from '../lib/i18n.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { scopeOf, viewerOf } from './measures.js';
 
@@ -31,7 +32,7 @@ import { scopeOf, viewerOf } from './measures.js';
  * moment — what the dashboard said, or would have said, then.
  */
 
-const numeric = (value: string, what: string) => {
+const numeric = (value: string, what: Message) => {
   if (!/^\d+$/.test(value)) throw EpmError.notFound(what);
   return value;
 };
@@ -60,7 +61,7 @@ export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
     const [settings, catalog] = await Promise.all([getEvmSettings(), getCatalog()]);
     return {
       settings,
-      methods: Object.entries(EARNING_METHODS).map(([id, method]) => ({ id, ...method })),
+      methods: earningMethodsIn(requestLanguage(request)),
       types: [...catalog.typeById.values()].map((type) => ({ id: type.id, name: type.name, isMilestone: type.epm === 'milestone' })),
     };
   });
@@ -73,14 +74,14 @@ export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
 
   /** A project's baselines, newest first. */
   app.get<{ Params: { id: string } }>('/projects/:id/baselines', async (request) => {
-    const id = numeric(request.params.id, `Project ${request.params.id}`);
+    const id = numeric(request.params.id, message('Project {id}', { id: request.params.id }));
     await guard.require(request, 'task:view', id);
     return listBaselines(Number(id));
   });
 
   /** Sets a baseline: the project's plan now, priced and frozen (BR-301). */
   app.post<{ Params: { id: string }; Body: { reason?: unknown } }>('/projects/:id/baselines', async (request, reply) => {
-    const id = numeric(request.params.id, `Project ${request.params.id}`);
+    const id = numeric(request.params.id, message('Project {id}', { id: request.params.id }));
     await guard.require(request, 'project:edit', id);
     const reason = typeof request.body?.reason === 'string' ? request.body.reason.trim().slice(0, 500) : null;
     const baseline = await setBaseline(Number(id), reason, request.auth!.userId);
@@ -96,7 +97,7 @@ export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
   app.get('/earned-value', async (request) => {
     const query = z
       .object({
-        scope: z.string().regex(/^(instance|portfolio:[\w-]+|project:\d+)$/, 'scope is the instance, a portfolio or a project.').optional(),
+        scope: z.string().regex(/^(instance|portfolio:[\w-]+|project:\d+)$/, msg('scope is the instance, a portfolio or a project.')).optional(),
         asAt: z.string().datetime({ offset: true }).optional(),
       })
       .parse(request.query);
@@ -139,13 +140,21 @@ export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
 
   /** One work package's earned value today, as its project's plan has it. */
   app.get<{ Params: { id: string } }>('/work-packages/:id/earned-value', async (request) => {
-    const id = numeric(request.params.id, `Work package ${request.params.id}`);
+    const id = numeric(request.params.id, message('Work package {id}', { id: request.params.id }));
     const projectId = await guard.projectOfWorkPackage(request, id);
     await guard.require(request, 'task:view', projectId);
+    const language = requestLanguage(request);
     const at = todayIso();
     const facts = await modelFacts();
     if (!facts.projects.has(Number(projectId))) {
-      return { workPackageId: id, projectId, at, asOf: facts.asOf, item: null, note: 'The analytics model has not loaded this project yet.' };
+      return {
+        workPackageId: id,
+        projectId,
+        at,
+        asOf: facts.asOf,
+        item: null,
+        note: t(language, 'The analytics model has not loaded this project yet.'),
+      };
     }
     const evm = await loadEvmShared(facts);
     const work = facts.workPackages.filter((item) => item.projectId === Number(projectId));
@@ -169,11 +178,13 @@ export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
       item: item ? { ...item, workPackageId: id, projectId } : null,
       note: item
         ? item.bac === null
-          ? 'It has hours but no rate to price them, so it is left out of the figures.'
+          ? t(language, 'It has hours but no rate to price them, so it is left out of the figures.')
           : undefined
         : project.measuredAgainst.kind === 'baseline'
-          ? `It is not in baseline ${project.measuredAgainst.number}: it earns nothing until a new baseline includes it.`
-          : 'The analytics model has not loaded it yet.',
+          ? t(language, 'It is not in baseline {number}: it earns nothing until a new baseline includes it.', {
+              number: project.measuredAgainst.number,
+            })
+          : t(language, 'The analytics model has not loaded it yet.'),
     };
   });
 };

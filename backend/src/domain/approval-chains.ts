@@ -10,7 +10,7 @@ import type {
   ApprovalStep,
 } from '../types/epm.js';
 import { withAudit } from './audit.js';
-import { message } from '../lib/i18n.js';
+import { listOf, message, msg, render, type Message, type ParamValue } from '../lib/i18n.js';
 
 /**
  * Approval chains (BR-211): who must approve what, in which order.
@@ -202,34 +202,40 @@ export interface ConditionNames {
   value?: (field: string, value: string) => string | undefined;
 }
 
-const OPERATOR_WORDS: Record<ApprovalCondition['operator'], string> = {
-  gt: 'is above',
-  gte: 'is at least',
-  lt: 'is below',
-  lte: 'is at most',
-  eq: 'is',
-  neq: 'is not',
-  in: 'is one of',
-  not_in: 'is none of',
+const FIELD_WORDS: Record<string, string> = {
+  type: msg('Type'),
+  priority: msg('Priority'),
+  project: msg('Project'),
+  portfolio: msg('Portfolio'),
 };
 
-/** "Change value is above 50,000" — the condition as a person would say it. */
-export function describeCondition(rule: ApprovalCondition, names: ConditionNames = {}): string {
+/**
+ * "Change value is above 50,000" — the condition as a person would say it, as a
+ * message, so it reads in each reader's language (BR-605).
+ */
+export function conditionMessage(rule: ApprovalCondition, names: ConditionNames = {}): Message {
   const label =
-    rule.field === 'value'
-      ? names.valueLabel ?? 'Value'
-      : names.field?.(rule.field) ??
-        ({ type: 'Type', priority: 'Priority', project: 'Project', portfolio: 'Portfolio' } as Record<string, string>)[
-          rule.field
-        ] ??
-        rule.field;
+    rule.field === 'value' ? names.valueLabel ?? msg('Value') : names.field?.(rule.field) ?? FIELD_WORDS[rule.field] ?? rule.field;
+  const operator = rule.operator;
+  if (typeof rule.value === 'number') {
+    return message(
+      '{label} {operator, select, gt {is above} gte {is at least} lt {is below} lte {is at most} eq {is} neq {is not} in {is one of} other {is none of}} {value, number}',
+      { label, operator, value: rule.value },
+    );
+  }
+  // A number among several is shown as written, like a name.
+  const show = (value: string | number) =>
+    typeof value === 'number' ? value.toLocaleString('en-US') : names.value?.(rule.field, value) ?? value;
+  const shown: ParamValue = Array.isArray(rule.value) ? listOf(rule.value.map(show)) : show(rule.value);
+  return message(
+    '{label} {operator, select, gt {is above} gte {is at least} lt {is below} lte {is at most} eq {is} neq {is not} in {is one of} other {is none of}} {shown}',
+    { label, operator, shown },
+  );
+}
 
-  const show = (value: string | number) => {
-    if (typeof value === 'number') return value.toLocaleString('en-US');
-    return names.value?.(rule.field, value) ?? value;
-  };
-  const shown = Array.isArray(rule.value) ? rule.value.map(show).join(', ') : show(rule.value);
-  return `${label} ${OPERATOR_WORDS[rule.operator]} ${shown}`;
+/** The same in English, as a request keeps it on record. */
+export function describeCondition(rule: ApprovalCondition, names: ConditionNames = {}): string {
+  return render('en', conditionMessage(rule, names));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -294,7 +300,10 @@ export async function createChain(input: unknown, actorId: string): Promise<Appr
       entityType: 'approval-chain',
       entityId: created.id,
       action: 'approval.chain.created',
-      summary: `Approval chain "${created.name}" created with ${chain.steps.length} ${chain.steps.length === 1 ? 'step' : 'steps'}.`,
+      summary: message('Approval chain "{name}" created with {count, plural, one {{count} step} other {{count} steps}}.', {
+        name: created.name,
+        count: chain.steps.length,
+      }),
       after: chain,
     }),
   );
@@ -318,7 +327,10 @@ export async function updateChain(id: string, input: unknown, actorId: string): 
       entityType: 'approval-chain',
       entityId: id,
       action: 'approval.chain.updated',
-      summary: `Approval chain "${chain.name}" changed${existing.active !== chain.active ? (chain.active ? ' and switched on' : ' and switched off') : ''}.`,
+      summary: message(
+        'Approval chain "{name}" changed{switched, select, on { and switched on} off { and switched off} other {}}.',
+        { name: chain.name, switched: existing.active === chain.active ? 'same' : chain.active ? 'on' : 'off' },
+      ),
       before: toApprovalChain(existing),
       after: chain,
     },
@@ -346,7 +358,7 @@ export async function deleteChain(id: string, actorId: string): Promise<void> {
     entityType: 'approval-chain',
     entityId: id,
     action: 'approval.chain.deleted',
-    summary: `Approval chain "${existing.name}" deleted before it was ever used.`,
+    summary: message('Approval chain "{name}" deleted before it was ever used.', { name: existing.name }),
     before: toApprovalChain(existing),
   });
   forgetActiveChains();

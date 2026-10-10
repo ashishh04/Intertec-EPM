@@ -1,6 +1,7 @@
 import { prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { EpmError } from '../lib/errors.js';
+import { contextLanguage, t } from '../lib/i18n.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { OpTimeEntry } from '../openproject/types.js';
 import { labourCost, roundMoney } from './costs.js';
@@ -110,7 +111,7 @@ export async function costEntries(
   const current = Math.min(Math.max(page, 1), Math.max(1, Math.ceil(entries.length / size)));
 
   return {
-    measure: { id: measure.id, label: measure.label },
+    measure: { id: measure.id, label: t(contextLanguage(), measure.label) },
     project: { id: projectId, name: facts.projects.get(Number(projectId))?.name ?? `Project ${projectId}` },
     window: inPeriod ? { from: period.from, to: period.to } : { from: null, to: null },
     entries: entries.slice((current - 1) * size, current * size),

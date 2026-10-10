@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
-import { contextLanguage, t } from '../lib/i18n.js';
+import { contextLanguage, contextReader, t } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId, type OpFilter } from '../openproject/client.js';
@@ -163,7 +163,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
      * Keyed per user — these are *your* counts, filtered by your permissions.
      */
     // Per language too: the comparison label inside is written for the reader.
-    return aggregateCache.get(userScopedKey(`dashboard-metrics:${contextLanguage()}`), async () => {
+    return aggregateCache.get(userScopedKey(`dashboard-metrics:${contextReader()}`), async () => {
 
     const [me, catalog, projects] = await Promise.all([
       getCurrentUser(signal),

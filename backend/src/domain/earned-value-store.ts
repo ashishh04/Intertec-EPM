@@ -4,6 +4,7 @@ import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { EpmError } from '../lib/errors.js';
+import { message, msg, type Message } from '../lib/i18n.js';
 import { roundMoney } from '../lib/money.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { linkId, openProject } from '../openproject/client.js';
@@ -62,11 +63,11 @@ export const DEFAULT_SETTINGS: EvmSettings = {
   unpricedRate: null,
 };
 
-const method = z.string().refine(isEarningMethod, 'Not an earning rule.') as unknown as z.ZodType<EarningMethod>;
+const method = z.string().refine(isEarningMethod, msg('Not an earning rule.')) as unknown as z.ZodType<EarningMethod>;
 
 const settingsSchema = z.object({
   defaultMethod: method.default(DEFAULT_METHOD),
-  methods: z.record(z.string().regex(/^\d+$/, 'Type ids are numbers.'), method).default({}),
+  methods: z.record(z.string().regex(/^\d+$/, msg('Type ids are numbers.')), method).default({}),
   unpricedRate: z.number().nonnegative().max(1_000_000).nullable().default(null),
 });
 
@@ -118,28 +119,47 @@ export async function getEvmSettings(): Promise<EvmSettings> {
 export const methodOf = (settings: EvmSettings) => (typeId: number): EarningMethod =>
   settings.methods[String(typeId)] ?? settings.defaultMethod;
 
+/** Several messages as one, "a; b; c", each written out in the reader's language. */
+function joined(parts: (string | Message)[]): string | Message {
+  return parts.slice(1).reduce<string | Message>((text, next) => message('{first}; {next}', { first: text, next }), parts[0] ?? '');
+}
+
 /** Saves a new version and journals what changed. */
 export async function saveEvmSettings(input: unknown, actorId: string): Promise<EvmSettings> {
   const parsed = settingsSchema.safeParse(input ?? {});
-  if (!parsed.success) throw EpmError.validation(parsed.error.issues.map((issue) => issue.message).join('; '));
+  if (!parsed.success) throw EpmError.validation(joined(parsed.error.issues.map((issue) => issue.message)));
   const next = parsed.data;
   // A type set to the default is not an exception to it.
   next.methods = Object.fromEntries(Object.entries(next.methods).filter(([, value]) => value !== next.defaultMethod));
   const current = await getEvmSettings();
 
+  // The rules' names are catalogue entries, so the journal reads them in its
+  // reader's language; a type's name is data.
   const catalog = await getCatalog();
-  const typeName = (id: string) => catalog.typeById.get(id)?.name ?? `type ${id}`;
-  const changes: string[] = [];
+  const typeName = (id: string): string | Message => catalog.typeById.get(id)?.name ?? message('type {id}', { id });
+  const changes: Message[] = [];
   if (current.defaultMethod !== next.defaultMethod) {
-    changes.push(`default rule ${EARNING_METHODS[current.defaultMethod].label} → ${EARNING_METHODS[next.defaultMethod].label}`);
+    changes.push(
+      message('default rule {from} → {to}', {
+        from: EARNING_METHODS[current.defaultMethod].label,
+        to: EARNING_METHODS[next.defaultMethod].label,
+      }),
+    );
   }
   for (const id of new Set([...Object.keys(current.methods), ...Object.keys(next.methods)])) {
     const before = current.methods[id] ?? current.defaultMethod;
     const after = next.methods[id] ?? next.defaultMethod;
-    if (before !== after) changes.push(`${typeName(id)} ${EARNING_METHODS[before].label} → ${EARNING_METHODS[after].label}`);
+    if (before !== after) {
+      changes.push(message('{type} {from} → {to}', { type: typeName(id), from: EARNING_METHODS[before].label, to: EARNING_METHODS[after].label }));
+    }
   }
   if (current.unpricedRate !== next.unpricedRate) {
-    changes.push(`rate for unpriced work ${current.unpricedRate ?? 'none'} → ${next.unpricedRate ?? 'none'}`);
+    changes.push(
+      message('rate for unpriced work {from} → {to}', {
+        from: current.unpricedRate ?? msg('none'),
+        to: next.unpricedRate ?? msg('none'),
+      }),
+    );
   }
   if (changes.length === 0) throw EpmError.conflict('Those are already the settings in force.');
 
@@ -155,7 +175,7 @@ export async function saveEvmSettings(input: unknown, actorId: string): Promise<
       entityType: 'evm-settings',
       entityId: String(row.version),
       action: 'evm.settings.updated',
-      summary: `Earned value settings version ${row.version}: ${changes.join('; ')}.`,
+      summary: message('Earned value settings version {version}: {changes}.', { version: row.version, changes: joined(changes) }),
       before: { ...current },
       after: { version: row.version, ...next },
     }),
@@ -253,6 +273,29 @@ export function priced(hours: number | null, assigneeId: number | null, rateOf: 
   return { rate: rate ?? null, bac: rate === null || rate === undefined ? null : roundMoney(hours * rate) };
 }
 
+/** The journal's line for a baseline: what it holds, and why it was set when a reason was given. */
+function baselineSummary(baseline: { number: number; count: number; bac: string; unpriced: number; reason: string | null }): Message {
+  const { number, count, bac, unpriced, reason } = baseline;
+  if (unpriced && reason) {
+    return message(
+      'Baseline {number} set: {count} work packages, budget at completion {bac}, {unpriced} with no rate to price them. {reason}',
+      { number, count, bac, unpriced, reason },
+    );
+  }
+  if (unpriced) {
+    return message('Baseline {number} set: {count} work packages, budget at completion {bac}, {unpriced} with no rate to price them.', {
+      number,
+      count,
+      bac,
+      unpriced,
+    });
+  }
+  if (reason) {
+    return message('Baseline {number} set: {count} work packages, budget at completion {bac}. {reason}', { number, count, bac, reason });
+  }
+  return message('Baseline {number} set: {count} work packages, budget at completion {bac}.', { number, count, bac });
+}
+
 /**
  * Sets a project's baseline: its plan as OpenProject has it now — every work
  * package's estimate, priced, and its planned dates — frozen and journalled.
@@ -281,6 +324,7 @@ export async function setBaseline(projectId: number, reason: string | null, acto
         parentId: linkId(item._links, 'parent') ? Number(linkId(item._links, 'parent')) : null,
         typeId,
         isMilestone,
+        // Stored with the baseline as data, like a subject OpenProject sent.
         subject: item.subject ?? `Work package ${item.id}`,
         estimatedHours: hours,
         rate: price.rate,
@@ -330,10 +374,7 @@ export async function setBaseline(projectId: number, reason: string | null, acto
       entityType: 'evm-baseline',
       entityId: row.id,
       action: 'evm.baseline.set',
-      summary:
-        `Baseline ${row.number} set: ${items.length} work packages, budget at completion ${bac.toFixed(2)}` +
-        (unpriced ? `, ${unpriced} with no rate to price them` : '') +
-        (row.reason ? `. ${row.reason}` : '.'),
+      summary: baselineSummary({ number: row.number, count: items.length, bac: bac.toFixed(2), unpriced, reason: row.reason }),
       after: { number: row.number, bac, items: items.length, unpriced, undated, reason: row.reason },
     }),
   );

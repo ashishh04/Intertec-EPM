@@ -241,7 +241,7 @@ export async function createDepartment(
       entityType: 'department',
       entityId: created.id,
       action: 'department.created',
-      summary: `Created department ${created.name}`,
+      summary: message('Created department {name}', { name: created.name }),
       after: departmentRecord(created),
     }),
   );
@@ -281,7 +281,7 @@ export async function updateDepartment(
       entityType: 'department',
       entityId: id,
       action: 'department.updated',
-      summary: `Changed department ${updated.name}`,
+      summary: message('Changed department {name}', { name: updated.name }),
       before: departmentRecord(existing),
       after: departmentRecord(updated),
     }),
@@ -311,7 +311,9 @@ export async function setDepartmentActive(
       entityType: 'department',
       entityId: id,
       action: active ? 'department.restored' : 'department.archived',
-      summary: `${active ? 'Restored' : 'Archived'} department ${updated.name}`,
+      summary: active
+        ? message('Restored department {name}', { name: updated.name })
+        : message('Archived department {name}', { name: updated.name }),
       before: { active: existing.active },
       after: { active: updated.active },
     }),
@@ -359,7 +361,7 @@ export async function deleteDepartment(id: string): Promise<void> {
     entityType: 'department',
     entityId: id,
     action: 'department.deleted',
-    summary: `Deleted department ${existing.name}`,
+    summary: message('Deleted department {name}', { name: existing.name }),
     before: departmentRecord(existing),
   });
 }

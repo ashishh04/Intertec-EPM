@@ -19,14 +19,15 @@ import {
   requestHealthRecalc,
   unassessedView,
 } from '../domain/health.js';
-import { HEALTH_CRITERIA } from '../domain/health-rules.js';
+import { HEALTH_CRITERIA, criterionName } from '../domain/health-rules.js';
 import { allows } from '../auth/capabilities.js';
 import { env } from '../config/env.js';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
-import type { HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
+import type { HealthCriterion, HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
 import { automationUserId } from '../domain/automation-account.js';
-import { message } from '../lib/i18n.js';
+import { clauses } from '../domain/notifications.js';
+import { contextLanguage, contextReader, dateOf, listOf, message, type Message } from '../lib/i18n.js';
 import { forgetProjectBaselines } from '../domain/earned-value-store.js';
 
 const listQuery = z.object({
@@ -76,9 +77,13 @@ export async function loadProjectsFor(
  * Cached per user on the short aggregate TTL — the project list is read on
  * almost every page and fans out to several upstream calls. Invalidated on any
  * project write, so a project you create is usable straight away.
+ *
+ * And per language: each project's health reasons and explanation are written
+ * out in the language of the request (BR-605), so a list built for one
+ * language must not be served to the other.
  */
 export async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
-  return aggregateCache.get(userScopedKey('projects'), () => buildProjects(signal));
+  return aggregateCache.get(userScopedKey(`projects:${contextReader()}`), () => buildProjects(signal));
 }
 
 /**
@@ -114,19 +119,11 @@ async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
       overlay: overlays.get(String(project.id)),
       // A project without a view reads as not assessed rather than vanishing
       // from the list.
-      health: health.get(String(project.id)) ?? unassessedView('Health has not been calculated yet.'),
+      health: health.get(String(project.id)) ?? unassessedView(message('Health has not been calculated yet.')),
     }),
   );
 }
 
-const HEALTH_WORDS: Record<HealthLevel, string> = { healthy: 'green', warning: 'amber', critical: 'red' };
-const DIMENSION_LABELS: Record<string, string> = {
-  overall: 'overall',
-  schedule: 'schedule variance',
-  budget: 'budget variance',
-  risks: 'open high risks',
-  overdue: 'overdue items',
-};
 const DIMENSIONS = [...HEALTH_CRITERIA, 'overall'] as const;
 const LEVELS: HealthLevel[] = ['healthy', 'warning', 'critical'];
 
@@ -154,18 +151,18 @@ const planBody = z
   })
   .strict();
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "30 Sep 2026". Spelled out by hand: locale data abbreviates September as "Sept". */
-function describeDay(value: Date | string | null | undefined): string {
-  if (!value) return 'none';
-  const iso = typeof value === 'string' ? value : value.toISOString().slice(0, 10);
-  const [y, m, d] = iso.split('-').map(Number) as [number, number, number];
-  return `${d} ${MONTHS[m - 1]} ${y}`;
+/** "30 Sep 2026" in English, in the reader's language and calendar otherwise; "none" when unset. */
+function describeDay(value: Date | string | null | undefined): Message | ReturnType<typeof dateOf> {
+  if (!value) return message('none');
+  return dateOf(typeof value === 'string' ? value : value.toISOString().slice(0, 10));
 }
 
-function describeMoney(value: number | null | undefined): string {
-  if (value === null || value === undefined || value === 0) return 'none';
+/**
+ * An amount as the journal has always written it, "AED 1,250.5". Passed as
+ * text: the reader's currency format would write it differently in English.
+ */
+function describeMoney(value: number | null | undefined): string | Message {
+  if (value === null || value === undefined || value === 0) return message('none');
   return `${env.EPM_CURRENCY} ${value.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
 }
 
@@ -194,21 +191,28 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
     throw EpmError.validation('The planned finish cannot be before the planned start.');
   }
 
-  const changes: string[] = [];
+  const changes: Message[] = [];
   const sameDay = (a: Date | null | undefined, b: Date | null) =>
     (a?.toISOString().slice(0, 10) ?? null) === (b?.toISOString().slice(0, 10) ?? null);
   if (!sameDay(existing?.plannedStart, next.plannedStart)) {
-    changes.push(`planned start ${describeDay(existing?.plannedStart)} → ${describeDay(next.plannedStart)}`);
+    changes.push(
+      message('planned start {from} → {to}', { from: describeDay(existing?.plannedStart), to: describeDay(next.plannedStart) }),
+    );
   }
   if (!sameDay(existing?.plannedFinish, next.plannedFinish)) {
-    changes.push(`planned finish ${describeDay(existing?.plannedFinish)} → ${describeDay(next.plannedFinish)}`);
+    changes.push(
+      message('planned finish {from} → {to}', { from: describeDay(existing?.plannedFinish), to: describeDay(next.plannedFinish) }),
+    );
   }
   if ((existing?.budgetTotal ?? null) !== next.budgetTotal) {
-    changes.push(`budget ${describeMoney(existing?.budgetTotal)} → ${describeMoney(next.budgetTotal)}`);
+    changes.push(
+      message('budget {from} → {to}', { from: describeMoney(existing?.budgetTotal), to: describeMoney(next.budgetTotal) }),
+    );
   }
   if ((existing?.billable ?? null) !== next.billable) {
-    const describeBillable = (value: boolean | null | undefined) => (value === true ? 'billable' : value === false ? 'not billable' : 'the default');
-    changes.push(`time ${describeBillable(existing?.billable)} → ${describeBillable(next.billable)}`);
+    const describeBillable = (value: boolean | null | undefined): Message =>
+      value === true ? message('billable') : value === false ? message('not billable') : message('as the default');
+    changes.push(message('logged time {from} → {to}', { from: describeBillable(existing?.billable), to: describeBillable(next.billable) }));
   }
   if (changes.length === 0) return false;
 
@@ -231,7 +235,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
       entityType: 'project',
       entityId: projectId,
       action: 'project.plan.updated',
-      summary: `Plan changed: ${changes.join('; ')}.`,
+      summary: message('Plan changed: {changes}.', { changes: clauses(changes) }),
       before: snapshot({
         plannedStart: existing?.plannedStart ?? null,
         plannedFinish: existing?.plannedFinish ?? null,
@@ -482,21 +486,24 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       const existing = await prisma.projectHealthOverride.findUnique({ where: { projectId: id } });
       if (clearing && !existing) return before;
 
-      const pinned = Object.entries(levels)
-        .map(([key, level]) => {
-          const calculated = before.healthCalculated[key as keyof typeof before.healthCalculated];
-          const was = calculated ? HEALTH_WORDS[calculated] : 'not assessed';
-          return `${DIMENSION_LABELS[key]} ${HEALTH_WORDS[level]} (calculated ${was})`;
-        })
-        .join(', ');
+      const pinned = Object.entries(levels).map(([key, level]) =>
+        message(
+          '{dimension} {level, select, healthy {green} warning {amber} other {red}} (calculated {calculated, select, healthy {green} warning {amber} critical {red} other {not assessed}})',
+          {
+            dimension: criterionName(key as HealthCriterion | 'overall'),
+            level,
+            calculated: before.healthCalculated[key as keyof typeof before.healthCalculated] ?? 'none',
+          },
+        ),
+      );
       const action = clearing
         ? 'health.override.cleared'
         : existing
           ? 'health.override.changed'
           : 'health.override.set';
       const summary = clearing
-        ? 'Health override cleared; the calculated health applies again.'
-        : `Health overridden: ${pinned}.`;
+        ? message('Health override cleared; the calculated health applies again.')
+        : message('Health overridden: {pinned}.', { pinned: listOf(pinned) });
 
       await withAudit(
         async (tx) => {
@@ -696,7 +703,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'project',
           entityId: id,
           action: 'project.portfolio.changed',
-          summary: `Portfolio ${before?.portfolioRef?.name ?? 'none'} → ${now?.name ?? 'none'}.`,
+          summary: message('Portfolio {from} → {to}.', {
+            from: before?.portfolioRef?.name ?? message('none'),
+            to: now?.name ?? message('none'),
+          }),
           before: before?.portfolioRef ?? null,
           after: now,
         });
@@ -837,8 +847,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       if ((previous?.ownerId ?? null) === ownerId) return { id, ownerId: ownerId ?? '' };
 
       const users = await getUsers(requestSignal(request));
-      const nameOf = (userId: string | null | undefined) =>
-        userId ? users.find((user) => user.id === userId)?.name ?? `user ${userId}` : 'nobody';
+      const nameOf = (userId: string | null | undefined): string | Message =>
+        userId ? users.find((user) => user.id === userId)?.name ?? message('user {id}', { id: userId }) : message('nobody');
 
       await withAudit(
         (tx) =>
@@ -852,7 +862,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'project',
           entityId: id,
           action: 'project.owner.changed',
-          summary: `Owner ${nameOf(previous?.ownerId)} → ${nameOf(ownerId)}.`,
+          summary: message('Owner {from} → {to}.', { from: nameOf(previous?.ownerId), to: nameOf(ownerId) }),
           before: { ownerId: previous?.ownerId ?? null },
           after: { ownerId },
         },
@@ -952,7 +962,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       entityType: 'project',
       entityId: id,
       action: 'project.deleted',
-      summary: `Project ${project.name ?? id} was deleted, with its work packages.`,
+      summary: message('Project {name} was deleted, with its work packages.', { name: project.name ?? id }),
     }).catch((error: unknown) => request.log.warn({ err: error }, 'Could not journal a project deletion'));
 
     const deadline = Date.now() + 8_000;

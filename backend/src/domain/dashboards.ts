@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { addDays } from '../lib/dates.js';
+import { contextConventions, contextLanguage, dateOf, msg, t, type Language } from '../lib/i18n.js';
 import { EARNING_METHODS } from './earned-value.js';
 import type { ScopeEvaluation } from './earned-value-store.js';
 import { workFactsAsAt } from './measure-facts.js';
@@ -38,6 +39,11 @@ import {
  * opens the work package, which is the drill-through.
  *
  * Each is timed against the response target (`EPM_DASHBOARD_TARGET_MS`).
+ *
+ * Its words — titles, column headings, legends, the few cells that are words
+ * rather than data — are written in the language of the request being served,
+ * or of the reader a scheduled report is rendered for (`contextLanguage()`),
+ * as the measures' own are.
  */
 
 export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
@@ -102,29 +108,30 @@ export interface Dashboard {
 
 const TITLES: Record<DashboardId, { title: string; description: string }> = {
   'portfolio-health': {
-    title: 'Portfolio health',
-    description: 'How every project is doing on the health rules, what is slipping and what is late.',
+    title: msg('Portfolio health'),
+    description: msg('How every project is doing on the health rules, what is slipping and what is late.'),
   },
   delivery: {
-    title: 'Delivery',
-    description: 'What was delivered, how fast, and whether milestones were met on their dates.',
+    title: msg('Delivery'),
+    description: msg('What was delivered, how fast, and whether milestones were met on their dates.'),
   },
   utilisation: {
-    title: 'Resource utilisation',
-    description: 'Hours logged against the hours the people in scope were available, billable and not.',
+    title: msg('Resource utilisation'),
+    description: msg('Hours logged against the hours the people in scope were available, billable and not.'),
   },
   budget: {
-    title: 'Budget',
-    description: 'Spend against budget and against the budget planned to date.',
+    title: msg('Budget'),
+    description: msg('Spend against budget and against the budget planned to date.'),
   },
   'earned-value': {
-    title: 'Earned value',
-    description:
+    title: msg('Earned value'),
+    description: msg(
       'The work planned by now, the work done and what it cost, each priced by the budget — and what they forecast for schedule and cost.',
+    ),
   },
   risk: {
-    title: 'Risk exposure',
-    description: 'Open risks by severity and project, and how exposure has moved.',
+    title: msg('Risk exposure'),
+    description: msg('Open risks by severity and project, and how exposure has moved.'),
   },
 };
 
@@ -132,25 +139,30 @@ const TITLES: Record<DashboardId, { title: string; description: string }> = {
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function scopeName(shared: Shared, scope: Scope): string {
+/** "All projects", or the name of the portfolio, project, department, team, role or person; in `language` where it is a word. */
+export function scopeName(
+  shared: Pick<Shared, 'facts'> & Partial<Pick<Shared, 'resources'>>,
+  scope: Scope,
+  language: Language = contextLanguage(),
+): string {
   const { facts } = shared;
   switch (scope.kind) {
     case 'instance':
-      return 'All projects';
+      return t(language, 'All projects');
     case 'portfolio':
-      return facts.portfolios.get(scope.id ?? '')?.name ?? 'Portfolio';
+      return facts.portfolios.get(scope.id ?? '')?.name ?? t(language, 'Portfolio');
     case 'project':
-      return facts.projects.get(Number(scope.id))?.name ?? 'Project';
+      return facts.projects.get(Number(scope.id))?.name ?? t(language, 'Project');
     case 'department':
-      return facts.departments.get(scope.id ?? '')?.name ?? 'Department';
+      return facts.departments.get(scope.id ?? '')?.name ?? t(language, 'Department');
     case 'team':
-      return facts.teams.get(scope.id ?? '')?.name ?? 'Team';
+      return facts.teams.get(scope.id ?? '')?.name ?? t(language, 'Team');
     case 'role':
-      return shared.resources.roles.get(scope.id ?? '')?.name ?? 'Role';
+      return shared.resources?.roles.get(scope.id ?? '')?.name ?? t(language, 'Role');
     case 'person':
-      return facts.people.get(Number(scope.id))?.name ?? 'Person';
+      return facts.people.get(Number(scope.id))?.name ?? t(language, 'Person');
     case 'set':
-      return 'Selected projects';
+      return t(language, 'Selected projects');
   }
 }
 
@@ -168,11 +180,12 @@ async function measureTable(
     firstColumn: string;
   },
 ): Promise<DashboardTable> {
+  const language = contextLanguage();
   const columns: DashboardColumn[] = [
-    { key: 'name', label: options.firstColumn },
+    { key: 'name', label: t(language, options.firstColumn) },
     ...options.measures.map((id) => {
       const measure = measureById(id)!;
-      return { key: id, label: measure.label, unit: measure.unit, measureId: id };
+      return { key: id, label: t(language, measure.label), unit: measure.unit, measureId: id };
     }),
   ];
   const rows: DashboardRow[] = [];
@@ -188,12 +201,18 @@ async function measureTable(
       },
     });
   }
-  return { id: options.id, title: options.title, description: options.description, columns, rows };
+  return {
+    id: options.id,
+    title: t(language, options.title),
+    description: options.description === undefined ? undefined : t(language, options.description),
+    columns,
+    rows,
+  };
 }
 
 /** A measure over the period's buckets, through the same definitions. */
 async function series(context: MeasureContext, id: string, title: string, bucket: Bucket): Promise<DashboardSeries> {
-  return { id, title, measureId: id, bucket, points: await measureSeries(context, id, bucket) };
+  return { id, title: t(contextLanguage(), title), measureId: id, bucket, points: await measureSeries(context, id, bucket) };
 }
 
 /** Weekly buckets for up to six months, monthly beyond. */
@@ -226,8 +245,8 @@ async function portfolioHealth(shared: Shared, context: MeasureContext): Promise
     tables.push(
       await measureTable(shared, {
         id: 'portfolios',
-        title: 'Portfolios',
-        firstColumn: 'Portfolio',
+        title: msg('Portfolios'),
+        firstColumn: msg('Portfolio'),
         rows: portfolios.map((portfolio) => ({
           key: `portfolio:${portfolio.id}`,
           label: portfolio.name,
@@ -243,15 +262,15 @@ async function portfolioHealth(shared: Shared, context: MeasureContext): Promise
 
   const projects = await measureTable(shared, {
     id: 'projects',
-    title: 'Projects',
-    firstColumn: 'Project',
+    title: msg('Projects'),
+    firstColumn: msg('Project'),
     rows: projectRows(context),
     measures: ['schedule.varianceDays', 'work.open', 'work.overdue', 'risk.high', 'budget.consumed'],
     period: context.period,
     today: context.today,
   });
   // Health is a level, not a measure's number: added as its own column.
-  projects.columns.splice(1, 0, { key: 'health', label: 'Health' });
+  projects.columns.splice(1, 0, { key: 'health', label: t(contextLanguage(), 'Health') });
   for (const row of projects.rows) {
     const health = context.health.get(Number(row.link?.id));
     row.cells.health = health?.assessed ? health.overall : null;
@@ -263,8 +282,8 @@ async function portfolioHealth(shared: Shared, context: MeasureContext): Promise
     tiles,
     tables,
     series: [
-      await series(context, 'work.overdue', 'Overdue work', bucket),
-      await series(context, 'work.open', 'Open work', bucket),
+      await series(context, 'work.overdue', msg('Overdue work'), bucket),
+      await series(context, 'work.open', msg('Open work'), bucket),
     ],
     measures: await evaluateInContext([...tiles, 'health.green', 'health.amber', 'health.red'], context),
   };
@@ -284,11 +303,12 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
     'work.onTime',
   ];
   const { facts, period, today } = context;
+  const language = contextLanguage();
 
   const milestones = context.work
     .filter((item) => item.isMilestone && item.dueDate !== null && item.dueDate >= period.from && item.dueDate <= period.to)
     .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''));
-  const outcomeLabel = { met: 'Met', missed: 'Missed', pending: 'Not yet due', excluded: 'Rejected' } as const;
+  const outcomeLabel = { met: msg('Met'), missed: msg('Missed'), pending: msg('Not yet due'), excluded: msg('Rejected') } as const;
 
   const inScope = new Set(context.projects.map((project) => project.id));
   const sprints = [...facts.versions.values()]
@@ -298,13 +318,13 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
   const tables: DashboardTable[] = [
     {
       id: 'milestones',
-      title: 'Milestones due in the period',
+      title: t(language, 'Milestones due in the period'),
       columns: [
-        { key: 'name', label: 'Milestone' },
-        { key: 'project', label: 'Project' },
-        { key: 'due', label: 'Due' },
-        { key: 'closed', label: 'Delivered' },
-        { key: 'outcome', label: 'Outcome' },
+        { key: 'name', label: t(language, 'Milestone') },
+        { key: 'project', label: t(language, 'Project') },
+        { key: 'due', label: t(language, 'Due') },
+        { key: 'closed', label: t(language, 'Delivered') },
+        { key: 'outcome', label: t(language, 'Outcome') },
       ],
       rows: milestones.map((item) => ({
         key: `wp:${item.id}`,
@@ -314,19 +334,19 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
           project: facts.projects.get(item.projectId)?.name ?? '',
           due: item.dueDate,
           closed: item.closedAt ? item.closedAt.slice(0, 10) : null,
-          outcome: outcomeLabel[milestoneOutcome(item, today)],
+          outcome: t(language, outcomeLabel[milestoneOutcome(item, today)]),
         },
       })),
     },
     {
       id: 'sprints',
-      title: 'Sprints ended in the period',
+      title: t(language, 'Sprints ended in the period'),
       columns: [
-        { key: 'name', label: 'Sprint' },
-        { key: 'project', label: 'Project' },
-        { key: 'end', label: 'Ended' },
-        { key: 'committed', label: 'Committed', unit: 'points' },
-        { key: 'delivered', label: 'Delivered', unit: 'points' },
+        { key: 'name', label: t(language, 'Sprint') },
+        { key: 'project', label: t(language, 'Project') },
+        { key: 'end', label: t(language, 'Ended') },
+        { key: 'committed', label: t(language, 'Committed'), unit: 'points' },
+        { key: 'delivered', label: t(language, 'Delivered'), unit: 'points' },
       ],
       rows: sprints.map((sprint) => {
         const items = context.work.filter((item) => item.versionId === sprint.id);
@@ -350,8 +370,8 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
     tables.push(
       await measureTable(shared, {
         id: 'projects',
-        title: 'Projects',
-        firstColumn: 'Project',
+        title: msg('Projects'),
+        firstColumn: msg('Project'),
         rows: projectRows(context),
         measures: ['work.completed', 'work.throughput', 'work.onTime', 'milestones.onTime', 'work.leadTime', 'work.overdue'],
         period,
@@ -365,10 +385,10 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
     tiles,
     tables,
     series: [
-      await series(context, 'work.completed', 'Delivered', bucket),
-      await series(context, 'work.created', 'Created', bucket),
-      await series(context, 'work.open', 'Open work', bucket),
-      await series(context, 'work.onTime', 'Completed on time', bucket),
+      await series(context, 'work.completed', msg('Delivered'), bucket),
+      await series(context, 'work.created', msg('Created'), bucket),
+      await series(context, 'work.open', msg('Open work'), bucket),
+      await series(context, 'work.onTime', msg('Completed on time'), bucket),
     ],
     measures: await evaluateInContext(tiles, context),
   };
@@ -386,8 +406,8 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
     tables.push(
       await measureTable(shared, {
         id: 'departments',
-        title: 'Departments',
-        firstColumn: 'Department',
+        title: msg('Departments'),
+        firstColumn: msg('Department'),
         rows: departments.map((item) => ({
           key: `department:${item.id}`,
           label: item.name,
@@ -400,8 +420,8 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
       }),
       await measureTable(shared, {
         id: 'teams',
-        title: 'Teams',
-        firstColumn: 'Team',
+        title: msg('Teams'),
+        firstColumn: msg('Team'),
         rows: teams.map((item) => ({
           key: `team:${item.id}`,
           label: item.name,
@@ -420,8 +440,8 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
       tables.push(
         await measureTable(shared, {
           id: 'roles',
-          title: 'Roles',
-          firstColumn: 'Role',
+          title: msg('Roles'),
+          firstColumn: msg('Role'),
           rows: roles.map(([id, role]) => ({
             key: `role:${id}`,
             label: role.name,
@@ -439,8 +459,8 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
   tables.push(
     await measureTable(shared, {
       id: 'people',
-      title: 'People',
-      firstColumn: 'Person',
+      title: msg('People'),
+      firstColumn: msg('Person'),
       rows: [...context.people]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((person) => ({
@@ -460,9 +480,9 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
     tiles,
     tables,
     series: [
-      await series(context, 'utilisation', 'Utilisation', bucket),
-      await series(context, 'utilisation.billable', 'Billable utilisation', bucket),
-      await series(context, 'time.logged', 'Hours logged', bucket),
+      await series(context, 'utilisation', msg('Utilisation'), bucket),
+      await series(context, 'utilisation.billable', msg('Billable utilisation'), bucket),
+      await series(context, 'time.logged', msg('Hours logged'), bucket),
     ],
     measures: await evaluateInContext(tiles, context),
   };
@@ -472,8 +492,8 @@ async function budget(shared: Shared, context: MeasureContext): Promise<Partial<
   const tiles = ['budget.total', 'cost.actual', 'cost.plannedToDate', 'cost.variance', 'budget.consumed', 'budget.variancePct'];
   const projects = await measureTable(shared, {
     id: 'projects',
-    title: 'Projects with a budget',
-    firstColumn: 'Project',
+    title: msg('Projects with a budget'),
+    firstColumn: msg('Project'),
     rows: projectRows(context).filter((row) => (shared.facts.projects.get(Number(row.link.id))?.budget ?? 0) > 0),
     measures: ['budget.total', 'cost.actual', 'cost.plannedToDate', 'cost.variance', 'budget.consumed'],
     period: context.period,
@@ -483,7 +503,7 @@ async function budget(shared: Shared, context: MeasureContext): Promise<Partial<
   return {
     tiles,
     tables: [projects],
-    series: [await series(context, 'cost.spent', 'Spent', bucket)],
+    series: [await series(context, 'cost.spent', msg('Spent'), bucket)],
     measures: await evaluateInContext([...tiles, 'time.uncosted'], context),
   };
 }
@@ -519,27 +539,28 @@ async function earnedValueSeries(context: MeasureContext, bucket: Bucket): Promi
     spi.push(point(slice, ahead ? null : result.totals.spi));
     cpi.push(point(slice, ahead ? null : result.totals.cpi));
   }
+  const language = contextLanguage();
   return [
     {
       id: 'evm.curve',
-      title: 'Planned value, earned value and actual cost',
+      title: t(language, 'Planned value, earned value and actual cost'),
       measureId: 'evm.pv',
       bucket,
-      label: 'Planned value (PV)',
+      label: t(language, 'Planned value (PV)'),
       points: pv,
       lines: [
-        { measureId: 'evm.ev', label: 'Earned value (EV)', points: ev },
-        { measureId: 'evm.ac', label: 'Actual cost (AC)', points: ac },
+        { measureId: 'evm.ev', label: t(language, 'Earned value (EV)'), points: ev },
+        { measureId: 'evm.ac', label: t(language, 'Actual cost (AC)'), points: ac },
       ],
     },
     {
       id: 'evm.indices',
-      title: 'Schedule and cost performance',
+      title: t(language, 'Schedule and cost performance'),
       measureId: 'evm.spi',
       bucket,
-      label: 'Schedule performance (SPI)',
+      label: t(language, 'Schedule performance (SPI)'),
       points: spi,
-      lines: [{ measureId: 'evm.cpi', label: 'Cost performance (CPI)', points: cpi }],
+      lines: [{ measureId: 'evm.cpi', label: t(language, 'Cost performance (CPI)'), points: cpi }],
     },
   ];
 }
@@ -548,6 +569,7 @@ async function earnedValue(shared: Shared, context: MeasureContext): Promise<Par
   const tiles = ['evm.bac', 'evm.pv', 'evm.ev', 'evm.ac', 'evm.sv', 'evm.cv', 'evm.spi', 'evm.cpi', 'evm.eac', 'evm.vac', 'evm.tcpi'];
   const now = evmOf(context);
   const tables: DashboardTable[] = [];
+  const language = contextLanguage();
 
   if (context.scope.kind === 'project') {
     const project = now.projects[0];
@@ -555,14 +577,24 @@ async function earnedValue(shared: Shared, context: MeasureContext): Promise<Par
     const against = project?.measuredAgainst;
     tables.push({
       id: 'work-packages',
-      title: 'Work packages',
+      title: t(language, 'Work packages'),
       description:
         against?.kind === 'baseline'
-          ? `Against baseline ${against.number}, set ${against.setAt.slice(0, 10)}. Most over cost first.`
-          : 'Against the current plan: no baseline has been set. Most over cost first.',
+          ? t(
+              language,
+              'Against baseline {number}, set {date}. Most over cost first.',
+              {
+                number: against.number,
+                // English has always written the day as 2026-09-01 here.
+                date: language === 'en' ? against.setAt.slice(0, 10) : dateOf(against.setAt.slice(0, 10)),
+              },
+              contextConventions(),
+            )
+          : t(language, 'Against the current plan: no baseline has been set. Most over cost first.'),
       columns: [
-        { key: 'name', label: 'Work package' },
-        { key: 'rule', label: 'Earns by' },
+        { key: 'name', label: t(language, 'Work package') },
+        { key: 'rule', label: t(language, 'Earns by') },
+        // The abbreviations are written the same in every language (BR-606 glossary).
         { key: 'bac', label: 'BAC', unit: 'money', measureId: 'evm.bac' },
         { key: 'pv', label: 'PV', unit: 'money', measureId: 'evm.pv' },
         { key: 'ev', label: 'EV', unit: 'money', measureId: 'evm.ev' },
@@ -580,8 +612,8 @@ async function earnedValue(shared: Shared, context: MeasureContext): Promise<Par
             key: `wp:${item.workPackageId}`,
             link: { kind: 'work_package' as const, id: String(item.workPackageId) },
             cells: {
-              name: known?.subject ?? `Work package ${item.workPackageId}`,
-              rule: EARNING_METHODS[item.method].label,
+              name: known?.subject ?? t(language, 'Work package {id}', { id: item.workPackageId }),
+              rule: t(language, EARNING_METHODS[item.method].label),
               bac: item.bac,
               pv: item.pv,
               ev: item.ev,
@@ -600,9 +632,9 @@ async function earnedValue(shared: Shared, context: MeasureContext): Promise<Par
     tables.push(
       await measureTable(shared, {
         id: 'projects',
-        title: 'Projects',
-        description: 'Each project against its baseline, or its current plan where none has been set.',
-        firstColumn: 'Project',
+        title: msg('Projects'),
+        description: msg('Each project against its baseline, or its current plan where none has been set.'),
+        firstColumn: msg('Project'),
         rows: projectRows(context).filter((row) => measured.has(Number(row.link.id))),
         measures: ['evm.bac', 'evm.pv', 'evm.ev', 'evm.ac', 'evm.spi', 'evm.cpi', 'evm.eac', 'evm.vac'],
         period: context.period,
@@ -622,6 +654,7 @@ async function earnedValue(shared: Shared, context: MeasureContext): Promise<Par
 async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
   const tiles = ['risk.open', 'risk.high', 'risk.overdue'];
   const { facts } = context;
+  const language = contextLanguage();
   const open = context.work
     .filter((item) => isOpen(item) && context.risk.typeIds.has(item.typeId))
     .sort(
@@ -631,21 +664,22 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
     );
 
   const bySeverity = new Map<string, number>();
+  const noPriority = t(language, 'No priority');
   for (const item of open) {
-    const name = item.priorityId !== null ? (facts.priorities.get(item.priorityId)?.name ?? 'No priority') : 'No priority';
+    const name = item.priorityId !== null ? (facts.priorities.get(item.priorityId)?.name ?? noPriority) : noPriority;
     bySeverity.set(name, (bySeverity.get(name) ?? 0) + 1);
   }
 
   const tables: DashboardTable[] = [
     {
       id: 'risks',
-      title: 'Open risks',
+      title: t(language, 'Open risks'),
       columns: [
-        { key: 'name', label: 'Risk' },
-        { key: 'project', label: 'Project' },
-        { key: 'severity', label: 'Severity' },
-        { key: 'owner', label: 'Assignee' },
-        { key: 'due', label: 'Due' },
+        { key: 'name', label: t(language, 'Risk') },
+        { key: 'project', label: t(language, 'Project') },
+        { key: 'severity', label: t(language, 'Severity') },
+        { key: 'owner', label: t(language, 'Assignee') },
+        { key: 'due', label: t(language, 'Due') },
       ],
       rows: open.map((item) => ({
         key: `wp:${item.id}`,
@@ -661,10 +695,10 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
     },
     {
       id: 'severity',
-      title: 'By severity',
+      title: t(language, 'By severity'),
       columns: [
-        { key: 'name', label: 'Severity' },
-        { key: 'count', label: 'Open risks', unit: 'count' },
+        { key: 'name', label: t(language, 'Severity') },
+        { key: 'count', label: t(language, 'Open risks'), unit: 'count' },
       ],
       rows: [...bySeverity.entries()].map(([name, count]) => ({ key: `severity:${name}`, cells: { name, count } })),
     },
@@ -673,8 +707,8 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
     tables.push(
       await measureTable(shared, {
         id: 'projects',
-        title: 'By project',
-        firstColumn: 'Project',
+        title: msg('By project'),
+        firstColumn: msg('Project'),
         rows: projectRows(context),
         measures: ['risk.open', 'risk.high', 'risk.overdue'],
         period: context.period,
@@ -688,15 +722,20 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
     tiles,
     tables,
     series: [
-      await series(context, 'risk.open', 'Open risks', bucket),
-      await series(context, 'risk.high', 'High risks', bucket),
+      await series(context, 'risk.open', msg('Open risks'), bucket),
+      await series(context, 'risk.high', msg('High risks'), bucket),
     ],
     measures: await evaluateInContext(tiles, context),
   };
 }
 
-/** The dashboards there are, for a menu. */
+/** The dashboards there are, for a menu: in English, as stored and logged. */
 export const DASHBOARDS = DASHBOARD_IDS.map((id) => ({ id, ...TITLES[id] }));
+
+/** The dashboards there are, for a menu, in `language`. */
+export function dashboardsIn(language: Language): { id: DashboardId; title: string; description: string }[] {
+  return DASHBOARD_IDS.map((id) => ({ id, title: t(language, TITLES[id].title), description: t(language, TITLES[id].description) }));
+}
 
 const BUILDERS: Record<DashboardId, (shared: Shared, context: MeasureContext) => Promise<Partial<Dashboard>>> = {
   'portfolio-health': portfolioHealth,
@@ -721,11 +760,13 @@ export async function buildDashboard(
   const context = contextFor(shared, scope, period, today);
   const built = await BUILDERS[id](shared, context);
   const serverMs = Math.round(performance.now() - startedAt);
+  const language = contextLanguage();
 
   return {
     id,
-    ...TITLES[id],
-    scope: { ...scope, name: scopeName(shared, scope) },
+    title: t(language, TITLES[id].title),
+    description: t(language, TITLES[id].description),
+    scope: { ...scope, name: scopeName(shared, scope, language) },
     period,
     today,
     asOf: shared.facts.asOf,

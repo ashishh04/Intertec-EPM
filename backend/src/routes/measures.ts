@@ -6,7 +6,7 @@ import * as guard from '../auth/guard.js';
 import { addDays, daysBetween, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { costEntries } from '../domain/cost-entries.js';
-import { buildDashboard, DASHBOARD_IDS, DASHBOARDS, type DashboardId } from '../domain/dashboards.js';
+import { buildDashboard, DASHBOARD_IDS, dashboardsIn, type DashboardId } from '../domain/dashboards.js';
 import { modelFacts } from '../domain/measure-facts.js';
 import {
   catalogue,
@@ -18,7 +18,7 @@ import {
   type Scope,
   type Viewer,
 } from '../domain/measures.js';
-import { listOf, message } from '../lib/i18n.js';
+import { listOf, message, msg, requestLanguage } from '../lib/i18n.js';
 
 /**
  * The semantic layer and the dashboards built on it (BR-404, BR-405).
@@ -34,13 +34,23 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 export const scopeQuery = z.object({
   scope: z
     .string()
-    .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|role:[\w-]+|person:\d+)$/, 'scope is not one EPM knows.')
+    .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|role:[\w-]+|person:\d+)$/, msg('scope is not one EPM knows.'))
     .optional(),
-  from: z.string().regex(DAY, 'from must be a date, e.g. 2026-10-01.').optional(),
-  to: z.string().regex(DAY, 'to must be a date, e.g. 2026-10-31.').optional(),
+  from: z.string().regex(DAY, msg('from must be a date, e.g. 2026-10-01.')).optional(),
+  to: z.string().regex(DAY, msg('to must be a date, e.g. 2026-10-31.')).optional(),
   /** Narrows the scope to a project or a portfolio as well: a team's work in one project. */
-  within: z.string().regex(/^(portfolio:[\w-]+|project:\d+)$/, 'within is a project or a portfolio.').optional(),
+  within: z.string().regex(/^(portfolio:[\w-]+|project:\d+)$/, msg('within is a project or a portfolio.')).optional(),
 });
+
+/** What a scope that is not there is called, in "{what} could not be found." */
+const MISSING_SCOPE: Record<Exclude<Scope['kind'], 'instance' | 'set'>, string> = {
+  portfolio: msg('That portfolio'),
+  project: msg('That project'),
+  department: msg('That department'),
+  team: msg('That team'),
+  role: msg('That role'),
+  person: msg('That person'),
+};
 
 /** The viewer, narrowed to the projects `within` names, if it names any. */
 export async function narrowedViewer(viewer: Viewer, within: string | undefined): Promise<Viewer> {
@@ -84,7 +94,7 @@ export async function scopeOf(raw: string | undefined, viewer: Viewer): Promise<
   if (!raw || raw === 'instance') return { kind: 'instance' };
   const [kind, id] = raw.split(':') as [Scope['kind'], string];
   if (kind === 'role') {
-    if (!(await loadResourceShared()).roles.has(id)) throw EpmError.notFound('That role');
+    if (!(await loadResourceShared()).roles.has(id)) throw EpmError.notFound(MISSING_SCOPE.role);
     return { kind, id };
   }
   const facts = await modelFacts();
@@ -98,16 +108,16 @@ export async function scopeOf(raw: string | undefined, viewer: Viewer): Promise<
           : kind === 'team'
             ? facts.teams.has(id)
             : facts.people.has(Number(id));
-  if (!known) throw EpmError.notFound(kind === 'person' ? 'That person' : `That ${kind}`);
+  if (!known) throw EpmError.notFound(MISSING_SCOPE[kind as keyof typeof MISSING_SCOPE] ?? 'The requested resource');
   return { kind, id };
 }
 
 export const measureRoutes: FastifyPluginAsync = async (app) => {
-  /** The catalogue: every measure, its unit, and exactly what it counts. */
-  app.get('/measures', async () => catalogue());
+  /** The catalogue: every measure, its unit, and exactly what it counts, in the reader's language. */
+  app.get('/measures', async (request) => catalogue(requestLanguage(request)));
 
   app.get('/measures/values', async (request) => {
-    const query = scopeQuery.extend({ ids: z.string().min(1, 'Name the measures: ids=a,b.') }).parse(request.query);
+    const query = scopeQuery.extend({ ids: z.string().min(1, msg('Name the measures: ids=a,b.')) }).parse(request.query);
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     const ids = query.ids.split(',').map((id) => id.trim()).filter(Boolean);
@@ -171,7 +181,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
     return measureTrend(measure.id, scope, periodOf(query), query.bucket, await narrowedViewer(viewer, query.within), todayIso());
   });
 
-  app.get('/dashboards', async () => DASHBOARDS);
+  app.get('/dashboards', async (request) => dashboardsIn(requestLanguage(request)));
 
   /** One dashboard, timed against the response target; the time is in Server-Timing too. */
   app.get<{ Params: { id: string } }>('/dashboards/:id', async (request, reply) => {
