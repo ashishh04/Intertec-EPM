@@ -42,6 +42,8 @@ export interface ApprovalRequestPayload {
   approveUrl: string;
   rejectUrl: string;
   openUrl: string;
+  /** What is being approved; a work package when absent (rows queued before Module 10). */
+  subjectKind?: 'work_package' | 'timesheet' | 'expense_claim';
 }
 
 /**
@@ -88,7 +90,16 @@ export function render(payload: ApprovalRequestPayload, locale: EmailLocale): Re
       paragraphHtml(
         escape(tr('Or {reject}, or {open}.', { reject: REJECT, open: OPEN }))
           .replace(REJECT, () => link(payload.rejectUrl, tr('review and reject')))
-          .replace(OPEN, () => link(payload.openUrl, tr('open the work package'))),
+          .replace(OPEN, () =>
+            link(
+              payload.openUrl,
+              payload.subjectKind === 'timesheet'
+                ? tr('open the timesheet')
+                : payload.subjectKind === 'expense_claim'
+                  ? tr('open the claim')
+                  : tr('open the work package'),
+            ),
+          ),
       ) +
       muted(once),
     locale,

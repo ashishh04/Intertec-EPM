@@ -149,6 +149,8 @@ const planBody = z
       .optional(),
     /** Whether time logged here is billable (BR-315); null follows the instance default. */
     billable: z.boolean().nullable().optional(),
+    /** Whether the project's owner approves time logged here (BR-305); null means yes. */
+    timesheetApproval: z.boolean().nullable().optional(),
   })
   .strict();
 
@@ -177,7 +179,7 @@ function describeMoney(value: number | null | undefined): string | Message {
 async function updatePlan(projectId: string, input: z.infer<typeof planBody>): Promise<boolean> {
   const existing = await prisma.projectProfile.findUnique({
     where: { openProjectId: projectId },
-    select: { plannedStart: true, plannedFinish: true, budgetTotal: true, billable: true },
+    select: { plannedStart: true, plannedFinish: true, budgetTotal: true, billable: true, timesheetApproval: true },
   });
 
   const toDate = (value: string | null) => (value === null ? null : new Date(`${value}T00:00:00Z`));
@@ -186,6 +188,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
     plannedFinish: input.plannedFinish === undefined ? existing?.plannedFinish ?? null : toDate(input.plannedFinish),
     budgetTotal: input.budgetTotal === undefined ? existing?.budgetTotal ?? null : input.budgetTotal,
     billable: input.billable === undefined ? existing?.billable ?? null : input.billable,
+    timesheetApproval: input.timesheetApproval === undefined ? existing?.timesheetApproval ?? null : input.timesheetApproval,
   };
 
   if (next.plannedStart && next.plannedFinish && next.plannedFinish < next.plannedStart) {
@@ -215,6 +218,16 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
       value === true ? message('billable') : value === false ? message('not billable') : message('as the default');
     changes.push(message('logged time {from} → {to}', { from: describeBillable(existing?.billable), to: describeBillable(next.billable) }));
   }
+  if ((existing?.timesheetApproval ?? null) !== next.timesheetApproval) {
+    const describeApproval = (value: boolean | null | undefined): Message =>
+      value === false ? message('not by the owner') : message('by the owner');
+    changes.push(
+      message('timesheets approved {from} → {to}', {
+        from: describeApproval(existing?.timesheetApproval),
+        to: describeApproval(next.timesheetApproval),
+      }),
+    );
+  }
   if (changes.length === 0) return false;
 
   const snapshot = (value: typeof next) => ({
@@ -222,6 +235,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
     plannedFinish: value.plannedFinish?.toISOString().slice(0, 10) ?? null,
     budgetTotal: value.budgetTotal,
     billable: value.billable,
+    timesheetApproval: value.timesheetApproval,
   });
 
   await withAudit(
@@ -242,6 +256,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
         plannedFinish: existing?.plannedFinish ?? null,
         budgetTotal: existing?.budgetTotal ?? null,
         billable: existing?.billable ?? null,
+        timesheetApproval: existing?.timesheetApproval ?? null,
       }),
       after: snapshot(next),
     },

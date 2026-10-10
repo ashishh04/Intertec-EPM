@@ -18,6 +18,7 @@ import type {
   EscalationView,
   PersonSpec,
 } from '../types/epm.js';
+import { subjectLink } from './approvals.js';
 import { recordAuditQuietly, withAudit } from './audit.js';
 import { notifyPeople, sentences } from './notifications.js';
 import { resolvePeople, type PersonContext } from './people.js';
@@ -326,7 +327,7 @@ async function approvalCandidates(policy: EscalationPolicy, now: Date): Promise<
       dueAt: { not: null, lte: cutoff },
       request: { status: 'pending', ...(policy.projectIds.length > 0 ? { projectId: { in: policy.projectIds } } : {}) },
     },
-    include: { request: { select: { id: true, title: true, subjectId: true, projectId: true } } },
+    include: { request: { select: { id: true, title: true, subjectType: true, subjectId: true, projectId: true } } },
   });
 
   const steps = new Map<string, typeof tasks>();
@@ -342,7 +343,7 @@ async function approvalCandidates(policy: EscalationPolicy, now: Date): Promise<
       subjectType: 'approval-request',
       subjectId: first.requestId,
       title: first.request.title,
-      link: `/tasks/${first.request.subjectId}`,
+      link: subjectLink(first.request.subjectType, first.request.subjectId),
       projectId: first.request.projectId,
       episode: `step${first.stepIndex}:${since.toISOString()}`,
       since,
@@ -611,7 +612,7 @@ export async function listEscalations(query: {
     runAsSystem(() => listProjects()).catch(() => []),
     prisma.approvalRequest.findMany({
       where: { id: { in: rows.filter((row) => row.subjectType === 'approval-request').map((row) => row.subjectId) } },
-      select: { id: true, title: true, subjectId: true },
+      select: { id: true, title: true, subjectType: true, subjectId: true },
     }),
   ]);
   const policyName = new Map(policies.map((policy) => [policy.id, policy.name]));
@@ -629,7 +630,7 @@ export async function listEscalations(query: {
       subjectType: row.subjectType,
       subjectId: row.subjectId,
       subjectTitle: metadata.title ?? approval?.title,
-      link: metadata.link ?? (approval ? `/tasks/${approval.subjectId}` : row.subjectType === 'work_package' ? `/tasks/${row.subjectId}` : undefined),
+      link: metadata.link ?? (approval ? subjectLink(approval.subjectType, approval.subjectId) : row.subjectType === 'work_package' ? `/tasks/${row.subjectId}` : undefined),
       projectId: row.projectId ?? undefined,
       projectName: row.projectId ? projectName.get(row.projectId) : undefined,
       level: row.level,

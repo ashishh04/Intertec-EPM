@@ -50,6 +50,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_analytics_api.rb` | Read-only export of every work package version (the journals) and of unit costs, for EPM's analytics model (below). |
 | `zzz_epm_schedule.rb` | The schedule bridge (below): the scheduling network out for EPM's critical path pass, and the float it computes back into three work package fields, kept out of the journal. |
 | `zzz_epm_calculated.rb` | The calculated-field bridge (BR-406 to BR-408): what EPM's formulas read — each work package's own fields, time, custom values and place in the tree — out in one query, and the values EPM computes back into the custom fields it made for them (marked `editable = false`), written only where changed and kept out of the journal, like float. |
+| `zzz_epm_costs.rb` | Cost types and cost entries, which API v3 cannot create: lists and adds cost types, and makes the cost entry an approved expense claim becomes, the way OpenProject's own "Log unit costs" form does (Module 10). |
 | `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
 | `setup/automation-account.rb` | Not an initializer: run by hand, like the one below. Creates EPM's automation account — the service principal rules act as — and its minimal "EPM Automation" project role with a complete workflow, and prints the account's API key once (`ROTATE=1` issues a new one). Not an administrator; EPM adds it to a project when a rule first acts there. |
 | `setup/schedule-fields.rb` | Not an initializer: run by hand. Creates the Total float (days), Free float (days) and On critical path work package fields, for all projects and usable as filters, and activates them on every type. Run it again after adding a type. Copied to `/app/epm-setup/` in the image. |
@@ -64,6 +65,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 /app/config/initializers/zzz_epm_admin_catalog.rb
 /app/config/initializers/zzz_epm_analytics_api.rb
 /app/config/initializers/zzz_epm_schedule.rb
+/app/config/initializers/zzz_epm_costs.rb
 ```
 
 The `zzz_` prefix matters: Rails loads initializers alphabetically, and the

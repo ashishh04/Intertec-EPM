@@ -35,6 +35,8 @@ import { ApiEarnedValueRepository } from './api/earned-value';
 import { ApiCalculatedFieldRepository } from './api/calculated-fields';
 import { ApiTaskSeriesRepository } from './api/task-series';
 import { ApiResourceRepository } from './api/resources';
+import { ApiTimesheetRepository } from './api/timesheets';
+import { ApiExpenseRepository } from './api/expenses';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
 import { ApiApprovalRepository } from './api/approvals';
@@ -127,6 +129,9 @@ export const calculatedFieldService = new ApiCalculatedFieldRepository();
 /** Recurring tasks: series, their lifecycle and the tasks they make (BRQ-02). */
 export const taskSeriesService = new ApiTaskSeriesRepository();
 export const resourceService = new ApiResourceRepository();
+/** Timesheets, the time rules, and expense claims (Module 10). */
+export const timesheetService = new ApiTimesheetRepository();
+export const expenseService = new ApiExpenseRepository();
 
 /** Instance administration. Reads OpenProject's admin resources through the backend. */
 export const adminService = new ApiAdminRepository();

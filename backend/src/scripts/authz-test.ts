@@ -202,6 +202,11 @@ async function main() {
   let resourcesRestrictedRoleBefore: string | null | undefined;
   let resourcesPinnedId: string | undefined;
   const resourcesRunIds: string[] = [];
+  // The time and expense tests' project, the rules they replaced, and the cost
+  // entries their approved claim became.
+  let timeProjectId: string | undefined;
+  let timeSettingsBefore: Record<string, unknown> | undefined;
+  const timeCostEntryIds: string[] = [];
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -8309,6 +8314,294 @@ async function main() {
     resourcesProjectId = undefined;
   }
 
+  // --- Time and expense (BR-304 to BR-309, BR-317) ------------------------------
+  console.log('\nTime and expense');
+  {
+    type Json = Record<string, any>;
+    const { prisma: teDb } = await import('../db/prisma.js');
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const { automationUserId } = await import('../domain/automation-account.js');
+    const { inflateRawSync } = await import('node:zlib');
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json;
+    const DAY = 86_400_000;
+    const isoOf = (time: number) => new Date(time).toISOString().slice(0, 10);
+    const round2 = (value: number) => Math.round(value * 100) / 100;
+    const refreshModel = () => json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'incremental', wait: true } });
+    const stamp = Date.now();
+    const today = new Date().toISOString().slice(0, 10);
+    const todayMs = Date.parse(`${today}T00:00:00Z`);
+    // A whole week three weeks back: ended, and inside a 60-day back-dating window.
+    const monday = todayMs - 21 * DAY - ((new Date(todayMs - 21 * DAY).getUTCDay() + 6) % 7) * DAY;
+    const wd = (offset: number) => isoOf(monday + offset * DAY);
+    const message = async (response: Response) => `${response.status} ${((await response.json().catch(() => ({}))) as Json).message ?? ''}`;
+
+    // Who may.
+    check('the time rules are read by anyone signed in', await status('/time/settings', { cookie: restricted }), 200);
+    check('but changed only with time:configure', await status('/time/settings', { method: 'PUT', cookie: restricted, body: {} }), 403);
+    check('the timesheet overview is not for someone who manages nobody', await status(`/timesheets/overview?day=${wd(0)}`, { cookie: restricted }), 403);
+    check('nor is every claim', await status('/expenses?scope=all', { cookie: restricted }), 403);
+    check('nor the finance export', await status(`/expenses/export?from=${wd(0)}&to=${wd(6)}`, { cookie: restricted }), 403);
+
+    // The rules for the test: 4 to 20 hours a week, every policy on, receipts above 100. Put back at the end.
+    const rulesBefore = (await json('/time/settings')).settings as Json;
+    timeSettingsBefore = { timesheets: rulesBefore.timesheets, policies: rulesBefore.policies, expenses: rulesBefore.expenses };
+    const testRules = {
+      timesheets: { period: 'week', minimum: { basis: 'fixed', hours: 4 }, maximum: { basis: 'fixed', hours: 20 }, requireWorkPackage: true, reminders: false },
+      policies: {
+        maxDailyHours: { active: true, hours: 10 },
+        backdating: { active: true, days: 60 },
+        mandatoryActivity: { active: true },
+        closedWorkPackages: { active: true },
+      },
+      expenses: { receiptThreshold: 100, currency: rulesBefore.expenses.currency },
+    };
+    check('the rules are set for the test', [200, 409].includes(await status('/time/settings', { method: 'PUT', cookie: admin, body: testRules })), true);
+
+    // A project: the administrator owns it; the restricted account logs time on it.
+    const madeProject = await call('/projects', {
+      method: 'POST',
+      cookie: admin,
+      body: { payload: { name: `Time and Expense Test ${stamp}`, identifier: `te-test-${stamp}` } },
+    });
+    check('a project is made for the time and expense tests', madeProject.status, 201);
+    timeProjectId = ((await madeProject.json()) as Json).id as string | undefined;
+    const teProject = String(timeProjectId);
+    const adminRoles = (await json('/admin/roles')) as unknown as { id: string; name: string; kind: string; builtin: boolean; permissions: string[] }[];
+    const projectRoleList = adminRoles.filter((role) => role.kind === 'project' && !role.builtin);
+    const ownerRole = projectRoleList.find((role) => role.permissions.includes('edit_project') && role.permissions.includes('work_package_assigned'));
+    // A role that may log time, the least privileged there is: on an instance where only an administrator's
+    // role may, the restricted account gets that one, in this project only. EPM's locks hold whatever the role.
+    const mayLog = (role: { permissions: string[] }) =>
+      (role.permissions.includes('log_own_time') || role.permissions.includes('log_time')) && role.permissions.includes('view_work_packages');
+    const loggerRole =
+      projectRoleList.find((role) => role.name !== 'EPM Automation' && mayLog(role) && !role.permissions.includes('edit_project')) ??
+      projectRoleList.find((role) => role.name !== 'EPM Automation' && mayLog(role));
+    check('there is a role that may log its own time', Boolean(ownerRole && loggerRole), true);
+    check(
+      'the administrator joins it',
+      await status(`/projects/${teProject}/members`, { method: 'POST', cookie: admin, body: { userId: adminId, roleIds: [ownerRole?.id ?? memberRoleId] } }),
+      201,
+    );
+    check(
+      'and the restricted account',
+      await status(`/projects/${teProject}/members`, { method: 'POST', cookie: admin, body: { userId: restrictedId, roleIds: [loggerRole?.id ?? memberRoleId] } }),
+      201,
+    );
+    check('the administrator owns it', await status(`/projects/${teProject}/owner`, { method: 'PATCH', cookie: admin, body: { ownerId: adminId } }), 200);
+    // The administrator leads the suite's team: on it, they are the restricted account's line manager.
+    check('the restricted account is on the administrator’s team', (await setMapping(restrictedId, { teamId })).status, 200);
+
+    const types = ((await asSystem(() => upstream.request<Json>(`/projects/${teProject}/types`)))._embedded?.elements ?? []) as Json[];
+    const taskType = types.find((type) => type.name === 'Task')?.id ?? types.find((type) => !type.isMilestone)?.id;
+    const make = async (subject: string) =>
+      ((await (await call('/work-packages', { method: 'POST', cookie: admin, body: { projectId: teProject, typeId: String(taskType), payload: { subject } } })).json()) as Json)
+        .id as string | undefined;
+    const A = await make('Time A');
+    const Z = await make('Time Z, closed');
+    const closedStatus = (((await asSystem(() => upstream.request<Json>('/statuses')))._embedded?.elements ?? []) as Json[]).find(
+      (entry) => entry.isClosed && /^closed$/i.test(entry.name),
+    );
+    check(
+      'two work packages, one of them closed',
+      await status(`/work-packages/${Z}`, { method: 'PATCH', cookie: admin, body: { payload: { _links: { status: { href: `/api/v3/statuses/${closedStatus?.id}` } } } } }),
+      200,
+    );
+    const form = JSON.stringify(await json('/forms/time-entries', restricted, { method: 'POST', body: { projectId: teProject } }));
+    const activityId = /time_entries\/activities\/(\d+)/.exec(form)?.[1];
+    check('an activity to log against', Boolean(activityId), true);
+
+    // BR-317: an entry breaking an active policy is refused, the policy named.
+    const log = (body: Json) =>
+      call('/time-entries', {
+        method: 'POST',
+        cookie: restricted,
+        body: { projectId: teProject, workPackageId: A, hours: 2, spentOn: wd(0), activityId, comment: 'Time and expense probe', ...body },
+      });
+    check('BR-317: an entry with no activity is refused, naming its policy', /^422 .*Activity required/.test(await message(await log({ activityId: undefined }))), true);
+    check('one on closed work is refused, naming its policy', /^422 .*No time on closed work/.test(await message(await log({ workPackageId: Z }))), true);
+    check('one past the day’s limit is refused, naming its policy', /^422 .*Maximum hours in a day/.test(await message(await log({ hours: 11 }))), true);
+    check('one beyond the back-dating window is refused, naming its policy', /^422 .*Back-dating window/.test(await message(await log({ spentOn: isoOf(todayMs - 61 * DAY) }))), true);
+    const first = await log({});
+    check('an entry within every policy is logged', first.status, 201);
+    const firstId = ((await first.json()) as Json).id as string;
+
+    // BR-304: a timesheet outside its bounds fails validation; inside them it is submitted and locked.
+    const submitWeek = () => call('/timesheets/submit', { method: 'POST', cookie: restricted, body: { day: wd(0) } });
+    check('BR-304: below its bounds, the timesheet fails validation, saying so', /^422 .*at least 4/.test(await message(await submitWeek())), true);
+    await log({ hours: 3, spentOn: wd(1) });
+    const extras = [await log({ hours: 7, spentOn: wd(2) }), await log({ hours: 7, spentOn: wd(3) }), await log({ hours: 7, spentOn: wd(4) })];
+    check('and above them, saying so', /^422 .*at most 20/.test(await message(await submitWeek())), true);
+    for (const extra of extras) await call(`/time-entries/${((await extra.json()) as Json).id}`, { method: 'DELETE', cookie: restricted });
+    const submitted = await submitWeek();
+    check('within them, it is submitted', submitted.status, 200);
+    const sheet = (await submitted.json()) as Json;
+    check('with its five hours, and locked', `${sheet.status}/${sheet.hours}/${sheet.locked}`, 'submitted/5/true');
+    check('BR-304: the submitter cannot change its time', await status(`/time-entries/${firstId}`, { method: 'PATCH', cookie: restricted, body: { hours: 1 } }), 409);
+    check('nor remove it', await status(`/time-entries/${firstId}`, { method: 'DELETE', cookie: restricted }), 409);
+    check('nor log more in its period', (await log({ hours: 1, spentOn: wd(1) })).status, 409);
+
+    // BR-305: the line manager rejects it; it returns to draft with the reason.
+    const pendingTask = (view: Json) =>
+      ((view.request?.steps ?? []) as Json[]).flatMap((step) => step.tasks as Json[]).find((task) => task.status === 'pending' && task.approverId === adminId);
+    const asked = await json(`/timesheets/${sheet.id}`, admin);
+    check('its line manager is asked first', `${((asked.request?.steps ?? []) as Json[])[0]?.status}/${Boolean(pendingTask(asked))}`, 'active/true');
+    const reason = `Friday is missing ${stamp}`;
+    check(
+      'the line manager rejects it, saying why',
+      await status(`/approvals/tasks/${pendingTask(asked)?.id}/decide`, { method: 'POST', cookie: admin, body: { decision: 'reject', comment: reason } }),
+      200,
+    );
+    const returned = await json(`/timesheets/mine?day=${wd(0)}`, restricted);
+    check('BR-305: a rejected timesheet returns to draft', `${returned.status}/${returned.locked}`, 'draft/false');
+    check('with the reason shown to the submitter', returned.rejection?.reason, reason);
+    check('and its time can be changed again', await status(`/time-entries/${firstId}`, { method: 'PATCH', cookie: restricted, body: { comment: 'Corrected' } }), 200);
+
+    // BR-306: the outstanding list for a period that has ended, worked out independently.
+    await refreshModel();
+    const outstanding = async () => ((await json(`/timesheets/overview?day=${wd(0)}&status=outstanding`)).rows as Json[]).map((row) => String(row.personId)).sort();
+    const automation = await automationUserId().catch(() => undefined);
+    const active = await asSystem(() => upstream.getAll<Json>('/users', { filters: [{ field: 'status', operator: '=', values: ['active'] }] }));
+    const timesheetsIn = new Set(
+      (await teDb.timesheet.findMany({ where: { periodStart: new Date(`${wd(0)}T00:00:00Z`), status: { in: ['submitted', 'approved'] } }, select: { personId: true } })).map(
+        (row) => row.personId,
+      ),
+    );
+    const expected: string[] = [];
+    for (const user of active.items) {
+      const id = String(user.id);
+      if (id === automation || timesheetsIn.has(id)) continue;
+      const availability = await json(`/resources/people/${id}/availability?from=${wd(0)}&weeks=1`);
+      if (Number(((availability.weeks ?? []) as Json[])[0]?.available ?? 0) > 0) expected.push(id);
+    }
+    const listed = await outstanding();
+    check('BR-306: while it is in draft, the restricted account is outstanding for the period', listed.includes(restrictedId), true);
+    check(
+      'and the outstanding list is exactly everyone active with hours that week and no timesheet in',
+      JSON.stringify(listed),
+      JSON.stringify(expected.sort()),
+    );
+
+    // Submitted again and approved: the line manager, then the project's owner.
+    check('submitted again', (await submitWeek()).status, 200);
+    for (let step = 0; step < 2; step += 1) {
+      const task = pendingTask(await json(`/timesheets/${sheet.id}`, admin));
+      if (task) await call(`/approvals/tasks/${task.id}/decide`, { method: 'POST', cookie: admin, body: { decision: 'approve' } });
+    }
+    const approved = await json(`/timesheets/${sheet.id}`, admin);
+    check(
+      'approved by the line manager and then the project owner',
+      `${approved.status}/${((approved.request?.steps ?? []) as Json[]).map((step) => step.status).join(',')}`,
+      'approved/approved,approved',
+    );
+    check('and no longer outstanding', (await outstanding()).includes(restrictedId), false);
+    check('an approved timesheet stays locked', await status(`/time-entries/${firstId}`, { method: 'DELETE', cookie: restricted }), 409);
+    check('only whoever manages timesheets reopens it', await status(`/timesheets/${sheet.id}/reopen`, { method: 'POST', cookie: restricted, body: { reason: 'Mine' } }), 403);
+    check('reopened, with a reason', await status(`/timesheets/${sheet.id}/reopen`, { method: 'POST', cookie: admin, body: { reason: 'Correction requested' } }), 200);
+    check('its time unlocks', await status(`/time-entries/${firstId}`, { method: 'PATCH', cookie: restricted, body: { comment: 'Reopened' } }), 200);
+
+    // Expense claims, under a category reused from run to run: an OpenProject cost type.
+    let category = ((await json('/expenses/categories', restricted)) as unknown as Json[]).find((entry) => entry.name === 'Suite expenses');
+    category ??= await json('/expenses/categories', admin, { method: 'POST', body: { name: 'Suite expenses' } });
+    check('a category to claim under', Boolean(category?.id), true);
+    check('the restricted account cannot add one', await status('/expenses/categories', { method: 'POST', cookie: restricted, body: { name: `Nope ${stamp}` } }), 403);
+    const claim = async (amount: number) =>
+      json('/expenses', restricted, {
+        method: 'POST',
+        body: { projectId: teProject, workPackageId: A, categoryId: category!.id, amount, spentOn: wd(1), description: `Suite claim ${amount}` },
+      });
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    const attach = (id: string) => {
+      const body = new FormData();
+      body.append('file', new Blob([png], { type: 'image/png' }), 'receipt.png');
+      return fetch(`${BASE}/expenses/${id}/receipts`, { method: 'POST', headers: { cookie: restricted }, body });
+    };
+    const small = await claim(150);
+    check('a claim is drafted', small.status, 'draft');
+    check('BR-307: above the receipt threshold, it cannot be submitted without a receipt', /^422 .*needs a receipt/.test(await message(await call(`/expenses/${small.id}/submit`, { method: 'POST', cookie: restricted }))), true);
+    check('a receipt is attached', (await attach(small.id)).status, 201);
+    check('then it is submitted', await status(`/expenses/${small.id}/submit`, { method: 'POST', cookie: restricted }), 200);
+    const smallSteps = ((await json(`/expenses/${small.id}`, restricted)).request?.steps ?? []) as Json[];
+    check('BR-308: at or below the escalation threshold, the line manager alone is asked', smallSteps.map((step) => `${step.name}:${step.applies}`).join(','), 'Line manager:true,Additional approval:false');
+    const big = await claim(1500);
+    await attach(big.id);
+    check('a claim above the escalation threshold is submitted', await status(`/expenses/${big.id}/submit`, { method: 'POST', cookie: restricted }), 200);
+    const bigSteps = ((await json(`/expenses/${big.id}`, admin)).request?.steps ?? []) as Json[];
+    check(
+      'BR-308: above it, the claim routes to the additional approver',
+      `${bigSteps[1]?.name}:${bigSteps[1]?.applies}:${((bigSteps[1]?.tasks ?? []) as Json[]).map((task) => task.approverId).join('+')}`,
+      `Additional approval:true:${adminId}`,
+    );
+
+    // BR-309: approved, it becomes an OpenProject cost entry, in the project's actual cost and the finance export.
+    await refreshModel();
+    const costOf = async () =>
+      Number((await json(`/measures/values?ids=cost.actual&scope=project:${teProject}`)).measures?.['cost.actual']?.value ?? 0);
+    const costBefore = await costOf();
+    for (let step = 0; step < 2; step += 1) {
+      const task = pendingTask(await json(`/expenses/${big.id}`, admin));
+      if (task) await call(`/approvals/tasks/${task.id}/decide`, { method: 'POST', cookie: admin, body: { decision: 'approve' } });
+    }
+    const posted = await json(`/expenses/${big.id}`, admin);
+    check('approved, the claim is posted as an OpenProject cost entry', `${posted.status}/${Boolean(posted.costEntryId)}`, 'posted/true');
+    if (posted.costEntryId) timeCostEntryIds.push(String(posted.costEntryId));
+    const entry = posted.costEntryId
+      ? await asSystem(() => upstream.request<Json>(`/epm_admin/costs/entries/${posted.costEntryId}`, { root: true }))
+      : ({} as Json);
+    check(
+      'of 1,500, on the project and its work package, for the claimant',
+      `${entry.costs}/${entry.projectId}/${entry.workPackageId}/${entry.userId}`,
+      `1500/${teProject}/${A}/${restrictedId}`,
+    );
+    // The model reads it at its next refresh; one already running on another server is waited for.
+    let costAfter = costBefore;
+    for (let attempt = 0; attempt < 12 && round2(costAfter - costBefore) !== 1500; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await refreshModel();
+      costAfter = await costOf();
+    }
+    check('BR-309: the approved claim appears in the project’s actual cost', round2(costAfter - costBefore), 1500);
+    const exported = await fetch(`${BASE}/expenses/export?from=${wd(0)}&to=${wd(6)}`, { headers: { cookie: admin } });
+    const zip = Buffer.from(await exported.arrayBuffer());
+    let sheetText = '';
+    for (let at = 0; at + 30 <= zip.length && zip.readUInt32LE(at) === 0x04034b50; ) {
+      const method = zip.readUInt16LE(at + 8);
+      const size = zip.readUInt32LE(at + 18);
+      const start = at + 30 + zip.readUInt16LE(at + 26) + zip.readUInt16LE(at + 28);
+      const data = zip.subarray(start, start + size);
+      sheetText += (method === 8 ? inflateRawSync(data) : data).toString('utf8');
+      at = start + size;
+    }
+    const keyOf = (id: string) => `EX-${id.slice(-6).toUpperCase()}`;
+    check('and in the finance export for the period', `${exported.status}/${sheetText.includes(keyOf(big.id))}`, '200/true');
+    check('which leaves out a claim not yet approved', sheetText.includes(keyOf(small.id)), false);
+
+    // Journalled.
+    const journal = await teDb.auditEvent.findMany({
+      where: { occurredAt: { gte: suiteStartedAt }, OR: [{ action: { startsWith: 'timesheet.' } }, { action: { startsWith: 'expense.' } }, { action: 'time.settings.updated' }] },
+      select: { action: true },
+    });
+    const actions = new Set(journal.map((row) => row.action));
+    check(
+      'timesheets, claims and the rules are journalled: none missing',
+      ['timesheet.submitted', 'timesheet.rejected', 'timesheet.approved', 'timesheet.reopened', 'expense.created', 'expense.receipt.added', 'expense.submitted', 'expense.approved', 'expense.posted']
+        .filter((action) => !actions.has(action))
+        .join(', '),
+      '',
+    );
+
+    // Put things back: the restricted account's team, the cost entry, the project, the rules.
+    await setMapping(restrictedId, {});
+    for (const id of timeCostEntryIds.splice(0)) {
+      await asSystem(() => upstream.request(`/epm_admin/costs/entries/${id}`, { root: true, method: 'DELETE' })).catch(() => undefined);
+    }
+    check('the project is removed', await status(`/projects/${teProject}`, { method: 'DELETE', cookie: admin }), 204);
+    timeProjectId = undefined;
+    check('the rules are put back', [200, 409].includes(await status('/time/settings', { method: 'PUT', cookie: admin, body: timeSettingsBefore })), true);
+    timeSettingsBefore = undefined;
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -8830,6 +9123,35 @@ async function main() {
   // The portfolio view tests' views and their probe time entry.
   if (viewTimeEntryId) {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+  // The time and expense tests' cost entries, project and rules, and the
+  // restricted account's timesheets, claims and their approval requests.
+  if (timeCostEntryIds.length > 0) {
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    for (const id of timeCostEntryIds) {
+      await asSystem(() => upstream.request(`/epm_admin/costs/entries/${id}`, { root: true, method: 'DELETE' })).catch(() => undefined);
+    }
+  }
+  if (timeProjectId) {
+    const removed = await call(`/projects/${timeProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+    console.log(`  (time and expense test project ${timeProjectId}: ${removed?.status === 204 ? 'deleted' : 'NOT deleted — remove it by hand'})`);
+  }
+  if (timeSettingsBefore) await call('/time/settings', { method: 'PUT', cookie: admin, body: timeSettingsBefore }).catch(() => undefined);
+  if (restrictedIdForCleanup) {
+    const { prisma } = await import('../db/prisma.js');
+    const sheets = await prisma.timesheet
+      .deleteMany({ where: { personId: restrictedIdForCleanup, createdAt: { gte: suiteStartedAt } } })
+      .catch(() => ({ count: 0 }));
+    const claims = await prisma.expenseClaim
+      .deleteMany({ where: { claimantId: restrictedIdForCleanup, createdAt: { gte: suiteStartedAt } } })
+      .catch(() => ({ count: 0 }));
+    const requests = await prisma.approvalRequest
+      .deleteMany({ where: { subjectType: { in: ['timesheet', 'expense_claim'] }, requestedAt: { gte: suiteStartedAt } } })
+      .catch(() => ({ count: 0 }));
+    if (sheets.count + claims.count + requests.count > 0) {
+      console.log(`  (removed ${sheets.count} test timesheet(s), ${claims.count} test claim(s) and ${requests.count} of their approval requests)`);
+    }
   }
   // The resource tests' pin, project, role, levelling runs, and the restricted
   // account's schedule, time off and role, as they were.

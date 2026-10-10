@@ -35,6 +35,7 @@ import type {
   ApprovalCondition,
   ApprovalConditionOperator,
   ApprovalStep,
+  ApprovalSubjectType,
 } from '@/types';
 import { describeError } from './shared-format';
 
@@ -66,6 +67,7 @@ const blankChain = (options?: ApprovalChainOptions): ApprovalChainInput => {
   return {
     name: '',
     description: '',
+    subjectType: 'work_package',
     typeIds: changeRequest ? [changeRequest.id] : [],
     projectIds: [],
     valueField: options?.customFields.find((field) => field.numeric && /value/i.test(field.name))?.id,
@@ -222,6 +224,7 @@ function toInput(chain: ApprovalChain): ApprovalChainInput {
   return {
     name: chain.name,
     description: chain.description ?? '',
+    subjectType: chain.subjectType,
     typeIds: chain.typeIds,
     projectIds: chain.projectIds,
     valueField: chain.valueField,
@@ -272,7 +275,7 @@ function ChainEditor({
     draft.steps.forEach((step, index) => {
       if (!step.name.trim()) found.push(t('Step {step, number} needs a name.', { step: index + 1 }));
       if (step.approvers.length === 0) found.push(t('Step {step, number} needs at least one approver.', { step: index + 1 }));
-      if (step.condition?.field === 'value' && !draft.valueField) found.push(t('Step {step, number} compares the value, so choose a value field.', { step: index + 1 }));
+      if (draft.subjectType === 'work_package' && step.condition?.field === 'value' && !draft.valueField) found.push(t('Step {step, number} compares the value, so choose a value field.', { step: index + 1 }));
       const condition = conditionProblem(step.condition);
       if (condition) found.push(t('Step {step, number}: {problem}.', { step: index + 1, problem: condition }));
       if (step.slaHours !== undefined && !(step.slaHours >= 0.25)) found.push(t('Step {step, number}: an SLA is at least a quarter of an hour.', { step: index + 1 }));
@@ -316,6 +319,45 @@ function ChainEditor({
               <Input id="chain-name" value={draft.name} maxLength={120} onChange={(event) => set({ name: event.target.value })} placeholder={t('e.g. Change control')} />
             </div>
             <div className="space-y-1.5">
+              <Label>{t('What it decides')}</Label>
+              <Select
+                value={draft.subjectType}
+                onValueChange={(next) =>
+                  set(
+                    next === 'work_package'
+                      ? { subjectType: 'work_package' }
+                      : {
+                          subjectType: next as ApprovalSubjectType,
+                          typeIds: [],
+                          valueField: undefined,
+                          onSubmitStatusId: undefined,
+                          onApproveStatusId: undefined,
+                          onRejectStatusId: undefined,
+                        },
+                  )
+                }
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="work_package">{t('Work packages')}</SelectItem>
+                  <SelectItem value="timesheet">{t('Timesheets')}</SelectItem>
+                  <SelectItem value="expense_claim">{t('Expense claims')}</SelectItem>
+                </SelectContent>
+              </Select>
+              {draft.subjectType !== 'work_package' ? (
+                <FieldHint>
+                  {draft.subjectType === 'timesheet'
+                    ? t('A value condition compares the timesheet’s hours.')
+                    : t('A value condition compares the claim’s amount.')}
+                </FieldHint>
+              ) : null}
+            </div>
+          </div>
+          {draft.subjectType === 'work_package' ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
               <Label>{t('Value field')}</Label>
               <Select value={draft.valueField ?? NONE} onValueChange={(next) => set({ valueField: next === NONE ? undefined : next })}>
                 <SelectTrigger className="h-9 text-xs">
@@ -335,12 +377,14 @@ function ChainEditor({
               <FieldHint>{t('The figure value thresholds compare against.')}</FieldHint>
             </div>
           </div>
+          ) : null}
           <div className="space-y-1.5">
             <Label htmlFor="chain-description">{t('Description')}</Label>
             <Textarea id="chain-description" rows={2} maxLength={1000} value={draft.description ?? ''} onChange={(event) => set({ description: event.target.value })} />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
+            {draft.subjectType === 'work_package' ? (
             <div className="space-y-1.5">
               <Label>{t('Work package types')}</Label>
               <MultiSelect
@@ -351,6 +395,7 @@ function ChainEditor({
                 placeholder={t('Every type')}
               />
             </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label>{t('Projects')}</Label>
               <MultiSelect
@@ -363,14 +408,18 @@ function ChainEditor({
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            {statusSelect(t('When submitted'), draft.onSubmitStatusId, (value) => set({ onSubmitStatusId: value }))}
-            {statusSelect(t('When approved'), draft.onApproveStatusId, (value) => set({ onApproveStatusId: value }))}
-            {statusSelect(t('When rejected'), draft.onRejectStatusId, (value) => set({ onRejectStatusId: value }))}
-          </div>
-          <FieldHint>
-            {t('These statuses can then only be reached through the chain: nobody can set them by hand on a covered work package.')}
-          </FieldHint>
+          {draft.subjectType === 'work_package' ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {statusSelect(t('When submitted'), draft.onSubmitStatusId, (value) => set({ onSubmitStatusId: value }))}
+                {statusSelect(t('When approved'), draft.onApproveStatusId, (value) => set({ onApproveStatusId: value }))}
+                {statusSelect(t('When rejected'), draft.onRejectStatusId, (value) => set({ onRejectStatusId: value }))}
+              </div>
+              <FieldHint>
+                {t('These statuses can then only be reached through the chain: nobody can set them by hand on a covered work package.')}
+              </FieldHint>
+            </>
+          ) : null}
 
           <div className="space-y-3">
             <p className="text-xs font-semibold">{t('Steps')}</p>
@@ -381,7 +430,7 @@ function ChainEditor({
                 count={draft.steps.length}
                 step={step}
                 options={options}
-                hasValueField={Boolean(draft.valueField)}
+                hasValueField={Boolean(draft.valueField) || draft.subjectType !== 'work_package'}
                 onChange={(patch) => setStep(index, patch)}
                 onMove={(by) => moveStep(index, by)}
                 onRemove={() => setDraft((was) => ({ ...was, steps: was.steps.filter((_, i) => i !== index) }))}
@@ -518,6 +567,16 @@ function StepEditor({
             emptyText={t('The project owner')}
           />
         </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch
+          id={`skip-${step.id}`}
+          checked={Boolean(step.skipIfNobody)}
+          onCheckedChange={(skipIfNobody) => onChange({ skipIfNobody: skipIfNobody || undefined })}
+        />
+        <Label htmlFor={`skip-${step.id}`} className="text-xs font-normal">
+          {t('Skip this step when nobody is found to approve it, rather than refuse the submission')}
+        </Label>
       </div>
     </div>
   );

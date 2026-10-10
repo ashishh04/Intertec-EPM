@@ -121,6 +121,7 @@ export interface ProjectOverlay {
   plannedStart?: Date | null;
   plannedFinish?: Date | null;
   billable?: boolean | null;
+  timesheetApproval?: boolean | null;
 }
 
 /**
@@ -229,6 +230,7 @@ export function toEpmProject(
     uncostedHours: health.cost?.uncostedHours ?? 0,
     budgetTotal: options.overlay?.budgetTotal ?? 0,
     billable: options.overlay?.billable ?? null,
+    timesheetApproval: options.overlay?.timesheetApproval ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };

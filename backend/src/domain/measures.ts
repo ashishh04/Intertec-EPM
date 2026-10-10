@@ -12,6 +12,7 @@ import {
   type ModelFacts,
   type PersonFact,
   type ProjectFact,
+  type CostFact,
   type TimeFact,
   type WorkFact,
 } from './measure-facts.js';
@@ -117,6 +118,8 @@ export interface MeasureContext {
   time: TimeFact[];
   /** All time by the people in scope on projects the viewer can see — what utilisation divides. */
   peopleTime: TimeFact[];
+  /** Costs other than labour on the projects in scope — or, for people scopes, theirs on visible projects (Module 10). */
+  costs: CostFact[];
   health: Map<number, HealthFact>;
   risk: { typeIds: Set<number>; highPriorityIds: Set<number>; configured: boolean };
   visibleProjectIds: Set<number>;
@@ -396,26 +399,43 @@ const isHighRisk = (work: WorkFact, context: MeasureContext) =>
 
 const budgeted = (context: MeasureContext) => context.projects.filter((project) => (project.budget ?? 0) > 0);
 
-function costOf(time: TimeFact[]): { cost: number; costedHours: number; uncostedHours: number } {
-  let cost = 0;
+/**
+ * Labour priced by the rule, and every other cost recorded (Module 10). Rounded
+ * per entry and added, so a set's figure is the sum of its projects'.
+ */
+function costOf(
+  time: TimeFact[],
+  costs: CostFact[] = [],
+): { cost: number; labour: number; other: number; costedHours: number; uncostedHours: number } {
+  let labour = 0;
   let costedHours = 0;
   let uncostedHours = 0;
   for (const entry of time) {
     if (entry.hours <= 0) continue;
     if (entry.cost === null) uncostedHours += entry.hours;
     else {
-      cost += entry.cost;
+      labour += entry.cost;
       costedHours += entry.hours;
     }
   }
-  return { cost: roundMoney(cost), costedHours: roundMoney(costedHours), uncostedHours: roundMoney(uncostedHours) };
+  const other = costs.reduce((sum, entry) => sum + roundMoney(entry.amount), 0);
+  return {
+    cost: roundMoney(labour + other),
+    labour: roundMoney(labour),
+    other: roundMoney(other),
+    costedHours: roundMoney(costedHours),
+    uncostedHours: roundMoney(uncostedHours),
+  };
 }
 
 /** Cost to date and planned to date, over budgeted projects only. */
 function budgetPosition(context: MeasureContext) {
   const projects = budgeted(context);
   const ids = new Set(projects.map((project) => project.id));
-  const spent = costOf(context.time.filter((entry) => entry.projectId !== null && ids.has(entry.projectId)));
+  const spent = costOf(
+    context.time.filter((entry) => entry.projectId !== null && ids.has(entry.projectId)),
+    context.costs.filter((entry) => ids.has(entry.projectId)),
+  );
   let budget = 0;
   let planned = 0;
   for (const project of projects) {
@@ -933,18 +953,19 @@ export const MEASURES: MeasureDefinition[] = [
     id: 'cost.actual',
     label: msg('Actual cost'),
     unit: 'money',
-    definition:
-      msg('Labour cost to date: every hour logged on the projects in scope, at the hourly rate of the person who logged it. Hours from people without a rate are not costed, and are counted separately.'),
+    definition: msg(
+      'Cost to date on the projects in scope: every hour logged, at the hourly rate of the person who logged it, and every other cost recorded on them — approved expense claims and OpenProject unit costs. Hours from people without a rate are not costed, and are counted separately.',
+    ),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
-    version: 1,
+    version: 2,
     rollup: sumRollup,
     entries: 'to-date',
-    compute: ({ time }) => {
-      const spent = costOf(time);
+    compute: ({ time, costs }) => {
+      const spent = costOf(time, costs);
       return {
         value: spent.cost,
-        parts: { costedHours: spent.costedHours, uncostedHours: spent.uncostedHours },
+        parts: { labour: spent.labour, other: spent.other, costedHours: spent.costedHours, uncostedHours: spent.uncostedHours },
         note:
           spent.uncostedHours > 0
             ? tr('{hours} hours logged by people with no hourly rate are not costed.', { hours: spent.uncostedHours })
@@ -956,17 +977,24 @@ export const MEASURES: MeasureDefinition[] = [
     id: 'cost.spent',
     label: msg('Spent in period'),
     unit: 'money',
-    definition:
-      msg('Labour cost of the hours logged in the period on the projects in scope, at the hourly rate of the person who logged them.'),
+    definition: msg(
+      'Cost in the period on the projects in scope: the hours logged, at the hourly rate of the person who logged them, and the other costs recorded for days in the period — approved expense claims and OpenProject unit costs.',
+    ),
     scopes: PROJECT_SCOPES,
     usesPeriod: true,
     trend: 'period',
-    version: 1,
+    version: 2,
     rollup: sumRollup,
     entries: 'in-period',
-    compute: ({ time, period }) => {
-      const spent = costOf(time.filter((entry) => inPeriod(entry.spentOn, period)));
-      return { value: spent.cost, parts: { costedHours: spent.costedHours, uncostedHours: spent.uncostedHours } };
+    compute: ({ time, costs, period }) => {
+      const spent = costOf(
+        time.filter((entry) => inPeriod(entry.spentOn, period)),
+        costs.filter((entry) => inPeriod(entry.spentOn, period)),
+      );
+      return {
+        value: spent.cost,
+        parts: { labour: spent.labour, other: spent.other, costedHours: spent.costedHours, uncostedHours: spent.uncostedHours },
+      };
     },
   },
   {
@@ -1532,6 +1560,9 @@ export function contextFor(
   const time = byPeople
     ? peopleTime
     : facts.time.filter((entry) => entry.projectId !== null && projectIds.has(entry.projectId));
+  const costs = byPeople
+    ? facts.costs.filter((entry) => entry.userId !== null && personIds.has(entry.userId) && visibleIds.has(entry.projectId))
+    : facts.costs.filter((entry) => projectIds.has(entry.projectId));
 
   const health = new Map([...shared.health].filter(([id]) => projectIds.has(id)));
 
@@ -1546,6 +1577,7 @@ export function contextFor(
     people,
     time,
     peopleTime,
+    costs,
     health,
     risk: shared.risk,
     visibleProjectIds: visible,

@@ -6,6 +6,7 @@ import { prisma } from '../db/prisma.js';
 import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
+import { assertPolicies, assertUnlocked, lockOn, locksIn } from '../domain/time-rules.js';
 import { addDays, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
@@ -121,6 +122,21 @@ function spendChanged(...projectIds: (string | undefined)[]): void {
   if (ids.length > 0) requestHealthRecalc(ids);
   // Spent time is a calculated field input (`spentHours`).
   requestCalculatedRecalc();
+}
+
+/**
+ * Marks the entries a submitted or approved timesheet has locked (BR-304): they
+ * cannot be changed until it is withdrawn or reopened, whatever OpenProject
+ * would allow.
+ */
+async function withLocks(entries: EpmTimeEntry[]): Promise<EpmTimeEntry[]> {
+  if (entries.length === 0) return entries;
+  const days = entries.map((entry) => entry.spentOn).sort();
+  const locks = await locksIn([...new Set(entries.map((entry) => entry.userId).filter(Boolean))], days[0]!, days.at(-1)!).catch(() => []);
+  if (locks.length === 0) return entries;
+  return entries.map((entry) =>
+    lockOn(locks, entry.userId, entry.spentOn) ? { ...entry, locked: true, can: { update: false, delete: false } } : entry,
+  );
 }
 
 function toEpmTimeEntry(entry: OpTimeEntry): EpmTimeEntry {
@@ -383,7 +399,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       )
       .catch(rethrow('Time entries'));
 
-    const items = (collection._embedded?.elements ?? []).map(toEpmTimeEntry);
+    const items = await withLocks((collection._embedded?.elements ?? []).map(toEpmTimeEntry));
     return paginated(items, collection.total ?? items.length, page);
   });
 
@@ -532,7 +548,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/time-entries/:id', async (request) => {
-    return toEpmTimeEntry(await entryById(request, request.params.id));
+    return (await withLocks([toEpmTimeEntry(await entryById(request, request.params.id))]))[0]!;
   });
 
   /**
@@ -548,6 +564,18 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     if (!input.projectId && !input.workPackageId) {
       throw EpmError.badRequest('Log time against a project or a work package.');
     }
+
+    // EPM's rules before OpenProject's (BR-304, BR-317): a day on a submitted
+    // or approved timesheet is locked, and an active policy names itself.
+    const personId = request.auth!.userId;
+    await assertUnlocked(personId, [input.spentOn]);
+    await assertPolicies({
+      personId,
+      spentOn: input.spentOn,
+      hours: input.hours,
+      activityId: input.activityId,
+      workPackageId: input.workPackageId,
+    });
 
     const created = await openProject
       .request<OpTimeEntry>('/time_entries', {
@@ -572,6 +600,19 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params;
     const previous = toEpmTimeEntry(await entryById(request, id));
 
+    // Locked where it was and where it would go; the policies hold for what it
+    // becomes whenever its hours, day, work or activity change.
+    const result = {
+      spentOn: input.spentOn ?? previous.spentOn,
+      hours: input.hours ?? previous.hours,
+      activityId: input.activityId ?? previous.activityId,
+      workPackageId: input.workPackageId ?? previous.workPackageId,
+    };
+    await assertUnlocked(previous.userId, [previous.spentOn, result.spentOn]);
+    if (input.hours !== undefined || input.spentOn !== undefined || input.activityId !== undefined || input.workPackageId !== undefined) {
+      await assertPolicies({ personId: previous.userId, ...result, replacingId: id });
+    }
+
     const updated = await openProject
       .request<OpTimeEntry>(`/time_entries/${id}`, {
         method: 'PATCH',
@@ -592,6 +633,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
 
     // Read first: once it is gone, so is the project it was spent on.
     const previous = toEpmTimeEntry(await entryById(request, id));
+    await assertUnlocked(previous.userId, [previous.spentOn]);
 
     await openProject
       .request<void>(`/time_entries/${id}`, { method: 'DELETE', signal: requestSignal(request) })

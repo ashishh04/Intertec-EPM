@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { addDays, startOfWeek } from 'date-fns';
 import {
@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Lock,
   Pencil,
   Plus,
   Trash2,
@@ -16,6 +17,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { TimeEntryDialog } from '@/components/time/TimeEntryDialog';
+import { TimesheetBar } from '@/components/time/TimesheetBar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useDeleteTimeEntry, useTimeEntries } from '@/hooks/useTimeEntries';
 import { useEmployee } from '@/hooks/useEmployees';
 import { usePreferences } from '@/hooks/usePreferences';
+import { useMyTimesheet } from '@/hooks/useTimesheets';
 import { useAuth } from '@/providers/AuthProvider';
 import { intlLocale, t } from '@/lib/i18n';
 import { cn, formatHours, formatWeekdayDate, toISODateOnly } from '@/lib/utils';
@@ -51,7 +54,12 @@ export default function MyTimePage() {
   // Monday or Sunday, from the person's own preference — the same setting the
   // rest of the product honours, so their week does not start on two days.
   const weekStartsOn = preferences.workweek.startOfWeek === 'sunday' ? 0 : 1;
-  const [anchor, setAnchor] = useState(() => startOfWeek(new Date(), { weekStartsOn }));
+  // A reminder links to the week it is about: `?day=YYYY-MM-DD`.
+  const [params] = useSearchParams();
+  const asked = params.get('day');
+  const [anchor, setAnchor] = useState(() =>
+    startOfWeek(asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? new Date(`${asked}T12:00:00`) : new Date(), { weekStartsOn }),
+  );
 
   const weekStart = useMemo(() => startOfWeek(anchor, { weekStartsOn }), [anchor, weekStartsOn]);
   const days = useMemo(
@@ -60,6 +68,12 @@ export default function MyTimePage() {
   );
   const from = toISODateOnly(weekStart);
   const to = toISODateOnly(days[6]!);
+  // The timesheet period is Monday to Sunday (or a month): the one this week's
+  // Wednesday falls in, whichever day the person's week starts on.
+  const midweek = toISODateOnly(addDays(weekStart, 3));
+  const timesheet = useMyTimesheet(midweek);
+  const lockedOn = (date: string) =>
+    Boolean(timesheet.data?.locked && date >= timesheet.data.periodStart && date <= timesheet.data.periodEnd);
 
   const entriesQuery = useTimeEntries(
     // 200 is the upstream page ceiling and far above a plausible week: 200
@@ -171,6 +185,8 @@ export default function MyTimePage() {
         </CardContent>
       </Card>
 
+      <TimesheetBar view={timesheet.data} loading={timesheet.isLoading} day={midweek} />
+
       <QueryBoundary
         isLoading={entriesQuery.isLoading}
         isError={entriesQuery.isError}
@@ -240,15 +256,22 @@ export default function MyTimePage() {
                 </div>
 
                 <div className="border-t border-border p-1.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start text-2xs"
-                    onClick={() => setCreatingOn(date)}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    {t('Add')}
-                  </Button>
+                  {lockedOn(date) ? (
+                    <p className="flex items-center gap-1 px-2 py-1.5 text-2xs text-muted-foreground">
+                      <Lock className="h-3 w-3" aria-hidden />
+                      {t('Locked by its timesheet')}
+                    </p>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start text-2xs"
+                      onClick={() => setCreatingOn(date)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t('Add')}
+                    </Button>
+                  )}
                 </div>
               </Card>
             );
@@ -331,7 +354,10 @@ function DayEntry({
   return (
     <div className="group space-y-1 px-3 py-2">
       <div className="flex items-start justify-between gap-1.5">
-        <span className="font-mono text-xs font-medium">{formatHours(entry.hours)}</span>
+        <span className="flex items-center gap-1 font-mono text-xs font-medium">
+          {formatHours(entry.hours)}
+          {entry.locked ? <Lock className="h-2.5 w-2.5 text-muted-foreground" aria-label={t('Locked by its timesheet')} /> : null}
+        </span>
         <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           {entry.can.update ? (
             <Button variant="ghost" size="icon-sm" aria-label={t('Edit entry')} onClick={onEdit}>

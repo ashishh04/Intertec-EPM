@@ -180,6 +180,14 @@ export function CommandPalette() {
             <UsersRound />
             {t('Open resources')}
           </CommandItem>
+          <CommandItem value="timesheets submit approve outstanding" onSelect={() => run(() => navigate('/timesheets'))}>
+            <Timer />
+            {t('Open timesheets')}
+          </CommandItem>
+          <CommandItem value="expenses expense claims receipts finance" onSelect={() => run(() => navigate('/expenses'))}>
+            <Coins />
+            {t('Open expense claims')}
+          </CommandItem>
           <CommandItem value="analytics insights" onSelect={() => run(() => navigate('/analytics'))}>
             <BarChart3 />
             {t('Open delivery intelligence')}

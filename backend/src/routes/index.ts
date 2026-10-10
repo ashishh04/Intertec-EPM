@@ -37,6 +37,8 @@ import { scheduleRoutes } from './schedule.js';
 import { earnedValueRoutes } from './earned-value.js';
 import { calculatedFieldRoutes } from './calculated-fields.js';
 import { resourceRoutes } from './resources.js';
+import { timesheetRoutes } from './timesheets.js';
+import { expenseRoutes } from './expenses.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
@@ -87,6 +89,8 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   // Calculated fields (BRQ-04): definitions, their values, and the passes.
   await app.register(calculatedFieldRoutes);
   await app.register(resourceRoutes);
+  await app.register(timesheetRoutes);
+  await app.register(expenseRoutes);
   await app.register(commentRoutes);
   await app.register(memberRoutes);
   await app.register(accountRoutes);

@@ -25,6 +25,8 @@ export interface ApprovalDecidedPayload {
   decidedByText?: string;
   comment?: string;
   openUrl: string;
+  /** What was decided; a work package when absent (rows queued before Module 10). */
+  subjectKind?: 'work_package' | 'timesheet' | 'expense_claim';
 }
 
 export function render(payload: ApprovalDecidedPayload, locale: EmailLocale): RenderedEmail {
@@ -57,7 +59,14 @@ export function render(payload: ApprovalDecidedPayload, locale: EmailLocale): Re
       paragraphHtml(`<strong>${escape(payload.key)}</strong> &middot; ${escape(payload.title)}`) +
       muted(decidedBy) +
       (comment ? paragraph(comment) : '') +
-      button(tr('Open the work package'), payload.openUrl),
+      button(
+        payload.subjectKind === 'timesheet'
+          ? tr('Open the timesheet')
+          : payload.subjectKind === 'expense_claim'
+            ? tr('Open the claim')
+            : tr('Open the work package'),
+        payload.openUrl,
+      ),
     locale,
   );
 

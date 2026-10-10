@@ -27,8 +27,13 @@ import type { HalLink } from '../openproject/types.js';
  */
 
 export interface ProjectCost {
-  /** Costed hours × rate, rounded to two places. */
+  /** Costed hours × rate, rounded to two places — and, once read, the other costs below. */
   cost: number;
+  /**
+   * Costs other than labour (Module 10): OpenProject unit costs, approved
+   * expense claims among them, as the analytics model holds them.
+   */
+  otherCost?: number;
   costedHours: number;
   /** Hours from people with no hourly rate: counted, not priced at zero. */
   uncostedHours: number;
@@ -140,6 +145,23 @@ function known(projectId: string): ProjectCost | undefined {
  * A project whose cost could not be read is left out of the result rather
  * than reported as free, so a caller can say "not assessed".
  */
+/**
+ * Each project's costs other than labour, from the analytics model's copy of
+ * OpenProject's cost entries: an approved expense claim counts once the model
+ * has read it, minutes after it is posted (BR-309).
+ */
+async function otherCosts(projectIds: string[]): Promise<Map<string, number>> {
+  const ids = projectIds.map(Number).filter((id) => Number.isInteger(id));
+  if (ids.length === 0) return new Map();
+  const rows = await prisma
+    .$queryRawUnsafe<{ project_id: number; amount: number | null }[]>(
+      'SELECT project_id, sum(amount)::float8 AS amount FROM analytics.fact_cost_entry WHERE project_id = ANY($1::int[]) GROUP BY project_id',
+      ids,
+    )
+    .catch(() => []);
+  return new Map(rows.map((row) => [String(row.project_id), roundMoney(Number(row.amount ?? 0))]));
+}
+
 export async function projectCosts(
   projectIds: string[],
   options: { refresh?: boolean; signal?: AbortSignal } = {},
@@ -177,10 +199,13 @@ export async function projectCosts(
       }
     }
 
+    const others = await otherCosts(projectIds);
     const result = new Map<string, ProjectCost>();
     for (const id of projectIds) {
       const cost = known(id);
-      if (cost) result.set(id, cost);
+      if (!cost) continue;
+      const other = others.get(id) ?? 0;
+      result.set(id, { ...cost, cost: roundMoney(cost.cost + other), otherCost: other });
     }
     return result;
   });

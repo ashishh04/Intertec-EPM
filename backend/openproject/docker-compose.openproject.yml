@@ -81,3 +81,6 @@ services:
       # formulas read, out, and the values EPM computes back into the custom
       # fields it made for them, kept out of the journal.
       - ./zzz_epm_calculated.rb:/app/config/initializers/zzz_epm_calculated.rb:ro
+      # Cost types and cost entries (/epm_admin/costs/*), which API v3 cannot
+      # create: approved expense claims become cost entries (Module 10).
+      - ./zzz_epm_costs.rb:/app/config/initializers/zzz_epm_costs.rb:ro

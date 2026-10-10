@@ -260,6 +260,31 @@ Capacity, demand and logged time by person and week are rewritten into
 times as `analytics.fact_evm_period`, for the 26 weeks before the current one to
 25 after. The analytics role reads them like the rest of the schema.
 
+## Time and expense
+
+Timesheets, expense claims and the time logging policies are EPM's — Work →
+Timesheets and Expenses, and the week's timesheet on My Time. Nothing needs
+starting. The rules are under Administration → Time and costs → Timesheets,
+policies and expenses, changed with `time:configure`; the policies and the
+reminders for outstanding timesheets stay off until someone switches them on.
+`timesheets:manage` reads everyone's timesheets and reopens approved ones;
+`expenses:manage` reads every claim and exports them for finance. The
+administrators in `EPM_ADMIN_USER_IDS` hold all three, and the Permissions page
+can grant them.
+
+Two approval chains are seeded by the migration, "Timesheets" and "Expense
+claims", and can be edited under Approval chains like any other. A timesheet
+goes to the person's line manager — their team lead, or else their department
+manager — so people need a team or department with a lead or manager before
+they can submit; a claim also needs the claimant to be a member of its project.
+
+An approved claim becomes an OpenProject cost entry of its category through
+`zzz_epm_costs.rb`, in the `epm-openproject` image; claims are made under
+OpenProject's cost types, which an administrator adds under Administration →
+Time and costs → Cost types (in the instance currency). Receipts are kept in
+EPM's database, at most 5 MB each. EPM's cost figures now include OpenProject's
+cost entries, read by the analytics model.
+
 ## Analytics
 
 Reports and dashboards read EPM's analytics model, a schema of its own

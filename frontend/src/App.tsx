@@ -47,6 +47,10 @@ const BoardsPage = lazy(() => import('@/pages/BoardsPage'));
 const SprintsPage = lazy(() => import('@/pages/SprintsPage'));
 const GanttPage = lazy(() => import('@/pages/GanttPage'));
 const ResourcesPage = lazy(() => import('@/pages/ResourcesPage'));
+const TimesheetsPage = lazy(() => import('@/pages/TimesheetsPage'));
+const TimesheetPage = lazy(() => import('@/pages/TimesheetPage'));
+const ExpensesPage = lazy(() => import('@/pages/ExpensesPage'));
+const ExpenseClaimPage = lazy(() => import('@/pages/ExpenseClaimPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
 const ScheduledReportsPage = lazy(() => import('@/pages/ScheduledReportsPage'));
@@ -272,6 +276,13 @@ export function App() {
           <Route path="/sprints" element={<SprintsPage />} />
           <Route path="/gantt" element={<GanttPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
+          {/* Timesheets and expense claims (Module 10). Everyone has their own;
+              who may read more is the backend's decision. */}
+          <Route path="/timesheets" element={<TimesheetsPage />} />
+          <Route path="/timesheets/people/:personId" element={<TimesheetPage />} />
+          <Route path="/timesheets/:id" element={<TimesheetPage />} />
+          <Route path="/expenses" element={<ExpensesPage />} />
+          <Route path="/expenses/:id" element={<ExpenseClaimPage />} />
 
           {/* The executive and PMO dashboards (BR-405). Open to everyone signed in:
               every figure is scoped server-side to the projects the person can read. */}

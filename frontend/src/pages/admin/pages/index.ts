@@ -77,6 +77,8 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   announcement: lazy(() => import('./AnnouncementPage')),
   colors: lazy(() => import('./ColorsPage')),
   'time-and-costs/settings': lazy(() => import('./TimeAndCostsSettingsPage')),
+  'time-and-costs/rules': lazy(() => import('./TimeRulesPage')),
+  'time-and-costs/cost-types': lazy(() => import('./CostTypesPage')),
   backlogs: lazy(() => import('./BacklogsPage')),
   'files/storages': lazy(() => import('./StoragesPage')),
   'files/attachments': lazy(() => import('./AttachmentsPage')),
