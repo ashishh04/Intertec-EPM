@@ -1,11 +1,18 @@
 import { Toaster as SonnerToaster, toast } from 'sonner';
 
-/** App-wide toast surface, themed with the EPM tokens. */
+import { direction, isRightToLeft, t } from '@/lib/i18n';
+
+/**
+ * App-wide toast surface, themed with the EPM tokens. Toasts sit in the corner
+ * the page ends at — bottom right in English, bottom left in Arabic.
+ */
 function Toaster() {
   return (
     <SonnerToaster
       theme="light"
-      position="bottom-right"
+      dir={direction()}
+      position={isRightToLeft() ? 'bottom-left' : 'bottom-right'}
+      containerAriaLabel={t('Notifications')}
       offset={16}
       gap={8}
       closeButton

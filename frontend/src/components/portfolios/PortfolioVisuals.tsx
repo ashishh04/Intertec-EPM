@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import { cn, formatNumber, formatPercent } from '@/lib/utils';
 import { HEALTH_META, PROJECT_STATUS_META, TONE_VAR, type Tone } from '@/lib/domain';
 import type { HealthLevel, ProjectStatus } from '@/types';
@@ -59,7 +60,7 @@ function ProportionBar({
       aria-label={segments
         .filter((segment) => segment.count > 0)
         .map((segment) => `${segment.label} ${segment.count}`)
-        .join(', ')}
+        .join(t(', '))}
     >
       {segments
         .filter((segment) => segment.count > 0)
@@ -68,10 +69,13 @@ function ProportionBar({
             key={segment.key}
             // Hover enhances rather than gates: every count is already written
             // out in the legend below, so nothing is reachable only this way.
-            title={`${segment.label}: ${segment.count} of ${total} (${Math.round(
-              (segment.count / total) * 100,
-            )}%)`}
-            className="h-full rounded-full first:rounded-l-full last:rounded-r-full"
+            title={t('{label}: {count, number} of {total, number} ({percent})', {
+              label: segment.label,
+              count: segment.count,
+              total,
+              percent: formatPercent(Math.round((segment.count / total) * 100)),
+            })}
+            className="h-full rounded-full first:rounded-s-full last:rounded-e-full"
             style={{
               width: `${(segment.count / total) * 100}%`,
               background: TONE_VAR[segment.tone],
@@ -186,7 +190,7 @@ export function DeliveryProgress({
   if (total === 0) {
     return (
       <p className={cn('text-xs text-muted-foreground', className)}>
-        No work packages yet, so there is no progress to measure.
+        {t('No work packages yet, so there is no progress to measure.')}
       </p>
     );
   }
@@ -200,7 +204,7 @@ export function DeliveryProgress({
           {formatPercent(percent)}
         </span>
         <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-          {formatNumber(completed)} / {formatNumber(total)} complete
+          {t('{completed, number} / {total, number} complete', { completed, total })}
         </span>
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">

@@ -28,7 +28,7 @@ import { useTeamWorkloads } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
 import { useAuth } from '@/providers/AuthProvider';
-import { formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmProjectMember } from '@/types';
 import { toast } from 'sonner';
 
@@ -75,9 +75,9 @@ export default function ProjectTeamTab() {
     setOwner.mutate(
       { id: projectId ?? '', ownerId: userId },
       {
-        onSuccess: () => toast.success(`${name} is now the owner`),
+        onSuccess: () => toast.success(t('{name} is now the owner', { name })),
         onError: (error) =>
-          toast.error('That could not be saved', {
+          toast.error(t('That could not be saved'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -86,15 +86,15 @@ export default function ProjectTeamTab() {
 
   const confirmRemove = () => {
     if (!removing) return;
-    const name = users.get(removing.userId)?.name ?? 'That person';
+    const name = users.get(removing.userId)?.name ?? t('That person');
 
     removeMember.mutate(removing.membershipId, {
       onSuccess: () => {
-        toast.success(`${name} removed from this project`);
+        toast.success(t('{name} removed from this project', { name }));
         setRemoving(undefined);
       },
       onError: (error) =>
-        toast.error('That could not be removed', {
+        toast.error(t('That could not be removed'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -108,8 +108,10 @@ export default function ProjectTeamTab() {
     <div className="grid gap-5 lg:grid-cols-5">
       <div className="space-y-3 lg:col-span-2">
         <SectionHeader
-          title="Members"
-          description={`${formatNumber(members.length)} ${pluralize(members.length, 'person', 'people')} on this project`}
+          title={t('Members')}
+          description={t('{count, plural, one {# person on this project} other {# people on this project}}', {
+            count: members.length,
+          })}
           actions={
             <Button
               size="sm"
@@ -119,7 +121,7 @@ export default function ProjectTeamTab() {
               onClick={openAdd}
             >
               <UserPlus className="h-3.5 w-3.5" />
-              Invite
+              {t('Invite')}
             </Button>
           }
         />
@@ -130,15 +132,15 @@ export default function ProjectTeamTab() {
             isError={membersQuery.isError}
             error={membersQuery.error}
             onRetry={() => membersQuery.refetch()}
-            errorTitle="Unable to load members"
+            errorTitle={t('Unable to load members')}
             skeleton={<ListSkeleton rows={4} height="h-14" className="p-3" />}
             isEmpty={members.length === 0}
             empty={
               <EmptyState
                 size="inline"
                 icon={Users}
-                title="Nobody on this project yet"
-                description="Invite people to give them access and a role here."
+                title={t('Nobody on this project yet')}
+                description={t('Invite people to give them access and a role here.')}
               />
             }
           >
@@ -151,30 +153,30 @@ export default function ProjectTeamTab() {
                     <UserAvatar user={person} size="default" showStatus />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-medium">
-                        {person?.name ?? 'Unknown person'}
+                        {person?.name ?? t('Unknown person')}
                       </p>
                       {/* The role on this project, which is not the same as the
                           account's role on the instance. */}
                       <p className="truncate text-2xs text-muted-foreground">
-                        {member.roles.map((role) => role.name).join(', ') || 'No role'}
+                        {member.roles.map((role) => role.name).join(', ') || t('No role')}
                       </p>
                     </div>
 
                     {member.userId === project.ownerId ? (
                       <Badge size="sm" tone="primary">
-                        Owner
+                        {t('Owner')}
                       </Badge>
                     ) : null}
 
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Email ${person?.name ?? 'this person'}`}
+                      aria-label={t('Email {name}', { name: person?.name ?? t('this person') })}
                       onClick={() =>
-                        toast('Messaging is not implemented yet', {
-                          description: `A connected workspace opens a thread with ${
-                            person?.name ?? 'this person'
-                          }.`,
+                        toast(t('Messaging is not implemented yet'), {
+                          description: t('A connected workspace opens a thread with {name}.', {
+                            name: person?.name ?? t('this person'),
+                          }),
                         })
                       }
                     >
@@ -189,8 +191,8 @@ export default function ProjectTeamTab() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Make ${person?.name ?? 'this person'} the owner`}
-                        onClick={() => makeOwner(member.userId, person?.name ?? 'That person')}
+                        aria-label={t('Make {name} the owner', { name: person?.name ?? t('this person') })}
+                        onClick={() => makeOwner(member.userId, person?.name ?? t('That person'))}
                       >
                         <Crown className="h-3.5 w-3.5" />
                       </Button>
@@ -201,7 +203,7 @@ export default function ProjectTeamTab() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Change ${person?.name ?? 'this person'}'s role`}
+                          aria-label={t('Change {name}\'s role', { name: person?.name ?? t('this person') })}
                           onClick={() => openEdit(member)}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -209,7 +211,7 @@ export default function ProjectTeamTab() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Remove ${person?.name ?? 'this person'} from this project`}
+                          aria-label={t('Remove {name} from this project', { name: person?.name ?? t('this person') })}
                           onClick={() => setRemoving(member)}
                         >
                           <UserMinus className="h-3.5 w-3.5" />
@@ -229,32 +231,33 @@ export default function ProjectTeamTab() {
             onPageChange={memberPage.setPage}
             onPageSizeChange={memberPage.setPageSize}
             pageSizeOptions={[5, 10, 25]}
-            itemLabel="member"
+            itemLabel={t('member')}
+            itemLabelPlural={t('members')}
             className="border-t border-border"
           />
         </Card>
       </div>
 
       <div className="space-y-3 lg:col-span-3">
-        <SectionHeader title="Workload" description="Allocation across all assigned work" />
+        <SectionHeader title={t('Workload')} description={t('Allocation across all assigned work')} />
         <Card className="overflow-hidden">
           <CardHeader variant="compact">
-            <CardTitle>Capacity vs. assigned</CardTitle>
+            <CardTitle>{t('Capacity vs. assigned')}</CardTitle>
           </CardHeader>
           <QueryBoundary
             isLoading={workloadsQuery.isLoading}
             isError={workloadsQuery.isError}
             error={workloadsQuery.error}
             onRetry={() => workloadsQuery.refetch()}
-            errorTitle="Unable to load workload"
+            errorTitle={t('Unable to load workload')}
             skeleton={<WorkloadListSkeleton />}
             isEmpty={memberWorkloads.length === 0}
             empty={
               <EmptyState
                 size="inline"
                 icon={Gauge}
-                title="No workload to show"
-                description="Allocation appears once members have assigned work."
+                title={t('No workload to show')}
+                description={t('Allocation appears once members have assigned work.')}
               />
             }
           >
@@ -276,10 +279,12 @@ export default function ProjectTeamTab() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Remove from project</DialogTitle>
+            <DialogTitle>{t('Remove from project')}</DialogTitle>
             <DialogDescription>
-              {users.get(removing?.userId ?? '')?.name ?? 'This person'} loses access to{' '}
-              {project.name}. You can add them back afterwards.
+              {t('{name} loses access to {project}. You can add them back afterwards.', {
+                name: users.get(removing?.userId ?? '')?.name ?? t('This person'),
+                project: project.name,
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -288,10 +293,10 @@ export default function ProjectTeamTab() {
               onClick={() => setRemoving(undefined)}
               disabled={removeMember.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} disabled={removeMember.isPending}>
-              Remove
+              {t('Remove')}
             </Button>
           </DialogFooter>
         </DialogContent>

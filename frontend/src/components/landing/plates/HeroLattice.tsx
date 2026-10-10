@@ -56,7 +56,7 @@ export function HeroLattice() {
             return (
               <div key={row} className="relative h-[1.1%] shrink-0 overflow-hidden">
                 <div
-                  className="epm-drift-x absolute inset-y-0 left-0 flex w-[200%]"
+                  className="epm-drift-x absolute inset-y-0 start-0 flex w-[200%]"
                   // Far rows drift slower, which is what sells the depth.
                   style={{ animationDuration: `${52 + row * 7}s` }}
                 >

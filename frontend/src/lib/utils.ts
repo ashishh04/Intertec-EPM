@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { env } from '@/config/env';
+import { currentConventions, currentLanguage, formatLocalNumber, intlLocale, msg, t } from '@/lib/i18n';
 import {
   differenceInCalendarDays,
   format,
@@ -49,54 +50,153 @@ const DATE_PATTERNS: Record<'system' | 'iso' | 'dmy' | 'mdy', DatePattern> = {
   mdy: { short: 'MM/dd', long: 'MM/dd/yyyy', weekday: 'EEEE, MM/dd/yyyy', time: 'MM/dd/yyyy' },
 };
 
+type DateFormat = keyof typeof DATE_PATTERNS;
+
+let activeFormat: DateFormat = 'system';
 let activePattern: DatePattern = DATE_PATTERNS.system;
 let activeClock: '24h' | '12h' = '24h';
 
 /** Applies the person's format choices. Called by `PreferenceEffects`. */
-export function setDateConventions(options: {
-  dateFormat: keyof typeof DATE_PATTERNS;
-  timeFormat: '24h' | '12h';
-}): void {
-  activePattern = DATE_PATTERNS[options.dateFormat] ?? DATE_PATTERNS.system;
+export function setDateConventions(options: { dateFormat: DateFormat; timeFormat: '24h' | '12h' }): void {
+  activeFormat = DATE_PATTERNS[options.dateFormat] ? options.dateFormat : 'system';
+  activePattern = DATE_PATTERNS[activeFormat];
   activeClock = options.timeFormat;
+}
+
+/*
+ * Arabic, the Hijri calendar and Arabic-Indic digits (BR-607).
+ *
+ * The patterns above are date-fns's, and date-fns writes Gregorian dates with
+ * Western digits only. Anything else goes through `Intl.DateTimeFormat`, which
+ * has Arabic month and day names, the Umm al-Qura calendar and both digit sets
+ * built in. English on the Gregorian calendar keeps the date-fns path exactly,
+ * so nothing an English reader sees changes.
+ */
+function viaIntl(): boolean {
+  const { language, calendar, numerals } = currentConventions();
+  return language !== 'en' || calendar !== 'gregory' || numerals !== 'latn';
+}
+
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function dateFormatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const locale = intlLocale();
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let formatter = dateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    dateFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+/** Day, month and year in the order the chosen numeric format puts them. */
+function numericDate(date: Date, withYear: boolean): string {
+  const hijri = currentConventions().calendar !== 'gregory';
+  const parts = dateFormatter({
+    day: '2-digit',
+    month: '2-digit',
+    ...(withYear ? { year: 'numeric' } : {}),
+    ...(withYear && hijri ? { era: 'short' } : {}),
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? '';
+  const [day, month, year] = [part('day'), part('month'), part('year')];
+  const written =
+    activeFormat === 'iso'
+      ? withYear ? `${year}-${month}-${day}` : `${month}-${day}`
+      : activeFormat === 'mdy'
+        ? withYear ? `${month}/${day}/${year}` : `${month}/${day}`
+        : withYear ? `${day}/${month}/${year}` : `${day}/${month}`;
+  // A numeric Hijri date is otherwise indistinguishable from a Gregorian one.
+  return withYear && hijri && part('era') ? `${written} ${part('era')}` : written;
+}
+
+function intlDate(date: Date, style: 'short' | 'long' | 'weekday'): string {
+  if (activeFormat !== 'system' && style !== 'weekday') return numericDate(date, style === 'long');
+  if (style === 'short') return dateFormatter({ day: 'numeric', month: 'short' }).format(date);
+  if (style === 'long') return dateFormatter({ day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  return dateFormatter({ weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(date);
 }
 
 /** "Aug 30" — the default compact date used across lists and cards. */
 export function formatShortDate(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, activePattern.short) : '—';
+  if (!date) return '—';
+  return viaIntl() ? intlDate(date, 'short') : format(date, activePattern.short);
 }
 
 /** "30 Aug 2026" — used in headers and detail panels. */
 export function formatLongDate(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, activePattern.long) : '—';
+  if (!date) return '—';
+  return viaIntl() ? intlDate(date, 'long') : format(date, activePattern.long);
 }
 
 /** "Monday, 30 August 2026" — used where a single date is the subject. */
 export function formatWeekdayDate(value?: string | Date | null): string {
   const date = toDate(value);
-  return date ? format(date, activePattern.weekday) : '—';
+  if (!date) return '—';
+  return viaIntl() ? intlDate(date, 'weekday') : format(date, activePattern.weekday);
+}
+
+/**
+ * "September 2026" — a month as a whole, as over a month grid. Always the
+ * Gregorian month, because the grids it heads are laid out in Gregorian days;
+ * the language and digits are still the reader's.
+ */
+export function formatMonthYear(value?: string | Date | null): string {
+  const date = toDate(value);
+  if (!date) return '—';
+  if (!viaIntl()) return format(date, 'MMMM yyyy');
+  return dateFormatter({ month: 'long', year: 'numeric', calendar: 'gregory' }).format(date);
 }
 
 /** A time of day on its own, e.g. "14:05" or "2:05 pm". */
 export function formatTime(value?: string | Date | null): string {
   const date = toDate(value);
   if (!date) return '—';
+  if (viaIntl()) {
+    return dateFormatter(
+      activeClock === '24h'
+        ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
+        : { hour: 'numeric', minute: '2-digit', hourCycle: 'h12' },
+    ).format(date);
+  }
   return format(date, activeClock === '24h' ? 'HH:mm' : 'h:mm a');
 }
 
 export function formatDateTime(value?: string | Date | null): string {
   const date = toDate(value);
   if (!date) return '—';
+  if (viaIntl()) return t('{date}, {time}', { date: intlDate(date, 'long'), time: formatTime(date) });
   return `${format(date, activePattern.time)}, ${formatTime(date)}`;
 }
+
+const RELATIVE_STEPS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['second', 60],
+  ['minute', 60],
+  ['hour', 24],
+  ['day', 30],
+  ['month', 12],
+  ['year', Number.POSITIVE_INFINITY],
+];
 
 /** "10 minutes ago" */
 export function formatRelative(value?: string | Date | null): string {
   const date = toDate(value);
   if (!date) return '—';
-  return `${formatDistanceToNowStrict(date)} ago`;
+  if (!viaIntl()) return `${formatDistanceToNowStrict(date)} ago`;
+
+  // The largest unit that keeps the figure under its next step, as date-fns
+  // does: "3 hours ago", not "180 minutes ago".
+  let amount = (date.getTime() - Date.now()) / 1000;
+  for (const [unit, step] of RELATIVE_STEPS) {
+    if (Math.abs(amount) < step) {
+      return new Intl.RelativeTimeFormat(intlLocale(), { numeric: 'always' }).format(Math.round(amount), unit);
+    }
+    amount /= step;
+  }
+  return formatLongDate(date);
 }
 
 /** Calendar-day delta from today. Negative means the date is in the past. */
@@ -123,20 +223,22 @@ export function describeDueDate(
   if (completed) {
     const date = toDate(value);
     return date
-      ? { label: `Target ${formatShortDate(date)}`, tone: 'normal' }
-      : { label: 'Completed', tone: 'normal' };
+      ? { label: t('Target {date}', { date: formatShortDate(date) }), tone: 'normal' }
+      : { label: t('Completed'), tone: 'normal' };
   }
 
   const delta = daysFromToday(value);
-  if (delta === null) return { label: 'No due date', tone: 'none' };
+  if (delta === null) return { label: t('No due date'), tone: 'none' };
   if (delta < 0) {
-    const days = Math.abs(delta);
-    return { label: days === 1 ? '1 day overdue' : `${days} days overdue`, tone: 'overdue' };
+    return {
+      label: t('{days, plural, one {# day overdue} other {# days overdue}}', { days: Math.abs(delta) }),
+      tone: 'overdue',
+    };
   }
-  if (delta === 0) return { label: 'Due today', tone: 'today' };
-  if (delta === 1) return { label: 'Due tomorrow', tone: 'soon' };
-  if (delta <= 7) return { label: `Due in ${delta} days`, tone: 'soon' };
-  return { label: `Due ${formatShortDate(value)}`, tone: 'normal' };
+  if (delta === 0) return { label: t('Due today'), tone: 'today' };
+  if (delta === 1) return { label: t('Due tomorrow'), tone: 'soon' };
+  if (delta <= 7) return { label: t('{days, plural, one {Due in # day} other {Due in # days}}', { days: delta }), tone: 'soon' };
+  return { label: t('Due {date}', { date: formatShortDate(value) }), tone: 'normal' };
 }
 
 export function isOverdue(value?: string | Date | null): boolean {
@@ -152,8 +254,9 @@ export function toISODateOnly(date: Date): string {
 /* Numbers and text                                                            */
 /* -------------------------------------------------------------------------- */
 
+/** Grouped digits in the reader's numerals: "12,345", or "١٢٬٣٤٥" with Arabic-Indic digits. */
 export function formatNumber(value: number): string {
-  return new Intl.NumberFormat('en-US').format(value);
+  return formatLocalNumber(value);
 }
 
 /**
@@ -166,45 +269,62 @@ export function formatNumber(value: number): string {
  * needs them.
  */
 export function formatCurrency(value: number, currency = env.currency, digits = 0): string {
-  return new Intl.NumberFormat('en-US', {
+  return formatLocalNumber(value, {
     style: 'currency',
     currency,
     maximumFractionDigits: digits,
-  }).format(value);
+  });
 }
 
-/** "42%" — whole percentages; pass `digits` for finer values. */
+/** "42%" — whole percentages; pass `digits` for finer values. Arabic writes "٤٢٪". */
 export function formatPercent(value?: number | null, digits = 0): string {
   if (value === undefined || value === null || Number.isNaN(value)) return '—';
-  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(value)}%`;
+  if (currentLanguage() !== 'en') {
+    return formatLocalNumber(value / 100, { style: 'percent', maximumFractionDigits: digits });
+  }
+  return `${formatLocalNumber(value, { maximumFractionDigits: digits })}%`;
 }
 
 export function formatHours(value?: number): string {
   if (value === undefined || value === null) return '—';
-  return `${value % 1 === 0 ? value : value.toFixed(1)}h`;
+  if (currentLanguage() === 'en' && currentConventions().numerals === 'latn') {
+    return `${value % 1 === 0 ? value : value.toFixed(1)}h`;
+  }
+  return t('{hours}h', { hours: formatLocalNumber(value, { maximumFractionDigits: 1 }) });
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
+  const units = [msg('{size} B'), msg('{size} KB'), msg('{size} MB'), msg('{size} GB')];
+  if (bytes === 0) return t(units[0]!, { size: formatLocalNumber(0) });
   const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const size = bytes / Math.pow(1024, exponent);
-  return `${size.toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+  return t(units[exponent]!, {
+    size: formatLocalNumber(size, { minimumFractionDigits: exponent === 0 ? 0 : 1, maximumFractionDigits: exponent === 0 ? 0 : 1 }),
+  });
 }
 
 export function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
-export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+/**
+ * A caller's noun for a count. The default plural adds an "s", which is English
+ * only: in another language a noun passed without its plural stays as given
+ * rather than growing a Latin letter.
+ */
+export function pluralize(
+  count: number,
+  singular: string,
+  plural = currentLanguage() === 'en' ? `${singular}s` : singular,
+): string {
   return count === 1 ? singular : plural;
 }
 
 export function greetingForHour(date = new Date()): string {
   const hour = date.getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
+  if (hour < 12) return t('Good morning');
+  if (hour < 18) return t('Good afternoon');
+  return t('Good evening');
 }
 
 /* -------------------------------------------------------------------------- */

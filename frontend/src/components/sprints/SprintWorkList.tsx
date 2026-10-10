@@ -3,7 +3,7 @@ import { TableCard } from '@/components/common/DataTable';
 import { Pagination } from '@/components/common/Pagination';
 import { TaskRow } from '@/components/tasks/TaskRow';
 import { usePagination } from '@/hooks/usePagination';
-import { formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmProject, EpmTask, EpmUser, ID } from '@/types';
 
 /**
@@ -29,8 +29,8 @@ export function SprintWorkList({
   return (
     <section className="space-y-3">
       <SectionHeader
-        title="Sprint work"
-        description={`${formatNumber(tasks.length)} ${pluralize(tasks.length, 'task')} committed`}
+        title={t('Sprint work')}
+        description={t('{count, plural, one {# task committed} other {# tasks committed}}', { count: tasks.length })}
       />
       <TableCard
         footer={
@@ -40,7 +40,8 @@ export function SprintWorkList({
             total={paged.total}
             onPageChange={paged.setPage}
             onPageSizeChange={paged.setPageSize}
-            itemLabel="task"
+            itemLabel={t('task')}
+            itemLabelPlural={t('tasks')}
           />
         }
       >

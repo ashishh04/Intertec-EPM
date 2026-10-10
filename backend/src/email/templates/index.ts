@@ -2,7 +2,7 @@ import { render as approvalDecided, type ApprovalDecidedPayload } from './approv
 import { render as approvalRequest, type ApprovalRequestPayload } from './approval-request.js';
 import { render as digest, type DigestPayload } from './digest.js';
 import { render as invite, type InvitePayload } from './invite.js';
-import type { RenderedEmail } from './layout.js';
+import { emailLocale, type EmailLocale, type RenderedEmail } from './layout.js';
 import { render as notification, type NotificationPayload } from './notification.js';
 import {
   render as projectMemberAdded,
@@ -19,6 +19,11 @@ import { render as taskUpdated, type TaskUpdatedPayload } from './task-updated.j
  * The outbox stores the name and the payload, not the rendered body: a row is
  * rendered when it is sent, so a template fix applies to anything still
  * queued, and a row can be inspected as data rather than as markup.
+ *
+ * The payload also carries the reader's language (`payload.locale`, written
+ * by the outbox from their preferences), and every template is rendered with
+ * it — subject and body alike — so a person who reads EPM in Arabic gets their
+ * mail in Arabic too (BR-605).
  */
 
 export interface TemplatePayloads {
@@ -36,7 +41,9 @@ export interface TemplatePayloads {
 
 export type TemplateName = keyof TemplatePayloads;
 
-type Renderers = { [Name in TemplateName]: (payload: TemplatePayloads[Name]) => RenderedEmail };
+type Renderers = {
+  [Name in TemplateName]: (payload: TemplatePayloads[Name], locale: EmailLocale) => RenderedEmail;
+};
 
 const renderers: Renderers = {
   invite,
@@ -59,7 +66,7 @@ export function renderTemplate<Name extends TemplateName>(
   name: Name,
   payload: TemplatePayloads[Name],
 ): RenderedEmail {
-  return renderers[name](payload);
+  return renderers[name](payload, emailLocale(payload));
 }
 
 /**
@@ -69,7 +76,7 @@ export function renderTemplate<Name extends TemplateName>(
 export function renderStored(name: string, payload: unknown): RenderedEmail {
   if (!isTemplateName(name)) throw new Error(`Unknown email template "${name}".`);
   if (!payload || typeof payload !== 'object') throw new Error(`Email template "${name}" has no payload.`);
-  return renderers[name](payload as never);
+  return renderers[name](payload as never, emailLocale(payload));
 }
 
-export type { RenderedEmail } from './layout.js';
+export type { EmailLocale, PayloadLocale, RenderedEmail } from './layout.js';

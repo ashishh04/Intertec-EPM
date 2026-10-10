@@ -15,6 +15,7 @@ import { FieldRow, ToggleRow, WeekdayPicker, hourOptions } from './SettingsRows'
 import { usePreferences, type Preferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
 import { formatLongDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /**
  * Notification settings.
@@ -43,54 +44,54 @@ type EmailSwitch = Exclude<BooleanKeys<Preferences['email']>, 'enabled'>;
  * generally works from the bottom up.
  */
 const NOTIFICATION_ROWS: { key: NotificationSwitch; label: string; hint: string }[] = [
-  { key: 'mentions', label: 'Mentioned', hint: 'When someone mentions you in a comment.' },
-  { key: 'assigned', label: 'Assignee', hint: 'When work is assigned to you.' },
+  { key: 'mentions', get label() { return t('Mentioned'); }, get hint() { return t('When someone mentions you in a comment.'); } },
+  { key: 'assigned', get label() { return t('Assignee'); }, get hint() { return t('When work is assigned to you.'); } },
   {
     key: 'accountable',
-    label: 'Accountable',
-    hint: 'When you are the one answering for the work, rather than doing it.',
+    get label() { return t('Accountable'); },
+    get hint() { return t('When you are the one answering for the work, rather than doing it.'); },
   },
-  { key: 'watcher', label: 'Watcher', hint: 'Changes to work you follow without owning.' },
+  { key: 'watcher', get label() { return t('Watcher'); }, get hint() { return t('Changes to work you follow without owning.'); } },
   {
     key: 'shared',
-    label: 'Shared with me',
-    hint: 'When work or a project is shared with you directly.',
+    get label() { return t('Shared with me'); },
+    get hint() { return t('When work or a project is shared with you directly.'); },
   },
   {
     key: 'participating',
-    label: 'Other activity',
-    hint: 'Changes to work you raised or have commented on.',
+    get label() { return t('Other activity'); },
+    get hint() { return t('Changes to work you raised or have commented on.'); },
   },
   {
     key: 'dateAlerts',
-    label: 'Date alerts',
-    hint: 'When a start or finish date on that work is approaching.',
+    get label() { return t('Date alerts'); },
+    get hint() { return t('When a start or finish date on that work is approaching.'); },
   },
-  { key: 'dueReminders', label: 'Deadline reminders', hint: 'Shortly before a due date.' },
+  { key: 'dueReminders', get label() { return t('Deadline reminders'); }, get hint() { return t('Shortly before a due date.'); } },
   {
     key: 'statusChanges',
-    label: 'Project updates',
-    hint: 'Status, health and staffing changes on your projects.',
+    get label() { return t('Project updates'); },
+    get hint() { return t('Status, health and staffing changes on your projects.'); },
   },
-  { key: 'digest', label: 'Daily digest', hint: 'A morning summary, in your notifications feed.' },
+  { key: 'digest', get label() { return t('Daily digest'); }, get hint() { return t('A morning summary, in your notifications feed.'); } },
 ];
 
 /** The per-type email switches. The master switch above them is separate. */
 const EMAIL_ROWS: { key: EmailSwitch; label: string; hint: string }[] = [
-  { key: 'assigned', label: 'Assignments', hint: 'When work is assigned to you.' },
-  { key: 'mentions', label: 'Mentions', hint: 'When someone mentions you in a comment.' },
-  { key: 'membership', label: 'Project access', hint: 'When you are added to a project.' },
+  { key: 'assigned', get label() { return t('Assignments'); }, get hint() { return t('When work is assigned to you.'); } },
+  { key: 'mentions', get label() { return t('Mentions'); }, get hint() { return t('When someone mentions you in a comment.'); } },
+  { key: 'membership', get label() { return t('Project access'); }, get hint() { return t('When you are added to a project.'); } },
   {
     key: 'updates',
-    label: 'Updates to my work',
-    hint: 'Status and field changes on work you are assigned to or watch.',
+    get label() { return t('Updates to my work'); },
+    get hint() { return t('Status and field changes on work you are assigned to or watch.'); },
   },
   {
     key: 'dueReminders',
-    label: 'Deadline reminders',
-    hint: 'A daily list of anything overdue or falling due shortly.',
+    get label() { return t('Deadline reminders'); },
+    get hint() { return t('A daily list of anything overdue or falling due shortly.'); },
   },
-  { key: 'digest', label: 'Daily digest', hint: 'A morning summary of what needs attention.' },
+  { key: 'digest', get label() { return t('Daily digest'); }, get hint() { return t('A morning summary of what needs attention.'); } },
 ];
 
 /**
@@ -101,11 +102,11 @@ const EMAIL_ROWS: { key: EmailSwitch; label: string; hint: string }[] = [
  * usually is not. One switch governing both would be a question nobody can answer.
  */
 const CONTENT_EMAIL_ROWS: { key: EmailSwitch; label: string; hint: string }[] = [
-  { key: 'news', label: 'News', hint: 'When an announcement is published to you.' },
-  { key: 'meetings', label: 'Meetings', hint: 'When you are invited to one, or it moves.' },
-  { key: 'comments', label: 'Comments', hint: 'New comments on work you are involved in.' },
-  { key: 'wiki', label: 'Wiki changes', hint: 'When a wiki page in your projects is edited.' },
-  { key: 'documents', label: 'Documents', hint: 'When a file is uploaded to one of your projects.' },
+  { key: 'news', get label() { return t('News'); }, get hint() { return t('When an announcement is published to you.'); } },
+  { key: 'meetings', get label() { return t('Meetings'); }, get hint() { return t('When you are invited to one, or it moves.'); } },
+  { key: 'comments', get label() { return t('Comments'); }, get hint() { return t('New comments on work you are involved in.'); } },
+  { key: 'wiki', get label() { return t('Wiki changes'); }, get hint() { return t('When a wiki page in your projects is edited.'); } },
+  { key: 'documents', get label() { return t('Documents'); }, get hint() { return t('When a file is uploaded to one of your projects.'); } },
 ];
 
 export function NotificationSettings() {
@@ -119,8 +120,8 @@ export function NotificationSettings() {
     <>
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>In-app</CardTitle>
-          <CardDescription>What appears in your notifications feed.</CardDescription>
+          <CardTitle>{t('In-app')}</CardTitle>
+          <CardDescription>{t('What appears in your notifications feed.')}</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-border">
@@ -136,8 +137,9 @@ export function NotificationSettings() {
             ))}
             <div className="px-4 py-2.5">
               <FieldHint>
-                Turning one off hides those items from your feed. Nothing is deleted, so switching it
-                back on shows them again.
+                {t(
+                  'Turning one off hides those items from your feed. Nothing is deleted, so switching it back on shows them again.',
+                )}
               </FieldHint>
             </div>
           </div>
@@ -149,17 +151,19 @@ export function NotificationSettings() {
           rather than six. */}
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Email</CardTitle>
+          <CardTitle>{t('Email')}</CardTitle>
           <CardDescription>
-            What EPM sends to {user?.email ? user.email : 'your work email'}.
+            {user?.email
+              ? t('What EPM sends to {email}.', { email: user.email })
+              : t('What EPM sends to your work email.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-border">
             <ToggleRow
               id="email-enabled"
-              label="Send me email"
-              hint="Off means no email of any kind."
+              label={t('Send me email')}
+              hint={t('Off means no email of any kind.')}
               checked={preferences.email.enabled}
               onCheckedChange={(checked) => update('email', 'enabled', checked)}
             />
@@ -176,8 +180,12 @@ export function NotificationSettings() {
             ))}
 
             <FieldRow
-              label="Send reminders at"
-              hint={`${user?.timezone ? user.timezone.replace(/_/g, ' ') : 'Your timezone'}, not the server's.`}
+              label={t('Send reminders at')}
+              hint={
+                user?.timezone
+                  ? t('{timezone}, not the server\'s.', { timezone: user.timezone.replace(/_/g, ' ') })
+                  : t('Your timezone, not the server\'s.')
+              }
               htmlFor="email-reminder-hour"
               disabled={!preferences.email.enabled}
             >
@@ -200,16 +208,16 @@ export function NotificationSettings() {
             </FieldRow>
 
             <FieldRow
-              label="On these days"
+              label={t('On these days')}
               hint={
                 preferences.email.reminderDays.length === 0
-                  ? 'No days selected, so no reminders are sent.'
-                  : 'Reminders and the digest are only sent on these days.'
+                  ? t('No days selected, so no reminders are sent.')
+                  : t('Reminders and the digest are only sent on these days.')
               }
               disabled={!preferences.email.enabled}
             >
               <WeekdayPicker
-                label="Reminder days"
+                label={t('Reminder days')}
                 value={preferences.email.reminderDays}
                 disabled={!preferences.email.enabled}
                 onChange={(days) => update('email', 'reminderDays', days)}
@@ -221,8 +229,9 @@ export function NotificationSettings() {
                 {/* Worth saying plainly: without a timezone the hour above is
                     applied as UTC, which is not what the label implies. */}
                 <Alert tone="neutral" icon={Clock}>
-                  You have not set a timezone, so the hour above is read as UTC. Set one under
-                  Profile and reminders will follow your own clock.
+                  {t(
+                    'You have not set a timezone, so the hour above is read as UTC. Set one under Profile and reminders will follow your own clock.',
+                  )}
                 </Alert>
               </div>
             ) : null}
@@ -232,9 +241,9 @@ export function NotificationSettings() {
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Email about other content</CardTitle>
+          <CardTitle>{t('Email about other content')}</CardTitle>
           <CardDescription>
-            News, meetings, comments, wiki pages and documents &mdash; everything that is not a task.
+            {t('News, meetings, comments, wiki pages and documents — everything that is not a task.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -256,15 +265,15 @@ export function NotificationSettings() {
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Pause</CardTitle>
-          <CardDescription>Stop everything reaching you for a while.</CardDescription>
+          <CardTitle>{t('Pause')}</CardTitle>
+          <CardDescription>{t('Stop everything reaching you for a while.')}</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-border">
             <ToggleRow
               id="notify-pause"
-              label="Pause notifications"
-              hint="No email of any kind is sent while paused. Items still collect in your feed, so nothing is lost."
+              label={t('Pause notifications')}
+              hint={t('No email of any kind is sent while paused. Items still collect in your feed, so nothing is lost.')}
               checked={pause.enabled}
               onCheckedChange={(checked) =>
                 update('notifications', 'pause', { ...pause, enabled: checked })
@@ -275,7 +284,7 @@ export function NotificationSettings() {
               className={`grid gap-3 px-4 py-3 sm:grid-cols-2 ${pause.enabled ? '' : 'opacity-60'}`}
             >
               <div className="space-y-1.5">
-                <Label htmlFor="pause-from">From</Label>
+                <Label htmlFor="pause-from">{t('From')}</Label>
                 <Input
                   id="pause-from"
                   type="date"
@@ -290,7 +299,7 @@ export function NotificationSettings() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pause-to">Until</Label>
+                <Label htmlFor="pause-to">{t('Until')}</Label>
                 <Input
                   id="pause-to"
                   type="date"
@@ -303,18 +312,23 @@ export function NotificationSettings() {
                     })
                   }
                 />
-                <FieldHint>Leave both empty to pause until you turn it off.</FieldHint>
+                <FieldHint>{t('Leave both empty to pause until you turn it off.')}</FieldHint>
               </div>
             </div>
 
             {pause.enabled ? (
               <div className="px-4 py-2.5">
-                <Alert tone="warning" icon={BellOff} title="Notifications are paused">
-                  {pause.from || pause.to
-                    ? `Nothing will be emailed to you ${pause.from ? `from ${formatLongDate(pause.from)}` : ''}${
-                        pause.from && pause.to ? ' ' : ''
-                      }${pause.to ? `until ${formatLongDate(pause.to)}` : ''}.`
-                    : 'Nothing will be emailed to you until you turn this off.'}
+                <Alert tone="warning" icon={BellOff} title={t('Notifications are paused')}>
+                  {pause.from && pause.to
+                    ? t('Nothing will be emailed to you from {from} until {to}.', {
+                        from: formatLongDate(pause.from),
+                        to: formatLongDate(pause.to),
+                      })
+                    : pause.from
+                      ? t('Nothing will be emailed to you from {from}.', { from: formatLongDate(pause.from) })
+                      : pause.to
+                        ? t('Nothing will be emailed to you until {to}.', { to: formatLongDate(pause.to) })
+                        : t('Nothing will be emailed to you until you turn this off.')}
                 </Alert>
               </div>
             ) : null}

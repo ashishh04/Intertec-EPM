@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Plus } from 'lucide-react';
 import { useLandingMotion } from './useLandingMotion';
 import { APP_NAME, ORG_NAME } from '@/config/env';
+import { t } from '@/lib/i18n';
 
 /*
  * The six things a signed-out member of staff actually arrives wondering, in
@@ -16,28 +17,28 @@ import { APP_NAME, ORG_NAME } from '@/config/env';
  */
 const QUESTIONS = [
   {
-    q: 'How do I get an account?',
-    a: `Access is provisioned by IT — there is no sign-up on this page, and nothing to request inside ${APP_NAME} itself. Ask your manager or raise a request with the service desk; you will be invited by email and set your password from the link in it.`,
+    get q() { return t('How do I get an account?'); },
+    get a() { return t('Access is provisioned by IT — there is no sign-up on this page, and nothing to request inside {app} itself. Ask your manager or raise a request with the service desk; you will be invited by email and set your password from the link in it.', { app: APP_NAME }); },
   },
   {
-    q: 'I have an account but cannot sign in.',
-    a: 'Passwords are reset by IT support rather than from the login screen, so contact the service desk to regain access. If sign-in fails with your usual password still working elsewhere, say so when you raise it — it is usually the account, not the password.',
+    get q() { return t('I have an account but cannot sign in.'); },
+    get a() { return t('Passwords are reset by IT support rather than from the login screen, so contact the service desk to regain access. If sign-in fails with your usual password still working elsewhere, say so when you raise it — it is usually the account, not the password.'); },
   },
   {
-    q: `Does ${APP_NAME} replace the tools we already use?`,
-    a: `No. ${APP_NAME} is the single picture over the delivery record: it reads and writes the same projects, work packages and time entries your existing project tooling holds, so nothing has to be migrated and no team has to update two places.`,
+    get q() { return t('Does {app} replace the tools we already use?', { app: APP_NAME }); },
+    get a() { return t('No. {app} is the single picture over the delivery record: it reads and writes the same projects, work packages and time entries your existing project tooling holds, so nothing has to be migrated and no team has to update two places.', { app: APP_NAME }); },
   },
   {
-    q: 'Does any of our data leave the company?',
-    a: `Only through services your administrators switch on. ${APP_NAME} runs on ${ORG_NAME} infrastructure, and your browser only ever talks to the ${APP_NAME} backend — it is never given an upstream address, an API token or a credential. What goes further: a question you ask Pragnya, with the records it reads to answer it, goes to the AI service in the region your administrators chose; email goes through the mail service they set up; and automation rules call only the addresses they allow. No password or token is kept in your browser, and the pages it caches for speed are cleared when you sign out.`,
+    get q() { return t('Does any of our data leave the company?'); },
+    get a() { return t('Only through services your administrators switch on. {app} runs on {org} infrastructure, and your browser only ever talks to the {app} backend — it is never given an upstream address, an API token or a credential. What goes further: a question you ask Pragnya, with the records it reads to answer it, goes to the AI service in the region your administrators chose; email goes through the mail service they set up; and automation rules call only the addresses they allow. No password or token is kept in your browser, and the pages it caches for speed are cleared when you sign out.', { app: APP_NAME, org: ORG_NAME }); },
   },
   {
-    q: 'What will I be able to see?',
-    a: 'What your role and project membership allow, and nothing beyond it. Permissions are resolved per project and checked on every request, so a link to a project you are not on does not open it — including links shared by someone who can.',
+    get q() { return t('What will I be able to see?'); },
+    get a() { return t('What your role and project membership allow, and nothing beyond it. Permissions are resolved per project and checked on every request, so a link to a project you are not on does not open it — including links shared by someone who can.'); },
   },
   {
-    q: 'Can I use it on my phone?',
-    a: `Yes. ${APP_NAME} is one responsive app rather than a desktop site with a cut-down mobile version: the same screens, with navigation that moves to a bottom bar on small screens. There is no separate app to install.`,
+    get q() { return t('Can I use it on my phone?'); },
+    get a() { return t('Yes. {app} is one responsive app rather than a desktop site with a cut-down mobile version: the same screens, with navigation that moves to a bottom bar on small screens. There is no separate app to install.', { app: APP_NAME }); },
   },
 ];
 
@@ -64,14 +65,14 @@ export function FaqSection() {
         {/* The heading holds its own column on a wide screen so the answers
             keep a readable measure instead of running the full 72rem. */}
         <motion.div {...reveal(0, 0.7, { y: 30 })} className="lg:sticky lg:top-32 lg:self-start">
-          <p className="text-xs uppercase tracking-widest text-white/40">Questions</p>
+          <p className="text-xs uppercase tracking-widest text-white/40">{t('Questions')}</p>
           {/* Balanced: the heading column is 22rem and "Before you sign"
               overruns it, which breaks the line mid-phrase. */}
           <h2 className="mt-4 text-balance text-3xl tracking-tight text-white md:text-5xl">
-            Before you <em className="font-serif italic text-white/50">sign in</em>
+            {t('Before you sign in')}
           </h2>
           <p className="mt-6 text-sm leading-relaxed text-white/50">
-            Everything here is how {APP_NAME} works today, not what is planned.
+            {t('Everything here is how {app} works today, not what is planned.', { app: APP_NAME })}
           </p>
         </motion.div>
 
@@ -90,7 +91,7 @@ export function FaqSection() {
                     aria-expanded={open}
                     aria-controls={panelId}
                     onClick={() => setOpenIndex(open ? null : index)}
-                    className="flex w-full items-start justify-between gap-6 py-6 text-left transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 md:py-7"
+                    className="flex w-full items-start justify-between gap-6 py-6 text-start transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 md:py-7"
                   >
                     <span className="font-display text-base font-medium tracking-tight text-white md:text-lg">
                       {item.q}
@@ -122,7 +123,7 @@ export function FaqSection() {
                       transition={{ duration: 0.32, ease: [0.32, 0.72, 0, 1] }}
                       className="overflow-hidden"
                     >
-                      <p className="max-w-2xl pb-7 pr-10 text-sm leading-relaxed text-white/55">
+                      <p className="max-w-2xl pb-7 pe-10 text-sm leading-relaxed text-white/55">
                         {item.a}
                       </p>
                     </motion.div>

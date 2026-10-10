@@ -14,6 +14,7 @@ import { useActiveSprint } from '@/hooks/useSprints';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
+import { t } from '@/lib/i18n';
 import type { ID, TaskStatusCategory } from '@/types';
 
 /**
@@ -44,8 +45,8 @@ export default function ProjectSprintTab() {
     updateTask.mutate(
       { id: taskId, status },
       {
-        onSuccess: (task) => toast.success('Task moved', { description: task.key }),
-        onError: () => toast.error('Unable to move the task'),
+        onSuccess: (task) => toast.success(t('Task moved'), { description: task.key }),
+        onError: () => toast.error(t('Unable to move the task')),
       },
     );
   };
@@ -68,11 +69,11 @@ export default function ProjectSprintTab() {
 
         <div className="space-y-3 lg:col-span-2">
           <SectionHeader
-            title="Sprint board"
+            title={t('Sprint board')}
             description={
               inSprint
-                ? 'Work packages from this project committed to the active sprint'
-                : 'This project has no work in the active sprint'
+                ? t('Work packages from this project committed to the active sprint')
+                : t('This project has no work in the active sprint')
             }
           />
 
@@ -81,17 +82,17 @@ export default function ProjectSprintTab() {
             isError={tasksQuery.isError}
             error={tasksQuery.error}
             onRetry={() => tasksQuery.refetch()}
-            errorTitle="Unable to load sprint work"
+            errorTitle={t('Unable to load sprint work')}
             skeleton={<KanbanBoardSkeleton columns={3} />}
             isEmpty={tasks.length === 0}
             empty={
               <Card>
                 <EmptyState
                   icon={Timer}
-                  title="Nothing committed to this sprint"
-                  description="Add work packages to the sprint from the project backlog."
+                  title={t('Nothing committed to this sprint')}
+                  description={t('Add work packages to the sprint from the project backlog.')}
                   action={{
-                    label: 'Create a task',
+                    label: t('Create a task'),
                     onClick: () => openTaskDrawer({ projectId, sprintId: sprintQuery.data?.id }),
                   }}
                 />
@@ -111,8 +112,7 @@ export default function ProjectSprintTab() {
               <TruncationNotice
                 shown={tasks.length}
                 total={total}
-                itemLabel="task"
-                affected="The column counts"
+                affected={t('The column counts')}
               />
             </div>
           </QueryBoundary>

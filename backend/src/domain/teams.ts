@@ -5,6 +5,7 @@ import { getUsers } from '../mapping/users.js';
 import { rollups, type Rollup } from './employees.js';
 import { prisma } from '../db/prisma.js';
 import { withAudit } from './audit.js';
+import { message } from '../lib/i18n.js';
 
 /** What the journal keeps of a team: its own fields, not derived figures. */
 function teamRecord(row: Team) {
@@ -72,7 +73,7 @@ const CODE_PATTERN = /^[A-Z0-9-]+$/;
 type TeamWithDepartment = Team & { department: Department | null };
 
 function asString(value: unknown, field: string): string {
-  if (typeof value !== 'string') throw EpmError.badRequest(`${field} must be text.`);
+  if (typeof value !== 'string') throw EpmError.badRequest(message('{field} must be text.', { field }));
   return value.trim();
 }
 
@@ -82,7 +83,7 @@ function validateName(value: unknown): string {
   const name = asString(value, 'The name');
   if (!name) throw EpmError.badRequest('A name is required.');
   if (name.length > NAME_MAX) {
-    throw EpmError.badRequest(`The name cannot be longer than ${NAME_MAX} characters.`);
+    throw EpmError.badRequest(message('The name cannot be longer than {max} characters.', { max: NAME_MAX }));
   }
   return name;
 }
@@ -94,7 +95,7 @@ function validateCode(value: unknown): string {
   const code = asString(value, 'The code').toUpperCase();
   if (!code) throw EpmError.badRequest('A code is required.');
   if (code.length < CODE_MIN || code.length > CODE_MAX) {
-    throw EpmError.badRequest(`The code must be between ${CODE_MIN} and ${CODE_MAX} characters.`);
+    throw EpmError.badRequest(message('The code must be between {min} and {max} characters.', { min: CODE_MIN, max: CODE_MAX }));
   }
   if (!CODE_PATTERN.test(code)) {
     throw EpmError.badRequest('The code can contain only letters, numbers and hyphens.');
@@ -107,7 +108,7 @@ function validateDescription(value: unknown): string | null {
 
   const description = asString(value, 'The description');
   if (description.length > DESCRIPTION_MAX) {
-    throw EpmError.badRequest(`The description cannot be longer than ${DESCRIPTION_MAX} characters.`);
+    throw EpmError.badRequest(message('The description cannot be longer than {max} characters.', { max: DESCRIPTION_MAX }));
   }
   return description || null;
 }
@@ -380,8 +381,10 @@ export async function deleteTeam(id: string): Promise<void> {
 
   if (people > 0) {
     throw EpmError.badRequest(
-      `That team still has ${people} ${people === 1 ? 'person' : 'people'} on it. Move them ` +
-        `first, or archive the team instead of deleting it.`,
+      message(
+        'That team still has {count, plural, one {# person} other {# people}} on it. Move them first, or archive the team instead of deleting it.',
+        { count: people },
+      ),
     );
   }
 

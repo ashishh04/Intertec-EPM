@@ -17,6 +17,7 @@ import {
   type AdminPage,
 } from '@/config/administration';
 import NotFoundPage from '@/pages/NotFoundPage';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ManagedPanel } from './ManagedPanel';
 import { ADMIN_PAGE_COMPONENTS } from './pages';
@@ -61,9 +62,9 @@ function Overview() {
   return (
     <Layout>
       <PageHeader
-        eyebrow="Administration"
-        title="Overview"
-        description="Areas of EPM that you manage for everyone else."
+        eyebrow={t('Administration')}
+        title={t('Overview')}
+        description={t('Areas of EPM that you manage for everyone else.')}
       />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
         {ADMIN_AREAS.map((area) => (
@@ -110,7 +111,7 @@ function AreaPage({ area, page }: { area: AdminArea; page: AdminPage }) {
     <Layout>
       <BackToAdministration />
       <PageHeader
-        eyebrow={single ? 'Administration' : `Administration · ${area.label}`}
+        eyebrow={single ? t('Administration') : t('Administration · {area}', { area: area.label })}
         title={page.label}
         description={page.description}
       />
@@ -161,7 +162,7 @@ function BackToAdministration() {
       className="inline-flex items-center gap-1.5 rounded-lg text-2xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ArrowLeft className="h-3 w-3" aria-hidden />
-      All administration areas
+      {t('All administration areas')}
     </Link>
   );
 }
@@ -169,7 +170,7 @@ function BackToAdministration() {
 /** Inside a multi-page area: its pages as a tab strip under the heading. */
 function PageTabs({ area, page }: { area: AdminArea; page: AdminPage }) {
   return (
-    <nav aria-label={`${area.label} pages`} className="epm-scroll -mb-1 overflow-x-auto">
+    <nav aria-label={t('{area} pages', { area: area.label })} className="epm-scroll -mb-1 overflow-x-auto">
       <ul className="flex items-center gap-4 border-b border-border">
         {area.pages.map((item) => {
           const active = item.id === page.id;

@@ -34,8 +34,9 @@ import {
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { adminKeys, useAdminProjects } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 import { invalidationGroups } from '@/lib/queryKeys';
-import { formatLongDate, formatNumber } from '@/lib/utils';
+import { formatLongDate } from '@/lib/utils';
 import { projectWriteService } from '@/services';
 import type { AdminProject } from '@/services/api/admin';
 import { AdminPagination, AdminTable, CheckCell, byName } from './shared-tables';
@@ -58,24 +59,42 @@ const ACTION_COPY: Record<
   { title: (name: string) => string; description: string; confirm: string; done: string }
 > = {
   archive: {
-    title: (name) => `Archive ${name}?`,
-    description:
-      'The project and its work packages stay, but nobody can open or change them until it is restored.',
-    confirm: 'Archive',
-    done: 'Project archived',
+    title: (name) => t('Archive {name}?', { name }),
+    get description() {
+      return t('The project and its work packages stay, but nobody can open or change them until it is restored.');
+    },
+    get confirm() {
+      return t('Archive');
+    },
+    get done() {
+      return t('Project archived');
+    },
   },
   restore: {
-    title: (name) => `Restore ${name}?`,
-    description: 'The project becomes visible and editable again for everyone who has access.',
-    confirm: 'Restore',
-    done: 'Project restored',
+    title: (name) => t('Restore {name}?', { name }),
+    get description() {
+      return t('The project becomes visible and editable again for everyone who has access.');
+    },
+    get confirm() {
+      return t('Restore');
+    },
+    get done() {
+      return t('Project restored');
+    },
   },
   delete: {
-    title: (name) => `Delete ${name}?`,
-    description:
-      'This removes the project permanently, along with every work package, comment and time entry in it. It cannot be undone. To keep the history, archive it instead.',
-    confirm: 'Delete permanently',
-    done: 'Project deleted',
+    title: (name) => t('Delete {name}?', { name }),
+    get description() {
+      return t(
+        'This removes the project permanently, along with every work package, comment and time entry in it. It cannot be undone. To keep the history, archive it instead.',
+      );
+    },
+    get confirm() {
+      return t('Delete permanently');
+    },
+    get done() {
+      return t('Project deleted');
+    },
   },
 };
 
@@ -137,7 +156,7 @@ export default function ProjectsListPage() {
       }
       setPending(undefined);
     } catch (error) {
-      toast.error('That could not be done', {
+      toast.error(t('That could not be done'), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -147,21 +166,23 @@ export default function ProjectsListPage() {
 
   return (
     <div className="space-y-4">
-      <ListToolbar trailing={<ResultCount count={items.length} total={all.length} label="project" />}>
+      <ListToolbar
+        trailing={<ResultCount count={items.length} total={all.length} label={t('project')} plural={t('projects')} />}
+      >
         <SearchInput
           value={name}
           onValueChange={setName}
-          placeholder="Filter by name"
-          aria-label="Filter projects by name"
+          placeholder={t('Filter by name')}
+          aria-label={t('Filter projects by name')}
         />
         <Select value={status} onValueChange={(value) => setStatus(value as StatusFilter)}>
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label="Filter by status">
-            <SelectValue placeholder="All projects" />
+          <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by status')}>
+            <SelectValue placeholder={t('All projects')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All ({formatNumber(all.length)})</SelectItem>
-            <SelectItem value="active">Active ({formatNumber(counts.active)})</SelectItem>
-            <SelectItem value="archived">Archived ({formatNumber(counts.archived)})</SelectItem>
+            <SelectItem value={ALL}>{t('All ({count, number})', { count: all.length })}</SelectItem>
+            <SelectItem value="active">{t('Active ({count, number})', { count: counts.active })}</SelectItem>
+            <SelectItem value="archived">{t('Archived ({count, number})', { count: counts.archived })}</SelectItem>
           </SelectContent>
         </Select>
       </ListToolbar>
@@ -171,32 +192,34 @@ export default function ProjectsListPage() {
         isError={query.isError}
         error={query.error}
         onRetry={() => query.refetch()}
-        errorTitle="Unable to load projects"
+        errorTitle={t('Unable to load projects')}
         skeleton={<TableSkeleton columns={7} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={FolderKanban}
-            title={filtering ? 'No projects match' : 'No projects'}
+            title={filtering ? t('No projects match') : t('No projects')}
             description={
               filtering
-                ? 'Try a different status or name.'
-                : 'Projects appear here once they are created.'
+                ? t('Try a different status or name.')
+                : t('Projects appear here once they are created.')
             }
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="project" />}>
+        <AdminTable
+          footer={<AdminPagination paging={paging} itemLabel={t('project')} itemLabelPlural={t('projects')} />}
+        >
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Identifier</TableHead>
-              <TableHead>Public</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Parent</TableHead>
-              <TableHead>Created on</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Identifier')}</TableHead>
+              <TableHead>{t('Public')}</TableHead>
+              <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('Parent')}</TableHead>
+              <TableHead>{t('Created on')}</TableHead>
               <TableHead className="w-12">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -207,6 +230,7 @@ export default function ProjectsListPage() {
                   <Link
                     to={`/projects/${project.id}`}
                     className="font-medium text-primary underline-offset-4 hover:underline"
+                    dir="auto"
                   >
                     {project.name}
                   </Link>
@@ -215,11 +239,11 @@ export default function ProjectsListPage() {
                   {project.identifier}
                 </TableCell>
                 <TableCell>
-                  <CheckCell value={project.public} label="Public" />
+                  <CheckCell value={project.public} label={t('Public')} />
                 </TableCell>
                 <TableCell>
                   <Badge tone={project.active ? 'success' : 'warning'} size="sm">
-                    {project.active ? 'Active' : 'Archived'}
+                    {project.active ? t('Active') : t('Archived')}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-2xs">
@@ -228,13 +252,13 @@ export default function ProjectsListPage() {
                 <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                   {formatLongDate(project.createdAt)}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-end">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label={`Actions for ${project.name}`}
+                        aria-label={t('Actions for {name}', { name: project.name })}
                       >
                         <Ellipsis className="h-4 w-4" />
                       </Button>
@@ -245,14 +269,14 @@ export default function ProjectsListPage() {
                           onSelect={() => setPending({ action: 'archive', project })}
                         >
                           <Archive />
-                          Archive
+                          {t('Archive')}
                         </DropdownMenuItem>
                       ) : (
                         <DropdownMenuItem
                           onSelect={() => setPending({ action: 'restore', project })}
                         >
                           <ArchiveRestore />
-                          Restore
+                          {t('Restore')}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem
@@ -260,7 +284,7 @@ export default function ProjectsListPage() {
                         onSelect={() => setPending({ action: 'delete', project })}
                       >
                         <Trash2 />
-                        Delete
+                        {t('Delete')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -283,7 +307,7 @@ export default function ProjectsListPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setPending(undefined)} disabled={working}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button
               variant={pending?.action === 'delete' ? 'danger' : 'default'}

@@ -12,6 +12,7 @@ import { ErrorBoundary } from '@/components/common/ErrorState';
 import { PageSkeleton } from '@/components/common/PageSkeleton';
 import { useUI } from '@/providers/UIProvider';
 import { usePrefersReducedMotion } from '@/hooks/useMediaQuery';
+import { t } from '@/lib/i18n';
 
 /**
  * Authenticated application shell. Every route renders inside this frame, which
@@ -75,9 +76,9 @@ export function AppShell() {
     <div className="flex h-full w-full overflow-hidden bg-background">
       <a
         href="#epm-main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-xs focus:font-medium focus:text-primary-foreground"
+        className="sr-only focus:not-sr-only focus:absolute focus:start-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-xs focus:font-medium focus:text-primary-foreground"
       >
-        Skip to main content
+        {t('Skip to main content')}
       </a>
 
       {/* `epm-no-print` on the shell furniture: none of it is part of the
@@ -112,7 +113,7 @@ export function AppShell() {
           tabIndex={-1}
           className="epm-scroll relative flex-1 overflow-y-auto pb-20 focus-visible:outline-none md:pb-0"
         >
-          <ErrorBoundary fallbackTitle="This page could not be displayed">
+          <ErrorBoundary fallbackTitle={t('This page could not be displayed')}>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={location.pathname}

@@ -21,12 +21,34 @@
 @import '@fontsource/jetbrains-mono/600.css';
 @import '@fontsource/instrument-serif/400.css';
 @import '@fontsource/instrument-serif/400-italic.css';
+/*
+ * Arabic (BR-604/605). Neither Poppins nor Inter has an Arabic glyph, so Arabic
+ * text fell back to whatever the operating system had. IBM Plex Sans Arabic
+ * follows Inter in every stack (tailwind.config.js): Latin keeps its faces and
+ * Arabic gets one drawn for screens. Each weight's file is declared with a
+ * unicode-range, so the browser fetches it only when Arabic is on the page.
+ */
+@import '@fontsource/ibm-plex-sans-arabic/400.css';
+@import '@fontsource/ibm-plex-sans-arabic/500.css';
+@import '@fontsource/ibm-plex-sans-arabic/600.css';
+@import '@fontsource/ibm-plex-sans-arabic/700.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Which way the line runs: 1 left to right, -1 right to left. Animations that
+   * travel along the line multiply by it, so the same keyframes run either way.
+   */
+  :root {
+    --epm-dir: 1;
+  }
+  [dir='rtl'] {
+    --epm-dir: -1;
+  }
+
   /*
    * Intertec Systems brand tokens. Measured from intertecsystems.com rather
    * than eyeballed: Poppins, the crimson-to-violet gradient, flat white cards
@@ -530,7 +552,7 @@
       opacity: 1;
     }
     100% {
-      transform: translateX(100%);
+      transform: translateX(calc(100% * var(--epm-dir)));
       opacity: 0;
     }
   }
@@ -562,11 +584,11 @@
     }
     28%,
     46% {
-      transform: translate(113.04%, 10%);
+      transform: translate(calc(113.04% * var(--epm-dir)), 10%);
     }
     62%,
     88% {
-      transform: translate(226.09%, -8%);
+      transform: translate(calc(226.09% * var(--epm-dir)), -8%);
     }
     100% {
       transform: translate(0, 0);
@@ -599,7 +621,7 @@
      enter from the left and leave at the right. */
   @keyframes epm-step-sweep {
     0% {
-      transform: translateX(-100%);
+      transform: translateX(calc(-100% * var(--epm-dir)));
       opacity: 0;
     }
     8%,
@@ -608,7 +630,7 @@
     }
     60%,
     100% {
-      transform: translateX(220%);
+      transform: translateX(calc(220% * var(--epm-dir)));
       opacity: 0;
     }
   }
@@ -641,7 +663,7 @@
       transform: translateX(0);
     }
     to {
-      transform: translateX(-50%);
+      transform: translateX(calc(-50% * var(--epm-dir)));
     }
   }
 
@@ -762,4 +784,56 @@
 /* The counterpart: print-only blocks are hidden on screen. */
 .epm-print-only {
   display: none;
+}
+
+/*
+ * Arabic letters join; letter-spacing pulls them apart and breaks the joins, so
+ * the tracking the English design uses on eyebrows, badges and headings is
+ * dropped wherever the page is Arabic. More specific than any single utility,
+ * so it wins whatever order the utilities land in.
+ */
+html:lang(ar) [class*='tracking-'],
+html:lang(ar) .epm-eyebrow {
+  letter-spacing: normal;
+}
+
+/*
+ * Icons that point along the line of reading turn round with it (BR-601):
+ * next and previous, back links, "open", breadcrumbs, the sidebar toggle, send.
+ * Every lucide icon carries a class with its name, so this is one rule rather
+ * than a flag on each of them. The individual `scale` property, not
+ * `transform`, so an icon that is also rotated — a tree chevron turned to point
+ * down when open — keeps its rotation: a downward arrow flipped sideways still
+ * points down.
+ */
+/*
+ * What somebody types takes the direction of what they type (BR-602): an
+ * English reference in a field on an Arabic page, or an Arabic name on an
+ * English one, is laid out by its own first letter instead of the page's.
+ * Alignment still follows the page, so a form keeps one straight edge.
+ */
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+textarea {
+  unicode-bidi: plaintext;
+}
+
+[dir='rtl']
+  :is(
+    .lucide-arrow-left,
+    .lucide-arrow-right,
+    .lucide-arrow-up-right,
+    .lucide-chevron-left,
+    .lucide-chevron-right,
+    .lucide-chevrons-left,
+    .lucide-chevrons-right,
+    .lucide-corner-down-right,
+    .lucide-send-horizontal,
+    .lucide-send-horizonal,
+    .lucide-log-in,
+    .lucide-log-out,
+    .lucide-undo-2,
+    .lucide-redo-2,
+    .lucide-reply
+  ) {
+  scale: -1 1;
 }

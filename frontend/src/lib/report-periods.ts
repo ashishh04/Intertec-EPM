@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import type { ReportPeriodPreset } from '@/types';
 
 /**
@@ -6,12 +7,12 @@ import type { ReportPeriodPreset } from '@/types';
  * period the same way.
  */
 export const PERIODS: { id: ReportPeriodPreset; label: string }[] = [
-  { id: 'previous-week', label: 'Previous week (Mon–Sun)' },
-  { id: 'previous-month', label: 'Previous calendar month' },
-  { id: 'last-4-weeks', label: 'Last 4 weeks' },
-  { id: 'last-12-weeks', label: 'Last 12 weeks' },
-  { id: 'month-to-date', label: 'Month to date' },
-  { id: 'year-to-date', label: 'Year to date' },
+  { id: 'previous-week', get label() { return t('Previous week (Mon–Sun)'); } },
+  { id: 'previous-month', get label() { return t('Previous calendar month'); } },
+  { id: 'last-4-weeks', get label() { return t('Last 4 weeks'); } },
+  { id: 'last-12-weeks', get label() { return t('Last 12 weeks'); } },
+  { id: 'month-to-date', get label() { return t('Month to date'); } },
+  { id: 'year-to-date', get label() { return t('Year to date'); } },
 ];
 
 export const periodLabel = (id: ReportPeriodPreset | undefined) => PERIODS.find((period) => period.id === id)?.label ?? id ?? '';

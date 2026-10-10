@@ -23,6 +23,7 @@ import {
   useNonWorkingDays,
 } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 import { formatWeekdayDate } from '@/lib/utils';
 import type { AdminNonWorkingDay } from '@/services/api/admin';
 import { ISO_DATE_PATTERN, describeError, isNotImplementedUpstream } from './shared-format';
@@ -56,12 +57,12 @@ export default function NonWorkingDaysPage() {
     remove.mutate(target.id, {
       onSuccess: () => {
         setRemoving(undefined);
-        toast.success('Non-working day removed', { description: target.name });
+        toast.success(t('Non-working day removed'), { description: target.name });
       },
       onError: (error) => {
         if (isNotImplementedUpstream(error)) setManagedUpstream(true);
         setRemoving(undefined);
-        toast.error('Non-working day was not removed', { description: describeError(error) });
+        toast.error(t('Non-working day was not removed'), { description: describeError(error) });
       },
     });
   };
@@ -74,11 +75,11 @@ export default function NonWorkingDaysPage() {
         trailing={
           <Button size="sm" onClick={() => setAdding(true)}>
             <Plus className="h-3.5 w-3.5" />
-            Add non-working day
+            {t('Add non-working day')}
           </Button>
         }
       >
-        <ResultCount count={rows.length} label="non-working day" />
+        <ResultCount count={rows.length} label={t('non-working day')} plural={t('non-working days')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -86,40 +87,40 @@ export default function NonWorkingDaysPage() {
         isError={nonWorkingDays.isError}
         error={nonWorkingDays.error}
         onRetry={() => void nonWorkingDays.refetch()}
-        errorTitle="Non-working days could not be loaded"
+        errorTitle={t('Non-working days could not be loaded')}
         skeleton={<TableSkeleton columns={3} />}
         isEmpty={rows.length === 0}
         empty={
           <EmptyState
             icon={CalendarOff}
-            title="No non-working days"
-            description="Every day of the week that is a working day is scheduled. Add a holiday or closure to skip it."
-            action={{ label: 'Add non-working day', onClick: () => setAdding(true) }}
+            title={t('No non-working days')}
+            description={t('Every day of the week that is a working day is scheduled. Add a holiday or closure to skip it.')}
+            action={{ label: t('Add non-working day'), onClick: () => setAdding(true) }}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="non-working day" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('non-working day')} itemLabelPlural={t('non-working days')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Date</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Date')}</TableHead>
               <TableHead className="w-12">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paging.items.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="font-medium">{row.name}</TableCell>
+                <TableCell className="font-medium" dir="auto">{row.name}</TableCell>
                 <TableCell className="whitespace-nowrap">
                   <time dateTime={row.date}>{formatWeekdayDate(row.date)}</time>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-end">
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Delete ${row.name}`}
+                    aria-label={t('Delete {name}', { name: row.name })}
                     className="text-muted-foreground hover:text-danger"
                     onClick={() => setRemoving(row)}
                   >
@@ -140,8 +141,8 @@ export default function NonWorkingDaysPage() {
           create.mutate(input, {
             onSuccess: (created) => {
               setAdding(false);
-              toast.success('Non-working day added', {
-                description: `${created.name}, ${formatWeekdayDate(created.date)}.`,
+              toast.success(t('Non-working day added'), {
+                description: t('{name}, {date}.', { name: created.name, date: formatWeekdayDate(created.date) }),
               });
             },
             onError: (error) => {
@@ -149,7 +150,7 @@ export default function NonWorkingDaysPage() {
                 setManagedUpstream(true);
                 setAdding(false);
               }
-              toast.error('Non-working day was not added', { description: describeError(error) });
+              toast.error(t('Non-working day was not added'), { description: describeError(error) });
             },
           })
         }
@@ -158,18 +159,19 @@ export default function NonWorkingDaysPage() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              {removing ? `${formatWeekdayDate(removing.date)} becomes a working day again` : 'This day becomes a working day again'}
-              , and work packages scheduled around it may move. This applies to every project.
+              {removing
+                ? t('{date} becomes a working day again, and work packages scheduled around it may move. This applies to every project.', { date: formatWeekdayDate(removing.date) })
+                : t('This day becomes a working day again, and work packages scheduled around it may move. This applies to every project.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoving(undefined)} disabled={remove.isPending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} loading={remove.isPending}>
-              Delete
+              {t('Delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -209,9 +211,9 @@ function AddNonWorkingDayDialog({ open, onOpenChange, pending, onSubmit }: AddNo
     event.preventDefault();
     const trimmed = name.trim();
     const next: { name?: string; date?: string } = {};
-    if (!trimmed) next.name = 'Give the day a name.';
-    if (!date) next.date = 'Choose a date.';
-    else if (!ISO_DATE_PATTERN.test(date)) next.date = 'Enter the date as YYYY-MM-DD.';
+    if (!trimmed) next.name = t('Give the day a name.');
+    if (!date) next.date = t('Choose a date.');
+    else if (!ISO_DATE_PATTERN.test(date)) next.date = t('Enter the date as YYYY-MM-DD.');
     setErrors(next);
     if (next.name || next.date) return;
     onSubmit({ name: trimmed, date });
@@ -222,23 +224,22 @@ function AddNonWorkingDayDialog({ open, onOpenChange, pending, onSubmit }: AddNo
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <DialogHeader>
-            <DialogTitle>Add non-working day</DialogTitle>
+            <DialogTitle>{t('Add non-working day')}</DialogTitle>
             <DialogDescription>
-              A single date skipped when work is scheduled. Recurring holidays are added one
-              year at a time.
+              {t('A single date skipped when work is scheduled. Recurring holidays are added one year at a time.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="non-working-day-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="non-working-day-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Christmas Day"
+                placeholder={t('Christmas Day')}
                 invalid={Boolean(errors.name)}
                 aria-describedby={errors.name ? 'non-working-day-name-error' : undefined}
                 autoFocus
@@ -249,7 +250,7 @@ function AddNonWorkingDayDialog({ open, onOpenChange, pending, onSubmit }: AddNo
 
             <div className="space-y-1.5">
               <Label htmlFor="non-working-day-date" required>
-                Date
+                {t('Date')}
               </Label>
               <Input
                 id="non-working-day-date"
@@ -271,10 +272,10 @@ function AddNonWorkingDayDialog({ open, onOpenChange, pending, onSubmit }: AddNo
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => handleOpenChange(false)} disabled={pending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={pending}>
-              Add
+              {t('Add')}
             </Button>
           </DialogFooter>
         </form>

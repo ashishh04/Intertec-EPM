@@ -29,6 +29,7 @@ import {
   useSaveEscalationPolicy,
 } from '@/hooks/useAutomation';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { formatDateTime, formatRelative } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type {
@@ -86,7 +87,12 @@ const toInput = (policy: EscalationPolicy): EscalationPolicyInput => ({
 function describeLevels(policy: EscalationPolicyInput): string {
   const unit = TRIGGER_WORDS[policy.trigger].unit;
   return policy.levels
-    .map((level) => `${level.after} ${unit} → ${level.notify.map((person) => PERSON_WORDS[person.kind].toLowerCase()).join(', ')}`)
+    .map((level) => {
+      const people = level.notify.map((person) => PERSON_WORDS[person.kind].toLowerCase()).join(', ');
+      return unit === 'hours'
+        ? t('{count, plural, one {# hour} other {# hours}} → {people}', { count: level.after, people })
+        : t('{count, plural, one {# day} other {# days}} → {people}', { count: level.after, people });
+    })
     .join('; ');
 }
 
@@ -101,8 +107,8 @@ export default function EscalationPage() {
 
   if (!allowed) {
     return (
-      <Alert tone="neutral" title="Escalation is configured by administrators">
-        Deciding who is chased about what needs the rules configuration permission.
+      <Alert tone="neutral" title={t('Escalation is configured by administrators')}>
+        {t('Deciding who is chased about what needs the rules configuration permission.')}
       </Alert>
     );
   }
@@ -117,12 +123,12 @@ export default function EscalationPage() {
           actions={
             <Button size="sm" onClick={() => setEditing({ input: blankPolicy() })} disabled={!options.data}>
               <Plus className="h-3.5 w-3.5" />
-              New policy
+              {t('New policy')}
             </Button>
           }
         >
-          <CardTitle>Escalation policies</CardTitle>
-          <CardDescription>Who is told, level by level, when work stalls or an approval waits too long.</CardDescription>
+          <CardTitle>{t('Escalation policies')}</CardTitle>
+          <CardDescription>{t('Who is told, level by level, when work stalls or an approval waits too long.')}</CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
           <QueryBoundary
@@ -130,14 +136,14 @@ export default function EscalationPage() {
             isError={policies.isError}
             error={policies.error}
             onRetry={() => policies.refetch()}
-            errorTitle="Unable to load the policies"
+            errorTitle={t('Unable to load the policies')}
             skeleton={<ListSkeleton rows={3} />}
             isEmpty={(policies.data ?? []).length === 0}
             empty={
               <EmptyState
                 icon={Siren}
-                title="No escalation policies yet"
-                description="A policy chases untouched or overdue work, and approvals past their SLA, up a path you define."
+                title={t('No escalation policies yet')}
+                description={t('A policy chases untouched or overdue work, and approvals past their SLA, up a path you define.')}
               />
             }
           >
@@ -146,13 +152,13 @@ export default function EscalationPage() {
                 <li key={policy.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 text-sm font-medium">
-                      {policy.name}
+                      <span dir="auto">{policy.name}</span>
                       <Badge tone={policy.active ? 'success' : 'neutral'} size="sm">
-                        {policy.active ? 'On' : 'Off'}
+                        {policy.active ? t('On') : t('Off')}
                       </Badge>
                       {policy.openCount > 0 ? (
                         <Badge tone="warning" size="sm">
-                          {policy.openCount} open
+                          {t('{count, number} open', { count: policy.openCount })}
                         </Badge>
                       ) : null}
                     </p>
@@ -162,17 +168,17 @@ export default function EscalationPage() {
                   </div>
                   <div className="flex gap-1.5">
                     <Button size="sm" variant="secondary" onClick={() => setEditing({ id: policy.id, input: toInput(policy) })}>
-                      Edit
+                      {t('Edit')}
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
-                      aria-label={`Delete ${policy.name}`}
+                      aria-label={t('Delete {name}', { name: policy.name })}
                       disabled={remove.isPending}
                       onClick={() =>
                         remove.mutate(policy.id, {
-                          onSuccess: () => toast.success('Policy deleted'),
-                          onError: (error) => toast.error('It could not be deleted', { description: describeError(error) }),
+                          onSuccess: () => toast.success(t('Policy deleted')),
+                          onError: (error) => toast.error(t('It could not be deleted'), { description: describeError(error) }),
                         })
                       }
                     >
@@ -200,10 +206,10 @@ export default function EscalationPage() {
               { id: editing.id, input },
               {
                 onSuccess: () => {
-                  toast.success(editing.id ? 'Policy saved' : 'Policy created');
+                  toast.success(editing.id ? t('Policy saved') : t('Policy created'));
                   setEditing(undefined);
                 },
-                onError: (error) => toast.error('The policy was not saved', { description: describeError(error) }),
+                onError: (error) => toast.error(t('The policy was not saved'), { description: describeError(error) }),
               },
             )
           }
@@ -216,14 +222,22 @@ export default function EscalationPage() {
 function problemsOf(policy: EscalationPolicyInput): string[] {
   const found: string[] = [];
   const approvals = policy.trigger === 'approval_sla';
-  if (!policy.name.trim()) found.push('Give the policy a name.');
-  if (policy.levels.length === 0) found.push('Add at least one level.');
+  if (!policy.name.trim()) found.push(t('Give the policy a name.'));
+  if (policy.levels.length === 0) found.push(t('Add at least one level.'));
   policy.levels.forEach((level, index) => {
-    if (level.notify.length === 0) found.push(`Level ${index + 1}: say who is told.`);
+    if (level.notify.length === 0) found.push(t('Level {level, number}: say who is told.', { level: index + 1 }));
     const valid = approvals ? level.after >= 0 : Number.isInteger(level.after) && level.after >= 1;
-    if (!valid) found.push(`Level ${index + 1}: ${approvals ? 'hours, from 0' : 'whole days, from 1'}.`);
+    if (!valid) {
+      found.push(
+        approvals
+          ? t('Level {level, number}: hours, from 0.', { level: index + 1 })
+          : t('Level {level, number}: whole days, from 1.', { level: index + 1 }),
+      );
+    }
     const previous = policy.levels[index - 1];
-    if (previous && level.after <= previous.after) found.push(`Level ${index + 1} has to come later than level ${index}.`);
+    if (previous && level.after <= previous.after) {
+      found.push(t('Level {level, number} has to come later than level {previous, number}.', { level: index + 1, previous: index }));
+    }
   });
   return found;
 }
@@ -268,20 +282,20 @@ function PolicyEditor({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{id ? 'Edit escalation policy' : 'New escalation policy'}</DialogTitle>
-          <DialogDescription>An item is raised one level at a time, and resolved when it is dealt with.</DialogDescription>
+          <DialogTitle>{id ? t('Edit escalation policy') : t('New escalation policy')}</DialogTitle>
+          <DialogDescription>{t('An item is raised one level at a time, and resolved when it is dealt with.')}</DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[68vh] space-y-5 overflow-y-auto pr-1">
+        <div className="max-h-[68vh] space-y-5 overflow-y-auto pe-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="policy-name" required>
-                Name
+                {t('Name')}
               </Label>
-              <Input id="policy-name" value={draft.name} maxLength={120} onChange={(event) => set({ name: event.target.value })} placeholder="e.g. Stalled delivery work" />
+              <Input id="policy-name" value={draft.name} maxLength={120} onChange={(event) => set({ name: event.target.value })} placeholder={t('e.g. Stalled delivery work')} />
             </div>
             <div className="space-y-1.5">
-              <Label>Escalates</Label>
+              <Label>{t('Escalates')}</Label>
               <Select value={draft.trigger} onValueChange={(value) => changeTrigger(value as EscalationTrigger)}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue />
@@ -298,41 +312,41 @@ function PolicyEditor({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="policy-description">Description</Label>
-            <Textarea id="policy-description" rows={2} maxLength={1000} value={draft.description ?? ''} onChange={(event) => set({ description: event.target.value })} />
+            <Label htmlFor="policy-description">{t('Description')}</Label>
+            <Textarea id="policy-description" rows={2} maxLength={1000} value={draft.description ?? ''} onChange={(event) => set({ description: event.target.value })} dir="auto" />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1.5">
-              <Label>Projects</Label>
+              <Label>{t('Projects')}</Label>
               <MultiSelect
-                label="Projects"
+                label={t('Projects')}
                 options={options.projects}
                 selected={options.projects.filter((project) => draft.projectIds.includes(project.id))}
                 onChange={(selected) => set({ projectIds: selected.map((project) => project.id) })}
-                placeholder="Every project"
+                placeholder={t('Every project')}
               />
             </div>
             {draft.trigger !== 'approval_sla' ? (
               <>
                 <div className="space-y-1.5">
-                  <Label>Types</Label>
+                  <Label>{t('Types')}</Label>
                   <MultiSelect
-                    label="Types"
+                    label={t('Types')}
                     options={options.types}
                     selected={options.types.filter((type) => draft.typeIds.includes(type.id))}
                     onChange={(selected) => set({ typeIds: selected.map((type) => type.id) })}
-                    placeholder="Every type"
+                    placeholder={t('Every type')}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Priorities</Label>
+                  <Label>{t('Priorities')}</Label>
                   <MultiSelect
-                    label="Priorities"
+                    label={t('Priorities')}
                     options={options.priorities}
                     selected={options.priorities.filter((priority) => draft.priorityIds.includes(priority.id))}
                     onChange={(selected) => set({ priorityIds: selected.map((priority) => priority.id) })}
-                    placeholder="Every priority"
+                    placeholder={t('Every priority')}
                   />
                 </div>
               </>
@@ -340,11 +354,11 @@ function PolicyEditor({
           </div>
 
           <section className="space-y-2">
-            <p className="text-xs font-semibold">Path</p>
+            <p className="text-xs font-semibold">{t('Path')}</p>
             {draft.levels.map((level, index) => (
               <div key={index} className="grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-[9rem_1fr_auto]">
                 <div className="space-y-1.5">
-                  <Label htmlFor={`level-${index}`}>Level {index + 1} after</Label>
+                  <Label htmlFor={`level-${index}`}>{t('Level {level, number} after', { level: index + 1 })}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id={`level-${index}`}
@@ -355,23 +369,25 @@ function PolicyEditor({
                       onChange={(event) => setLevel(index, { after: Number(event.target.value) })}
                       className="h-8 w-20 text-xs"
                     />
-                    <span className="text-xs text-muted-foreground">{trigger.unit}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {trigger.unit === 'hours' ? t('hours') : t('days')}
+                    </span>
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Tell</Label>
+                  <Label>{t('Tell')}</Label>
                   <PersonPicker
                     kinds={PEOPLE[draft.trigger]}
                     options={options}
                     value={level.notify}
                     onChange={(notify) => setLevel(index, { notify })}
-                    emptyText="Nobody yet — the project owner is told when nobody named is set"
+                    emptyText={t('Nobody yet — the project owner is told when nobody named is set')}
                   />
                 </div>
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  aria-label={`Remove level ${index + 1}`}
+                  aria-label={t('Remove level {level, number}', { level: index + 1 })}
                   disabled={draft.levels.length === 1}
                   onClick={() => set({ levels: draft.levels.filter((_, i) => i !== index) })}
                 >
@@ -393,7 +409,7 @@ function PolicyEditor({
                 }
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add a level
+                {t('Add a level')}
               </Button>
             ) : null}
           </section>
@@ -408,46 +424,55 @@ function PolicyEditor({
                 onClick={() => dryRun.mutate({ ...draft, id })}
               >
                 <FlaskConical className="h-3.5 w-3.5" />
-                What would escalate now
+                {t('What would escalate now')}
               </Button>
-              <FieldHint>Raises nothing and tells nobody.</FieldHint>
+              <FieldHint>{t('Raises nothing and tells nobody.')}</FieldHint>
             </div>
             {dryRun.isError ? <Alert tone="danger">{describeError(dryRun.error)}</Alert> : null}
             {dryRun.data ? (
               dryRun.data.items.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Nothing would escalate now ({dryRun.data.evaluated} {dryRun.data.evaluated === 1 ? 'item' : 'items'} checked).
+                  {t('Nothing would escalate now ({count, plural, one {# item} other {# items}} checked).', {
+                    count: dryRun.data.evaluated,
+                  })}
                 </p>
               ) : (
                 <ul className="max-h-56 space-y-1.5 overflow-y-auto">
-                  {dryRun.data.items.map((item) => (
-                    <li key={`${item.subjectType}-${item.subjectId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs">
-                      <span className="min-w-0">
-                        <span className="font-medium">{item.title}</span>
-                        {item.projectName ? <span className="text-muted-foreground"> · {item.projectName}</span> : null}
-                        <span className="block text-2xs text-muted-foreground">
-                          Since {formatDateTime(item.since)} · would tell {item.recipients.map((one) => names.get(one)?.name ?? 'someone').join(', ') || 'nobody'}
+                  {dryRun.data.items.map((item) => {
+                    const told = item.recipients.map((one) => names.get(one)?.name ?? t('someone')).join(', ');
+                    const since = formatDateTime(item.since);
+                    return (
+                      <li key={`${item.subjectType}-${item.subjectId}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs">
+                        <span className="min-w-0">
+                          <span className="font-medium" dir="auto">{item.title}</span>
+                          {item.projectName ? <span className="text-muted-foreground"> · {item.projectName}</span> : null}
+                          <span className="block text-2xs text-muted-foreground">
+                            {told
+                              ? t('Since {date} · would tell {people}', { date: since, people: told })
+                              : t('Since {date} · would tell nobody', { date: since })}
+                          </span>
                         </span>
-                      </span>
-                      <Badge tone={item.alreadyRaised ? 'neutral' : 'warning'} size="sm">
-                        Level {item.level}
-                        {item.alreadyRaised ? ', already raised' : ''}
-                      </Badge>
-                    </li>
-                  ))}
+                        <Badge tone={item.alreadyRaised ? 'neutral' : 'warning'} size="sm">
+                          {item.alreadyRaised
+                            ? t('Level {level, number}, already raised', { level: item.level })
+                            : t('Level {level, number}', { level: item.level })}
+                        </Badge>
+                      </li>
+                    );
+                  })}
                 </ul>
               )
             ) : null}
           </section>
 
           <label className="flex items-center gap-2 text-xs">
-            <Switch checked={draft.active} onCheckedChange={(active) => set({ active })} aria-label="Active" />
-            On
+            <Switch checked={draft.active} onCheckedChange={(active) => set({ active })} aria-label={t('Active')} />
+            {t('On')}
           </label>
 
           {problems.length > 0 ? (
-            <Alert tone="warning" title="Before it can be saved">
-              <ul className="list-disc pl-4">
+            <Alert tone="warning" title={t('Before it can be saved')}>
+              <ul className="list-disc ps-4">
                 {problems.map((problem) => (
                   <li key={problem}>{problem}</li>
                 ))}
@@ -458,10 +483,10 @@ function PolicyEditor({
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button loading={saving} disabled={problems.length > 0} onClick={() => onSave({ ...draft, name: draft.name.trim() })}>
-            {id ? 'Save policy' : 'Create policy'}
+            {id ? t('Save policy') : t('Create policy')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -477,15 +502,15 @@ function EscalationsCard() {
   return (
     <Card>
       <CardHeader variant="compact">
-        <CardTitle>Escalations</CardTitle>
-        <CardDescription>What has been raised, by policies and by approval steps past their SLA.</CardDescription>
+        <CardTitle>{t('Escalations')}</CardTitle>
+        <CardDescription>{t('What has been raised, by policies and by approval steps past their SLA.')}</CardDescription>
       </CardHeader>
       <CardContent className="pt-2">
         <Tabs value={state} onValueChange={(value) => setState(value as typeof state)}>
           <TabsList>
-            <TabsTrigger value="open">Open</TabsTrigger>
-            <TabsTrigger value="resolved">Resolved</TabsTrigger>
-            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="open">{t('Open')}</TabsTrigger>
+            <TabsTrigger value="resolved">{t('Resolved')}</TabsTrigger>
+            <TabsTrigger value="all">{t('All')}</TabsTrigger>
           </TabsList>
           <TabsContent value={state} className="mt-3">
             <QueryBoundary
@@ -493,41 +518,49 @@ function EscalationsCard() {
               isError={escalations.isError}
               error={escalations.error}
               onRetry={() => escalations.refetch()}
-              errorTitle="Unable to load escalations"
+              errorTitle={t('Unable to load escalations')}
               skeleton={<ListSkeleton rows={3} />}
               isEmpty={(escalations.data ?? []).length === 0}
-              empty={<EmptyState size="inline" icon={Siren} title={state === 'open' ? 'Nothing is escalated' : 'Nothing here yet'} />}
+              empty={<EmptyState size="inline" icon={Siren} title={state === 'open' ? t('Nothing is escalated') : t('Nothing here yet')} />}
             >
               <ul className="divide-y divide-border">
-                {(escalations.data ?? []).map((escalation) => (
-                  <li key={escalation.id} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium">
-                        {escalation.link ? (
-                          <Link to={escalation.link} className="hover:underline">
-                            {escalation.subjectTitle ?? escalation.subjectId}
-                          </Link>
-                        ) : (
-                          escalation.subjectTitle ?? escalation.subjectId
-                        )}
-                        {escalation.projectName ? <span className="font-normal text-muted-foreground"> · {escalation.projectName}</span> : null}
-                      </p>
-                      <p className="text-2xs text-muted-foreground">
-                        {escalation.policyName ?? (escalation.source === 'approval.sla' ? 'Approval SLA' : escalation.source)} · told{' '}
-                        {escalation.raisedFor.map((one) => names.get(one)?.name ?? 'someone').join(', ') || 'nobody'}
-                      </p>
-                      <p className="text-2xs text-muted-foreground">{escalation.reason}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Badge tone={escalation.resolvedAt ? 'neutral' : escalation.level >= 2 ? 'danger' : 'warning'} size="sm">
-                        Level {escalation.level}
-                      </Badge>
-                      <span className="text-2xs text-muted-foreground" title={formatDateTime(escalation.raisedAt)}>
-                        {escalation.resolvedAt ? `Resolved ${formatRelative(escalation.resolvedAt)}` : `Raised ${formatRelative(escalation.raisedAt)}`}
-                      </span>
-                    </div>
-                  </li>
-                ))}
+                {(escalations.data ?? []).map((escalation) => {
+                  const source =
+                    escalation.policyName ?? (escalation.source === 'approval.sla' ? t('Approval SLA') : escalation.source);
+                  const told = escalation.raisedFor.map((one) => names.get(one)?.name ?? t('someone')).join(', ');
+                  return (
+                    <li key={escalation.id} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium">
+                          {escalation.link ? (
+                            <Link to={escalation.link} className="hover:underline" dir="auto">
+                              {escalation.subjectTitle ?? escalation.subjectId}
+                            </Link>
+                          ) : (
+                            <span dir="auto">{escalation.subjectTitle ?? escalation.subjectId}</span>
+                          )}
+                          {escalation.projectName ? <span className="font-normal text-muted-foreground"> · {escalation.projectName}</span> : null}
+                        </p>
+                        <p className="text-2xs text-muted-foreground">
+                          {told
+                            ? t('{source} · told {people}', { source, people: told })
+                            : t('{source} · told nobody', { source })}
+                        </p>
+                        <p className="text-2xs text-muted-foreground">{escalation.reason}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge tone={escalation.resolvedAt ? 'neutral' : escalation.level >= 2 ? 'danger' : 'warning'} size="sm">
+                          {t('Level {level, number}', { level: escalation.level })}
+                        </Badge>
+                        <span className="text-2xs text-muted-foreground" title={formatDateTime(escalation.raisedAt)}>
+                          {escalation.resolvedAt
+                            ? t('Resolved {when}', { when: formatRelative(escalation.resolvedAt) })
+                            : t('Raised {when}', { when: formatRelative(escalation.raisedAt) })}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </QueryBoundary>
           </TabsContent>

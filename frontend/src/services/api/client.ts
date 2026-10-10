@@ -1,4 +1,5 @@
 import { env } from '@/config/env';
+import { currentLanguage, t } from '@/lib/i18n';
 
 /**
  * Thin HTTP client for the EPM backend (BFF).
@@ -54,7 +55,7 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 
 async function parseError(response: Response): Promise<ApiError> {
   let code: string | undefined;
-  let message = `Request failed with status ${response.status}`;
+  let message = t('Request failed with status {status}', { status: response.status });
   let details: unknown;
 
   try {
@@ -85,6 +86,8 @@ export class ApiClient {
         credentials: 'include',
         headers: {
           Accept: 'application/json',
+          // The backend answers in the language this page is showing (BR-605).
+          'Accept-Language': currentLanguage(),
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...headers,
         },
@@ -108,10 +111,10 @@ export class ApiClient {
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new ApiError('The request timed out.', 408, 'TIMEOUT');
+        throw new ApiError(t('The request timed out.'), 408, 'TIMEOUT');
       }
       throw new ApiError(
-        'Unable to reach the EPM backend. Check your connection and try again.',
+        t('Unable to reach the EPM backend. Check your connection and try again.'),
         0,
         'NETWORK',
       );
@@ -154,15 +157,17 @@ export class ApiClient {
       const response = await fetch(`${this.baseUrl}${path}${buildQuery(query)}`, {
         credentials: 'include',
         signal: controller.signal,
+        // A report comes back in the reader's language and direction (BR-604).
+        headers: { 'Accept-Language': currentLanguage() },
       });
       if (!response.ok) throw await parseError(response);
       return await response.blob();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new ApiError('The request timed out.', 408, 'TIMEOUT');
+        throw new ApiError(t('The request timed out.'), 408, 'TIMEOUT');
       }
-      throw new ApiError('Unable to reach the EPM backend. Check your connection and try again.', 0, 'NETWORK');
+      throw new ApiError(t('Unable to reach the EPM backend. Check your connection and try again.'), 0, 'NETWORK');
     } finally {
       clearTimeout(timeout);
     }

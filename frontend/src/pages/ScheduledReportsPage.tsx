@@ -50,6 +50,7 @@ import { saveBlob } from '@/lib/download';
 import { PERIODS } from '@/lib/report-periods';
 import type { Tone } from '@/lib/domain';
 import { formatBytes, formatDateTime, formatRelative, formatShortDate } from '@/lib/utils';
+import { msg, t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import { scheduledReportService } from '@/services';
 import { ApiError } from '@/services/api/client';
@@ -76,33 +77,41 @@ import type {
  * is in the log, by report and by date, with the files as they were sent.
  */
 
-const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const WEEKDAYS = [
+  msg('Monday'),
+  msg('Tuesday'),
+  msg('Wednesday'),
+  msg('Thursday'),
+  msg('Friday'),
+  msg('Saturday'),
+  msg('Sunday'),
+];
 
 const FORMAT_LABEL: Record<ReportFormat, string> = { pdf: 'PDF', xlsx: 'Excel' };
 
 const RUN_STATUS: Record<ReportRunStatus, { label: string; tone: Tone }> = {
-  running: { label: 'Running', tone: 'primary' },
-  rendered: { label: 'Rendered', tone: 'success' },
-  missed: { label: 'Missed', tone: 'warning' },
-  failed: { label: 'Failed', tone: 'danger' },
+  running: { get label() { return t('Running'); }, tone: 'primary' },
+  rendered: { get label() { return t('Rendered'); }, tone: 'success' },
+  missed: { get label() { return t('Missed'); }, tone: 'warning' },
+  failed: { get label() { return t('Failed'); }, tone: 'danger' },
 };
 
 const DELIVERY_STATE: Record<ReportRun['deliveryState'], { label: string; tone: Tone }> = {
-  delivered: { label: 'Delivered', tone: 'success' },
-  partial: { label: 'Partly delivered', tone: 'warning' },
-  pending: { label: 'Sending', tone: 'primary' },
-  failed: { label: 'Not delivered', tone: 'danger' },
-  none: { label: 'Nothing sent', tone: 'neutral' },
+  delivered: { get label() { return t('Delivered'); }, tone: 'success' },
+  partial: { get label() { return t('Partly delivered'); }, tone: 'warning' },
+  pending: { get label() { return t('Sending'); }, tone: 'primary' },
+  failed: { get label() { return t('Not delivered'); }, tone: 'danger' },
+  none: { get label() { return t('Nothing sent'); }, tone: 'neutral' },
 };
 
 const EMAIL_STATUS: Record<ReportDelivery['emailStatus'], { label: string; tone: Tone }> = {
-  queued: { label: 'Queued', tone: 'primary' },
-  sending: { label: 'Sending', tone: 'primary' },
-  sent: { label: 'Sent', tone: 'success' },
-  failed: { label: 'Failed', tone: 'danger' },
-  cancelled: { label: 'Cancelled', tone: 'neutral' },
-  withheld: { label: 'Not sent', tone: 'neutral' },
-  none: { label: 'Not queued', tone: 'neutral' },
+  queued: { get label() { return t('Queued'); }, tone: 'primary' },
+  sending: { get label() { return t('Sending'); }, tone: 'primary' },
+  sent: { get label() { return t('Sent'); }, tone: 'success' },
+  failed: { get label() { return t('Failed'); }, tone: 'danger' },
+  cancelled: { get label() { return t('Cancelled'); }, tone: 'neutral' },
+  withheld: { get label() { return t('Not sent'); }, tone: 'neutral' },
+  none: { get label() { return t('Not queued'); }, tone: 'neutral' },
 };
 
 // Browsers report some zones by their old names; the instance lists the current ones.
@@ -166,7 +175,7 @@ const toInput = (schedule: ReportSchedule): ReportScheduleInput => ({
 });
 
 const describeError = (error: unknown) =>
-  error instanceof ApiError || error instanceof Error ? error.message : 'Something went wrong';
+  error instanceof ApiError || error instanceof Error ? error.message : t('Something went wrong');
 
 export default function ScheduledReportsPage() {
   const { can, user } = useAuth();
@@ -193,21 +202,21 @@ export default function ScheduledReportsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Insights"
-        title="Scheduled reports"
-        description="Dashboards and saved views, sent as a PDF and an Excel workbook on a timetable. Each person's copy is built with their own access."
+        eyebrow={t('Insights')}
+        title={t('Scheduled reports')}
+        description={t('Dashboards and saved views, sent as a PDF and an Excel workbook on a timetable. Each person\'s copy is built with their own access.')}
         actions={
           <Button size="sm" onClick={() => setEditing({ input: blankSchedule(zone) })} disabled={!options.data}>
             <Plus className="h-3.5 w-3.5" />
-            New schedule
+            {t('New schedule')}
           </Button>
         }
       />
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Schedules</CardTitle>
-          <CardDescription>What is sent, when, and to whom.</CardDescription>
+          <CardTitle>{t('Schedules')}</CardTitle>
+          <CardDescription>{t('What is sent, when, and to whom.')}</CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
           <QueryBoundary
@@ -215,15 +224,15 @@ export default function ScheduledReportsPage() {
             isError={schedules.isError}
             error={schedules.error}
             onRetry={() => schedules.refetch()}
-            errorTitle="Unable to load the schedules"
+            errorTitle={t('Unable to load the schedules')}
             skeleton={<ListSkeleton rows={3} />}
             isEmpty={(schedules.data ?? []).length === 0}
             empty={
               <EmptyState
                 icon={CalendarClock}
-                title="Nothing is scheduled yet"
-                description="Send a dashboard every Monday morning, or a saved view at the end of each month."
-                action={options.data ? { label: 'New schedule', onClick: () => setEditing({ input: blankSchedule(zone) }) } : undefined}
+                title={t('Nothing is scheduled yet')}
+                description={t('Send a dashboard every Monday morning, or a saved view at the end of each month.')}
+                action={options.data ? { label: t('New schedule'), onClick: () => setEditing({ input: blankSchedule(zone) }) } : undefined}
               />
             }
           >
@@ -261,12 +270,14 @@ export default function ScheduledReportsPage() {
               { id: editing.id, input },
               {
                 onSuccess: (saved) => {
-                  toast.success(editing.id ? 'Schedule saved' : 'Schedule created', {
-                    description: saved.nextRunAt ? `Next sent ${formatDateTime(saved.nextRunAt)}.` : 'It is switched off.',
+                  toast.success(editing.id ? t('Schedule saved') : t('Schedule created'), {
+                    description: saved.nextRunAt
+                      ? t('Next sent {when}.', { when: formatDateTime(saved.nextRunAt) })
+                      : t('It is switched off.'),
                   });
                   setEditing(undefined);
                 },
-                onError: (error) => toast.error('The schedule was not saved', { description: describeError(error) }),
+                onError: (error) => toast.error(t('The schedule was not saved'), { description: describeError(error) }),
               },
             )
           }
@@ -304,28 +315,38 @@ function ScheduleRow({
         <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
           {schedule.name}
           <Badge tone={schedule.active ? 'success' : 'neutral'} size="sm">
-            {schedule.active ? 'On' : 'Off'}
+            {schedule.active ? t('On') : t('Off')}
           </Badge>
           {approval.required ? (
             <Badge tone={awaiting ? 'warning' : 'success'} size="sm" dot>
-              {awaiting ? 'External recipients awaiting approval' : 'External recipients approved'}
+              {awaiting ? t('External recipients awaiting approval') : t('External recipients approved')}
             </Badge>
           ) : null}
           {schedule.lastRunStatus ? (
             <Badge tone={RUN_STATUS[schedule.lastRunStatus].tone} size="sm">
-              Last run {RUN_STATUS[schedule.lastRunStatus].label.toLowerCase()}
+              {t('Last run {status}', { status: RUN_STATUS[schedule.lastRunStatus].label.toLowerCase() })}
             </Badge>
           ) : null}
         </p>
         <p className="text-2xs text-muted-foreground">
           {schedule.sourceLabel} · {PERIODS.find((period) => period.id === schedule.periodPreset)?.label} ·{' '}
-          {schedule.formats.map((format) => FORMAT_LABEL[format]).join(' and ')}
+          {schedule.formats.length > 1
+            ? t('{first} and {second}', {
+                first: FORMAT_LABEL[schedule.formats[0]],
+                second: FORMAT_LABEL[schedule.formats[1]],
+              })
+            : FORMAT_LABEL[schedule.formats[0]]}
         </p>
         <p className="text-2xs text-muted-foreground">
-          {schedule.describedTiming} · {people} {people === 1 ? 'person' : 'people'}
-          {outside > 0 ? ` and ${outside} external ${outside === 1 ? 'address' : 'addresses'}` : ''}
-          {schedule.nextRunAt ? ` · next ${formatDateTime(schedule.nextRunAt)}` : ''}
-          {schedule.lastRunAt ? ` · last ${formatRelative(schedule.lastRunAt)}` : ''}
+          {schedule.describedTiming} ·{' '}
+          {outside > 0
+            ? t(
+                '{people, plural, one {# person} other {# people}} and {outside, plural, one {# external address} other {# external addresses}}',
+                { people, outside },
+              )
+            : t('{people, plural, one {# person} other {# people}}', { people })}
+          {schedule.nextRunAt ? ` · ${t('next {when}', { when: formatDateTime(schedule.nextRunAt) })}` : ''}
+          {schedule.lastRunAt ? ` · ${t('last {when}', { when: formatRelative(schedule.lastRunAt) })}` : ''}
         </p>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -336,13 +357,13 @@ function ScheduleRow({
             loading={approve.isPending}
             onClick={() =>
               approve.mutate(schedule.id, {
-                onSuccess: () => toast.success('External recipients approved'),
-                onError: (error) => toast.error('Not approved', { description: describeError(error) }),
+                onSuccess: () => toast.success(t('External recipients approved')),
+                onError: (error) => toast.error(t('Not approved'), { description: describeError(error) }),
               })
             }
           >
             <ShieldCheck className="h-3.5 w-3.5" />
-            Approve recipients
+            {t('Approve recipients')}
           </Button>
         ) : null}
         <Button
@@ -356,48 +377,57 @@ function ScheduleRow({
                   ['queued', 'sending', 'sent'].includes(delivery.emailStatus),
                 ).length;
                 const notSent = result.recipients - queued;
-                toast.success('Report sent to the outbox', {
-                  description: `${queued} of ${result.recipients} ${result.recipients === 1 ? 'copy' : 'copies'} queued${notSent > 0 ? `, ${notSent} not sent — see the log` : ''}.`,
+                toast.success(t('Report sent to the outbox'), {
+                  description:
+                    notSent > 0
+                      ? t(
+                          '{queued, number} of {recipients, plural, one {# copy} other {# copies}} queued, {notSent, number} not sent — see the log.',
+                          { queued, recipients: result.recipients, notSent },
+                        )
+                      : t('{queued, number} of {recipients, plural, one {# copy} other {# copies}} queued.', {
+                          queued,
+                          recipients: result.recipients,
+                        }),
                 });
                 onLog();
               },
-              onError: (error) => toast.error('It did not run', { description: describeError(error) }),
+              onError: (error) => toast.error(t('It did not run'), { description: describeError(error) }),
             })
           }
         >
           <Play className="h-3.5 w-3.5" />
-          Run now
+          {t('Run now')}
         </Button>
         <Button size="sm" variant="secondary" onClick={onLog}>
           <History className="h-3.5 w-3.5" />
-          Log
+          {t('Log')}
         </Button>
         <Button size="sm" variant="secondary" onClick={onEdit}>
-          Edit
+          {t('Edit')}
         </Button>
-        <Button size="sm" variant="ghost" aria-label={`Delete ${schedule.name}`} onClick={() => setConfirming(true)}>
+        <Button size="sm" variant="ghost" aria-label={t('Delete {name}', { name: schedule.name })} onClick={() => setConfirming(true)}>
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={`Delete "${schedule.name}"?`}
+        title={t('Delete "{name}"?', { name: schedule.name })}
         description={
           schedule.lastRunAt
-            ? 'It has run, so it is switched off rather than deleted: its log and files stay for the records policy.'
-            : 'It has never run, so nothing else is lost.'
+            ? t('It has run, so it is switched off rather than deleted: its log and files stay for the records policy.')
+            : t('It has never run, so nothing else is lost.')
         }
-        confirmLabel={schedule.lastRunAt ? 'Switch off' : 'Delete'}
+        confirmLabel={schedule.lastRunAt ? t('Switch off') : t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() =>
           remove.mutate(schedule.id, {
             onSuccess: (result) => {
-              toast.success(result.outcome === 'deleted' ? 'Schedule deleted' : 'Schedule switched off; its log is kept');
+              toast.success(result.outcome === 'deleted' ? t('Schedule deleted') : t('Schedule switched off; its log is kept'));
               setConfirming(false);
             },
-            onError: (error) => toast.error('It could not be deleted', { description: describeError(error) }),
+            onError: (error) => toast.error(t('It could not be deleted'), { description: describeError(error) }),
           })
         }
       />
@@ -419,29 +449,32 @@ const splitAddresses = (text: string) =>
 
 function problemsOf(draft: ReportScheduleInput, addresses: string[]): string[] {
   const found: string[] = [];
-  if (!draft.name.trim()) found.push('Give the schedule a name.');
-  if (!draft.sourceId) found.push(draft.sourceKind === 'view' ? 'Choose a saved view.' : 'Choose a dashboard.');
-  if (draft.frequency === 'weekly' && !draft.weekday) found.push('Choose the day of the week.');
+  if (!draft.name.trim()) found.push(t('Give the schedule a name.'));
+  if (!draft.sourceId) found.push(draft.sourceKind === 'view' ? t('Choose a saved view.') : t('Choose a dashboard.'));
+  if (draft.frequency === 'weekly' && !draft.weekday) found.push(t('Choose the day of the week.'));
   if (draft.frequency === 'monthly' && (draft.dayOfMonth === null || draft.dayOfMonth === undefined)) {
-    found.push('Choose the day of the month.');
+    found.push(t('Choose the day of the month.'));
   }
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.timeOfDay)) found.push('The time is HH:MM, e.g. 07:00.');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.timeOfDay)) found.push(t('The time is HH:MM, e.g. 07:00.'));
   if (!Number.isInteger(draft.windowMinutes) || draft.windowMinutes < 5 || draft.windowMinutes > 1440) {
-    found.push('The window is from 5 minutes to 24 hours.');
+    found.push(t('The window is from 5 minutes to 24 hours.'));
   }
-  if (draft.formats.length === 0) found.push('Choose at least one format.');
+  if (draft.formats.length === 0) found.push(t('Choose at least one format.'));
   const bad = addresses.filter((address) => !EMAIL.test(address));
-  if (bad.length > 0) found.push(`Not email addresses: ${bad.join(', ')}.`);
-  if (draft.recipientUserIds.length + addresses.length === 0) found.push('Add at least one recipient.');
+  if (bad.length > 0) found.push(t('Not email addresses: {addresses}.', { addresses: bad.join(', ') }));
+  if (draft.recipientUserIds.length + addresses.length === 0) found.push(t('Add at least one recipient.'));
   return found;
 }
 
 function describeTiming(draft: ReportScheduleInput): string {
-  const at = `at ${draft.timeOfDay} (${draft.timezone})`;
-  if (draft.frequency === 'daily') return `Every day ${at}`;
-  if (draft.frequency === 'weekly') return `Every ${WEEKDAYS[(draft.weekday ?? 1) - 1]} ${at}`;
-  if (draft.dayOfMonth === 0) return `On the last day of each month ${at}`;
-  return `On day ${draft.dayOfMonth ?? 1} of each month ${at}`;
+  const at = { time: draft.timeOfDay, zone: draft.timezone };
+  if (draft.frequency === 'daily') return t('Every day at {time} ({zone})', at);
+  if (draft.frequency === 'weekly') {
+    const day = WEEKDAYS[(draft.weekday ?? 1) - 1];
+    return t('Every {day} at {time} ({zone})', { ...at, day: day ? t(day) : '' });
+  }
+  if (draft.dayOfMonth === 0) return t('On the last day of each month at {time} ({zone})', at);
+  return t('On day {day} of each month at {time} ({zone})', { ...at, day: draft.dayOfMonth ?? 1 });
 }
 
 function ScheduleEditor({
@@ -479,28 +512,28 @@ function ScheduleEditor({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{id ? 'Edit scheduled report' : 'New scheduled report'}</DialogTitle>
+          <DialogTitle>{id ? t('Edit scheduled report') : t('New scheduled report')}</DialogTitle>
           <DialogDescription>
-            Each recipient gets their own copy, built with their access. A project they cannot see is left out of theirs.
+            {t('Each recipient gets their own copy, built with their access. A project they cannot see is left out of theirs.')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[68vh] space-y-5 overflow-y-auto pr-1">
+        <div className="max-h-[68vh] space-y-5 overflow-y-auto pe-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="schedule-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="schedule-name"
                 value={draft.name}
                 maxLength={120}
                 onChange={(event) => set({ name: event.target.value })}
-                placeholder="e.g. Weekly portfolio health"
+                placeholder={t('e.g. Weekly portfolio health')}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Report on</Label>
+              <Label>{t('Report on')}</Label>
               <Select
                 value={draft.sourceKind}
                 onValueChange={(value) =>
@@ -515,15 +548,15 @@ function ScheduleEditor({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="dashboard">A dashboard</SelectItem>
-                  <SelectItem value="view">A saved view of work packages</SelectItem>
+                  <SelectItem value="dashboard">{t('A dashboard')}</SelectItem>
+                  <SelectItem value="view">{t('A saved view of work packages')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="schedule-description">Description</Label>
+            <Label htmlFor="schedule-description">{t('Description')}</Label>
             <Textarea
               id="schedule-description"
               rows={2}
@@ -536,10 +569,10 @@ function ScheduleEditor({
           {draft.sourceKind === 'dashboard' ? (
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label>Dashboard</Label>
+                <Label>{t('Dashboard')}</Label>
                 <Select value={draft.sourceId} onValueChange={(sourceId) => set({ sourceId })}>
                   <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Choose…" />
+                    <SelectValue placeholder={t('Choose…')} />
                   </SelectTrigger>
                   <SelectContent>
                     {options.dashboards.map((dashboard) => (
@@ -552,7 +585,7 @@ function ScheduleEditor({
               </div>
               <ScopePicker id="schedule-scope" scope={draft.scope} onChange={(scope) => set({ scope })} triggerClassName="h-9 text-xs" />
               <div className="space-y-1.5">
-                <Label>Period</Label>
+                <Label>{t('Period')}</Label>
                 <Select value={draft.periodPreset} onValueChange={(value) => set({ periodPreset: value as ReportPeriodPreset })}>
                   <SelectTrigger className="h-9 text-xs">
                     <SelectValue />
@@ -565,30 +598,30 @@ function ScheduleEditor({
                     ))}
                   </SelectContent>
                 </Select>
-                <FieldHint>Counted back from the day it is sent.</FieldHint>
+                <FieldHint>{t('Counted back from the day it is sent.')}</FieldHint>
               </div>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label htmlFor="schedule-view">Saved view</Label>
+              <Label htmlFor="schedule-view">{t('Saved view')}</Label>
               <ComboSelect
                 id="schedule-view"
-                label="Saved view"
+                label={t('Saved view')}
                 options={options.views}
                 value={draft.sourceId || undefined}
                 onChange={(sourceId) => set({ sourceId: sourceId ?? '' })}
-                placeholder="Choose a saved view…"
-                emptyLabel="No saved views"
+                placeholder={t('Choose a saved view…')}
+                emptyLabel={t('No saved views')}
               />
-              <FieldHint>The work packages the view selects when it is sent, as each recipient may see them.</FieldHint>
+              <FieldHint>{t('The work packages the view selects when it is sent, as each recipient may see them.')}</FieldHint>
             </div>
           )}
 
           <section className="space-y-2">
-            <p className="text-xs font-semibold">When</p>
+            <p className="text-xs font-semibold">{t('When')}</p>
             <div className="grid gap-3 sm:grid-cols-4">
               <div className="space-y-1.5">
-                <Label>Every</Label>
+                <Label>{t('Every')}</Label>
                 <Select
                   value={draft.frequency}
                   onValueChange={(value) =>
@@ -603,15 +636,16 @@ function ScheduleEditor({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="daily">Day</SelectItem>
-                    <SelectItem value="weekly">Week</SelectItem>
-                    <SelectItem value="monthly">Month</SelectItem>
+                    <SelectItem value="daily">{t('Day')}</SelectItem>
+                    <SelectItem value="weekly">{t('Week')}</SelectItem>
+                    <SelectItem value="monthly">{t('Month')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {draft.frequency === 'weekly' ? (
                 <div className="space-y-1.5">
-                  <Label>On</Label>
+                  {/* "On" a weekday, not "On" as in switched on: one English word, two Arabic ones. */}
+                  <Label>{t('{context, select, weekday {On} other {On}}', { context: 'weekday' })}</Label>
                   <Select value={String(draft.weekday ?? 1)} onValueChange={(value) => set({ weekday: Number(value) })}>
                     <SelectTrigger className="h-9 text-xs">
                       <SelectValue />
@@ -619,7 +653,7 @@ function ScheduleEditor({
                     <SelectContent>
                       {WEEKDAYS.map((day, index) => (
                         <SelectItem key={day} value={String(index + 1)}>
-                          {day}
+                          {t(day)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -628,7 +662,7 @@ function ScheduleEditor({
               ) : null}
               {draft.frequency === 'monthly' ? (
                 <div className="space-y-1.5">
-                  <Label>On day</Label>
+                  <Label>{t('On day')}</Label>
                   <Select value={String(draft.dayOfMonth ?? 1)} onValueChange={(value) => set({ dayOfMonth: Number(value) })}>
                     <SelectTrigger className="h-9 text-xs">
                       <SelectValue />
@@ -639,13 +673,13 @@ function ScheduleEditor({
                           {index + 1}
                         </SelectItem>
                       ))}
-                      <SelectItem value="0">The last day</SelectItem>
+                      <SelectItem value="0">{t('The last day')}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               ) : null}
               <div className="space-y-1.5">
-                <Label htmlFor="schedule-time">At</Label>
+                <Label htmlFor="schedule-time">{t('At')}</Label>
                 <Input
                   id="schedule-time"
                   type="time"
@@ -656,10 +690,10 @@ function ScheduleEditor({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="schedule-zone">Time zone</Label>
+                <Label htmlFor="schedule-zone">{t('Time zone')}</Label>
                 <ComboSelect
                   id="schedule-zone"
-                  label="Time zone"
+                  label={t('Time zone')}
                   options={zoneOptions}
                   value={draft.timezone}
                   onChange={(timezone) => set({ timezone: timezone ?? 'UTC' })}
@@ -668,9 +702,9 @@ function ScheduleEditor({
               </div>
             </div>
             <FieldHint>
-              {describeTiming(draft)}. If the server is down then, it is still sent up to{' '}
+              {describeTiming(draft)}. {t('If the server is down then, it is still sent up to')}{' '}
               <Input
-                aria-label="Window in minutes"
+                aria-label={t('Window in minutes')}
                 type="number"
                 min={5}
                 max={1440}
@@ -678,18 +712,18 @@ function ScheduleEditor({
                 value={draft.windowMinutes}
                 onChange={(event) => set({ windowMinutes: Number(event.target.value) })}
               />{' '}
-              minutes late; after that the occurrence is logged as missed, not sent at the wrong time.
+              {t('minutes late; after that the occurrence is logged as missed, not sent at the wrong time.')}
             </FieldHint>
           </section>
 
           <section className="space-y-2">
-            <p className="text-xs font-semibold">Files</p>
+            <p className="text-xs font-semibold">{t('Files')}</p>
             <div className="flex flex-wrap gap-5">
               {(['pdf', 'xlsx'] as ReportFormat[]).map((format) => (
                 <label key={format} className="flex items-center gap-2 text-xs">
                   <Checkbox checked={draft.formats.includes(format)} onCheckedChange={(on) => toggleFormat(format, on === true)} />
                   {format === 'pdf' ? <FileText className="h-3.5 w-3.5 text-muted-foreground" /> : <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground" />}
-                  {format === 'pdf' ? 'PDF' : 'Excel workbook'}
+                  {format === 'pdf' ? 'PDF' : t('Excel workbook')}
                 </label>
               ))}
             </div>
@@ -697,42 +731,44 @@ function ScheduleEditor({
 
           <section className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>People</Label>
+              <Label>{t('People')}</Label>
               <PersonPicker
                 kinds={['user']}
                 value={draft.recipientUserIds.map((userId) => ({ kind: 'user' as const, userId }))}
                 onChange={(people) =>
                   set({ recipientUserIds: people.flatMap((person) => (person.kind === 'user' ? [person.userId] : [])) })
                 }
-                emptyText="Nobody yet"
-                label="Add a recipient"
+                emptyText={t('Nobody yet')}
+                label={t('Add a recipient')}
               />
-              <FieldHint>Each gets the report as they would see it in EPM.</FieldHint>
+              <FieldHint>{t('Each gets the report as they would see it in EPM.')}</FieldHint>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="schedule-external">External addresses</Label>
+              <Label htmlFor="schedule-external">{t('External addresses')}</Label>
               <Textarea
                 id="schedule-external"
                 rows={3}
                 value={addressText}
                 onChange={(event) => setAddressText(event.target.value)}
-                placeholder="One per line"
+                placeholder={t('One per line')}
               />
               <FieldHint>
-                Sent only after someone other than you approves them{addressesChanged && id ? ' — changing them needs approving again' : ''}. Their copy
-                is built with the report owner&rsquo;s access.
+                {addressesChanged && id
+                  ? t('Sent only after someone other than you approves them — changing them needs approving again.')
+                  : t('Sent only after someone other than you approves them.')}{' '}
+                {t('Their copy is built with the report owner’s access.')}
               </FieldHint>
             </div>
           </section>
 
           <label className="flex items-center gap-2 text-xs">
-            <Switch checked={draft.active} onCheckedChange={(active) => set({ active })} aria-label="On" />
-            On
+            <Switch checked={draft.active} onCheckedChange={(active) => set({ active })} aria-label={t('On')} />
+            {t('On')}
           </label>
 
           {problems.length > 0 ? (
-            <Alert tone="warning" title="Before it can be saved">
-              <ul className="list-disc pl-4">
+            <Alert tone="warning" title={t('Before it can be saved')}>
+              <ul className="list-disc ps-4">
                 {problems.map((problem) => (
                   <li key={problem}>{problem}</li>
                 ))}
@@ -743,7 +779,7 @@ function ScheduleEditor({
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             loading={saving}
@@ -757,7 +793,7 @@ function ScheduleEditor({
               })
             }
           >
-            {id ? 'Save schedule' : 'Create schedule'}
+            {id ? t('Save schedule') : t('Create schedule')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -790,19 +826,19 @@ function RunLog({
   return (
     <Card id="run-log" className="scroll-mt-4">
       <CardHeader variant="compact">
-        <CardTitle>Run log</CardTitle>
-        <CardDescription>Every run, each recipient&rsquo;s copy and what became of its email — by report and by date.</CardDescription>
+        <CardTitle>{t('Run log')}</CardTitle>
+        <CardDescription>{t('Every run, each recipient’s copy and what became of its email — by report and by date.')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 pt-2">
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <Label>Report</Label>
+            <Label>{t('Report')}</Label>
             <Select value={scheduleId ?? 'all'} onValueChange={(value) => onSchedule(value === 'all' ? undefined : value)}>
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Every report</SelectItem>
+                <SelectItem value="all">{t('Every report')}</SelectItem>
                 {schedules.map((schedule) => (
                   <SelectItem key={schedule.id} value={schedule.id}>
                     {schedule.name}
@@ -812,11 +848,11 @@ function RunLog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="runs-from">From</Label>
+            <Label htmlFor="runs-from">{t('From')}</Label>
             <Input id="runs-from" type="date" className="h-8 text-xs" value={from} max={to || undefined} onChange={(event) => setFrom(event.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="runs-to">To</Label>
+            <Label htmlFor="runs-to">{t('To')}</Label>
             <Input id="runs-to" type="date" className="h-8 text-xs" value={to} min={from || undefined} onChange={(event) => setTo(event.target.value)} />
           </div>
         </div>
@@ -826,10 +862,10 @@ function RunLog({
           isError={runs.isError}
           error={runs.error}
           onRetry={() => runs.refetch()}
-          errorTitle="Unable to load the log"
+          errorTitle={t('Unable to load the log')}
           skeleton={<TableSkeleton columns={6} rows={4} />}
           isEmpty={(runs.data?.items ?? []).length === 0}
-          empty={<EmptyState size="inline" icon={History} title="No runs here" description="Runs appear when a schedule is due, or is run by hand." />}
+          empty={<EmptyState size="inline" icon={History} title={t('No runs here')} description={t('Runs appear when a schedule is due, or is run by hand.')} />}
         >
           <TableCard
             footer={
@@ -841,7 +877,8 @@ function RunLog({
                   onPageChange={setPage}
                   onPageSizeChange={setPageSize}
                   pageSizeOptions={[15, 25, 50]}
-                  itemLabel="run"
+                  itemLabel={t('run')}
+                  itemLabelPlural={t('runs')}
                 />
               ) : null
             }
@@ -849,12 +886,12 @@ function RunLog({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Report</TableHead>
-                  <TableHead>Due</TableHead>
-                  <TableHead>Period</TableHead>
-                  <TableHead>Run</TableHead>
-                  <TableHead>Delivery</TableHead>
+                  <TableHead>{t('Started')}</TableHead>
+                  <TableHead>{t('Report')}</TableHead>
+                  <TableHead>{t('Due')}</TableHead>
+                  <TableHead>{t('Period')}</TableHead>
+                  <TableHead>{t('Run')}</TableHead>
+                  <TableHead>{t('Delivery')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -864,12 +901,12 @@ function RunLog({
                       {formatDateTime(run.startedAt)}
                     </TableCell>
                     <TableCell className="text-xs font-medium">
-                      <button type="button" className="text-left hover:underline" onClick={() => setOpen(run.id)}>
+                      <button type="button" className="text-start hover:underline" onClick={() => setOpen(run.id)}>
                         {run.scheduleName}
                       </button>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {run.scheduledFor ? formatDateTime(run.scheduledFor) : 'Run by hand'}
+                      {run.scheduledFor ? formatDateTime(run.scheduledFor) : t('Run by hand')}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                       {run.periodFrom && run.periodTo ? `${formatShortDate(run.periodFrom)} – ${formatShortDate(run.periodTo)}` : '—'}
@@ -883,9 +920,13 @@ function RunLog({
                       <Badge tone={DELIVERY_STATE[run.deliveryState].tone} size="sm" dot>
                         {DELIVERY_STATE[run.deliveryState].label}
                       </Badge>
-                      <span className="ml-2 text-2xs text-muted-foreground">
-                        {run.delivered}/{run.recipients} sent{run.withheld > 0 ? ` · ${run.withheld} not sent` : ''}
-                        {run.failed > 0 ? ` · ${run.failed} failed` : ''}
+                      <span className="ms-2 text-2xs text-muted-foreground">
+                        {t('{delivered, number}/{recipients, number} sent', {
+                          delivered: run.delivered,
+                          recipients: run.recipients,
+                        })}
+                        {run.withheld > 0 ? ` · ${t('{count, number} not sent', { count: run.withheld })}` : ''}
+                        {run.failed > 0 ? ` · ${t('{count, number} failed', { count: run.failed })}` : ''}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -909,11 +950,17 @@ function RunSheet({ runId, onClose }: { runId?: ID; onClose: () => void }) {
     <Sheet open={Boolean(runId)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
         <SheetHeader>
-          <SheetTitle>{data?.scheduleName ?? 'Run'}</SheetTitle>
+          <SheetTitle>{data?.scheduleName ?? t('Run')}</SheetTitle>
           <SheetDescription>
             {data
-              ? `${data.scheduledFor ? `Due ${formatDateTime(data.scheduledFor)}` : `Run by hand${data.triggeredBy ? ` by ${names.get(data.triggeredBy)?.name ?? 'someone'}` : ''}`} · started ${formatDateTime(data.startedAt)}`
-              : 'Loading…'}
+              ? `${
+                  data.scheduledFor
+                    ? t('Due {when}', { when: formatDateTime(data.scheduledFor) })
+                    : data.triggeredBy
+                      ? t('Run by hand by {name}', { name: names.get(data.triggeredBy)?.name ?? t('someone') })
+                      : t('Run by hand')
+                } · ${t('started {when}', { when: formatDateTime(data.startedAt) })}`
+              : t('Loading…')}
           </SheetDescription>
         </SheetHeader>
         <div className="epm-scroll flex-1 space-y-4 overflow-y-auto p-5">
@@ -922,7 +969,7 @@ function RunSheet({ runId, onClose }: { runId?: ID; onClose: () => void }) {
             isError={run.isError}
             error={run.error}
             onRetry={() => run.refetch()}
-            errorTitle="Unable to load the run"
+            errorTitle={t('Unable to load the run')}
             skeleton={<ListSkeleton rows={3} />}
           >
             {data ? (
@@ -936,13 +983,16 @@ function RunSheet({ runId, onClose }: { runId?: ID; onClose: () => void }) {
                   </Badge>
                   {data.periodFrom && data.periodTo ? (
                     <span className="text-2xs text-muted-foreground">
-                      Period {formatShortDate(data.periodFrom)} – {formatShortDate(data.periodTo)}
+                      {t('Period {from} – {to}', {
+                        from: formatShortDate(data.periodFrom),
+                        to: formatShortDate(data.periodTo),
+                      })}
                     </span>
                   ) : null}
                 </div>
                 {data.error ? <Alert tone={data.status === 'missed' ? 'warning' : 'danger'}>{data.error}</Alert> : null}
                 {(data.deliveries ?? []).length === 0 && !data.error ? (
-                  <p className="text-xs text-muted-foreground">No copies were made in this run.</p>
+                  <p className="text-xs text-muted-foreground">{t('No copies were made in this run.')}</p>
                 ) : null}
                 <ul className="space-y-2">
                   {(data.deliveries ?? []).map((delivery) => (
@@ -952,8 +1002,8 @@ function RunSheet({ runId, onClose }: { runId?: ID; onClose: () => void }) {
                       delivery={delivery}
                       name={
                         delivery.recipientKind === 'user'
-                          ? (names.get(delivery.recipientUserId ?? '')?.name ?? `Person ${delivery.recipientUserId}`)
-                          : (delivery.recipientEmail ?? 'External')
+                          ? (names.get(delivery.recipientUserId ?? '')?.name ?? t('Person {id}', { id: delivery.recipientUserId }))
+                          : (delivery.recipientEmail ?? t('External'))
                       }
                     />
                   ))}
@@ -976,7 +1026,7 @@ function DeliveryItem({ runId, delivery, name }: { runId: ID; delivery: ReportDe
     try {
       saveBlob(await scheduledReportService.getFile(runId, artifact.id), artifact.filename);
     } catch (error) {
-      toast.error('The file could not be downloaded', { description: describeError(error) });
+      toast.error(t('The file could not be downloaded'), { description: describeError(error) });
     } finally {
       setBusy(undefined);
     }
@@ -989,7 +1039,7 @@ function DeliveryItem({ runId, delivery, name }: { runId: ID; delivery: ReportDe
           {name}
           {delivery.recipientKind === 'external' ? (
             <Badge tone="accent" size="sm">
-              External
+              {t('External')}
             </Badge>
           ) : null}
         </p>
@@ -999,21 +1049,30 @@ function DeliveryItem({ runId, delivery, name }: { runId: ID; delivery: ReportDe
       </div>
       {delivery.renderStatus === 'rendered' ? (
         <p className="text-2xs text-muted-foreground">
-          <CheckCircle2 className="mr-1 inline h-3 w-3 text-success" aria-hidden />
-          Covers {delivery.projectCount} {delivery.projectCount === 1 ? 'project' : 'projects'}
+          <CheckCircle2 className="me-1 inline h-3 w-3 text-success" aria-hidden />
+          {t('Covers {count, plural, one {# project} other {# projects}}', { count: delivery.projectCount })}
           {delivery.excludedProjects > 0
-            ? ` — ${delivery.excludedProjects} in scope left out, outside ${delivery.recipientKind === 'user' ? 'their' : "the owner's"} access`
+            ? ` — ${
+                delivery.recipientKind === 'user'
+                  ? t('{count, number} in scope left out, outside their access', { count: delivery.excludedProjects })
+                  : t('{count, number} in scope left out, outside the owner\'s access', { count: delivery.excludedProjects })
+              }`
             : ''}
-          {delivery.attempts > 0 ? ` · ${delivery.attempts} ${delivery.attempts === 1 ? 'attempt' : 'attempts'}` : ''}
-          {delivery.sentAt ? ` · sent ${formatDateTime(delivery.sentAt)}` : ''}
+          {delivery.attempts > 0
+            ? ` · ${t('{count, plural, one {# attempt} other {# attempts}}', { count: delivery.attempts })}`
+            : ''}
+          {delivery.sentAt ? ` · ${t('sent {when}', { when: formatDateTime(delivery.sentAt) })}` : ''}
         </p>
       ) : (
         <p className="text-2xs text-muted-foreground">
-          {delivery.renderStatus === 'failed' ? 'Could not be made: ' : 'Not sent: '}
-          {delivery.reason ?? 'no reason recorded'}
+          {delivery.renderStatus === 'failed'
+            ? t('Could not be made: {reason}', { reason: delivery.reason ?? t('no reason recorded') })
+            : t('Not sent: {reason}', { reason: delivery.reason ?? t('no reason recorded') })}
         </p>
       )}
-      {delivery.lastError ? <p className="text-2xs text-danger">Last error: {delivery.lastError}</p> : null}
+      {delivery.lastError ? (
+        <p className="text-2xs text-danger">{t('Last error: {error}', { error: delivery.lastError })}</p>
+      ) : null}
       {delivery.artifacts.length > 0 ? (
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {delivery.artifacts.map((artifact) => (

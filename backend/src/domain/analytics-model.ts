@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
+import { message, msg } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import {
   costEntryPages,
@@ -36,7 +37,7 @@ import {
 } from './analytics-extract.js';
 import { automationUserId } from './automation-account.js';
 import { INSTANCE_ID, withLease } from './job-lease.js';
-import { notifyAnalyticsProblem } from './notifications.js';
+import { clauses, notifyAnalyticsProblem } from './notifications.js';
 
 /**
  * The analytics model: loading it, and knowing how far to trust it (BR-402).
@@ -855,21 +856,22 @@ async function modelCounts(): Promise<Record<string, number>> {
   return Object.fromEntries(Object.entries(row ?? {}).map(([key, value]) => [key, Number(value)]));
 }
 
+/** Also the words a reconciliation notice names each line by, in the reader's language. */
 const LABELS: Record<string, string> = {
-  statuses: 'Statuses',
-  types: 'Types',
-  priorities: 'Priorities',
-  projects: 'Projects',
-  portfolios: 'Portfolios',
-  departments: 'Departments',
-  teams: 'Teams',
-  users: 'People',
-  versions: 'Versions',
-  memberships: 'Project memberships',
-  work_packages: 'Work packages',
-  work_package_versions: 'Work package versions',
-  time_entries: 'Time entries',
-  cost_entries: 'Unit cost entries',
+  statuses: msg('Statuses'),
+  types: msg('Types'),
+  priorities: msg('Priorities'),
+  projects: msg('Projects'),
+  portfolios: msg('Portfolios'),
+  departments: msg('Departments'),
+  teams: msg('Teams'),
+  users: msg('People'),
+  versions: msg('Versions'),
+  memberships: msg('Project memberships'),
+  work_packages: msg('Work packages'),
+  work_package_versions: msg('Work package versions'),
+  time_entries: msg('Time entries'),
+  cost_entries: msg('Unit cost entries'),
 };
 
 /** How many rows of difference `source` may show and still reconcile. */
@@ -1099,8 +1101,11 @@ async function runRefresh(requested: RefreshKind, trigger: RefreshTrigger): Prom
       }).catch(() => null);
       appLog.warn({ err: error, kind, trigger }, 'Analytics model refresh failed');
       await notifyAnalyticsProblem({
-        title: 'Analytics refresh failed',
-        body: `The ${kind} refresh of the analytics model did not complete: ${messageOf(error).replace(/[.!?]*$/, '')}. Dashboards show the model as of the last refresh that did.`,
+        title: message('Analytics refresh failed'),
+        body: message(
+          'The {kind, select, full {full} other {incremental}} refresh of the analytics model did not complete: {reason}. Dashboards show the model as of the last refresh that did.',
+          { kind, reason: messageOf(error).replace(/[.!?]*$/, '') },
+        ),
         dedupeKey: `analytics-refresh-failed:${now.slice(0, 10)}:${kind}`,
       }).catch(() => undefined);
       return run;
@@ -1140,15 +1145,28 @@ async function reportProblems(run: RefreshRun): Promise<void> {
   const off = (run.reconciliation ?? []).filter((line) => !line.ok);
   if (off.length > 0) {
     await notifyAnalyticsProblem({
-      title: 'Analytics model did not reconcile',
-      body: `${off.map((line) => `${line.label}: ${line.model} in the model, ${line.source} at source`).join('; ')}. The next full refresh reloads everything.`,
+      title: message('Analytics model did not reconcile'),
+      body: message('{lines}. The next full refresh reloads everything.', {
+        lines: clauses(
+          off.map((line) =>
+            message('{label}: {model, number} in the model, {source, number} at source', {
+              label: line.label,
+              model: line.model,
+              source: line.source,
+            }),
+          ),
+        ),
+      }),
       dedupeKey: `analytics-reconcile:${day}`,
     }).catch(() => undefined);
   }
   if (run.withinWindow === false) {
     await notifyAnalyticsProblem({
-      title: 'Analytics refresh overran its window',
-      body: `The full refresh took ${Math.round((run.durationMs ?? 0) / 1000)} seconds, beyond the agreed ${env.EPM_ANALYTICS_REFRESH_WINDOW_MINUTES} minutes.`,
+      title: message('Analytics refresh overran its window'),
+      body: message(
+        'The full refresh took {seconds, plural, one {# second} other {# seconds}}, beyond the agreed {minutes, plural, one {# minute} other {# minutes}}.',
+        { seconds: Math.round((run.durationMs ?? 0) / 1000), minutes: env.EPM_ANALYTICS_REFRESH_WINDOW_MINUTES },
+      ),
       dedupeKey: `analytics-window:${day}`,
     }).catch(() => undefined);
   }

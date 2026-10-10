@@ -13,6 +13,7 @@ import type {
   TaskStatusCategory,
   TaskType,
 } from '@/types';
+import { t } from '@/lib/i18n';
 
 /**
  * A single source of truth for how state is expressed in the UI.
@@ -36,13 +37,14 @@ export interface StateMeta {
 /* Task status                                                                 */
 /* -------------------------------------------------------------------------- */
 
+// Labels are getters: they are read where they are shown, in the reader's language.
 export const TASK_STATUS_META: Record<TaskStatusCategory, StateMeta> = {
-  backlog: { label: 'Backlog', tone: 'neutral', description: 'Not yet scheduled' },
-  todo: { label: 'To Do', tone: 'primary', description: 'Scheduled, not started' },
-  in_progress: { label: 'In Progress', tone: 'accent', description: 'Actively being worked on' },
-  review: { label: 'Review', tone: 'highlight', description: 'Awaiting review or approval' },
-  done: { label: 'Done', tone: 'success', description: 'Completed' },
-  blocked: { label: 'Blocked', tone: 'danger', description: 'Blocked by a dependency' },
+  backlog: { get label() { return t('Backlog'); }, tone: 'neutral', get description() { return t('Not yet scheduled'); } },
+  todo: { get label() { return t('To Do'); }, tone: 'primary', get description() { return t('Scheduled, not started'); } },
+  in_progress: { get label() { return t('In Progress'); }, tone: 'accent', get description() { return t('Actively being worked on'); } },
+  review: { get label() { return t('Review'); }, tone: 'highlight', get description() { return t('Awaiting review or approval'); } },
+  done: { get label() { return t('Done'); }, tone: 'success', get description() { return t('Completed'); } },
+  blocked: { get label() { return t('Blocked'); }, tone: 'danger', get description() { return t('Blocked by a dependency'); } },
 };
 
 /** Column order used by the board, filters and status distribution charts. */
@@ -61,10 +63,10 @@ export const ALL_TASK_STATUSES: TaskStatusCategory[] = [...TASK_STATUS_ORDER, 'b
 /* -------------------------------------------------------------------------- */
 
 export const TASK_PRIORITY_META: Record<TaskPriority, StateMeta & { rank: number }> = {
-  critical: { label: 'Critical', tone: 'danger', rank: 0, description: 'Needs immediate attention' },
-  high: { label: 'High', tone: 'warning', rank: 1, description: 'Elevated priority' },
-  medium: { label: 'Medium', tone: 'primary', rank: 2, description: 'Standard priority' },
-  low: { label: 'Low', tone: 'neutral', rank: 3, description: 'Can be deferred' },
+  critical: { get label() { return t('Critical'); }, tone: 'danger', rank: 0, get description() { return t('Needs immediate attention'); } },
+  high: { get label() { return t('High'); }, tone: 'warning', rank: 1, get description() { return t('Elevated priority'); } },
+  medium: { get label() { return t('Medium'); }, tone: 'primary', rank: 2, get description() { return t('Standard priority'); } },
+  low: { get label() { return t('Low'); }, tone: 'neutral', rank: 3, get description() { return t('Can be deferred'); } },
 };
 
 export const ALL_TASK_PRIORITIES: TaskPriority[] = ['critical', 'high', 'medium', 'low'];
@@ -74,12 +76,12 @@ export const ALL_TASK_PRIORITIES: TaskPriority[] = ['critical', 'high', 'medium'
 /* -------------------------------------------------------------------------- */
 
 export const TASK_TYPE_META: Record<TaskType, StateMeta> = {
-  task: { label: 'Task', tone: 'primary' },
-  bug: { label: 'Bug', tone: 'danger' },
-  feature: { label: 'Feature', tone: 'accent' },
-  epic: { label: 'Epic', tone: 'highlight' },
-  milestone: { label: 'Milestone', tone: 'warning' },
-  support: { label: 'Support', tone: 'neutral' },
+  task: { get label() { return t('Task'); }, tone: 'primary' },
+  bug: { get label() { return t('Bug'); }, tone: 'danger' },
+  feature: { get label() { return t('Feature'); }, tone: 'accent' },
+  epic: { get label() { return t('Epic'); }, tone: 'highlight' },
+  milestone: { get label() { return t('Milestone'); }, tone: 'warning' },
+  support: { get label() { return t('Support'); }, tone: 'neutral' },
 };
 
 export const ALL_TASK_TYPES: TaskType[] = ['task', 'feature', 'bug', 'epic', 'milestone', 'support'];
@@ -89,11 +91,11 @@ export const ALL_TASK_TYPES: TaskType[] = ['task', 'feature', 'bug', 'epic', 'mi
 /* -------------------------------------------------------------------------- */
 
 export const PROJECT_STATUS_META: Record<ProjectStatus, StateMeta> = {
-  on_track: { label: 'On Track', tone: 'success', description: 'Delivery is on plan' },
-  at_risk: { label: 'At Risk', tone: 'warning', description: 'Schedule or scope pressure' },
-  delayed: { label: 'Delayed', tone: 'danger', description: 'Behind the committed plan' },
-  completed: { label: 'Completed', tone: 'primary', description: 'Delivered and closed' },
-  paused: { label: 'Paused', tone: 'neutral', description: 'Temporarily on hold' },
+  on_track: { get label() { return t('On Track'); }, tone: 'success', get description() { return t('Delivery is on plan'); } },
+  at_risk: { get label() { return t('At Risk'); }, tone: 'warning', get description() { return t('Schedule or scope pressure'); } },
+  delayed: { get label() { return t('Delayed'); }, tone: 'danger', get description() { return t('Behind the committed plan'); } },
+  completed: { get label() { return t('Completed'); }, tone: 'primary', get description() { return t('Delivered and closed'); } },
+  paused: { get label() { return t('Paused'); }, tone: 'neutral', get description() { return t('Temporarily on hold'); } },
 };
 
 export const ALL_PROJECT_STATUSES: ProjectStatus[] = [
@@ -105,9 +107,9 @@ export const ALL_PROJECT_STATUSES: ProjectStatus[] = [
 ];
 
 export const HEALTH_META: Record<HealthLevel, StateMeta> = {
-  healthy: { label: 'Healthy', tone: 'success' },
-  warning: { label: 'Warning', tone: 'warning' },
-  critical: { label: 'Critical', tone: 'danger' },
+  healthy: { get label() { return t('Healthy'); }, tone: 'success' },
+  warning: { get label() { return t('Warning'); }, tone: 'warning' },
+  critical: { get label() { return t('Critical'); }, tone: 'danger' },
 };
 
 /**
@@ -116,9 +118,13 @@ export const HEALTH_META: Record<HealthLevel, StateMeta> = {
  * project with no budget used to read as on budget.
  */
 export const HEALTH_NOT_ASSESSED: StateMeta = {
-  label: 'Not assessed',
+  get label() {
+    return t('Not assessed');
+  },
   tone: 'neutral',
-  description: 'There is nothing to measure this against yet.',
+  get description() {
+    return t('There is nothing to measure this against yet.');
+  },
 };
 
 /** The health criteria (BR-204), in the order they are shown everywhere. */
@@ -131,31 +137,31 @@ export const HEALTH_CRITERIA_META: {
 }[] = [
   {
     key: 'schedule',
-    label: 'Schedule variance',
-    short: 'Schedule',
+    get label() { return t('Schedule variance'); },
+    get short() { return t('Schedule'); },
     unit: 'days',
-    hint: 'Days the forecast finish is past the planned finish.',
+    get hint() { return t('Days the forecast finish is past the planned finish.'); },
   },
   {
     key: 'budget',
-    label: 'Budget variance',
-    short: 'Budget',
+    get label() { return t('Budget variance'); },
+    get short() { return t('Budget'); },
     unit: 'percent',
-    hint: 'Spend ahead of the budget planned to date, as a share of the budget.',
+    get hint() { return t('Spend ahead of the budget planned to date, as a share of the budget.'); },
   },
   {
     key: 'risks',
-    label: 'Open high risks',
-    short: 'Risks',
+    get label() { return t('Open high risks'); },
+    get short() { return t('Risks'); },
     unit: 'count',
-    hint: 'Open risks at high priority.',
+    get hint() { return t('Open risks at high priority.'); },
   },
   {
     key: 'overdue',
-    label: 'Overdue items',
-    short: 'Overdue',
+    get label() { return t('Overdue items'); },
+    get short() { return t('Overdue'); },
     unit: 'count',
-    hint: 'Open work packages past their due date.',
+    get hint() { return t('Open work packages past their due date.'); },
   },
 ];
 
@@ -163,16 +169,22 @@ export const HEALTH_CRITERIA_META: {
 export function formatHealthValue(value: number | null, unit: HealthUnit): string {
   if (value === null) return '—';
   const sign = unit !== 'count' && value > 0 ? '+' : '';
-  if (unit === 'days') return `${sign}${value} ${Math.abs(value) === 1 ? 'day' : 'days'}`;
+  if (unit === 'days') return `${sign}${t('{days, plural, one {# day} other {# days}}', { days: value })}`;
   if (unit === 'percent') return `${sign}${value}%`;
   return String(value);
 }
 
 /** Compact word used inside the portfolio matrix. */
 export const HEALTH_MATRIX_LABEL: Record<HealthLevel, string> = {
-  healthy: 'Good',
-  warning: 'Risk',
-  critical: 'Critical',
+  get healthy() {
+    return t('Good');
+  },
+  get warning() {
+    return t('Risk');
+  },
+  get critical() {
+    return t('Critical');
+  },
 };
 
 /* -------------------------------------------------------------------------- */
@@ -180,23 +192,24 @@ export const HEALTH_MATRIX_LABEL: Record<HealthLevel, string> = {
 /* -------------------------------------------------------------------------- */
 
 export const SPRINT_STATE_META: Record<SprintState, StateMeta> = {
-  planned: { label: 'Planned', tone: 'neutral' },
-  active: { label: 'Active', tone: 'accent' },
-  completed: { label: 'Completed', tone: 'success' },
+  planned: { get label() { return t('Planned'); }, tone: 'neutral' },
+  active: { get label() { return t('Active'); }, tone: 'accent' },
+  completed: { get label() { return t('Completed'); }, tone: 'success' },
 };
 
 /* -------------------------------------------------------------------------- */
 /* Activity and notifications                                                  */
 /* -------------------------------------------------------------------------- */
 
+/** The verb between the person and the thing, in "Sara created Payroll export". */
 export const ACTIVITY_ACTION_LABEL: Record<ActivityAction, string> = {
-  created: 'created',
-  updated: 'updated',
-  commented: 'commented on',
-  completed: 'completed',
-  assigned: 'assigned',
-  status_changed: 'changed the status of',
-  uploaded: 'uploaded',
+  get created() { return t('created'); },
+  get updated() { return t('updated'); },
+  get commented() { return t('commented on'); },
+  get completed() { return t('completed'); },
+  get assigned() { return t('assigned'); },
+  get status_changed() { return t('changed the status of'); },
+  get uploaded() { return t('uploaded'); },
 };
 
 export const ACTIVITY_ACTION_TONE: Record<ActivityAction, Tone> = {
@@ -210,11 +223,11 @@ export const ACTIVITY_ACTION_TONE: Record<ActivityAction, Tone> = {
 };
 
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, StateMeta> = {
-  mention: { label: 'Mention', tone: 'highlight' },
-  assignment: { label: 'Assignment', tone: 'primary' },
-  project_update: { label: 'Project Update', tone: 'accent' },
-  deadline: { label: 'Deadline', tone: 'warning' },
-  system: { label: 'System', tone: 'neutral' },
+  mention: { get label() { return t('Mention'); }, tone: 'highlight' },
+  assignment: { get label() { return t('Assignment'); }, tone: 'primary' },
+  project_update: { get label() { return t('Project Update'); }, tone: 'accent' },
+  deadline: { get label() { return t('Deadline'); }, tone: 'warning' },
+  system: { get label() { return t('System'); }, tone: 'neutral' },
 };
 
 /**
@@ -226,15 +239,15 @@ export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, StateMeta>
  * empty rather than leaving the two describing different things.
  */
 export const NOTIFICATION_REASON_META: Record<NotificationReason, StateMeta> = {
-  mentioned: { label: 'Mentioned', tone: 'highlight' },
-  assignee: { label: 'Assignee', tone: 'primary' },
-  accountable: { label: 'Accountable', tone: 'primary' },
-  watcher: { label: 'Watcher', tone: 'accent' },
-  dateAlert: { label: 'Date alert', tone: 'warning' },
-  reminder: { label: 'Reminder', tone: 'warning' },
-  shared: { label: 'Shared', tone: 'highlight' },
-  commented: { label: 'Activity', tone: 'accent' },
-  epm: { label: 'Project update', tone: 'neutral' },
+  mentioned: { get label() { return t('Mentioned'); }, tone: 'highlight' },
+  assignee: { get label() { return t('Assignee'); }, tone: 'primary' },
+  accountable: { get label() { return t('Accountable'); }, tone: 'primary' },
+  watcher: { get label() { return t('Watcher'); }, tone: 'accent' },
+  dateAlert: { get label() { return t('Date alert'); }, tone: 'warning' },
+  reminder: { get label() { return t('Reminder'); }, tone: 'warning' },
+  shared: { get label() { return t('Shared'); }, tone: 'highlight' },
+  commented: { get label() { return t('Activity'); }, tone: 'accent' },
+  epm: { get label() { return t('Project update'); }, tone: 'neutral' },
 };
 
 /* -------------------------------------------------------------------------- */
@@ -242,19 +255,20 @@ export const NOTIFICATION_REASON_META: Record<NotificationReason, StateMeta> = {
 /* -------------------------------------------------------------------------- */
 
 export const DOCUMENT_KIND_META: Record<DocumentKind, StateMeta & { extension: string }> = {
+  // PDF and Markdown are format names, the same in every language.
   pdf: { label: 'PDF', tone: 'danger', extension: 'pdf' },
-  doc: { label: 'Document', tone: 'primary', extension: 'docx' },
-  sheet: { label: 'Spreadsheet', tone: 'success', extension: 'xlsx' },
-  slide: { label: 'Presentation', tone: 'warning', extension: 'pptx' },
-  image: { label: 'Image', tone: 'highlight', extension: 'png' },
-  archive: { label: 'Archive', tone: 'neutral', extension: 'zip' },
+  doc: { get label() { return t('Document'); }, tone: 'primary', extension: 'docx' },
+  sheet: { get label() { return t('Spreadsheet'); }, tone: 'success', extension: 'xlsx' },
+  slide: { get label() { return t('Presentation'); }, tone: 'warning', extension: 'pptx' },
+  image: { get label() { return t('Image'); }, tone: 'highlight', extension: 'png' },
+  archive: { get label() { return t('Archive'); }, tone: 'neutral', extension: 'zip' },
   markdown: { label: 'Markdown', tone: 'accent', extension: 'md' },
 };
 
 export const CONNECTION_STATE_META: Record<ConnectionState, StateMeta> = {
-  connected: { label: 'Connected', tone: 'success' },
-  degraded: { label: 'Degraded', tone: 'warning' },
-  disconnected: { label: 'Disconnected', tone: 'danger' },
+  connected: { get label() { return t('Connected'); }, tone: 'success' },
+  degraded: { get label() { return t('Degraded'); }, tone: 'warning' },
+  disconnected: { get label() { return t('Disconnected'); }, tone: 'danger' },
 };
 
 /* -------------------------------------------------------------------------- */

@@ -106,13 +106,15 @@ export default {
         // Poppins is the brand voice and takes headings, nav, buttons and
         // figures. Inter stays on body and data: the app renders a lot of
         // 11-12px text where Poppins' wide geometric forms lose legibility.
-        display: ['Poppins', 'Inter var', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        sans: ['Inter var', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        // IBM Plex Sans Arabic follows the Latin faces everywhere: it only ever
+        // draws the Arabic characters, which none of the Latin faces have.
+        display: ['Poppins', 'Inter var', 'Inter', 'IBM Plex Sans Arabic', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Inter var', 'Inter', 'IBM Plex Sans Arabic', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'IBM Plex Sans Arabic', 'monospace'],
         // Landing page only. Instrument Serif carries the editorial headlines
         // on "/" — its italic is the one voice in the identity that reads as
         // considered rather than corporate. It never appears inside the app.
-        serif: ['Instrument Serif', 'ui-serif', 'Georgia', 'serif'],
+        serif: ['Instrument Serif', 'ui-serif', 'Georgia', 'IBM Plex Sans Arabic', 'serif'],
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem', letterSpacing: '0.01em' }],

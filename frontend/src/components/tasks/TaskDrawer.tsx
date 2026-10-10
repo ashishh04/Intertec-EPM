@@ -32,6 +32,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useProjectAssignees, useProjectTypes } from '@/hooks/useCatalog';
 import { useSprints } from '@/hooks/useSprints';
 import { useCreateTask, useTasks } from '@/hooks/useTasks';
+import { msg, t } from '@/lib/i18n';
 import type { CreateTaskInput, TaskPriority, TaskStatusCategory } from '@/types';
 
 const NONE = '__none__';
@@ -41,15 +42,15 @@ const schema = z
     subject: z
       .string()
       .trim()
-      .min(4, 'Give the task a title of at least 4 characters.')
-      .max(140, 'Keep the title under 140 characters.'),
-    description: z.string().max(4000, 'Description is too long.').optional(),
+      .min(4, msg('Give the task a title of at least 4 characters.'))
+      .max(140, msg('Keep the title under 140 characters.')),
+    description: z.string().max(4000, msg('Description is too long.')).optional(),
     // A native OpenProject type id, not an EPM category: only the project
     // knows which types it enables.
-    typeId: z.string().min(1, 'Select a work package type.'),
-    status: z.string().min(1, 'Select a status.'),
-    priority: z.string().min(1, 'Select a priority.'),
-    projectId: z.string().min(1, 'Select the project this work belongs to.'),
+    typeId: z.string().min(1, msg('Select a work package type.')),
+    status: z.string().min(1, msg('Select a status.')),
+    priority: z.string().min(1, msg('Select a priority.')),
+    projectId: z.string().min(1, msg('Select the project this work belongs to.')),
     assigneeId: z.string().optional(),
     parentId: z.string().optional(),
     sprintId: z.string().optional(),
@@ -59,14 +60,14 @@ const schema = z
       .string()
       .optional()
       .refine((value) => !value || (Number(value) > 0 && Number(value) <= 400), {
-        message: 'Estimate must be between 0 and 400 hours.',
+        message: msg('Estimate must be between 0 and 400 hours.'),
       }),
     storyPoints: z.string().optional(),
     labels: z.string().optional(),
   })
   .refine(
     (values) => !values.startDate || !values.dueDate || values.startDate <= values.dueDate,
-    { message: 'The due date must be on or after the start date.', path: ['dueDate'] },
+    { message: msg('The due date must be on or after the start date.'), path: ['dueDate'] },
   );
 
 type FormValues = z.infer<typeof schema>;
@@ -200,11 +201,11 @@ export function TaskDrawer() {
 
     try {
       const created = await createTask.mutateAsync(input);
-      toast.success('Task created successfully', { description: `${created.key} · ${created.subject}` });
+      toast.success(t('Task created successfully'), { description: `${created.key} · ${created.subject}` });
       closeTaskDrawer();
     } catch (error) {
-      toast.error('Unable to create the task', {
-        description: error instanceof Error ? error.message : 'Please try again.',
+      toast.error(t('Unable to create the task'), {
+        description: error instanceof Error ? error.message : t('Please try again.'),
       });
     }
   });
@@ -216,56 +217,56 @@ export function TaskDrawer() {
           dialog. A drawer also fought the page underneath for attention. */}
       <DialogContent className="sm:max-w-[40rem]">
         <DialogHeader>
-          <DialogTitle>Create task</DialogTitle>
+          <DialogTitle>{t('Create task')}</DialogTitle>
           <DialogDescription>
-            New work packages are created through the EPM backend.
+            {t('New work packages are created through the EPM backend.')}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="epm-dialog-body epm-scroll -mr-1 space-y-3 py-1 pr-2">
+          <div className="epm-dialog-body epm-scroll -me-1 space-y-3 py-1 pe-2">
             <div className="space-y-1.5">
               <Label htmlFor="task-subject" required>
-                Title
+                {t('Title')}
               </Label>
               <Input
                 id="task-subject"
                 autoFocus
-                placeholder="Implement Redis caching layer"
+                placeholder={t('Implement Redis caching layer')}
                 invalid={Boolean(errors.subject)}
                 aria-describedby="task-subject-hint"
                 {...register('subject')}
               />
               {errors.subject ? (
-                <FieldError>{errors.subject.message}</FieldError>
+                <FieldError>{t(errors.subject.message ?? '')}</FieldError>
               ) : (
                 <FieldHint id="task-subject-hint">
-                  Describe the outcome, not the activity.
+                  {t('Describe the outcome, not the activity.')}
                 </FieldHint>
               )}
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="task-description">Description</Label>
+              <Label htmlFor="task-description">{t('Description')}</Label>
               <Textarea
                 id="task-description"
                 rows={3}
-                placeholder="Acceptance criteria, links and context for whoever picks this up."
+                placeholder={t('Acceptance criteria, links and context for whoever picks this up.')}
                 invalid={Boolean(errors.description)}
                 {...register('description')}
               />
-              {errors.description ? <FieldError>{errors.description.message}</FieldError> : null}
+              {errors.description ? <FieldError>{t(errors.description.message ?? '')}</FieldError> : null}
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <FormSelect
                 id="task-project"
-                label="Project"
+                label={t('Project')}
                 required
                 value={watch('projectId')}
                 onChange={(value) => setValue('projectId', value, { shouldValidate: true })}
                 error={errors.projectId?.message}
-                placeholder="Select a project"
+                placeholder={t('Select a project')}
                 options={(projects ?? []).map((project) => ({
                   value: project.id,
                   label: project.name,
@@ -274,12 +275,12 @@ export function TaskDrawer() {
 
               <FormSelect
                 id="task-type"
-                label="Type"
+                label={t('Type')}
                 required
                 value={watch('typeId')}
                 onChange={(value) => setValue('typeId', value, { shouldValidate: true })}
                 error={errors.typeId?.message}
-                placeholder={projectId ? 'Select a type' : 'Select a project first'}
+                placeholder={projectId ? t('Select a type') : t('Select a project first')}
                 options={(projectTypes ?? []).map((type) => ({
                   value: type.id,
                   label: type.name,
@@ -288,7 +289,7 @@ export function TaskDrawer() {
 
               <FormSelect
                 id="task-status"
-                label="Status"
+                label={t('Status')}
                 required
                 value={watch('status')}
                 onChange={(value) => setValue('status', value, { shouldValidate: true })}
@@ -301,7 +302,7 @@ export function TaskDrawer() {
 
               <FormSelect
                 id="task-priority"
-                label="Priority"
+                label={t('Priority')}
                 required
                 value={watch('priority')}
                 onChange={(value) => setValue('priority', value, { shouldValidate: true })}
@@ -314,12 +315,12 @@ export function TaskDrawer() {
 
               <FormSelect
                 id="task-assignee"
-                label="Assignee"
+                label={t('Assignee')}
                 value={watch('assigneeId') ?? NONE}
                 onChange={(value) => setValue('assigneeId', value)}
-                hint={projectId ? undefined : 'Select a project first.'}
+                hint={projectId ? undefined : t('Select a project first.')}
                 options={[
-                  { value: NONE, label: 'Unassigned' },
+                  { value: NONE, label: t('Unassigned') },
                   ...(assignees ?? []).map((person) => ({
                     value: person.id,
                     label: person.name,
@@ -329,23 +330,23 @@ export function TaskDrawer() {
 
               <FormSelect
                 id="task-sprint"
-                label="Sprint"
+                label={t('Sprint')}
                 value={watch('sprintId') ?? NONE}
                 onChange={(value) => setValue('sprintId', value)}
                 options={[
-                  { value: NONE, label: 'Backlog' },
+                  { value: NONE, label: t('Backlog') },
                   ...(sprints ?? []).map((sprint) => ({ value: sprint.id, label: sprint.name })),
                 ]}
               />
 
               <FormSelect
                 id="task-parent"
-                label="Parent task"
+                label={t('Parent task')}
                 value={watch('parentId') ?? NONE}
-                hint="Optional. Groups this item under an epic or parent."
+                hint={t('Optional. Groups this item under an epic or parent.')}
                 onChange={(value) => setValue('parentId', value)}
                 options={[
-                  { value: NONE, label: 'None' },
+                  { value: NONE, label: t('None') },
                   ...(parentCandidates?.items ?? []).map((task) => ({
                     value: task.id,
                     label: `${task.key} · ${task.subject}`,
@@ -354,7 +355,7 @@ export function TaskDrawer() {
               />
 
               <div className="space-y-1.5">
-                <Label htmlFor="task-points">Story points</Label>
+                <Label htmlFor="task-points">{t('Story points')}</Label>
                 <Input
                   id="task-points"
                   type="number"
@@ -363,27 +364,27 @@ export function TaskDrawer() {
                   placeholder="5"
                   {...register('storyPoints')}
                 />
-                <FieldHint>Used by sprint velocity reporting.</FieldHint>
+                <FieldHint>{t('Used by sprint velocity reporting.')}</FieldHint>
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="task-start">Start date</Label>
+                <Label htmlFor="task-start">{t('Start date')}</Label>
                 <Input id="task-start" type="date" {...register('startDate')} />
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="task-due">Due date</Label>
+                <Label htmlFor="task-due">{t('Due date')}</Label>
                 <Input
                   id="task-due"
                   type="date"
                   invalid={Boolean(errors.dueDate)}
                   {...register('dueDate')}
                 />
-                {errors.dueDate ? <FieldError>{errors.dueDate.message}</FieldError> : null}
+                {errors.dueDate ? <FieldError>{t(errors.dueDate.message ?? '')}</FieldError> : null}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="task-estimate">Estimated hours</Label>
+                <Label htmlFor="task-estimate">{t('Estimated hours')}</Label>
                 <Input
                   id="task-estimate"
                   type="number"
@@ -394,24 +395,24 @@ export function TaskDrawer() {
                   {...register('estimatedHours')}
                 />
                 {errors.estimatedHours ? (
-                  <FieldError>{errors.estimatedHours.message}</FieldError>
+                  <FieldError>{t(errors.estimatedHours.message ?? '')}</FieldError>
                 ) : null}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="task-labels">Labels</Label>
-                <Input id="task-labels" placeholder="backend, performance" {...register('labels')} />
-                <FieldHint>Comma separated.</FieldHint>
+                <Label htmlFor="task-labels">{t('Labels')}</Label>
+                <Input id="task-labels" placeholder={t('backend, performance')} {...register('labels')} />
+                <FieldHint>{t('Comma separated.')}</FieldHint>
               </div>
             </div>
           </div>
 
           <DialogFooter className="pt-4">
             <Button type="button" variant="ghost" onClick={closeTaskDrawer}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={isSubmitting || createTask.isPending}>
-              Create Task
+              {t('Create Task')}
             </Button>
           </DialogFooter>
         </form>
@@ -451,7 +452,7 @@ function FormSelect({
       </Label>
       <Select value={value || undefined} onValueChange={onChange}>
         <SelectTrigger id={id} invalid={Boolean(error)}>
-          <SelectValue placeholder={placeholder ?? `Select ${label.toLowerCase()}`} />
+          <SelectValue placeholder={placeholder ?? t('Select {label}', { label: label.toLowerCase() })} />
         </SelectTrigger>
         <SelectContent className="max-h-64">
           {options.map((option) => (
@@ -461,7 +462,7 @@ function FormSelect({
           ))}
         </SelectContent>
       </Select>
-      {error ? <FieldError>{error}</FieldError> : hint ? <FieldHint>{hint}</FieldHint> : null}
+      {error ? <FieldError>{t(error)}</FieldError> : hint ? <FieldHint>{hint}</FieldHint> : null}
     </div>
   );
 }

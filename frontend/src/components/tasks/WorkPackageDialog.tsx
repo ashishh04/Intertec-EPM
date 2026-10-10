@@ -25,6 +25,7 @@ import { useSchemaForm } from '@/hooks/useSchemaForm';
 import { useProjects } from '@/hooks/useProjects';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { formService, workPackageService } from '@/services';
+import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -90,10 +91,10 @@ export function WorkPackageDialog({
 
       if (isEdit) {
         await workPackageService.update(workPackageId!, payload);
-        toast.success('Work package updated');
+        toast.success(t('Work package updated'));
       } else {
         await workPackageService.create(projectId!, payload, typeId || undefined);
-        toast.success('Work package created');
+        toast.success(t('Work package created'));
       }
 
       for (const key of invalidationGroups.taskWrite) {
@@ -101,7 +102,7 @@ export function WorkPackageDialog({
       }
       onOpenChange(false);
     } catch (error) {
-      toast.error(isEdit ? 'Could not update work package' : 'Could not create work package', {
+      toast.error(isEdit ? t('Could not update work package') : t('Could not create work package'), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -116,24 +117,24 @@ export function WorkPackageDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit work package' : 'New work package'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Edit work package') : t('New work package')}</DialogTitle>
           <DialogDescription>
-            Every field configured for this workspace, including custom fields.
+            {t('Every field configured for this workspace, including custom fields.')}
           </DialogDescription>
         </DialogHeader>
 
         {/* Scrolls, so the actions stay pinned however many fields the
             instance has configured on this type. */}
-        <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 pr-2">
+        <div className="epm-dialog-body epm-scroll -me-1 space-y-4 pe-2">
           {!isEdit ? (
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="wp-project" required>
-                  Project
+                  {t('Project')}
                 </Label>
                 <Select value={projectId ?? ''} onValueChange={(value) => setProjectId(value)}>
                   <SelectTrigger id="wp-project">
-                    <SelectValue placeholder="Select a project" />
+                    <SelectValue placeholder={t('Select a project')} />
                   </SelectTrigger>
                   <SelectContent>
                     {projects.map((project) => (
@@ -148,11 +149,11 @@ export function WorkPackageDialog({
               {projectId ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="wp-type" required>
-                    Type
+                    {t('Type')}
                   </Label>
                   <Select value={typeId ?? ''} onValueChange={setTypeId}>
                     <SelectTrigger id="wp-type">
-                      <SelectValue placeholder="Select a type" />
+                      <SelectValue placeholder={t('Select a type')} />
                     </SelectTrigger>
                     <SelectContent>
                       {types.map((type) => (
@@ -192,7 +193,7 @@ export function WorkPackageDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isSaving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             onClick={save}
@@ -201,7 +202,7 @@ export function WorkPackageDialog({
             // invalid, which is a better gate than anything computed here.
             disabled={!form.canSubmit || isSaving}
           >
-            {isEdit ? 'Save changes' : 'Create'}
+            {isEdit ? t('Save changes') : t('Create')}
           </Button>
         </DialogFooter>
       </DialogContent>

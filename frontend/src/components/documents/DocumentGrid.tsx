@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { DOCUMENT_KIND_META, TONE_SOFT } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { cn, formatBytes, formatRelative, truncate } from '@/lib/utils';
 import type { DocumentKind, ID, EpmDocument, EpmProject, EpmUser } from '@/types';
 
@@ -99,20 +100,21 @@ export function PaginatedDocumentGrid({
           onPageChange={paged.setPage}
           onPageSizeChange={paged.setPageSize}
           pageSizeOptions={[9, 18, 36]}
-          itemLabel="document"
+          itemLabel={t('document')}
+          itemLabelPlural={t('documents')}
         />
       </Card>
 
       <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete this document?"
+        title={t('Delete this document?')}
         description={
           deleting
-            ? `"${deleting.name}" will be removed from the library and the file itself deleted. This cannot be undone.`
+            ? t('"{name}" will be removed from the library and the file itself deleted. This cannot be undone.', { name: deleting.name })
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() => {
@@ -120,11 +122,11 @@ export function PaginatedDocumentGrid({
           const { name, id } = deleting;
           remove.mutate(id, {
             onSuccess: () => {
-              toast.success('Document deleted', { description: name });
+              toast.success(t('Document deleted'), { description: name });
               setDeleting(null);
             },
             onError: (error) =>
-              toast.error('That document could not be deleted', {
+              toast.error(t('That document could not be deleted'), {
                 description: error instanceof Error ? error.message : undefined,
               }),
           });
@@ -148,8 +150,8 @@ export function DocumentGrid({
       <Card className={className}>
         <EmptyState
           icon={FileText}
-          title="No documents"
-          description="Upload a file or adjust the filters to see documents here."
+          title={t('No documents')}
+          description={t('Upload a file or adjust the filters to see documents here.')}
         />
       </Card>
     );
@@ -182,11 +184,11 @@ export function DocumentGrid({
               whileHover={{ y: -2 }}
               transition={{ duration: 0.16 }}
               className={cn(
-                'flex w-full items-start gap-3 rounded-lg border border-border bg-surface p-3.5 text-left text-foreground transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                'flex w-full items-start gap-3 rounded-lg border border-border bg-surface p-3.5 text-start text-foreground transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                 // Room for the control in the corner, reserved rather than
                 // claimed on hover: a tile that reflows under the pointer is
                 // how a reader clicks the wrong thing.
-                deletable && 'pr-11',
+                deletable && 'pe-11',
               )}
             >
               <span
@@ -200,14 +202,14 @@ export function DocumentGrid({
               </span>
 
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium text-foreground">
+                <span dir="auto" className="block truncate text-xs font-medium text-foreground">
                   {truncate(document.name, 46)}
                 </span>
                 <span className="mt-0.5 block truncate text-2xs text-muted-foreground">
                   {/* Which project this belongs to. A document with a project
                       the reader cannot see is still not in the workspace
                       library, so it says so rather than claiming otherwise. */}
-                  {project?.name ?? (document.projectId ? 'Another project' : 'Workspace library')}
+                  {project?.name ?? (document.projectId ? t('Another project') : t('Workspace library'))}
                 </span>
 
                 <span className="mt-2 flex items-center gap-2">
@@ -219,9 +221,9 @@ export function DocumentGrid({
                     {formatRelative(document.updatedAt)}
                   </span>
                   {document.shared ? (
-                    <Badge size="sm" tone="accent" className="ml-auto">
+                    <Badge size="sm" tone="accent" className="ms-auto">
                       <Share2 className="h-2.5 w-2.5" aria-hidden />
-                      Shared
+                      {t('Shared')}
                     </Badge>
                   ) : null}
                 </span>
@@ -236,8 +238,8 @@ export function DocumentGrid({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`Delete ${document.name}`}
-                className="absolute right-1.5 top-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger"
+                aria-label={t('Delete {name}', { name: document.name })}
+                className="absolute end-1.5 top-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger"
                 onClick={() => onDelete?.(document)}
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -276,9 +278,9 @@ export function DocumentUpload({
         <Upload className="h-4 w-4" />
       </span>
       <div>
-        <p className="text-xs font-medium">Upload a document</p>
+        <p className="text-xs font-medium">{t('Upload a document')}</p>
         <p className="mt-0.5 text-2xs text-muted-foreground">
-          Files are stored by the EPM backend and linked to the project.
+          {t('Files are stored by the EPM backend and linked to the project.')}
         </p>
       </div>
 
@@ -286,7 +288,7 @@ export function DocumentUpload({
         ref={inputRef}
         type="file"
         className="sr-only"
-        aria-label="Choose a file to upload"
+        aria-label={t('Choose a file to upload')}
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (!file) return;
@@ -298,7 +300,7 @@ export function DocumentUpload({
       />
 
       <Button size="sm" variant="secondary" loading={pending} onClick={() => inputRef.current?.click()}>
-        Choose file
+        {t('Choose file')}
       </Button>
     </div>
   );

@@ -5,6 +5,7 @@ import { ListToolbar } from '@/components/common/ListToolbar';
 import { PageHeader } from '@/components/common/PageHeader';
 import { MeetingList } from '@/components/meetings/MeetingList';
 import { useProjects } from '@/hooks/useProjects';
+import { t } from '@/lib/i18n';
 
 /**
  * Meetings across everything this person can see.
@@ -31,20 +32,20 @@ export default function MeetingsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Meetings"
-        description="Agendas before, minutes after, and who was actually there."
+        title={t('Meetings')}
+        description={t('Agendas before, minutes after, and who was actually there.')}
       />
 
       <ListToolbar>
         <div className="w-64">
           <ComboSelect
-            label="Project"
+            label={t('Project')}
             options={projectOptions}
             value={projectId}
             clearable
             loading={projectsQuery.isLoading}
-            placeholder="Every project"
-            emptyLabel="No projects match"
+            placeholder={t('Every project')}
+            emptyLabel={t('No projects match')}
             onChange={setProjectId}
           />
         </div>

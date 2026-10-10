@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDeletePortfolioView, usePortfolioView, usePortfolioViewOverview, useSavePortfolioView } from '@/hooks/usePortfolioViews';
+import { t } from '@/lib/i18n';
 import { periodLabel } from '@/lib/report-periods';
 import { formatDateTime, formatRelative } from '@/lib/utils';
 
@@ -39,7 +40,7 @@ export default function PortfolioViewPage() {
       isError={view.isError}
       error={view.error}
       onRetry={() => view.refetch()}
-      errorTitle="This view is not available to you"
+      errorTitle={t('This view is not available to you')}
       skeleton={
         <div className="space-y-5">
           <Skeleton className="h-16 w-full" />
@@ -54,11 +55,11 @@ export default function PortfolioViewPage() {
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-            All portfolio views
+            {t('All portfolio views')}
           </Link>
 
           <PageHeader
-            eyebrow="Portfolio view"
+            eyebrow={t('Portfolio view')}
             title={view.data.name}
             description={view.data.description ?? describeSelection(view.data)}
             meta={
@@ -67,7 +68,9 @@ export default function PortfolioViewPage() {
                 {overview.data?.asOf ? (
                   <Badge tone="neutral" size="sm">
                     <Clock3 className="h-3 w-3" aria-hidden />
-                    <span title={formatDateTime(overview.data.asOf)}>Data {formatRelative(overview.data.asOf)}</span>
+                    <span title={formatDateTime(overview.data.asOf)}>
+                      {t('Data {when}', { when: formatRelative(overview.data.asOf) })}
+                    </span>
                   </Badge>
                 ) : null}
               </span>
@@ -79,9 +82,9 @@ export default function PortfolioViewPage() {
                   <>
                     <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                       <Pencil className="h-3.5 w-3.5" />
-                      Edit
+                      {t('Edit')}
                     </Button>
-                    <Button size="sm" variant="ghost" aria-label="Delete this view" onClick={() => setConfirming(true)}>
+                    <Button size="sm" variant="ghost" aria-label={t('Delete this view')} onClick={() => setConfirming(true)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </>
@@ -90,7 +93,7 @@ export default function PortfolioViewPage() {
             }
           />
           <p className="text-2xs text-muted-foreground">
-            {view.data.mine ? 'Your view' : `Shared by ${view.data.owner.name}`} · {describeSelection(view.data)}
+            {view.data.mine ? t('Your view') : t('Shared by {name}', { name: view.data.owner.name })} · {describeSelection(view.data)}
           </p>
 
           <QueryBoundary
@@ -98,7 +101,7 @@ export default function PortfolioViewPage() {
             isError={overview.isError}
             error={overview.error}
             onRetry={() => overview.refetch()}
-            errorTitle="Unable to build this view"
+            errorTitle={t('Unable to build this view')}
             skeleton={<Skeleton className="h-96 w-full" />}
           >
             {overview.data ? (
@@ -123,10 +126,10 @@ export default function PortfolioViewPage() {
                   { id: view.data!.id, input },
                   {
                     onSuccess: () => {
-                      toast.success('View saved');
+                      toast.success(t('View saved'));
                       setEditing(false);
                     },
-                    onError: (error) => toast.error('The view was not saved', { description: error instanceof Error ? error.message : undefined }),
+                    onError: (error) => toast.error(t('The view was not saved'), { description: error instanceof Error ? error.message : undefined }),
                   },
                 )
               }
@@ -135,18 +138,18 @@ export default function PortfolioViewPage() {
           <ConfirmDialog
             open={confirming}
             onOpenChange={setConfirming}
-            title={`Delete "${view.data.name}"?`}
-            description={view.data.visibility === 'private' ? 'Only you could see it.' : 'Everyone it is shared with loses it too.'}
-            confirmLabel="Delete"
+            title={t('Delete "{name}"?', { name: view.data.name })}
+            description={view.data.visibility === 'private' ? t('Only you could see it.') : t('Everyone it is shared with loses it too.')}
+            confirmLabel={t('Delete')}
             tone="danger"
             pending={remove.isPending}
             onConfirm={() =>
               remove.mutate(view.data!.id, {
                 onSuccess: () => {
-                  toast.success('View deleted');
+                  toast.success(t('View deleted'));
                   navigate('/portfolio-views');
                 },
-                onError: (error) => toast.error('It could not be deleted', { description: error instanceof Error ? error.message : undefined }),
+                onError: (error) => toast.error(t('It could not be deleted'), { description: error instanceof Error ? error.message : undefined }),
               })
             }
           />

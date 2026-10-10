@@ -31,6 +31,7 @@ import {
 import { useAuth } from '@/providers/AuthProvider';
 import { passwordRuleRows, passwordSatisfies } from '@/lib/password';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmBrowserSession } from '@/types';
 
 /**
@@ -54,13 +55,14 @@ export function SecuritySettings() {
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Policy</CardTitle>
-          <CardDescription>Set for the whole organisation, not per person.</CardDescription>
+          <CardTitle>{t('Policy')}</CardTitle>
+          <CardDescription>{t('Set for the whole organisation, not per person.')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 p-4">
           <Alert tone="neutral" icon={ShieldCheck}>
-            Authentication, authorisation and API credentials are handled entirely by the EPM
-            backend. No token or secret is ever stored in the browser.
+            {t(
+              'Authentication, authorisation and API credentials are handled entirely by the EPM backend. No token or secret is ever stored in the browser.',
+            )}
           </Alert>
 
           {/*
@@ -71,9 +73,9 @@ export function SecuritySettings() {
           */}
           <FactList
             facts={[
-              { label: 'Sign-in', value: "EPM's own form; the password is checked by OpenProject" },
-              { label: 'Password rules and lockout', value: "OpenProject's, as listed above" },
-              { label: 'API credentials', value: 'Server-side only' },
+              { label: t('Sign-in'), value: t('EPM\'s own form; the password is checked by OpenProject') },
+              { label: t('Password rules and lockout'), value: t('OpenProject\'s, as listed above') },
+              { label: t('API credentials'), value: t('Server-side only') },
             ]}
           />
         </CardContent>
@@ -110,19 +112,19 @@ function PasswordCard() {
     event.preventDefault();
     setProblem(undefined);
 
-    if (!strong) return setProblem('That password does not meet the requirements below.');
-    if (!matches) return setProblem('The two passwords do not match.');
+    if (!strong) return setProblem(t('That password does not meet the requirements below.'));
+    if (!matches) return setProblem(t('The two passwords do not match.'));
 
     setSaving(true);
     try {
       await changePassword(password);
-      toast.success('Password changed');
+      toast.success(t('Password changed'));
       setPassword('');
       setConfirmation('');
     } catch (error) {
       // The instance owns the rules and its refusal carries the reason — a
       // password found in a breach list, or one reused too recently.
-      setProblem(error instanceof Error ? error.message : 'That password was refused.');
+      setProblem(error instanceof Error ? error.message : t('That password was refused.'));
     } finally {
       setSaving(false);
     }
@@ -131,15 +133,15 @@ function PasswordCard() {
   return (
     <Card>
       <CardHeader variant="compact">
-        <CardTitle>Password</CardTitle>
-        <CardDescription>Change the password you sign in with.</CardDescription>
+        <CardTitle>{t('Password')}</CardTitle>
+        <CardDescription>{t('Change the password you sign in with.')}</CardDescription>
       </CardHeader>
       <CardContent className="p-4">
         <form onSubmit={submit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="security-password" required>
-                New password
+                {t('New password')}
               </Label>
               <div className="relative">
                 <Input
@@ -147,14 +149,14 @@ function PasswordCard() {
                   type={visible ? 'text' : 'password'}
                   autoComplete="new-password"
                   value={password}
-                  className="pr-9"
+                  className="pe-9"
                   onChange={(event) => setPassword(event.target.value)}
                 />
                 <button
                   type="button"
-                  aria-label={visible ? 'Hide password' : 'Show password'}
+                  aria-label={visible ? t('Hide password') : t('Show password')}
                   onClick={() => setVisible((shown) => !shown)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
                   {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                 </button>
@@ -163,7 +165,7 @@ function PasswordCard() {
 
             <div className="space-y-1.5">
               <Label htmlFor="security-confirm" required>
-                Confirm it
+                {t('Confirm it')}
               </Label>
               <Input
                 id="security-confirm"
@@ -174,9 +176,9 @@ function PasswordCard() {
                 onChange={(event) => setConfirmation(event.target.value)}
               />
               {confirmation.length > 0 && !matches ? (
-                <FieldError>These do not match.</FieldError>
+                <FieldError>{t('These do not match.')}</FieldError>
               ) : (
-                <FieldHint>Typed again, not pasted.</FieldHint>
+                <FieldHint>{t('Typed again, not pasted.')}</FieldHint>
               )}
             </div>
           </div>
@@ -200,7 +202,9 @@ function PasswordCard() {
 
           {policy && policy.minAdheredRules < policy.activeRules.length ? (
             <FieldHint>
-              Any {policy.minAdheredRules} of the character requirements is enough, plus the length.
+              {t('Any {count, number} of the character requirements is enough, plus the length.', {
+                count: policy.minAdheredRules,
+              })}
             </FieldHint>
           ) : null}
 
@@ -208,7 +212,7 @@ function PasswordCard() {
 
           <Button type="submit" loading={saving} disabled={!strong || !matches}>
             <KeyRound className="h-3.5 w-3.5" />
-            Change password
+            {t('Change password')}
           </Button>
         </form>
       </CardContent>
@@ -243,19 +247,19 @@ function SessionsCard() {
             <div className="flex items-center gap-2">
               {others.length > 0 ? (
                 <Button variant="secondary" size="sm" onClick={() => setConfirming(true)}>
-                  Sign out everywhere else
+                  {t('Sign out everywhere else')}
                 </Button>
               ) : null}
               <Button variant="ghost" size="sm" onClick={signOut}>
                 <LogOut className="h-3.5 w-3.5" />
-                Sign out
+                {t('Sign out')}
               </Button>
             </div>
           }
         >
-          <CardTitle>Active sessions</CardTitle>
+          <CardTitle>{t('Active sessions')}</CardTitle>
           <CardDescription>
-            Every browser currently signed in as you. Ending one takes effect immediately.
+            {t('Every browser currently signed in as you. Ending one takes effect immediately.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -264,7 +268,7 @@ function SessionsCard() {
             isError={sessions.isError}
             error={sessions.error}
             onRetry={() => sessions.refetch()}
-            errorTitle="Unable to load your sessions"
+            errorTitle={t('Unable to load your sessions')}
             skeleton={
               <div className="space-y-2 p-4">
                 {[0, 1].map((index) => (
@@ -281,9 +285,9 @@ function SessionsCard() {
                   pending={revoke.isPending}
                   onRevoke={() =>
                     revoke.mutate(session.id, {
-                      onSuccess: () => toast.success('That session was ended'),
+                      onSuccess: () => toast.success(t('That session was ended')),
                       onError: (error) =>
-                        toast.error('That session could not be ended', {
+                        toast.error(t('That session could not be ended'), {
                           description: error instanceof Error ? error.message : undefined,
                         }),
                     })
@@ -298,11 +302,12 @@ function SessionsCard() {
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Sign out everywhere else?"
-        description={`${others.length} other ${
-          others.length === 1 ? 'session' : 'sessions'
-        } will end immediately. This browser stays signed in.`}
-        confirmLabel="Sign out everywhere else"
+        title={t('Sign out everywhere else?')}
+        description={t(
+          '{count, plural, one {# other session will end immediately.} other {# other sessions will end immediately.}} This browser stays signed in.',
+          { count: others.length },
+        )}
+        confirmLabel={t('Sign out everywhere else')}
         tone="danger"
         pending={revokeOthers.isPending}
         onConfirm={() =>
@@ -310,13 +315,15 @@ function SessionsCard() {
             onSuccess: (result) => {
               toast.success(
                 result.revoked === 0
-                  ? 'There was nothing else to sign out'
-                  : `Ended ${result.revoked} other ${result.revoked === 1 ? 'session' : 'sessions'}`,
+                  ? t('There was nothing else to sign out')
+                  : t('{count, plural, one {Ended # other session} other {Ended # other sessions}}', {
+                      count: result.revoked,
+                    }),
               );
               setConfirming(false);
             },
             onError: (error) =>
-              toast.error('Those sessions could not be ended', {
+              toast.error(t('Those sessions could not be ended'), {
                 description: error instanceof Error ? error.message : undefined,
               }),
           })
@@ -344,13 +351,15 @@ function SessionRow({
             {session.device}
             {session.current ? (
               <Badge tone="success" size="sm" dot>
-                This browser
+                {t('This browser')}
               </Badge>
             ) : null}
           </p>
           <p className="text-2xs text-muted-foreground">
-            Last used {formatRelative(session.lastSeenAt)} &middot; signed in{' '}
-            {formatDateTime(session.createdAt)}
+            {t('Last used {lastUsed} · signed in {signedIn}', {
+              lastUsed: formatRelative(session.lastSeenAt),
+              signedIn: formatDateTime(session.createdAt),
+            })}
           </p>
           {/* The raw agent, for somebody who needs to be certain this is theirs.
               `title` rather than on screen: it is long and nobody reads it twice. */}
@@ -367,11 +376,11 @@ function SessionRow({
           variant="ghost"
           size="sm"
           disabled={pending}
-          aria-label={`End the session on ${session.device}`}
+          aria-label={t('End the session on {device}', { device: session.device })}
           onClick={onRevoke}
         >
           <Trash2 className="h-3.5 w-3.5" />
-          End
+          {t('End')}
         </Button>
       )}
     </li>

@@ -41,7 +41,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { downloadCsv } from '@/lib/csv';
 import { downloadXlsx } from '@/lib/xlsx';
-import { formatCurrency, formatHours, formatNumber, toISODateOnly } from '@/lib/utils';
+import { formatCurrency, formatHours, formatNumber, formatPercent, toISODateOnly } from '@/lib/utils';
+import { msg, t } from '@/lib/i18n';
 import type { TimeReportGrouping } from '@/types';
 
 /**
@@ -58,23 +59,23 @@ import type { TimeReportGrouping } from '@/types';
  */
 
 const GROUPINGS: { value: TimeReportGrouping; label: string }[] = [
-  { value: 'project', label: 'Project' },
-  { value: 'user', label: 'Person' },
-  { value: 'activity', label: 'Activity' },
-  { value: 'workPackage', label: 'Task' },
-  { value: 'week', label: 'Week' },
-  { value: 'day', label: 'Day' },
+  { value: 'project', get label() { return t('Project'); } },
+  { value: 'user', get label() { return t('Person'); } },
+  { value: 'activity', get label() { return t('Activity'); } },
+  { value: 'workPackage', get label() { return t('Task'); } },
+  { value: 'week', get label() { return t('Week'); } },
+  { value: 'day', get label() { return t('Day'); } },
 ];
 
 /** Said when Export is chosen over a range that produced no rows. */
-const NOTHING_TO_EXPORT = 'No time is logged in this range, so there is nothing to export.';
+const NOTHING_TO_EXPORT = msg('No time is logged in this range, so there is nothing to export.');
 
 /** Ranges worth one click. `days` counts back from today, inclusive. */
 const PRESETS = [
-  { label: 'This month', from: () => startOfMonth(new Date()) },
-  { label: 'Last 30 days', from: () => subDays(new Date(), 29) },
-  { label: 'Last 90 days', from: () => subDays(new Date(), 89) },
-  { label: 'This year', from: () => startOfYear(new Date()) },
+  { get label() { return t('This month'); }, from: () => startOfMonth(new Date()) },
+  { get label() { return t('Last 30 days'); }, from: () => subDays(new Date(), 29) },
+  { get label() { return t('Last 90 days'); }, from: () => subDays(new Date(), 89) },
+  { get label() { return t('This year'); }, from: () => startOfYear(new Date()) },
 ];
 
 export default function TimeCostsPage() {
@@ -139,20 +140,20 @@ export default function TimeCostsPage() {
     // so rather than hand over a file containing nothing but headers.
     if (!data || data.rows.length === 0) return null;
 
-    const group = GROUPINGS.find((option) => option.value === data.groupBy)?.label ?? 'Group';
+    const group = GROUPINGS.find((option) => option.value === data.groupBy)?.label ?? t('Group');
     // Without leave to read rates the report carries no money (BRL-01), and
     // the export carries no empty money columns pretending otherwise.
     if (data.costHidden) {
       return {
         name: `time-${data.from}-to-${data.to}`,
-        headers: [group, 'Hours', 'Entries'],
+        headers: [group, t('Hours'), t('Entries')],
         rows: data.rows.map((row) => [row.label, row.hours, row.entries]),
       };
     }
 
     return {
       name: `time-and-costs-${data.from}-to-${data.to}`,
-      headers: [group, 'Hours', 'Entries', `Cost (${data.currency})`, 'Uncosted hours'],
+      headers: [group, t('Hours'), t('Entries'), t('Cost ({currency})', { currency: data.currency }), t('Uncosted hours')],
       rows: data.rows.map((row) => [
         row.label,
         row.hours,
@@ -167,15 +168,15 @@ export default function TimeCostsPage() {
 
   const exportCsv = () => {
     const sheet = exportRows();
-    if (!sheet) return toast.info(NOTHING_TO_EXPORT);
+    if (!sheet) return toast.info(t(NOTHING_TO_EXPORT));
     downloadCsv(`${sheet.name}.csv`, sheet.headers, sheet.rows);
   };
 
   const exportXlsx = () => {
     const sheet = exportRows();
-    if (!sheet) return toast.info(NOTHING_TO_EXPORT);
+    if (!sheet) return toast.info(t(NOTHING_TO_EXPORT));
     downloadXlsx(`${sheet.name}.xlsx`, {
-      sheetName: 'Time and costs',
+      sheetName: t('Time and costs'),
       headers: sheet.headers,
       rows: sheet.rows,
     });
@@ -189,8 +190,8 @@ export default function TimeCostsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Time & Costs"
-        description="Hours logged across the organisation, grouped and costed."
+        title={t('Time & Costs')}
+        description={t('Hours logged across the organisation, grouped and costed.')}
         actions={
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -202,17 +203,17 @@ export default function TimeCostsPage() {
               */}
               <Button variant="secondary" size="sm">
                 <Download className="h-3.5 w-3.5" />
-                Export
+                {t('Export')}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={exportXlsx}>
                 <Sheet className="h-3.5 w-3.5" />
-                Excel workbook (.xlsx)
+                {t('Excel workbook (.xlsx)')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={exportCsv}>
                 <Table2 className="h-3.5 w-3.5" />
-                Comma-separated (.csv)
+                {t('Comma-separated (.csv)')}
               </DropdownMenuItem>
               {/* PDF is the browser's own print-to-PDF, which paginates and
                   embeds fonts better than anything shippable in a bundle — and
@@ -220,7 +221,7 @@ export default function TimeCostsPage() {
                   navigation and lets the table run the length of the page. */}
               <DropdownMenuItem onSelect={() => window.print()}>
                 <Printer className="h-3.5 w-3.5" />
-                Print or save as PDF
+                {t('Print or save as PDF')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -230,16 +231,16 @@ export default function TimeCostsPage() {
       {/* Only on paper: a printed report has to carry its own scope, because the
           filters that produced it are on screen and the page is not. */}
       <div className="epm-print-only mb-4 border-b border-border pb-3">
-        <h2 className="font-display text-base font-bold">Time &amp; Costs</h2>
+        <h2 className="font-display text-base font-bold">{t('Time & Costs')}</h2>
         <p className="text-2xs text-muted-foreground">
-          {from} to {to}
+          {t('{from} to {to}', { from, to })}
           {projectId
-            ? ` · ${projectOptions.find((option) => option.id === projectId)?.name ?? 'one project'}`
-            : ' · every project'}
+            ? ` · ${projectOptions.find((option) => option.id === projectId)?.name ?? t('one project')}`
+            : ` · ${t('every project')}`}
           {userId
-            ? ` · ${userOptions.find((option) => option.id === userId)?.name ?? 'one person'}`
-            : ' · everyone'}
-          {` · grouped by ${GROUPINGS.find((option) => option.value === groupBy)?.label.toLowerCase()}`}
+            ? ` · ${userOptions.find((option) => option.id === userId)?.name ?? t('one person')}`
+            : ` · ${t('everyone')}`}
+          {` · ${t('grouped by {group}', { group: GROUPINGS.find((option) => option.value === groupBy)?.label.toLowerCase() })}`}
         </p>
       </div>
 
@@ -248,7 +249,7 @@ export default function TimeCostsPage() {
         trailing={
           <div className="flex items-center gap-1.5">
             <Label htmlFor="time-group" className="text-2xs text-muted-foreground">
-              Group by
+              {t('Group by')}
             </Label>
             <Select
               value={groupBy}
@@ -270,7 +271,7 @@ export default function TimeCostsPage() {
       >
         <div className="flex items-center gap-1.5">
           <Label htmlFor="time-from" className="text-2xs text-muted-foreground">
-            From
+            {t('From')}
           </Label>
           <Input
             id="time-from"
@@ -282,7 +283,7 @@ export default function TimeCostsPage() {
         </div>
         <div className="flex items-center gap-1.5">
           <Label htmlFor="time-to" className="text-2xs text-muted-foreground">
-            To
+            {t('To')}
           </Label>
           <Input
             id="time-to"
@@ -295,25 +296,25 @@ export default function TimeCostsPage() {
 
         <div className="w-48">
           <ComboSelect
-            label="Project"
+            label={t('Project')}
             options={projectOptions}
             value={projectId}
             clearable
             loading={projectsQuery.isLoading}
-            placeholder="All projects"
-            emptyLabel="No projects match"
+            placeholder={t('All projects')}
+            emptyLabel={t('No projects match')}
             onChange={setProjectId}
           />
         </div>
         <div className="w-48">
           <ComboSelect
-            label="Person"
+            label={t('Person')}
             options={userOptions}
             value={userId}
             clearable
             loading={peopleQuery.isLoading}
-            placeholder="Everyone"
-            emptyLabel="Nobody has been added to a project yet"
+            placeholder={t('Everyone')}
+            emptyLabel={t('Nobody has been added to a project yet')}
             onChange={setUserId}
           />
         </div>
@@ -337,50 +338,49 @@ export default function TimeCostsPage() {
       </div>
 
       {!valid ? (
-        <Alert tone="warning" icon={AlertTriangle} title="That range runs backwards">
-          The end date is before the start date, so there is nothing to report on.
+        <Alert tone="warning" icon={AlertTriangle} title={t('That range runs backwards')}>
+          {t('The end date is before the start date, so there is nothing to report on.')}
         </Alert>
       ) : null}
 
       {data?.truncated ? (
-        <Alert tone="warning" icon={AlertTriangle} title="This range is larger than one report">
-          Only part of the logged time was read, so the totals below are a floor rather than the
-          whole picture. Narrow the range or filter to one project.
+        <Alert tone="warning" icon={AlertTriangle} title={t('This range is larger than one report')}>
+          {t('Only part of the logged time was read, so the totals below are a floor rather than the whole picture. Narrow the range or filter to one project.')}
         </Alert>
       ) : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Totals">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-label={t('Totals')}>
         {report.isLoading || !data ? (
           [0, 1, 2].map((index) => <MetricCardSkeleton key={index} />)
         ) : (
           <>
             <MetricCard
-              label="Hours logged"
+              label={t('Hours logged')}
               value={formatHours(data.totalHours)}
-              support={`${formatNumber(data.rows.reduce((sum, row) => sum + row.entries, 0))} entries`}
+              support={t('{count, number} entries', { count: data.rows.reduce((sum, row) => sum + row.entries, 0) })}
               icon={Clock}
               tone="primary"
             />
             <MetricCard
-              label="Cost"
+              label={t('Cost')}
               value={
                 costHidden || data.totalCost === undefined ? '—' : formatCurrency(data.totalCost, data.currency)
               }
               support={
                 costHidden
-                  ? 'Shown to people allowed to see hourly rates'
+                  ? t('Shown to people allowed to see hourly rates')
                   : data.totalCost === undefined
-                    ? 'No hourly rates are set'
-                    : `${costedShare}% of hours are costed`
+                    ? t('No hourly rates are set')
+                    : t('{percent} of hours are costed', { percent: formatPercent(costedShare) })
               }
               icon={Coins}
               tone="accent"
             />
             {costHidden ? null : (
               <MetricCard
-                label="Uncosted hours"
+                label={t('Uncosted hours')}
                 value={formatHours(uncosted)}
-                support={uncosted > 0 ? 'Set rates on the Employees page' : 'Every hour has a rate behind it'}
+                support={uncosted > 0 ? t('Set rates on the Employees page') : t('Every hour has a rate behind it')}
                 icon={Hash}
                 tone={uncosted > 0 ? 'warning' : 'success'}
               />
@@ -394,10 +394,10 @@ export default function TimeCostsPage() {
         isError={report.isError}
         error={report.error}
         onRetry={() => report.refetch()}
-        errorTitle="Unable to load the report"
+        errorTitle={t('Unable to load the report')}
         skeleton={<ChartCardSkeleton height={220} />}
       >
-        <ChartCard title="Hours per day" description="Across the selected range" height={220}>
+        <ChartCard title={t('Hours per day')} description={t('Across the selected range')} height={220}>
           <TrendChart
             trends={[
               {
@@ -408,8 +408,8 @@ export default function TimeCostsPage() {
                 })),
               },
             ]}
-            unit="h"
-            labels={{ hours: 'Hours' }}
+            unit={t('h')}
+            labels={{ hours: t('Hours') }}
           />
         </ChartCard>
       </QueryBoundary>
@@ -419,15 +419,15 @@ export default function TimeCostsPage() {
         isError={report.isError}
         error={report.error}
         onRetry={() => report.refetch()}
-        errorTitle="Unable to load the report"
+        errorTitle={t('Unable to load the report')}
         skeleton={<TableSkeleton columns={5} rows={6} />}
         isEmpty={(data?.rows.length ?? 0) === 0}
         empty={
           <TableCard>
             <EmptyState
               icon={Clock}
-              title="No time logged in this range"
-              description="Widen the range, or clear the project and person filters."
+              title={t('No time logged in this range')}
+              description={t('Widen the range, or clear the project and person filters.')}
             />
           </TableCard>
         }
@@ -439,10 +439,10 @@ export default function TimeCostsPage() {
                 <TableHead>
                   {GROUPINGS.find((option) => option.value === groupBy)?.label}
                 </TableHead>
-                <TableHead className="w-48">Share</TableHead>
-                <TableHead className="text-right">Hours</TableHead>
-                <TableHead className="text-right">Entries</TableHead>
-                {costHidden ? null : <TableHead className="text-right">Cost</TableHead>}
+                <TableHead className="w-48">{t('Share')}</TableHead>
+                <TableHead className="text-end">{t('Hours')}</TableHead>
+                <TableHead className="text-end">{t('Entries')}</TableHead>
+                {costHidden ? null : <TableHead className="text-end">{t('Cost')}</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -457,17 +457,17 @@ export default function TimeCostsPage() {
                           ? Math.round((row.hours / data.totalHours) * 100)
                           : 0
                       }
-                      label={`${row.label} share of hours`}
+                      label={t('{label} share of hours', { label: row.label })}
                     />
                   </TableCell>
-                  <TableCell className="text-right font-mono">{formatHours(row.hours)}</TableCell>
-                  <TableCell className="text-right font-mono text-muted-foreground">
+                  <TableCell className="text-end font-mono">{formatHours(row.hours)}</TableCell>
+                  <TableCell className="text-end font-mono text-muted-foreground">
                     {formatNumber(row.entries)}
                   </TableCell>
                   {costHidden ? null : (
-                    <TableCell className="text-right font-mono">
+                    <TableCell className="text-end font-mono">
                       {row.cost === undefined ? (
-                        <span className="text-muted-foreground" title="Nobody in this row has a rate">
+                        <span className="text-muted-foreground" title={t('Nobody in this row has a rate')}>
                           —
                         </span>
                       ) : (
@@ -477,10 +477,10 @@ export default function TimeCostsPage() {
                               true and misleading at once, so it is flagged. */}
                           {(row.hoursWithoutRate ?? 0) > 0 ? (
                             <span
-                              className="ml-1 text-2xs text-warning"
-                              title={`${formatHours(row.hoursWithoutRate ?? 0)} in this row have no rate`}
+                              className="ms-1 text-2xs text-warning"
+                              title={t('{hours} in this row have no rate', { hours: formatHours(row.hoursWithoutRate ?? 0) })}
                             >
-                              partial
+                              {t('partial')}
                             </span>
                           ) : null}
                         </>

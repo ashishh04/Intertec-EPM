@@ -5,6 +5,7 @@ import { ListToolbar } from '@/components/common/ListToolbar';
 import { PageHeader } from '@/components/common/PageHeader';
 import { NewsFeed } from '@/components/news/NewsFeed';
 import { useProjects } from '@/hooks/useProjects';
+import { t } from '@/lib/i18n';
 
 /**
  * Announcements, across everything this person can see.
@@ -30,20 +31,20 @@ export default function NewsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="News"
-        description="What people need to know rather than find out."
+        title={t('News')}
+        description={t('What people need to know rather than find out.')}
       />
 
       <ListToolbar>
         <div className="w-64">
           <ComboSelect
-            label="Project"
+            label={t('Project')}
             options={projectOptions}
             value={projectId}
             clearable
             loading={projectsQuery.isLoading}
-            placeholder="Every project"
-            emptyLabel="No projects match"
+            placeholder={t('Every project')}
+            emptyLabel={t('No projects match')}
             onChange={setProjectId}
           />
         </div>

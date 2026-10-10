@@ -20,6 +20,7 @@ import {
 import { useIntegrationStatus, useTriggerSync } from '@/hooks/useIntegration';
 import { useAuth } from '@/providers/AuthProvider';
 import { CONNECTION_STATE_META, TONE_FILL } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { cn, formatNumber, formatRelative } from '@/lib/utils';
 import type { ConnectionState } from '@/types';
 
@@ -43,9 +44,9 @@ export default function IntegrationPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Administration"
-        title="Delivery System Integration"
-        description="Connection health, record counts and webhook delivery."
+        eyebrow={t('Administration')}
+        title={t('Delivery System Integration')}
+        description={t('Connection health, record counts and webhook delivery.')}
         actions={
           <Button
             size="sm"
@@ -53,21 +54,22 @@ export default function IntegrationPage() {
             disabled={!isAdmin}
             onClick={() =>
               sync.mutate(undefined, {
-                onSuccess: () => toast.success('Connection checked and records counted'),
-                onError: () => toast.error('Unable to check the connection'),
+                onSuccess: () => toast.success(t('Connection checked and records counted')),
+                onError: () => toast.error(t('Unable to check the connection')),
               })
             }
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Check now
+            {t('Check now')}
           </Button>
         }
       />
 
       {!isAdmin ? (
-        <Alert tone="warning" icon={Lock} title="Read-only access">
-          You can view integration health, but only workspace administrators can change the
-          connection. Actions on this page are disabled for your role.
+        <Alert tone="warning" icon={Lock} title={t('Read-only access')}>
+          {t(
+            'You can view integration health, but only workspace administrators can change the connection. Actions on this page are disabled for your role.',
+          )}
         </Alert>
       ) : null}
 
@@ -76,7 +78,7 @@ export default function IntegrationPage() {
         isError={statusQuery.isError}
         error={statusQuery.error}
         onRetry={() => statusQuery.refetch()}
-        errorTitle="Unable to load integration status"
+        errorTitle={t('Unable to load integration status')}
         skeleton={
           <div className="space-y-4">
             <Skeleton className="h-32 rounded-xl" />
@@ -88,10 +90,12 @@ export default function IntegrationPage() {
           <Card>
             <EmptyState
               icon={Server}
-              title="No integration status yet"
-              description="The backend has not reported on the delivery system connection. Check the connection to populate this page."
+              title={t('No integration status yet')}
+              description={t(
+                'The backend has not reported on the delivery system connection. Check the connection to populate this page.',
+              )}
               action={
-                isAdmin ? { label: 'Check now', onClick: () => sync.mutate(undefined) } : undefined
+                isAdmin ? { label: t('Check now'), onClick: () => sync.mutate(undefined) } : undefined
               }
             />
           </Card>
@@ -104,7 +108,7 @@ export default function IntegrationPage() {
               <CardContent className="grid gap-4 pt-5 sm:grid-cols-2 lg:grid-cols-4">
                 <StatusTile
                   icon={Server}
-                  label="Status"
+                  label={t('Status')}
                   state={status.state}
                   detail={`API ${status.apiVersion}`}
                 />
@@ -112,27 +116,27 @@ export default function IntegrationPage() {
                   icon={ShieldCheck}
                   label="API"
                   state={status.apiState}
-                  detail="Authenticated server-side"
+                  detail={t('Authenticated server-side')}
                 />
                 <StatusTile
                   icon={Webhook}
-                  label="Webhooks"
+                  label={t('Webhooks')}
                   state={status.webhookState}
                   detail={
                     status.webhookState !== 'connected'
-                      ? 'Not configured'
+                      ? t('Not configured')
                       : status.webhookLastReceivedAt
-                        ? `Last delivery ${formatRelative(status.webhookLastReceivedAt)}`
-                        : 'Signed deliveries accepted; none since the server started'
+                        ? t('Last delivery {time}', { time: formatRelative(status.webhookLastReceivedAt) })
+                        : t('Signed deliveries accepted; none since the server started')
                   }
                 />
                 <div>
-                  <p className="epm-eyebrow">Last check</p>
+                  <p className="epm-eyebrow">{t('Last check')}</p>
                   <p className="mt-1 font-mono text-sm font-semibold">
                     {formatRelative(status.lastSyncAt)}
                   </p>
                   <p className="mt-0.5 text-2xs text-muted-foreground">
-                    Records counted on demand
+                    {t('Records counted on demand')}
                   </p>
                 </div>
               </CardContent>
@@ -141,27 +145,27 @@ export default function IntegrationPage() {
             {/* Instance */}
             <Card>
               <CardHeader className="border-b border-border">
-                <CardTitle>Instance</CardTitle>
+                <CardTitle>{t('Instance')}</CardTitle>
                 <CardDescription>
-                  The delivery system behind this workspace.
+                  {t('The delivery system behind this workspace.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-4">
                 <FactList
                   facts={[
-                    { label: 'API version', value: status.apiVersion },
+                    { label: t('API version'), value: status.apiVersion },
                     {
-                      label: 'Authentication',
-                      value: "A service key and each person's own token, held server-side",
+                      label: t('Authentication'),
+                      value: t('A service key and each person\'s own token, held server-side'),
                       mono: false,
                     },
                     {
-                      label: 'Access token',
+                      label: t('Access token'),
                       mono: false,
                       value: (
                         <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                           <Lock className="h-3 w-3" aria-hidden />
-                          Never exposed to the frontend
+                          {t('Never exposed to the frontend')}
                         </span>
                       ),
                     },
@@ -169,9 +173,9 @@ export default function IntegrationPage() {
                 />
 
                 <Alert tone="neutral" icon={ShieldCheck}>
-                  The browser never calls the delivery system directly. Every request goes through
-                  the EPM backend, which owns authentication, authorisation, rate limiting and response
-                  transformation, and journals the changes EPM itself makes.
+                  {t(
+                    'The browser never calls the delivery system directly. Every request goes through the EPM backend, which owns authentication, authorisation, rate limiting and response transformation, and journals the changes EPM itself makes.',
+                  )}
                 </Alert>
               </CardContent>
             </Card>
@@ -179,27 +183,28 @@ export default function IntegrationPage() {
             {/* Synced resources */}
             <Card className="overflow-hidden">
               <CardHeader className="border-b border-border">
-                <CardTitle>Records in the delivery system</CardTitle>
+                <CardTitle>{t('Records in the delivery system')}</CardTitle>
                 <CardDescription>
-                  Counted at the last check. Nothing is copied: the delivery system stays the
-                  system of record and EPM reads it live.
+                  {t(
+                    'Counted at the last check. Nothing is copied: the delivery system stays the system of record and EPM reads it live.',
+                  )}
                 </CardDescription>
               </CardHeader>
               {status.syncedResources.length === 0 ? (
                 <EmptyState
                   size="inline"
-                  title="Nothing counted yet"
-                  description="Resources appear here after the first successful check."
+                  title={t('Nothing counted yet')}
+                  description={t('Resources appear here after the first successful check.')}
                 />
               ) : (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Resource</TableHead>
-                        <TableHead>Records</TableHead>
-                        <TableHead>Counted</TableHead>
-                        <TableHead>State</TableHead>
+                        <TableHead>{t('Resource')}</TableHead>
+                        <TableHead>{t('Records')}</TableHead>
+                        <TableHead>{t('Counted')}</TableHead>
+                        <TableHead>{t('State')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -214,7 +219,7 @@ export default function IntegrationPage() {
                           </TableCell>
                           <TableCell>
                             <Badge tone="success" size="sm" dot>
-                              Readable
+                              {t('Readable')}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -257,7 +262,7 @@ function StatusTile({
           aria-hidden
         />
         {meta.label}
-        <Icon className="ml-auto h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+        <Icon className="ms-auto h-3.5 w-3.5 text-muted-foreground" aria-hidden />
       </p>
       <p className="mt-0.5 text-2xs text-muted-foreground">{detail}</p>
     </div>

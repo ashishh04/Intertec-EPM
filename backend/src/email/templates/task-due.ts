@@ -6,6 +6,7 @@ import {
   paragraph,
   paragraphHtml,
   textBody,
+  type EmailLocale,
   type RenderedEmail,
 } from './layout.js';
 
@@ -21,7 +22,10 @@ export interface DueItem {
   taskKey: string;
   subject: string;
   projectName: string;
-  /** ISO date. Rendered as written; the reader's own zone is not knowable here. */
+  /**
+   * ISO date. Written out in the reader's language and calendar, as the day it
+   * is; the reader's own zone is not knowable here.
+   */
   dueDate: string;
   url: string;
 }
@@ -48,72 +52,88 @@ function daysLate(dueDate: string, today: string): number {
   return Math.round((now - due) / 86_400_000);
 }
 
-function describeLate(item: DueItem, today: string): string {
+function describeLate(item: DueItem, today: string, locale: EmailLocale): string {
   const days = daysLate(item.dueDate, today);
-  if (days <= 0) return `due ${item.dueDate}`;
-  return days === 1 ? '1 day overdue' : `${days} days overdue`;
+  if (days <= 0) return locale.tr('due {date}', { date: locale.date(item.dueDate) });
+  return locale.tr('{days, plural, one {# day overdue} other {# days overdue}}', { days });
 }
 
-function describeSoon(item: DueItem, today: string): string {
+function describeSoon(item: DueItem, today: string, locale: EmailLocale): string {
   const days = -daysLate(item.dueDate, today);
-  if (days <= 0) return 'due today';
-  return days === 1 ? 'due tomorrow' : `due in ${days} days`;
+  if (days <= 0) return locale.tr('due today');
+  return locale.tr('{days, plural, =1 {due tomorrow} other {due in # days}}', { days });
 }
 
-export function render(payload: TaskDuePayload): RenderedEmail {
+/** One item in the text version: key, subject, and where and when in brackets. */
+function textLine(item: DueItem, when: string, locale: EmailLocale): string {
+  return `  ${locale.tr('{key} - {subject} ({project}, {when})', {
+    key: item.taskKey,
+    subject: item.subject,
+    project: item.projectName,
+    when,
+  })}`;
+}
+
+export function render(payload: TaskDuePayload, locale: EmailLocale): RenderedEmail {
+  const { tr } = locale;
   const today = new Date().toISOString().slice(0, 10);
   const late = payload.overdue.length;
   const soon = payload.soon.length;
+  const greeting = payload.firstName ? tr('Hi {name},', { name: payload.firstName }) : tr('Hello,');
+  const lateHeading = tr('{count, plural, one {# item is past their due date.} other {# items are past their due date.}}', {
+    count: late,
+  });
+  const soonHeading = tr('{count, plural, one {# item is due shortly.} other {# items are due shortly.}}', { count: soon });
 
   // The subject is the whole message for anyone reading a notification bar, so
   // it leads with the count that matters rather than a fixed phrase.
   const subject =
     late > 0
-      ? `${late} overdue ${late === 1 ? 'item' : 'items'}${soon > 0 ? ` and ${soon} due soon` : ''}`
-      : `${soon} ${soon === 1 ? 'item' : 'items'} due soon`;
+      ? soon > 0
+        ? tr('{late, plural, one {# overdue item} other {# overdue items}} and {soon, number} due soon', { late, soon })
+        : tr('{count, plural, one {# overdue item} other {# overdue items}}', { count: late })
+      : tr('{count, plural, one {# item due soon} other {# items due soon}}', { count: soon });
 
   const html = layout(
     subject,
-    paragraph(`Hi ${payload.firstName},`) +
+    paragraph(greeting) +
       (late > 0
-        ? paragraph(`${late} ${late === 1 ? 'item is' : 'items are'} past their due date.`) +
-          payload.overdue.map((item) => line(item, describeLate(item, today))).join('')
+        ? paragraph(lateHeading) +
+          payload.overdue.map((item) => line(item, describeLate(item, today, locale))).join('')
         : '') +
       (soon > 0
-        ? paragraph(`${soon} ${soon === 1 ? 'item is' : 'items are'} due shortly.`) +
-          payload.soon.map((item) => line(item, describeSoon(item, today))).join('')
+        ? paragraph(soonHeading) +
+          payload.soon.map((item) => line(item, describeSoon(item, today, locale))).join('')
         : '') +
-      button('Open my work', payload.url) +
-      muted('You can turn these reminders off in Settings.'),
+      button(tr('Open my work'), payload.url) +
+      muted(tr('You can turn these reminders off in Settings.')),
+    locale,
   );
 
-  const text = textBody([
-    `Hi ${payload.firstName},`,
-    '',
-    ...(late > 0
-      ? [
-          `${late} ${late === 1 ? 'item is' : 'items are'} past their due date.`,
-          ...payload.overdue.map(
-            (item) =>
-              `  ${item.taskKey} - ${item.subject} (${item.projectName}, ${describeLate(item, today)})`,
-          ),
-          '',
-        ]
-      : []),
-    ...(soon > 0
-      ? [
-          `${soon} ${soon === 1 ? 'item is' : 'items are'} due shortly.`,
-          ...payload.soon.map(
-            (item) =>
-              `  ${item.taskKey} - ${item.subject} (${item.projectName}, ${describeSoon(item, today)})`,
-          ),
-          '',
-        ]
-      : []),
-    payload.url,
-    '',
-    'You can turn these reminders off in Settings.',
-  ]);
+  const text = textBody(
+    [
+      greeting,
+      '',
+      ...(late > 0
+        ? [
+            lateHeading,
+            ...payload.overdue.map((item) => textLine(item, describeLate(item, today, locale), locale)),
+            '',
+          ]
+        : []),
+      ...(soon > 0
+        ? [
+            soonHeading,
+            ...payload.soon.map((item) => textLine(item, describeSoon(item, today, locale), locale)),
+            '',
+          ]
+        : []),
+      payload.url,
+      '',
+      tr('You can turn these reminders off in Settings.'),
+    ],
+    locale,
+  );
 
   return { subject, html, text };
 }

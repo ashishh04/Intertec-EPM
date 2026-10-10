@@ -1,4 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { t } from '@/lib/i18n';
 import type { OverviewQuery } from '@/services/api/portfolio-views';
 
 /**
@@ -7,10 +8,10 @@ import type { OverviewQuery } from '@/services/api/portfolio-views';
  */
 
 const PRESETS = [
-  { id: '4w', label: 'Last 4 weeks', days: 28 },
-  { id: '12w', label: 'Last 12 weeks', days: 84 },
-  { id: '26w', label: 'Last 6 months', days: 182 },
-  { id: '52w', label: 'Last 12 months', days: 365 },
+  { id: '4w', get label() { return t('Last 4 weeks'); }, days: 28 },
+  { id: '12w', get label() { return t('Last 12 weeks'); }, days: 84 },
+  { id: '26w', get label() { return t('Last 6 months'); }, days: 182 },
+  { id: '52w', get label() { return t('Last 12 months'); }, days: 365 },
 ] as const;
 
 export type OverviewPeriodId = (typeof PRESETS)[number]['id'] | 'view';
@@ -37,11 +38,11 @@ export function OverviewPeriodSelect({
 }) {
   return (
     <Select value={value} onValueChange={(next) => onChange(next as OverviewPeriodId)}>
-      <SelectTrigger className={viewPeriodLabel ? 'h-8 w-64 text-xs' : 'h-8 w-48 text-xs'} aria-label="Period">
+      <SelectTrigger className={viewPeriodLabel ? 'h-8 w-64 text-xs' : 'h-8 w-48 text-xs'} aria-label={t('Period')}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {viewPeriodLabel ? <SelectItem value="view">{viewPeriodLabel} (the view&rsquo;s)</SelectItem> : null}
+        {viewPeriodLabel ? <SelectItem value="view">{t('{label} (the view’s)', { label: viewPeriodLabel })}</SelectItem> : null}
         {PRESETS.map((preset) => (
           <SelectItem key={preset.id} value={preset.id}>
             {preset.label}

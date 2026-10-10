@@ -16,6 +16,7 @@ import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AccountRevocation, EpmAccount } from '../types/epm.js';
 import { recordAuditQuietly } from '../domain/audit.js';
+import { listOf, message } from '../lib/i18n.js';
 
 /*
  * Account administration is journalled (BRL-02): creating, inviting,
@@ -144,7 +145,7 @@ function requireCreateFields(
     .map(([label]) => label as string);
 
   if (missing.length > 0) {
-    throw EpmError.badRequest(`Creating a person needs ${missing.join(', ')}.`);
+    throw EpmError.badRequest(message('Creating a person needs {missing}.', { missing: listOf(missing) }));
   }
 
   // Not a full RFC check — OpenProject validates properly and its message is
@@ -254,7 +255,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       if (fields.password) {
         const failures = await checkPassword(fields.password, requestSignal(request));
         if (failures.length > 0) {
-          throw EpmError.badRequest(`That starting password needs: ${failures.join(', ')}.`);
+          throw EpmError.badRequest(message('That starting password needs: {failures}.', { failures: listOf(failures) }));
         }
       }
       const signal = requestSignal(request);
@@ -410,7 +411,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       for (const field of ['firstName', 'lastName', 'email', 'login', 'language'] as const) {
         if (body[field] !== undefined) {
           const value = text(body[field]);
-          if (!value) throw EpmError.badRequest(`${field} cannot be empty.`);
+          if (!value) throw EpmError.badRequest(message('{field} cannot be empty.', { field }));
           patch[field] = value;
         }
       }

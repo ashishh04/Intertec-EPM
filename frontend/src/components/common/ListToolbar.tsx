@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Search, X } from 'lucide-react';
 import { Input, type InputProps } from '@/components/ui/input';
+import { t } from '@/lib/i18n';
 import { cn, formatNumber, pluralize } from '@/lib/utils';
 
 /**
@@ -30,7 +31,7 @@ export function ListToolbar({
       {/* On a phone the filters wrap onto several rows, so the count and
           view controls take a row of their own instead of wedging between them. */}
       {trailing ? (
-        <div className="ml-auto flex shrink-0 items-center gap-2">{trailing}</div>
+        <div className="ms-auto flex shrink-0 items-center gap-2">{trailing}</div>
       ) : null}
     </div>
   );
@@ -41,7 +42,7 @@ export function SearchInput({
   value,
   onValueChange,
   className,
-  placeholder = 'Search',
+  placeholder = t('Search'),
   ...props
 }: Omit<InputProps, 'value' | 'onChange'> & {
   value: string;
@@ -50,7 +51,7 @@ export function SearchInput({
   return (
     <div className={cn('relative w-full sm:w-64', className)}>
       <Search
-        className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
         aria-hidden
       />
       <Input
@@ -58,15 +59,15 @@ export function SearchInput({
         value={value}
         placeholder={placeholder}
         onChange={(event) => onValueChange(event.target.value)}
-        className="h-8 pl-8 pr-7 text-xs [&::-webkit-search-cancel-button]:hidden"
+        className="h-8 ps-8 pe-7 text-xs [&::-webkit-search-cancel-button]:hidden"
         {...props}
       />
       {value ? (
         <button
           type="button"
           onClick={() => onValueChange('')}
-          aria-label="Clear search"
-          className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t('Clear search')}
+          className="absolute end-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="h-3 w-3" aria-hidden />
         </button>
@@ -95,21 +96,13 @@ export function ResultCount({
   className?: string;
 }) {
   const filtered = typeof total === 'number' && total !== count;
+  const noun = pluralize(filtered ? total : count, label, plural);
+  // One message per form, so "3 of 48" reads in the order the language puts it.
   return (
     <p className={cn('text-2xs text-muted-foreground', className)} aria-live="polite">
-      <span className="font-mono font-medium tabular-nums text-foreground">
-        {formatNumber(count)}
-      </span>
-      {filtered ? (
-        <>
-          {' '}
-          of{' '}
-          <span className="font-mono font-medium tabular-nums text-foreground">
-            {formatNumber(total)}
-          </span>
-        </>
-      ) : null}{' '}
-      {pluralize(filtered ? total : count, label, plural)}
+      {filtered
+        ? t('{count} of {total} {noun}', { count: formatNumber(count), total: formatNumber(total), noun })
+        : t('{count} {noun}', { count: formatNumber(count), noun })}
     </p>
   );
 }

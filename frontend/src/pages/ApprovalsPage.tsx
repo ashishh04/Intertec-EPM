@@ -35,6 +35,7 @@ import {
   useRevokeDelegation,
 } from '@/hooks/useApprovals';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { cn, formatDateTime, formatLongDate, formatRelative } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type { ApprovalDecision } from '@/services/api/approvals';
@@ -52,23 +53,23 @@ export default function ApprovalsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Approvals"
-        description="Change requests and other work that needs a decision, and who decides what while someone is away."
+        title={t('Approvals')}
+        description={t('Change requests and other work that needs a decision, and who decides what while someone is away.')}
       />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList variant="underline">
           <TabsTrigger value="inbox" variant="underline">
-            Waiting for me{waiting > 0 ? ` (${waiting})` : ''}
+            {t('Waiting for me')}{waiting > 0 ? ` (${waiting})` : ''}
           </TabsTrigger>
           <TabsTrigger value="mine" variant="underline">
-            Submitted by me
+            {t('Submitted by me')}
           </TabsTrigger>
           <TabsTrigger value="projects" variant="underline">
-            In my projects
+            {t('In my projects')}
           </TabsTrigger>
           <TabsTrigger value="delegations" variant="underline">
-            Delegation
+            {t('Delegation')}
           </TabsTrigger>
         </TabsList>
 
@@ -76,7 +77,7 @@ export default function ApprovalsPage() {
           <RequestList
             query={inbox}
             expanded
-            empty={{ icon: Inbox, title: 'Nothing is waiting for you', description: 'Approvals you are asked for, or hold as a delegate, appear here.' }}
+            empty={{ icon: Inbox, title: t('Nothing is waiting for you'), description: t('Approvals you are asked for, or hold as a delegate, appear here.') }}
           />
         </TabsContent>
         <TabsContent value="mine" className="mt-4">
@@ -98,7 +99,7 @@ function MineTab() {
   return (
     <RequestList
       query={mine}
-      empty={{ icon: Send, title: 'You have not submitted anything', description: 'Submit a change request for approval from its own page.' }}
+      empty={{ icon: Send, title: t('You have not submitted anything'), description: t('Submit a change request for approval from its own page.') }}
     />
   );
 }
@@ -111,13 +112,13 @@ function ProjectsTab() {
       <div className="flex flex-wrap gap-1.5">
         {(['pending', 'approved', 'rejected', 'cancelled', 'all'] as const).map((value) => (
           <Button key={value} size="sm" variant={status === value ? 'subtle' : 'ghost'} onClick={() => setStatus(value)}>
-            {value === 'all' ? 'All' : REQUEST_STATUS[value].label}
+            {value === 'all' ? t('All') : REQUEST_STATUS[value].label}
           </Button>
         ))}
       </div>
       <RequestList
         query={requests}
-        empty={{ icon: ShieldCheck, title: 'No requests here', description: 'Approval requests in the projects you can see appear here.' }}
+        empty={{ icon: ShieldCheck, title: t('No requests here'), description: t('Approval requests in the projects you can see appear here.') }}
       />
     </div>
   );
@@ -154,7 +155,7 @@ function RequestList({
       isError={query.isError}
       error={query.error}
       onRetry={() => query.refetch()}
-      errorTitle="Unable to load approvals"
+      errorTitle={t('Unable to load approvals')}
       skeleton={<ListSkeleton rows={3} />}
       isEmpty={(query.data ?? []).length === 0}
       empty={
@@ -194,10 +195,10 @@ function RequestList({
               { taskId: deciding.task.id, decision: deciding.decision, comment },
               {
                 onSuccess: () => {
-                  toast.success(deciding.decision === 'approve' ? 'Approved' : 'Rejected');
+                  toast.success(deciding.decision === 'approve' ? t('Approved') : t('Rejected'));
                   setDeciding(undefined);
                 },
-                onError: (failure) => setError(failure instanceof Error ? failure.message : 'That could not be recorded.'),
+                onError: (failure) => setError(failure instanceof Error ? failure.message : t('That could not be recorded.')),
               },
             )
           }
@@ -226,30 +227,37 @@ function RequestCard({
       <CardContent className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <Link to={`/tasks/${request.subjectId}`} className="text-sm font-semibold hover:text-primary">
+            <Link to={`/tasks/${request.subjectId}`} dir="auto" className="text-sm font-semibold hover:text-primary">
               {request.title}
             </Link>
             <p className="mt-0.5 text-2xs text-muted-foreground">
               {[
                 request.projectName,
                 request.chainName,
-                request.value !== undefined ? `${request.valueLabel ?? 'Value'} ${request.value.toLocaleString('en-US')}` : undefined,
-                `submitted by ${users.get(request.requestedBy)?.name ?? 'someone'} ${formatRelative(request.requestedAt)}`,
+                request.value !== undefined ? `${request.valueLabel ?? t('Value')} ${request.value.toLocaleString('en-US')}` : undefined,
+                t('submitted by {name} {when}', {
+                  name: users.get(request.requestedBy)?.name ?? t('someone'),
+                  when: formatRelative(request.requestedAt),
+                }),
               ]
                 .filter(Boolean)
                 .join(' · ')}
             </p>
             {request.status === 'pending' && step ? (
               <p className="mt-0.5 text-2xs">
-                Step {request.currentStep + 1} of {request.steps.filter((one) => one.applies).length}: <span className="font-medium">{step.name}</span>
+                {t('Step {current, number} of {total, number}:', {
+                  current: request.currentStep + 1,
+                  total: request.steps.filter((one) => one.applies).length,
+                })}{' '}
+                <span className="font-medium">{step.name}</span>
               </p>
             ) : request.completedAt ? (
-              <p className="mt-0.5 text-2xs text-muted-foreground">Closed {formatDateTime(request.completedAt)}</p>
+              <p className="mt-0.5 text-2xs text-muted-foreground">{t('Closed {date}', { date: formatDateTime(request.completedAt) })}</p>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
             <Badge tone={status.tone}>{status.label}</Badge>
-            <Button size="icon-sm" variant="ghost" aria-label={open ? 'Hide the steps' : 'Show the steps'} onClick={() => setOpen((was) => !was)}>
+            <Button size="icon-sm" variant="ghost" aria-label={open ? t('Hide the steps') : t('Show the steps')} onClick={() => setOpen((was) => !was)}>
               {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
           </div>
@@ -273,29 +281,28 @@ function DelegationsTab() {
   const revoke = useRevokeDelegation();
   const users = useUserMap();
   const [creating, setCreating] = useState(false);
-  const name = (id: string) => users.get(id)?.name ?? 'Someone no longer listed';
+  const name = (id: string) => users.get(id)?.name ?? t('Someone no longer listed');
 
   return (
     <div className="space-y-3">
       <Alert tone="neutral" icon={UserRoundCheck}>
-        Handing your approvals to a colleague lets them decide for you during the dates you choose. You keep
-        the right to decide too, and every decision they make is recorded as made on your behalf.
+        {t('Handing your approvals to a colleague lets them decide for you during the dates you choose. You keep the right to decide too, and every decision they make is recorded as made on your behalf.')}
       </Alert>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {mayConfigure ? (
           <div className="flex gap-1.5">
             <Button size="sm" variant={!all ? 'subtle' : 'ghost'} onClick={() => setAll(false)}>
-              Mine
+              {t('Mine')}
             </Button>
             <Button size="sm" variant={all ? 'subtle' : 'ghost'} onClick={() => setAll(true)}>
-              Everyone&apos;s
+              {t('Everyone\'s')}
             </Button>
           </div>
         ) : (
           <span />
         )}
         <Button size="sm" onClick={() => setCreating(true)}>
-          Delegate my approvals
+          {t('Delegate my approvals')}
         </Button>
       </div>
 
@@ -304,12 +311,12 @@ function DelegationsTab() {
         isError={delegations.isError}
         error={delegations.error}
         onRetry={() => delegations.refetch()}
-        errorTitle="Unable to load delegations"
+        errorTitle={t('Unable to load delegations')}
         skeleton={<ListSkeleton rows={2} />}
         isEmpty={(delegations.data ?? []).length === 0}
         empty={
           <Card>
-            <EmptyState icon={UserRoundCheck} title="No delegations" description="Nobody decides for you, and you decide for nobody." />
+            <EmptyState icon={UserRoundCheck} title={t('No delegations')} description={t('Nobody decides for you, and you decide for nobody.')} />
           </Card>
         }
       >
@@ -319,21 +326,21 @@ function DelegationsTab() {
               <div key={delegation.id} className={cn('flex flex-wrap items-center justify-between gap-2 px-4 py-3', delegation.revokedAt && 'opacity-60')}>
                 <div className="min-w-0 text-xs">
                   <p>
-                    <span className="font-medium">{name(delegation.delegatorId)}</span> →{' '}
+                    <span className="font-medium">{name(delegation.delegatorId)}</span> {t('→')}{' '}
                     <span className="font-medium">{name(delegation.delegateId)}</span>
                   </p>
                   <p className="text-2xs text-muted-foreground">
-                    {formatLongDate(delegation.startsOn)} to {formatLongDate(delegation.endsOn)}
+                    {t('{start} to {end}', { start: formatLongDate(delegation.startsOn), end: formatLongDate(delegation.endsOn) })}
                     {delegation.reason ? ` · ${delegation.reason}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   {delegation.revokedAt ? (
-                    <Badge tone="neutral" className="text-2xs">Revoked</Badge>
+                    <Badge tone="neutral" className="text-2xs">{t('Revoked')}</Badge>
                   ) : delegation.active ? (
-                    <Badge tone="success" className="text-2xs">In force</Badge>
+                    <Badge tone="success" className="text-2xs">{t('In force')}</Badge>
                   ) : (
-                    <Badge tone="neutral" className="text-2xs">{delegation.endsOn < new Date().toISOString().slice(0, 10) ? 'Ended' : 'Scheduled'}</Badge>
+                    <Badge tone="neutral" className="text-2xs">{delegation.endsOn < new Date().toISOString().slice(0, 10) ? t('Ended') : t('Scheduled')}</Badge>
                   )}
                   {!delegation.revokedAt && (delegation.delegatorId === viewer?.id || mayConfigure) ? (
                     <Button
@@ -342,12 +349,12 @@ function DelegationsTab() {
                       disabled={revoke.isPending}
                       onClick={() =>
                         revoke.mutate(delegation.id, {
-                          onSuccess: () => toast.success('Delegation revoked'),
-                          onError: (error) => toast.error('It could not be revoked', { description: error instanceof Error ? error.message : undefined }),
+                          onSuccess: () => toast.success(t('Delegation revoked')),
+                          onError: (error) => toast.error(t('It could not be revoked'), { description: error instanceof Error ? error.message : undefined }),
                         })
                       }
                     >
-                      Revoke
+                      {t('Revoke')}
                     </Button>
                   ) : null}
                 </div>
@@ -391,39 +398,38 @@ function DelegationDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Delegate my approvals</DialogTitle>
+          <DialogTitle>{t('Delegate my approvals')}</DialogTitle>
           <DialogDescription>
-            While this is in force, your delegate can decide anything waiting on you, and is told about new
-            approvals too.
+            {t('While this is in force, your delegate can decide anything waiting on you, and is told about new approvals too.')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="delegate" required>
-              Delegate to
+              {t('Delegate to')}
             </Label>
-            <ComboSelect id="delegate" label="Delegate to" options={options} value={delegateId} onChange={setDelegateId} placeholder="Choose a colleague" loading={users.isLoading} />
+            <ComboSelect id="delegate" label={t('Delegate to')} options={options} value={delegateId} onChange={setDelegateId} placeholder={t('Choose a colleague')} loading={users.isLoading} />
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="delegation-from">From</Label>
+              <Label htmlFor="delegation-from">{t('From')}</Label>
               <Input id="delegation-from" type="date" value={startsOn} min={today} onChange={(event) => setStartsOn(event.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="delegation-to">To</Label>
+              <Label htmlFor="delegation-to">{t('To')}</Label>
               <Input id="delegation-to" type="date" value={endsOn} min={startsOn} onChange={(event) => setEndsOn(event.target.value)} />
             </div>
           </div>
-          <FieldHint>Both days included. Revoke it at any time to take your approvals back early.</FieldHint>
+          <FieldHint>{t('Both days included. Revoke it at any time to take your approvals back early.')}</FieldHint>
           <div className="space-y-1.5">
-            <Label htmlFor="delegation-reason">Reason</Label>
-            <Textarea id="delegation-reason" rows={2} value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="e.g. Annual leave" />
+            <Label htmlFor="delegation-reason">{t('Reason')}</Label>
+            <Textarea id="delegation-reason" rows={2} value={reason} maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder={t('e.g. Annual leave')} />
           </div>
           {error ? <Alert tone="danger">{error}</Alert> : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={create.isPending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             loading={create.isPending}
@@ -433,15 +439,15 @@ function DelegationDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
                 { delegateId: delegateId!, startsOn, endsOn, reason: reason.trim() || undefined },
                 {
                   onSuccess: () => {
-                    toast.success('Approvals delegated');
+                    toast.success(t('Approvals delegated'));
                     onOpenChange(false);
                   },
-                  onError: (failure) => setError(failure instanceof Error ? failure.message : 'That could not be saved.'),
+                  onError: (failure) => setError(failure instanceof Error ? failure.message : t('That could not be saved.')),
                 },
               )
             }
           >
-            Delegate
+            {t('Delegate')}
           </Button>
         </DialogFooter>
       </DialogContent>

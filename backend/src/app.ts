@@ -26,6 +26,7 @@ import { describeEmailProvider, useEmailLogger } from './email/index.js';
 import { useAppLogger } from './lib/log.js';
 import { disconnectPrisma, prismaReady } from './db/prisma.js';
 import { EpmError } from './lib/errors.js';
+import { issueMessage, requestLanguage, runWithLanguage, t } from './lib/i18n.js';
 import { forgetPermissions } from './auth/capabilities.js';
 import { registerAuth } from './auth/hook.js';
 import { SESSION_COOKIE } from './auth/oauth.js';
@@ -140,7 +141,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     }),
   });
 
+  // The request's language, for code that writes stored English out for a
+  // reader without being handed the request (`contextLanguage()`).
+  app.addHook('onRequest', (request, _reply, done) => {
+    runWithLanguage(requestLanguage(request), () => done());
+  });
+
+  // Every message leaves in the language the request asked for (BR-605); the
+  // log keeps the English, which is what an operator searches for.
   app.setErrorHandler((error, request, reply) => {
+    const language = requestLanguage(request);
+
     if (error instanceof EpmError) {
       // Upstream detail is diagnostic, not something the browser should see.
       if (error.status >= 500) {
@@ -148,17 +159,17 @@ export async function buildApp(): Promise<FastifyInstance> {
       } else {
         request.log.warn({ code: error.code, status: error.status }, error.message);
       }
-      return reply.status(error.status).send(error.toBody());
+      return reply.status(error.status).send(error.toBody(language));
     }
 
     if (error instanceof ZodError) {
       request.log.warn({ issues: error.issues }, 'Request validation failed');
       return reply.status(400).send({
-        message: 'The request was not valid.',
+        message: t(language, 'The request was not valid.'),
         code: 'BAD_REQUEST',
         details: error.issues.map((issue) => ({
           path: issue.path.join('.'),
-          message: issue.message,
+          message: issueMessage(language, issue),
         })),
       });
     }
@@ -173,21 +184,24 @@ export async function buildApp(): Promise<FastifyInstance> {
       // message off the value instead of gating on `instanceof`.
       const { code = 'BAD_REQUEST', message } = error as { code?: string; message?: string };
       return reply.status(statusCode).send({
-        message: message ?? 'The request was not valid.',
+        message: t(language, message ?? 'The request was not valid.'),
         code,
       });
     }
 
     request.log.error({ err: error }, 'Unhandled error');
     return reply.status(500).send({
-      message: 'Something went wrong on our end.',
+      message: t(language, 'Something went wrong on our end.'),
       code: 'INTERNAL',
     });
   });
 
   app.setNotFoundHandler((request, reply) =>
     reply.status(404).send({
-      message: `No route for ${request.method} ${request.url}.`,
+      message: t(requestLanguage(request), 'No route for {method} {url}.', {
+        method: request.method,
+        url: request.url,
+      }),
       code: 'NOT_FOUND',
     }),
   );

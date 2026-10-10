@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Command as CommandPrimitive } from 'cmdk';
 import { Search } from 'lucide-react';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './dialog';
 
@@ -21,8 +22,8 @@ Command.displayName = CommandPrimitive.displayName;
 
 function CommandDialog({
   children,
-  title = 'Command palette',
-  description = 'Search projects, tasks and people, or run an action.',
+  title = t('Command palette'),
+  description = t('Search projects, tasks and people, or run an action.'),
   ...props
 }: React.ComponentProps<typeof Dialog> & { title?: string; description?: string }) {
   return (
@@ -124,7 +125,7 @@ CommandItem.displayName = CommandPrimitive.Item.displayName;
 function CommandShortcut({ className, ...props }: React.HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
-      className={cn('ml-auto font-mono text-2xs tracking-widest text-muted-foreground', className)}
+      className={cn('ms-auto font-mono text-2xs tracking-widest text-muted-foreground', className)}
       {...props}
     />
   );

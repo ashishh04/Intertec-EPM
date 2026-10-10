@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { useApprovalChains, useApprovalOptions, useDeleteApprovalChain, useSaveApprovalChain } from '@/hooks/useApprovals';
 import { useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type {
   ApprovalApproverSpec,
@@ -68,7 +69,7 @@ const blankChain = (options?: ApprovalChainOptions): ApprovalChainInput => {
     typeIds: changeRequest ? [changeRequest.id] : [],
     projectIds: [],
     valueField: options?.customFields.find((field) => field.numeric && /value/i.test(field.name))?.id,
-    steps: [{ ...blankStep(0), name: 'Project owner' }],
+    steps: [{ ...blankStep(0), name: t('Project owner') }],
     onSubmitStatusId: status(/^pending approval$/i),
     onApproveStatusId: status(/^approved$/i),
     onRejectStatusId: status(/^rejected$/i),
@@ -88,8 +89,8 @@ export default function ApprovalChainsPage() {
 
   if (!allowed) {
     return (
-      <Alert tone="neutral" title="Approval chains are configured by administrators">
-        Changing who approves what needs the approvals configuration permission.
+      <Alert tone="neutral" title={t('Approval chains are configured by administrators')}>
+        {t('Changing who approves what needs the approvals configuration permission.')}
       </Alert>
     );
   }
@@ -97,8 +98,10 @@ export default function ApprovalChainsPage() {
   const describe = (chain: ApprovalChain) => {
     const types = chain.typeIds.length
       ? chain.typeIds.map((id) => options.data?.types.find((type) => type.id === id)?.name ?? id).join(', ')
-      : 'every type';
-    const projects = chain.projectIds.length ? `${chain.projectIds.length} ${chain.projectIds.length === 1 ? 'project' : 'projects'}` : 'every project';
+      : t('every type');
+    const projects = chain.projectIds.length
+      ? t('{count, plural, one {# project} other {# projects}}', { count: chain.projectIds.length })
+      : t('every project');
     return `${types} · ${projects}`;
   };
 
@@ -110,14 +113,13 @@ export default function ApprovalChainsPage() {
           actions={
             <Button size="sm" onClick={() => setEditing({ input: blankChain(options.data) })} disabled={!options.data}>
               <Plus className="h-3.5 w-3.5" />
-              New chain
+              {t('New chain')}
             </Button>
           }
         >
-          <CardTitle>Approval chains</CardTitle>
+          <CardTitle>{t('Approval chains')}</CardTitle>
           <CardDescription>
-            Who must approve what, in which order. Covered work is submitted from its own page; every decision is
-            journalled.
+            {t('Who must approve what, in which order. Covered work is submitted from its own page; every decision is journalled.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
@@ -126,14 +128,14 @@ export default function ApprovalChainsPage() {
             isError={chains.isError}
             error={chains.error}
             onRetry={() => chains.refetch()}
-            errorTitle="Unable to load approval chains"
+            errorTitle={t('Unable to load approval chains')}
             skeleton={<ListSkeleton rows={3} />}
             isEmpty={(chains.data ?? []).length === 0}
             empty={
               <EmptyState
                 icon={ShieldCheck}
-                title="No approval chains yet"
-                description="Create one to route change requests, or any other type of work, through approvers."
+                title={t('No approval chains yet')}
+                description={t('Create one to route change requests, or any other type of work, through approvers.')}
               />
             }
           >
@@ -141,29 +143,39 @@ export default function ApprovalChainsPage() {
               {(chains.data ?? []).map((chain) => (
                 <li key={chain.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="flex items-center gap-2 text-sm font-medium">
+                    <p className="flex items-center gap-2 text-sm font-medium" dir="auto">
                       {chain.name}
-                      {chain.active ? <Badge tone="success" size="sm">Active</Badge> : <Badge tone="neutral" size="sm">Off</Badge>}
+                      {chain.active ? <Badge tone="success" size="sm">{t('Active')}</Badge> : <Badge tone="neutral" size="sm">{t('Off')}</Badge>}
                     </p>
                     <p className="text-2xs text-muted-foreground">
-                      {describe(chain)} · {chain.steps.length} {chain.steps.length === 1 ? 'step' : 'steps'}: {chain.steps.map((step) => step.name).join(' → ')}
-                      {chain.requestCount ? ` · used ${chain.requestCount} ${chain.requestCount === 1 ? 'time' : 'times'}` : ''}
+                      {chain.requestCount
+                        ? t('{scope} · {count, plural, one {# step} other {# steps}}: {names} · {uses, plural, one {used # time} other {used # times}}', {
+                            scope: describe(chain),
+                            count: chain.steps.length,
+                            names: chain.steps.map((step) => step.name).join(' → '),
+                            uses: chain.requestCount,
+                          })
+                        : t('{scope} · {count, plural, one {# step} other {# steps}}: {names}', {
+                            scope: describe(chain),
+                            count: chain.steps.length,
+                            names: chain.steps.map((step) => step.name).join(' → '),
+                          })}
                     </p>
                   </div>
                   <div className="flex gap-1.5">
                     <Button size="sm" variant="secondary" onClick={() => setEditing({ id: chain.id, input: toInput(chain) })}>
-                      Edit
+                      {t('Edit')}
                     </Button>
                     {chain.requestCount === 0 ? (
                       <Button
                         size="sm"
                         variant="ghost"
-                        aria-label={`Delete ${chain.name}`}
+                        aria-label={t('Delete {name}', { name: chain.name })}
                         disabled={remove.isPending}
                         onClick={() =>
                           remove.mutate(chain.id, {
-                            onSuccess: () => toast.success('Chain deleted'),
-                            onError: (error) => toast.error('It could not be deleted', { description: describeError(error) }),
+                            onSuccess: () => toast.success(t('Chain deleted')),
+                            onError: (error) => toast.error(t('It could not be deleted'), { description: describeError(error) }),
                           })
                         }
                       >
@@ -191,12 +203,12 @@ export default function ApprovalChainsPage() {
               { id: editing.id, input },
               {
                 onSuccess: () => {
-                  toast.success(editing.id ? 'Chain saved' : 'Chain created', {
-                    description: 'Requests already in flight keep the chain they were submitted under.',
+                  toast.success(editing.id ? t('Chain saved') : t('Chain created'), {
+                    description: t('Requests already in flight keep the chain they were submitted under.'),
                   });
                   setEditing(undefined);
                 },
-                onError: (error) => toast.error('The chain was not saved', { description: describeError(error) }),
+                onError: (error) => toast.error(t('The chain was not saved'), { description: describeError(error) }),
               },
             )
           }
@@ -256,14 +268,14 @@ function ChainEditor({
 
   const problems = useMemo(() => {
     const found: string[] = [];
-    if (!draft.name.trim()) found.push('Give the chain a name.');
+    if (!draft.name.trim()) found.push(t('Give the chain a name.'));
     draft.steps.forEach((step, index) => {
-      if (!step.name.trim()) found.push(`Step ${index + 1} needs a name.`);
-      if (step.approvers.length === 0) found.push(`Step ${index + 1} needs at least one approver.`);
-      if (step.condition?.field === 'value' && !draft.valueField) found.push(`Step ${index + 1} compares the value, so choose a value field.`);
+      if (!step.name.trim()) found.push(t('Step {step, number} needs a name.', { step: index + 1 }));
+      if (step.approvers.length === 0) found.push(t('Step {step, number} needs at least one approver.', { step: index + 1 }));
+      if (step.condition?.field === 'value' && !draft.valueField) found.push(t('Step {step, number} compares the value, so choose a value field.', { step: index + 1 }));
       const condition = conditionProblem(step.condition);
-      if (condition) found.push(`Step ${index + 1}: ${condition}.`);
-      if (step.slaHours !== undefined && !(step.slaHours >= 0.25)) found.push(`Step ${index + 1}: an SLA is at least a quarter of an hour.`);
+      if (condition) found.push(t('Step {step, number}: {problem}.', { step: index + 1, problem: condition }));
+      if (step.slaHours !== undefined && !(step.slaHours >= 0.25)) found.push(t('Step {step, number}: an SLA is at least a quarter of an hour.', { step: index + 1 }));
     });
     return found;
   }, [draft]);
@@ -276,7 +288,7 @@ function ChainEditor({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE}>Leave unchanged</SelectItem>
+          <SelectItem value={NONE}>{t('Leave unchanged')}</SelectItem>
           {options.statuses.map((status) => (
             <SelectItem key={status.id} value={status.id}>
               {status.name}
@@ -291,26 +303,26 @@ function ChainEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{isNew ? 'New approval chain' : 'Edit approval chain'}</DialogTitle>
-          <DialogDescription>Steps run in order. Any rejection ends the request.</DialogDescription>
+          <DialogTitle>{isNew ? t('New approval chain') : t('Edit approval chain')}</DialogTitle>
+          <DialogDescription>{t('Steps run in order. Any rejection ends the request.')}</DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+        <div className="max-h-[65vh] space-y-5 overflow-y-auto pe-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="chain-name" required>
-                Name
+                {t('Name')}
               </Label>
-              <Input id="chain-name" value={draft.name} maxLength={120} onChange={(event) => set({ name: event.target.value })} placeholder="e.g. Change control" />
+              <Input id="chain-name" value={draft.name} maxLength={120} onChange={(event) => set({ name: event.target.value })} placeholder={t('e.g. Change control')} />
             </div>
             <div className="space-y-1.5">
-              <Label>Value field</Label>
+              <Label>{t('Value field')}</Label>
               <Select value={draft.valueField ?? NONE} onValueChange={(next) => set({ valueField: next === NONE ? undefined : next })}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>No value</SelectItem>
+                  <SelectItem value={NONE}>{t('No value')}</SelectItem>
                   {options.customFields
                     .filter((field) => field.numeric)
                     .map((field) => (
@@ -320,49 +332,48 @@ function ChainEditor({
                     ))}
                 </SelectContent>
               </Select>
-              <FieldHint>The figure value thresholds compare against.</FieldHint>
+              <FieldHint>{t('The figure value thresholds compare against.')}</FieldHint>
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="chain-description">Description</Label>
+            <Label htmlFor="chain-description">{t('Description')}</Label>
             <Textarea id="chain-description" rows={2} maxLength={1000} value={draft.description ?? ''} onChange={(event) => set({ description: event.target.value })} />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Work package types</Label>
+              <Label>{t('Work package types')}</Label>
               <MultiSelect
-                label="Work package types"
+                label={t('Work package types')}
                 options={options.types}
                 selected={options.types.filter((type) => draft.typeIds.includes(type.id))}
                 onChange={(selected) => set({ typeIds: selected.map((type) => type.id) })}
-                placeholder="Every type"
+                placeholder={t('Every type')}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Projects</Label>
+              <Label>{t('Projects')}</Label>
               <MultiSelect
-                label="Projects"
+                label={t('Projects')}
                 options={options.projects}
                 selected={options.projects.filter((project) => draft.projectIds.includes(project.id))}
                 onChange={(selected) => set({ projectIds: selected.map((project) => project.id) })}
-                placeholder="Every project"
+                placeholder={t('Every project')}
               />
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            {statusSelect('When submitted', draft.onSubmitStatusId, (value) => set({ onSubmitStatusId: value }))}
-            {statusSelect('When approved', draft.onApproveStatusId, (value) => set({ onApproveStatusId: value }))}
-            {statusSelect('When rejected', draft.onRejectStatusId, (value) => set({ onRejectStatusId: value }))}
+            {statusSelect(t('When submitted'), draft.onSubmitStatusId, (value) => set({ onSubmitStatusId: value }))}
+            {statusSelect(t('When approved'), draft.onApproveStatusId, (value) => set({ onApproveStatusId: value }))}
+            {statusSelect(t('When rejected'), draft.onRejectStatusId, (value) => set({ onRejectStatusId: value }))}
           </div>
           <FieldHint>
-            These statuses can then only be reached through the chain: nobody can set them by hand on a covered work
-            package.
+            {t('These statuses can then only be reached through the chain: nobody can set them by hand on a covered work package.')}
           </FieldHint>
 
           <div className="space-y-3">
-            <p className="text-xs font-semibold">Steps</p>
+            <p className="text-xs font-semibold">{t('Steps')}</p>
             {draft.steps.map((step, index) => (
               <StepEditor
                 key={step.id}
@@ -379,25 +390,25 @@ function ChainEditor({
             {draft.steps.length < 10 ? (
               <Button size="sm" variant="secondary" onClick={() => setDraft((was) => ({ ...was, steps: [...was.steps, blankStep(was.steps.length)] }))}>
                 <Plus className="h-3.5 w-3.5" />
-                Add a step
+                {t('Add a step')}
               </Button>
             ) : null}
           </div>
 
           <div className="flex flex-wrap gap-6">
             <label className="flex items-center gap-2 text-xs">
-              <Switch checked={draft.active} onCheckedChange={(active) => set({ active })} aria-label="Active" />
-              Active
+              <Switch checked={draft.active} onCheckedChange={(active) => set({ active })} aria-label={t('Active')} />
+              {t('Active')}
             </label>
             <label className="flex items-center gap-2 text-xs">
-              <Switch checked={draft.allowSelfApproval} onCheckedChange={(allowSelfApproval) => set({ allowSelfApproval })} aria-label="Allow self-approval" />
-              Whoever submits may also approve
+              <Switch checked={draft.allowSelfApproval} onCheckedChange={(allowSelfApproval) => set({ allowSelfApproval })} aria-label={t('Allow self-approval')} />
+              {t('Whoever submits may also approve')}
             </label>
           </div>
 
           {problems.length > 0 ? (
-            <Alert tone="warning" title="Before it can be saved">
-              <ul className="list-disc pl-4">
+            <Alert tone="warning" title={t('Before it can be saved')}>
+              <ul className="list-disc ps-4">
                 {problems.map((problem) => (
                   <li key={problem}>{problem}</li>
                 ))}
@@ -408,10 +419,10 @@ function ChainEditor({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button loading={saving} disabled={problems.length > 0} onClick={() => onSave({ ...draft, name: draft.name.trim() })}>
-            {isNew ? 'Create chain' : 'Save chain'}
+            {isNew ? t('Create chain') : t('Save chain')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -445,38 +456,38 @@ function StepEditor({
       <div className="flex items-center gap-2">
         <span className="font-mono text-2xs text-muted-foreground">{index + 1}</span>
         <Input
-          aria-label={`Step ${index + 1} name`}
+          aria-label={t('Step {step, number} name', { step: index + 1 })}
           value={step.name}
           maxLength={80}
           onChange={(event) => onChange({ name: event.target.value })}
-          placeholder="e.g. Sponsor sign-off"
+          placeholder={t('e.g. Sponsor sign-off')}
           className="h-8 text-xs"
         />
-        <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('Move up')} disabled={index === 0} onClick={() => onMove(-1)}>
           <ArrowUp className="h-3.5 w-3.5" />
         </Button>
-        <Button size="icon-sm" variant="ghost" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('Move down')} disabled={index === count - 1} onClick={() => onMove(1)}>
           <ArrowDown className="h-3.5 w-3.5" />
         </Button>
-        <Button size="icon-sm" variant="ghost" aria-label="Remove step" disabled={count === 1} onClick={onRemove}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('Remove step')} disabled={count === 1} onClick={onRemove}>
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5 sm:col-span-2">
-          <Label>Approvers</Label>
+          <Label>{t('Approvers')}</Label>
           <ApproverPicker value={step.approvers} options={options} onChange={(approvers) => onChange({ approvers })} />
         </div>
         <div className="space-y-1.5">
-          <Label>Decided by</Label>
+          <Label>{t('Decided by')}</Label>
           <Select value={step.mode} onValueChange={(mode) => onChange({ mode: mode as ApprovalStep['mode'] })}>
             <SelectTrigger className="h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="any">Any one of them</SelectItem>
-              <SelectItem value="all">All of them</SelectItem>
+              <SelectItem value="any">{t('Any one of them')}</SelectItem>
+              <SelectItem value="all">{t('All of them')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -486,25 +497,25 @@ function StepEditor({
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label htmlFor={`sla-${step.id}`}>SLA (hours)</Label>
+          <Label htmlFor={`sla-${step.id}`}>{t('SLA (hours)')}</Label>
           <Input
             id={`sla-${step.id}`}
             type="number"
             min={0.25}
             step={0.25}
             value={step.slaHours ?? ''}
-            placeholder="None"
+            placeholder={t('None')}
             onChange={(event) => onChange({ slaHours: event.target.value === '' ? undefined : Number(event.target.value) })}
             className="h-8 text-xs"
           />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label>When the SLA is missed, tell</Label>
+          <Label>{t('When the SLA is missed, tell')}</Label>
           <ApproverPicker
             value={step.escalateTo ?? []}
             options={options}
             onChange={(escalateTo) => onChange({ escalateTo: escalateTo.length ? escalateTo : undefined })}
-            emptyText="The project owner"
+            emptyText={t('The project owner')}
           />
         </div>
       </div>
@@ -516,7 +527,7 @@ function ApproverPicker({
   value,
   options,
   onChange,
-  emptyText = 'Nobody yet',
+  emptyText = t('Nobody yet'),
 }: {
   value: ApprovalApproverSpec[];
   options: ApprovalChainOptions;
@@ -527,18 +538,18 @@ function ApproverPicker({
   const [adding, setAdding] = useState<string>();
 
   const label = (spec: ApprovalApproverSpec) => {
-    if (spec.kind === 'user') return users.data?.find((user) => user.id === spec.userId)?.name ?? `Person ${spec.userId}`;
-    if (spec.kind === 'project_owner') return 'Project owner';
-    if (spec.kind === 'requester_manager') return "Requester's manager";
-    return `Role: ${options.roles.find((role) => role.id === spec.roleId)?.name ?? spec.roleId}`;
+    if (spec.kind === 'user') return users.data?.find((user) => user.id === spec.userId)?.name ?? t('Person {id}', { id: spec.userId });
+    if (spec.kind === 'project_owner') return t('Project owner');
+    if (spec.kind === 'requester_manager') return t('Requester\'s manager');
+    return t('Role: {role}', { role: options.roles.find((role) => role.id === spec.roleId)?.name ?? spec.roleId });
   };
   const key = (spec: ApprovalApproverSpec) =>
     spec.kind === 'user' ? `user:${spec.userId}` : spec.kind === 'project_role' ? `role:${spec.roleId}` : spec.kind;
 
   const choices = [
-    { id: 'project_owner', name: 'Project owner' },
-    { id: 'requester_manager', name: "Requester's manager" },
-    ...options.roles.map((role) => ({ id: `role:${role.id}`, name: `Everyone in role: ${role.name}` })),
+    { id: 'project_owner', name: t('Project owner') },
+    { id: 'requester_manager', name: t('Requester\'s manager') },
+    ...options.roles.map((role) => ({ id: `role:${role.id}`, name: t('Everyone in role: {role}', { role: role.name }) })),
     ...(users.data ?? []).map((user) => ({ id: `user:${user.id}`, name: user.name })),
   ].filter((choice) => !value.some((spec) => key(spec) === choice.id));
 
@@ -563,13 +574,13 @@ function ApproverPicker({
         {value.map((spec) => (
           <Badge key={key(spec)} tone="neutral" size="sm" className="gap-1">
             {label(spec)}
-            <button type="button" aria-label={`Remove ${label(spec)}`} onClick={() => onChange(value.filter((one) => key(one) !== key(spec)))}>
+            <button type="button" aria-label={t('Remove {name}', { name: label(spec) })} onClick={() => onChange(value.filter((one) => key(one) !== key(spec)))}>
               <X className="h-3 w-3" />
             </button>
           </Badge>
         ))}
       </div>
-      <ComboSelect label="Add an approver" options={choices} value={adding} onChange={add} placeholder="Add…" />
+      <ComboSelect label={t('Add an approver')} options={choices} value={adding} onChange={add} placeholder={t('Add…')} />
     </div>
   );
 }
@@ -577,24 +588,24 @@ function ApproverPicker({
 type ConditionField = 'always' | 'value' | 'type' | 'priority' | 'project' | 'portfolio' | 'custom';
 
 const FIELD_CHOICES: { id: ConditionField; label: string }[] = [
-  { id: 'always', label: 'Always' },
-  { id: 'value', label: 'When the value' },
-  { id: 'type', label: 'When the type' },
-  { id: 'priority', label: 'When the priority' },
-  { id: 'project', label: 'When the project' },
-  { id: 'portfolio', label: 'When the portfolio' },
-  { id: 'custom', label: 'When a custom field' },
+  { id: 'always', get label() { return t('Always'); } },
+  { id: 'value', get label() { return t('When the value'); } },
+  { id: 'type', get label() { return t('When the type'); } },
+  { id: 'priority', get label() { return t('When the priority'); } },
+  { id: 'project', get label() { return t('When the project'); } },
+  { id: 'portfolio', get label() { return t('When the portfolio'); } },
+  { id: 'custom', get label() { return t('When a custom field'); } },
 ];
 
 const OPERATOR_WORDS: Record<ApprovalConditionOperator, string> = {
-  gt: 'is above',
-  gte: 'is at least',
-  lt: 'is below',
-  lte: 'is at most',
-  eq: 'is',
-  neq: 'is not',
-  in: 'is one of',
-  not_in: 'is none of',
+  get gt() { return t('is above'); },
+  get gte() { return t('is at least'); },
+  get lt() { return t('is below'); },
+  get lte() { return t('is at most'); },
+  get eq() { return t('is'); },
+  get neq() { return t('is not'); },
+  get in() { return t('is one of'); },
+  get not_in() { return t('is none of'); },
 };
 
 const isList = (operator: ApprovalConditionOperator) => operator === 'in' || operator === 'not_in';
@@ -630,12 +641,12 @@ function reshape(value: ApprovalCondition['value'], operator: ApprovalConditionO
 function conditionProblem(condition?: ApprovalCondition): string | undefined {
   if (!condition) return undefined;
   if (isList(condition.operator)) {
-    return Array.isArray(condition.value) && condition.value.length > 0 ? undefined : 'choose at least one value for its condition';
+    return Array.isArray(condition.value) && condition.value.length > 0 ? undefined : t('choose at least one value for its condition');
   }
   if (isComparison(condition.operator) || condition.field === 'value') {
-    return typeof condition.value === 'number' && Number.isFinite(condition.value) ? undefined : 'give its condition a number';
+    return typeof condition.value === 'number' && Number.isFinite(condition.value) ? undefined : t('give its condition a number');
   }
-  return String(condition.value).trim() ? undefined : 'say what its condition compares with';
+  return String(condition.value).trim() ? undefined : t('say what its condition compares with');
 }
 
 function ConditionEditor({
@@ -677,7 +688,7 @@ function ConditionEditor({
   return (
     <div className="flex flex-wrap items-end gap-2">
       <div className="w-44 space-y-1.5">
-        <Label>Applies</Label>
+        <Label>{t('Applies')}</Label>
         <Select value={kind} onValueChange={changeField}>
           <SelectTrigger className="h-8 text-xs">
             <SelectValue />
@@ -694,7 +705,7 @@ function ConditionEditor({
 
       {kind === 'custom' && value ? (
         <div className="w-44 space-y-1.5">
-          <Label>Field</Label>
+          <Label>{t('Field')}</Label>
           <Select
             value={value.field}
             onValueChange={(field) => {
@@ -720,7 +731,7 @@ function ConditionEditor({
       {value && operator ? (
         <>
           <div className="w-32 space-y-1.5">
-            <Label className="sr-only">Comparison</Label>
+            <Label className="sr-only">{t('Comparison')}</Label>
             <Select
               value={operator}
               onValueChange={(next) => {
@@ -728,7 +739,7 @@ function ConditionEditor({
                 onChange({ ...value, operator: chosen, value: comparesIds(kind) ? chosenIds : reshape(value.value, chosen, kind) });
               }}
             >
-              <SelectTrigger className="h-8 text-xs" aria-label="Comparison">
+              <SelectTrigger className="h-8 text-xs" aria-label={t('Comparison')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -744,25 +755,25 @@ function ConditionEditor({
           <div className="min-w-48 flex-1">
             {comparesIds(kind) ? (
               <MultiSelect
-                label="Values"
+                label={t('Values')}
                 options={listFor(kind)}
                 selected={listFor(kind).filter((item) => chosenIds.includes(item.id))}
                 onChange={(selected) => onChange({ ...value, operator, value: selected.map((item) => item.id) })}
-                placeholder="Choose…"
+                placeholder={t('Choose…')}
               />
             ) : isList(operator) ? (
               <ListTextInput value={chosenIds} onChange={(list) => onChange({ ...value, value: list })} />
             ) : isComparison(operator) || kind === 'value' ? (
               <Input
                 type="number"
-                aria-label="Compared with"
+                aria-label={t('Compared with')}
                 value={typeof value.value === 'number' ? value.value : ''}
                 onChange={(event) => onChange({ ...value, value: event.target.value === '' ? '' : Number(event.target.value) })}
                 className="h-8 text-xs"
               />
             ) : (
               <Input
-                aria-label="Compared with"
+                aria-label={t('Compared with')}
                 value={String(value.value)}
                 maxLength={200}
                 onChange={(event) => onChange({ ...value, value: event.target.value })}
@@ -772,7 +783,7 @@ function ConditionEditor({
           </div>
         </>
       ) : (
-        <FieldHint className="pb-2">This step runs for every request.</FieldHint>
+        <FieldHint className="pb-2">{t('This step runs for every request.')}</FieldHint>
       )}
     </div>
   );
@@ -783,9 +794,9 @@ function ListTextInput({ value, onChange }: { value: string[]; onChange: (value:
   const [text, setText] = useState(value.join(', '));
   return (
     <Input
-      aria-label="Compared with"
+      aria-label={t('Compared with')}
       value={text}
-      placeholder="Comma-separated"
+      placeholder={t('Comma-separated')}
       onChange={(event) => {
         setText(event.target.value);
         onChange(

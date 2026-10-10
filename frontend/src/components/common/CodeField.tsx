@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/input';
 import { FieldError, FieldHint, Label } from '@/components/ui/label';
+import { msg, t } from '@/lib/i18n';
 
 /**
  * The short code a department, team or portfolio is known by.
@@ -14,7 +15,7 @@ import { FieldError, FieldHint, Label } from '@/components/ui/label';
  */
 
 export const CODE_PATTERN = /^[A-Z0-9-]{2,16}$/;
-export const CODE_PROBLEM = 'The code must be 2–16 letters, numbers or hyphens.';
+export const CODE_PROBLEM = msg('The code must be 2–16 letters, numbers or hyphens.');
 
 interface CodeFieldProps {
   id: string;
@@ -29,7 +30,7 @@ export function CodeField({ id, value, onChange, placeholder, error }: CodeField
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} required>
-        Code
+        {t('Code')}
       </Label>
       <Input
         id={id}
@@ -42,7 +43,7 @@ export function CodeField({ id, value, onChange, placeholder, error }: CodeField
       {error ? (
         <FieldError>{error}</FieldError>
       ) : (
-        <FieldHint>2–16 letters, numbers or hyphens. Must be unique.</FieldHint>
+        <FieldHint>{t('2–16 letters, numbers or hyphens. Must be unique.')}</FieldHint>
       )}
     </div>
   );

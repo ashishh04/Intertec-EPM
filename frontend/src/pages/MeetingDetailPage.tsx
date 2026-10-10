@@ -23,7 +23,8 @@ import {
   useUpdateMeeting,
 } from '@/hooks/useCollaborationModules';
 import { useUserMap } from '@/hooks/useUsers';
-import { formatLongDate, formatTime, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { formatLongDate, formatTime } from '@/lib/utils';
 import type { MeetingState } from '@/types';
 
 const STATE_TONE: Record<MeetingState, 'success' | 'neutral' | 'danger'> = {
@@ -83,7 +84,7 @@ export default function MeetingDetailPage() {
       isError={query.isError}
       error={query.error}
       onRetry={() => query.refetch()}
-      errorTitle="Unable to load this meeting"
+      errorTitle={t('Unable to load this meeting')}
       skeleton={<PageSkeleton />}
     >
       {meeting ? (
@@ -92,39 +93,43 @@ export default function MeetingDetailPage() {
             eyebrow={
               <Link to="/meetings" className="inline-flex items-center gap-1 hover:underline">
                 <ArrowLeft className="h-3 w-3" aria-hidden />
-                Meetings
+                {t('Meetings')}
               </Link>
             }
             title={meeting.title}
             meta={
               <>
                 <Badge tone={STATE_TONE[meeting.state]} size="sm">
-                  {meeting.state}
+                  {t('{state, select, planned {planned} held {held} cancelled {cancelled} other {{state}}}', { state: meeting.state })}
                 </Badge>
                 {meeting.projectId ? (
                   <Badge tone="neutral" size="sm">
                     <Link to={`/projects/${meeting.projectId}`} className="hover:underline">
-                      {meeting.projectName ?? 'Project'}
+                      {meeting.projectName ?? t('Project')}
                     </Link>
                   </Badge>
                 ) : (
                   <Badge tone="highlight" size="sm">
-                    Organisation-wide
+                    {t('Organisation-wide')}
                   </Badge>
                 )}
               </>
             }
-            description={`${formatLongDate(meeting.startsAt)}, ${formatTime(meeting.startsAt)}–${formatTime(meeting.endsAt)}`}
+            description={t('{date}, {start}–{end}', {
+              date: formatLongDate(meeting.startsAt),
+              start: formatTime(meeting.startsAt),
+              end: formatTime(meeting.endsAt),
+            })}
             actions={
               <>
                 {meeting.can.update ? (
                   <Button variant="secondary" onClick={() => setEditing(true)}>
-                    Edit details
+                    {t('Edit details')}
                   </Button>
                 ) : null}
                 {meeting.can.delete ? (
                   <Button variant="ghost" onClick={() => setDeleting(true)}>
-                    Delete
+                    {t('Delete')}
                   </Button>
                 ) : null}
               </>
@@ -135,16 +140,16 @@ export default function MeetingDetailPage() {
             <div className="min-w-0 space-y-4">
               <Card>
                 <CardHeader variant="compact">
-                  <CardTitle>Agenda</CardTitle>
+                  <CardTitle>{t('Agenda')}</CardTitle>
                   <CardDescription className="text-2xs">
-                    What the meeting is for, written before it.
+                    {t('What the meeting is for, written before it.')}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="p-4">
+                <CardContent dir="auto" className="p-4">
                   <Markdown
                     empty={
                       <p className="text-2xs text-muted-foreground">
-                        No agenda was written. Add one from Edit details.
+                        {t('No agenda was written. Add one from Edit details.')}
                       </p>
                     }
                   >
@@ -155,26 +160,26 @@ export default function MeetingDetailPage() {
 
               <Card>
                 <CardHeader variant="compact">
-                  <CardTitle>Minutes</CardTitle>
+                  <CardTitle>{t('Minutes')}</CardTitle>
                   <CardDescription className="text-2xs">
-                    What was decided, and who is doing what next.
+                    {t('What was decided, and who is doing what next.')}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 p-4">
                   {meeting.can.update ? (
                     <>
                       <Label htmlFor="meeting-minutes" className="sr-only">
-                        Minutes
+                        {t('Minutes')}
                       </Label>
                       <Textarea
                         id="meeting-minutes"
                         rows={12}
                         value={minutes}
-                        placeholder={'## Decisions\n- Ship on the 14th\n\n## Actions\n- Priya: update the plan'}
+                        placeholder={t('## Decisions\n- Ship on the 14th\n\n## Actions\n- Priya: update the plan')}
                         onChange={(event) => setMinutes(event.target.value)}
                       />
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <FieldHint>Markdown. Saved only when you press save.</FieldHint>
+                        <FieldHint>{t('Markdown. Saved only when you press save.')}</FieldHint>
                         <Button
                           size="sm"
                           loading={update.isPending}
@@ -194,9 +199,9 @@ export default function MeetingDetailPage() {
                                 },
                               },
                               {
-                                onSuccess: () => toast.success('Minutes saved'),
+                                onSuccess: () => toast.success(t('Minutes saved')),
                                 onError: (error) =>
-                                  toast.error('The minutes could not be saved', {
+                                  toast.error(t('The minutes could not be saved'), {
                                     description:
                                       error instanceof Error ? error.message : undefined,
                                   }),
@@ -205,20 +210,22 @@ export default function MeetingDetailPage() {
                           }
                         >
                           <Save className="h-3.5 w-3.5" />
-                          Save minutes
+                          {t('Save minutes')}
                         </Button>
                       </div>
                     </>
                   ) : (
-                    <Markdown
-                      empty={
-                        <p className="text-2xs text-muted-foreground">
-                          No minutes have been written yet.
-                        </p>
-                      }
-                    >
-                      {meeting.minutes}
-                    </Markdown>
+                    <div dir="auto">
+                      <Markdown
+                        empty={
+                          <p className="text-2xs text-muted-foreground">
+                            {t('No minutes have been written yet.')}
+                          </p>
+                        }
+                      >
+                        {meeting.minutes}
+                      </Markdown>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -227,7 +234,7 @@ export default function MeetingDetailPage() {
             <div className="space-y-4">
               <Card>
                 <CardHeader variant="compact">
-                  <CardTitle>When and where</CardTitle>
+                  <CardTitle>{t('When and where')}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 p-4 text-2xs">
                   <p className="flex items-start gap-2">
@@ -236,17 +243,17 @@ export default function MeetingDetailPage() {
                       {formatLongDate(meeting.startsAt)}
                       <br />
                       {formatTime(meeting.startsAt)}&ndash;{formatTime(meeting.endsAt)} (
-                      {meeting.durationMinutes} min)
+                      {t('{minutes, number} min', { minutes: meeting.durationMinutes })})
                     </span>
                   </p>
                   {meeting.location ? (
                     <p className="flex items-start gap-2">
                       <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                      <span className="break-words">{meeting.location}</span>
+                      <span dir="auto" className="break-words">{meeting.location}</span>
                     </p>
                   ) : null}
                   <p className="text-muted-foreground">
-                    Scheduled by {meeting.createdByName ?? 'somebody who has since left'}
+                    {t('Scheduled by {name}', { name: meeting.createdByName ?? t('somebody who has since left') })}
                   </p>
                 </CardContent>
               </Card>
@@ -265,30 +272,29 @@ export default function MeetingDetailPage() {
                           setAttendance.mutate(
                             { id: meeting.id, attended: [...attended] },
                             {
-                              onSuccess: () => toast.success('Attendance recorded'),
+                              onSuccess: () => toast.success(t('Attendance recorded')),
                               onError: (error) =>
-                                toast.error('Attendance could not be saved', {
+                                toast.error(t('Attendance could not be saved'), {
                                   description: error instanceof Error ? error.message : undefined,
                                 }),
                             },
                           )
                         }
                       >
-                        Save
+                        {t('Save')}
                       </Button>
                     ) : null
                   }
                 >
-                  <CardTitle>Participants</CardTitle>
+                  <CardTitle>{t('Participants')}</CardTitle>
                   <CardDescription className="text-2xs">
-                    {meeting.participants.length}{' '}
-                    {pluralize(meeting.participants.length, 'person', 'people')} invited
+                    {t('{count, plural, one {# person invited} other {# people invited}}', { count: meeting.participants.length })}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
                   {meeting.participants.length === 0 ? (
                     <p className="px-4 py-3 text-2xs text-muted-foreground">
-                      Nobody is on the list yet.
+                      {t('Nobody is on the list yet.')}
                     </p>
                   ) : (
                     <ul className="divide-y divide-border">
@@ -302,7 +308,7 @@ export default function MeetingDetailPage() {
                               <Checkbox
                                 id={id}
                                 checked={attended.has(participant.userId)}
-                                aria-label={`${participant.name ?? 'This person'} attended`}
+                                aria-label={t('{name} attended', { name: participant.name ?? t('This person') })}
                                 onCheckedChange={(checked) =>
                                   setAttended((current) => {
                                     const next = new Set(current);
@@ -318,16 +324,16 @@ export default function MeetingDetailPage() {
                               htmlFor={meeting.can.update ? id : undefined}
                               className="min-w-0 flex-1 truncate text-2xs"
                             >
-                              {participant.name ?? person?.name ?? 'Unknown'}
+                              {participant.name ?? person?.name ?? t('Unknown')}
                             </label>
                             {!participant.invited ? (
                               <Badge tone="neutral" size="sm">
-                                Not invited
+                                {t('Not invited')}
                               </Badge>
                             ) : null}
                             {participant.attended ? (
                               <Badge tone="success" size="sm">
-                                Came
+                                {t('Came')}
                               </Badge>
                             ) : null}
                           </li>
@@ -341,8 +347,7 @@ export default function MeetingDetailPage() {
               <Card>
                 <CardContent className="flex items-center gap-2 p-4 text-2xs text-muted-foreground">
                   <Users className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  Attendance is saved separately from the minutes, so ticking a box cannot overwrite
-                  notes somebody else is writing.
+                  {t('Attendance is saved separately from the minutes, so ticking a box cannot overwrite notes somebody else is writing.')}
                 </CardContent>
               </Card>
             </div>
@@ -353,20 +358,20 @@ export default function MeetingDetailPage() {
           <ConfirmDialog
             open={deleting}
             onOpenChange={setDeleting}
-            title="Delete this meeting?"
-            description={`"${meeting.title}" and its agenda, minutes and attendance will be removed. This cannot be undone.`}
-            confirmLabel="Delete"
+            title={t('Delete this meeting?')}
+            description={t('"{title}" and its agenda, minutes and attendance will be removed. This cannot be undone.', { title: meeting.title })}
+            confirmLabel={t('Delete')}
             tone="danger"
             pending={remove.isPending}
             onConfirm={() =>
               remove.mutate(meeting.id, {
                 onSuccess: () => {
-                  toast.success('Meeting deleted');
+                  toast.success(t('Meeting deleted'));
                   // `replace`, so Back does not return to a meeting that is gone.
                   navigate('/meetings', { replace: true });
                 },
                 onError: (error) =>
-                  toast.error('That meeting could not be deleted', {
+                  toast.error(t('That meeting could not be deleted'), {
                     description: error instanceof Error ? error.message : undefined,
                   }),
               })

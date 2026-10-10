@@ -8,6 +8,7 @@ import { getUsers } from '../mapping/users.js';
 import { listProjects } from '../mapping/projects.js';
 import { requestSignal } from '../lib/request-signal.js';
 import type { RecordAbilities } from '../types/epm.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Authorisation and naming shared by meetings, news and the wiki.
@@ -51,7 +52,7 @@ const ADMIN_PERMISSION = 'users:manage' as const;
 export function optionalProjectId(value: unknown, field = 'project'): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-    throw EpmError.badRequest(`That ${field} is not valid.`);
+    throw EpmError.badRequest(message('That {field} is not valid.', { field }));
   }
   return value;
 }
@@ -114,7 +115,7 @@ export async function requireRecordWrite(
 ): Promise<void> {
   const can = await abilitiesFor(request, record);
   if (!can.update) {
-    throw EpmError.forbidden(`You do not have permission to change this ${what}.`);
+    throw EpmError.forbidden(message('You do not have permission to change this {what}.', { what }));
   }
 }
 
@@ -188,11 +189,11 @@ export function slugify(value: string): string {
 /** Trimmed, or undefined when there is nothing left. Empty means "clear it". */
 export function text(value: unknown, field: string, max: number): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== 'string') throw EpmError.badRequest(`${field} must be text.`);
+  if (typeof value !== 'string') throw EpmError.badRequest(message('{field} must be text.', { field }));
 
   const trimmed = value.trim();
   if (trimmed.length > max) {
-    throw EpmError.badRequest(`${field} cannot be longer than ${max} characters.`);
+    throw EpmError.badRequest(message('{field} cannot be longer than {max} characters.', { field, max }));
   }
   return trimmed;
 }
@@ -200,6 +201,6 @@ export function text(value: unknown, field: string, max: number): string | undef
 /** The same, but required and non-empty. */
 export function requiredText(value: unknown, field: string, max: number): string {
   const trimmed = text(value, field, max);
-  if (!trimmed) throw EpmError.badRequest(`${field} is required.`);
+  if (!trimmed) throw EpmError.badRequest(message('{field} is required.', { field }));
   return trimmed;
 }

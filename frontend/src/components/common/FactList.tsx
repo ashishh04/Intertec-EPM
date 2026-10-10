@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 export interface Fact {
@@ -15,7 +16,7 @@ export interface Fact {
 export function FactList({
   facts,
   className,
-  emptyLabel = 'Nothing to show',
+  emptyLabel = t('Nothing to show'),
 }: {
   facts: Fact[];
   className?: string;
@@ -35,7 +36,7 @@ export function FactList({
           <dt className="shrink-0 text-xs text-muted-foreground">{fact.label}</dt>
           <dd
             className={cn(
-              'min-w-0 text-right text-xs text-foreground',
+              'min-w-0 text-end text-xs text-foreground',
               fact.mono !== false && 'font-mono text-2xs tabular-nums',
             )}
           >

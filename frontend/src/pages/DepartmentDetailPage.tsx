@@ -20,7 +20,8 @@ import { usePagination } from '@/hooks/usePagination';
 import { useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
-import { formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { formatNumber } from '@/lib/utils';
 import type { EpmDepartment } from '@/services/api/departments';
 
 /**
@@ -58,9 +59,9 @@ export default function DepartmentDetailPage() {
     setActive.mutate(
       { id: department.data.id, active },
       {
-        onSuccess: () => toast.success(active ? 'Department restored' : 'Department archived'),
+        onSuccess: () => toast.success(active ? t('Department restored') : t('Department archived')),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -72,7 +73,7 @@ export default function DepartmentDetailPage() {
       isLoading={department.isLoading}
       isError={department.isError}
       onRetry={() => department.refetch()}
-      errorTitle="Unable to load this department"
+      errorTitle={t('Unable to load this department')}
       skeleton={
         <div className="space-y-5">
           <Skeleton className="h-16 w-full" />
@@ -87,7 +88,7 @@ export default function DepartmentDetailPage() {
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-            All departments
+            {t('All departments')}
           </Link>
 
           <PageHeader
@@ -97,7 +98,7 @@ export default function DepartmentDetailPage() {
             meta={
               department.data.active ? null : (
                 <Badge tone="warning" size="sm">
-                  Archived
+                  {t('Archived')}
                 </Badge>
               )
             }
@@ -106,7 +107,7 @@ export default function DepartmentDetailPage() {
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="secondary" onClick={() => setDialogOpen(true)}>
                     <Pencil className="h-3.5 w-3.5" />
-                    Edit
+                    {t('Edit')}
                   </Button>
                   <Button
                     size="sm"
@@ -119,7 +120,7 @@ export default function DepartmentDetailPage() {
                     ) : (
                       <RotateCcw className="h-3.5 w-3.5" />
                     )}
-                    {department.data.active ? 'Archive' : 'Restore'}
+                    {department.data.active ? t('Archive') : t('Restore')}
                   </Button>
                 </div>
               ) : null
@@ -128,25 +129,25 @@ export default function DepartmentDetailPage() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             <Card className="p-4">
-              <p className="epm-eyebrow">People</p>
+              <p className="epm-eyebrow">{t('People')}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
                 {formatNumber(department.data.memberCount)}
               </p>
               <p className="mt-0.5 text-2xs text-muted-foreground">
-                Mapped to this department, with or without a team.
+                {t('Mapped to this department, with or without a team.')}
               </p>
             </Card>
 
             <Card className="p-4">
-              <p className="epm-eyebrow">Capacity</p>
+              <p className="epm-eyebrow">{t('Capacity')}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
                 {formatNumber(department.data.capacityHours)}
-                <span className="ml-1 text-xs text-muted-foreground">h/wk</span>
+                <span className="ms-1 text-xs text-muted-foreground">{t('h/wk')}</span>
               </p>
             </Card>
 
             <Card className="p-4">
-              <p className="epm-eyebrow">Teams</p>
+              <p className="epm-eyebrow">{t('Teams')}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
                 {formatNumber(teamItems.length)}
               </p>
@@ -157,7 +158,7 @@ export default function DepartmentDetailPage() {
             <CardHeader variant="compact">
               <CardTitle className="flex items-center gap-2">
                 <UserRound className="h-4 w-4 text-muted-foreground" aria-hidden />
-                Manager
+                {t('Manager')}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4">
@@ -166,14 +167,14 @@ export default function DepartmentDetailPage() {
                   {/* The name comes from the backend; the directory is only
                       consulted for the avatar. */}
                   <UserAvatar user={users.get(department.data.manager.id)} size="xs" />
-                  <span className="text-sm">{department.data.manager.name}</span>
+                  <span className="text-sm" dir="auto">{department.data.manager.name}</span>
                 </div>
               ) : (
                 <EmptyState
                   size="inline"
                   icon={UserRound}
-                  title="No manager"
-                  description="Nobody is accountable for this department yet."
+                  title={t('No manager')}
+                  description={t('Nobody is accountable for this department yet.')}
                 />
               )}
             </CardContent>
@@ -183,9 +184,9 @@ export default function DepartmentDetailPage() {
             <CardHeader variant="compact">
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
-                Teams
+                {t('Teams')}
                 <span className="font-mono text-xs font-normal text-muted-foreground">
-                  {formatNumber(teamItems.length)} {pluralize(teamItems.length, 'team')}
+                  {t('{count, plural, one {# team} other {# teams}}', { count: teamItems.length })}
                 </span>
               </CardTitle>
             </CardHeader>
@@ -194,15 +195,15 @@ export default function DepartmentDetailPage() {
                 isLoading={teams.isLoading}
                 isError={teams.isError}
                 onRetry={() => teams.refetch()}
-                errorTitle="Unable to load these teams"
+                errorTitle={t('Unable to load these teams')}
                 skeleton={<ListSkeleton rows={3} height="h-10" />}
                 isEmpty={teamItems.length === 0}
                 empty={
                   <EmptyState
                     size="inline"
                     icon={Users}
-                    title="No teams"
-                    description="No team belongs to this department yet."
+                    title={t('No teams')}
+                    description={t('No team belongs to this department yet.')}
                   />
                 }
               >
@@ -213,18 +214,17 @@ export default function DepartmentDetailPage() {
                         to={`/teams/${team.id}`}
                         className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        <span className="truncate">{team.name}</span>
+                        <span className="truncate" dir="auto">{team.name}</span>
                         <Badge size="sm" className="font-mono">
                           {team.code}
                         </Badge>
                         {team.active ? null : (
                           <Badge tone="warning" size="sm">
-                            Archived
+                            {t('Archived')}
                           </Badge>
                         )}
-                        <span className="ml-auto shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-                          {formatNumber(team.memberCount)}{' '}
-                          {pluralize(team.memberCount, 'member')}
+                        <span className="ms-auto shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
+                          {t('{count, plural, one {# member} other {# members}}', { count: team.memberCount })}
                         </span>
                       </Link>
                     </li>
@@ -238,10 +238,9 @@ export default function DepartmentDetailPage() {
             <CardHeader variant="compact">
               <CardTitle className="flex items-center gap-2">
                 <UserRound className="h-4 w-4 text-muted-foreground" aria-hidden />
-                People
+                {t('People')}
                 <span className="font-mono text-xs font-normal text-muted-foreground">
-                  {formatNumber(memberItems.length)}{' '}
-                  {pluralize(memberItems.length, 'person')}
+                  {t('{count, plural, one {# person} other {# persons}}', { count: memberItems.length })}
                 </span>
               </CardTitle>
             </CardHeader>
@@ -250,15 +249,15 @@ export default function DepartmentDetailPage() {
                 isLoading={members.isLoading}
                 isError={members.isError}
                 onRetry={() => members.refetch()}
-                errorTitle="Unable to load these people"
+                errorTitle={t('Unable to load these people')}
                 skeleton={<ListSkeleton rows={4} height="h-10" />}
                 isEmpty={memberItems.length === 0}
                 empty={
                   <EmptyState
                     size="inline"
                     icon={UserRound}
-                    title="Nobody mapped yet"
-                    description="People are mapped to a department from the Employees page."
+                    title={t('Nobody mapped yet')}
+                    description={t('People are mapped to a department from the Employees page.')}
                   />
                 }
               >
@@ -271,7 +270,7 @@ export default function DepartmentDetailPage() {
                       >
                         <UserAvatar user={users.get(person.id)} size="xs" />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm">{person.name}</p>
+                          <p className="truncate text-sm" dir="auto">{person.name}</p>
                           {person.email ? (
                             <p className="truncate text-2xs text-muted-foreground">
                               {person.email}
@@ -285,10 +284,10 @@ export default function DepartmentDetailPage() {
                             </Badge>
                           </Link>
                         ) : (
-                          <span className="shrink-0 text-2xs text-muted-foreground">No team</span>
+                          <span className="shrink-0 text-2xs text-muted-foreground">{t('No team')}</span>
                         )}
                         <span className="shrink-0 font-mono text-2xs tabular-nums text-muted-foreground">
-                          {formatNumber(person.hoursCapacity)} h/wk
+                          {t('{hours, number} h/wk', { hours: person.hoursCapacity })}
                         </span>
                       </li>
                     ))}
@@ -301,7 +300,8 @@ export default function DepartmentDetailPage() {
                     onPageChange={pagedMembers.setPage}
                     onPageSizeChange={pagedMembers.setPageSize}
                     pageSizeOptions={[10, 25, 50]}
-                    itemLabel="person"
+                    itemLabel={t('person')}
+                    itemLabelPlural={t('persons')}
                   />
                 </div>
               </QueryBoundary>

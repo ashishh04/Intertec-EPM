@@ -13,6 +13,7 @@ import { renderStored } from '../email/templates/index.js';
 import { RESEND_BATCH_LIMIT } from '../email/resend.js';
 import { raiseOperationsAlert } from '../domain/ops-alerts.js';
 import type { OutgoingAttachment } from '../email/provider.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * The outbox worker.
@@ -171,12 +172,16 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
    * different rows — a row locked by one is skipped by the other, never sent
    * by both. The claim records when and by which process, for the recovery
    * above and for anyone tracing a send.
+   *
+   * The time is the worker's clock, not the database's: the recovery above
+   * judges a claim's age by the worker's clock, and the two must agree, or a
+   * fresh claim can look stale to a second worker and be sent twice.
    */
   async function claimDue(): Promise<OutboxRow[]> {
     const onlyId = options.only?.id;
     return prisma.$queryRaw<OutboxRow[]>`
       UPDATE email_outbox
-         SET status = 'sending', "claimedAt" = now(), "claimedBy" = ${INSTANCE_ID}
+         SET status = 'sending', "claimedAt" = ${now()}, "claimedBy" = ${INSTANCE_ID}
        WHERE id IN (
          SELECT id FROM email_outbox
           WHERE status = 'queued'
@@ -253,12 +258,19 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
     if (row.dedupeKey?.startsWith('notification:ops-alert:')) return;
     if (!retried && row.template !== 'scheduled-report') return;
     const report = row.template === 'scheduled-report';
+    const facts = { subject: row.subject, template: row.template, email: row.toEmail, attempts: MAX_ATTEMPTS, reason: error.replace(/[.!?]*$/, '') };
     await raiseOperationsAlert({
       kind: 'email.delivery_exhausted',
-      title: report ? 'A scheduled report could not be delivered' : 'An email could not be delivered',
-      body: `${report ? `"${row.subject}"` : `The ${row.template} email`} to ${row.toEmail} was not delivered${
-        retried ? ` after ${MAX_ATTEMPTS} attempts` : ''
-      }: ${error.replace(/[.!?]*$/, '')}.`,
+      title: report ? message('A scheduled report could not be delivered') : message('An email could not be delivered'),
+      // Each operations person reads it in their own language; the log, the
+      // journal and the webhook get the English.
+      body: report
+        ? retried
+          ? message('"{subject}" to {email} was not delivered after {attempts, plural, one {# attempt} other {# attempts}}: {reason}.', facts)
+          : message('"{subject}" to {email} was not delivered: {reason}.', facts)
+        : retried
+          ? message('The {template} email to {email} was not delivered after {attempts, plural, one {# attempt} other {# attempts}}: {reason}.', facts)
+          : message('The {template} email to {email} was not delivered: {reason}.', facts),
       dedupeKey: `email:${row.id}`,
       link: report ? '/reports/scheduled' : undefined,
       details: { outboxId: row.id, template: row.template, attempts: MAX_ATTEMPTS },
@@ -311,8 +323,13 @@ export function createEmailWorker(options: EmailWorkerOptions): EmailWorker {
         recipientId,
         template: 'digest',
         payload: {
-          firstName: recipient?.firstName ?? 'there',
+          // No name rather than an English stand-in: the template greets
+          // without one, in the reader's language.
+          firstName: recipient?.firstName ?? '',
           dateLabel,
+          // The day itself, so the template writes it in the reader's
+          // language and calendar; `dateLabel` stays for rows queued before.
+          day,
           items: rows.map(digestItemOf),
         },
         channel: 'immediate',

@@ -7,6 +7,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import { linkId } from '../openproject/client.js';
 import type { HalCollection, HalLink } from '../openproject/types.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Work package attachments.
@@ -127,7 +128,7 @@ export const attachmentRoutes: FastifyPluginAsync = async (app) => {
     // limit; the partial file must not be forwarded as if it were whole.
     if (uploaded.file.truncated) {
       throw EpmError.badRequest(
-        `That file is larger than the ${Math.floor(limit / 1024 / 1024)} MB limit.`,
+        message('That file is larger than the {limit} MB limit.', { limit: Math.floor(limit / 1024 / 1024) }),
       );
     }
 

@@ -25,6 +25,7 @@ import {
 import { useCreateAccount, useUpdateAccount } from '@/hooks/useAccounts';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useTeams } from '@/hooks/useTeams';
+import { t } from '@/lib/i18n';
 import type { EpmAccount } from '@/types';
 
 /**
@@ -141,13 +142,13 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   );
 
   const fail = (error: unknown) =>
-    setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+    setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
   const submit = () => {
     setProblem(undefined);
 
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
-      setProblem('A first name, last name and email address are required.');
+      setProblem(t('A first name, last name and email address are required.'));
       return;
     }
 
@@ -164,7 +165,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
         },
         {
           onSuccess: () => {
-            toast.success('Person updated');
+            toast.success(t('Person updated'));
             onOpenChange(false);
           },
           onError: fail,
@@ -174,18 +175,18 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     }
 
     if (!login.trim()) {
-      setProblem('A username is required.');
+      setProblem(t('A username is required.'));
       return;
     }
 
     if (!inviting && !password) {
-      setProblem('A starting password is required.');
+      setProblem(t('A starting password is required.'));
       return;
     }
 
     const hours = Number(capacity);
     if (!Number.isFinite(hours) || hours < 0) {
-      setProblem('Capacity must be a number of hours.');
+      setProblem(t('Capacity must be a number of hours.'));
       return;
     }
 
@@ -209,22 +210,22 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
           // The account exists even when the placement failed, so this says
           // what actually happened rather than a blanket success.
           if (created.placementProblems?.length) {
-            toast.warning(`${created.name} was created, but not fully placed`, {
+            toast.warning(t('{name} was created, but not fully placed', { name: created.name }), {
               description: created.placementProblems.join(' '),
             });
           } else if (created.inviteSent) {
-            toast.success(`Invitation sent to ${created.email || email.trim()}`, {
-              description: 'They have 7 days to set a password from the link.',
+            toast.success(t('Invitation sent to {email}', { email: created.email || email.trim() }), {
+              description: t('They have 7 days to set a password from the link.'),
             });
           } else if (inviting) {
             // Asked for, not delivered: the account exists with a password
             // nobody knows, so the way forward is another invitation.
-            toast.warning(`${created.name} was created, but the invitation was not sent`, {
-              description: 'Use "Resend invitation" from their account menu.',
+            toast.warning(t('{name} was created, but the invitation was not sent', { name: created.name }), {
+              description: t('Use "Resend invitation" from their account menu.'),
             });
           } else {
-            toast.success(`${created.name} can now sign in`, {
-              description: 'Give them the username and password you set.',
+            toast.success(t('{name} can now sign in', { name: created.name }), {
+              description: t('Give them the username and password you set.'),
             });
           }
           onOpenChange(false);
@@ -238,24 +239,24 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit person' : 'Add a person'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Edit person') : t('Add a person')}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Their account details.'
-              : 'Creates a sign-in account and places them in your organisation.'}
+              ? t('Their account details.')
+              : t('Creates a sign-in account and places them in your organisation.')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="epm-dialog-body epm-scroll space-y-5 py-1 pr-1">
+        <div className="epm-dialog-body epm-scroll space-y-5 py-1 pe-1">
           {/* Two halves, labelled: the sign-in account, then where the person
               sits. Grouping them is what makes a form this long readable —
               stacked one-per-row it ran off the bottom of the screen. */}
           <section className="space-y-3">
-            {isEdit ? null : <p className="epm-eyebrow">Account</p>}
+            {isEdit ? null : <p className="epm-eyebrow">{t('Account')}</p>}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="account-first">First name</Label>
+                <Label htmlFor="account-first">{t('First name')}</Label>
                 <Input
                   id="account-first"
                   value={firstName}
@@ -263,7 +264,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="account-last">Last name</Label>
+                <Label htmlFor="account-last">{t('Last name')}</Label>
                 <Input
                   id="account-last"
                   value={lastName}
@@ -274,7 +275,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="account-email">Email</Label>
+                <Label htmlFor="account-email">{t('Email')}</Label>
                 <Input
                   id="account-email"
                   type="email"
@@ -285,7 +286,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
               {isEdit ? null : (
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-login">Username</Label>
+                  <Label htmlFor="account-login">{t('Username')}</Label>
                   <Input
                     id="account-login"
                     value={login}
@@ -299,13 +300,13 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             {isEdit ? null : (
               <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
                 <div className="min-w-0">
-                  <Label htmlFor="account-invite">Send an invitation email</Label>
+                  <Label htmlFor="account-invite">{t('Send an invitation email')}</Label>
                   <FieldHint className="mt-0.5">
                     {email.trim() === ''
-                      ? 'Enter their email address first.'
+                      ? t('Enter their email address first.')
                       : inviting
-                        ? 'They will set their own password from the link. It expires in 7 days.'
-                        : 'You will hand over a starting password instead.'}
+                        ? t('They will set their own password from the link. It expires in 7 days.')
+                        : t('You will hand over a starting password instead.')}
                   </FieldHint>
                 </div>
                 <Switch
@@ -319,7 +320,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
             {isEdit || inviting ? null : (
               <div className="space-y-1.5">
-                <Label htmlFor="account-password">Starting password</Label>
+                <Label htmlFor="account-password">{t('Starting password')}</Label>
                 <div className="flex gap-2">
                   {/* Shown, not masked: the administrator has to read it out to
                       hand it over, and hiding it from the person typing it
@@ -337,20 +338,20 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     variant="secondary"
                     className="shrink-0"
                     disabled={!password}
-                    aria-label="Copy starting password"
+                    aria-label={t('Copy starting password')}
                     onClick={() => {
                       navigator.clipboard
                         .writeText(password)
                         .then(() => {
                           setCopied(true);
-                          toast.success('Password copied');
+                          toast.success(t('Password copied'));
                           window.setTimeout(() => setCopied(false), 2000);
                         })
-                        .catch(() => toast.error('Could not copy. Select the password and copy it by hand.'));
+                        .catch(() => toast.error(t('Could not copy. Select the password and copy it by hand.')));
                     }}
                   >
                     {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                    {copied ? 'Copied' : 'Copy'}
+                    {copied ? t('Copied') : t('Copy')}
                   </Button>
                   <Button
                     type="button"
@@ -359,11 +360,11 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     onClick={() => setPassword(suggestPassword())}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    New
+                    {t('New')}
                   </Button>
                 </div>
                 <FieldHint>
-                  Give this to them with the username. They can change it once signed in.
+                  {t('Give this to them with the username. They can change it once signed in.')}
                 </FieldHint>
               </div>
             )}
@@ -372,8 +373,8 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                 same wherever it appears. */}
             <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
               <div className="min-w-0">
-                <Label htmlFor="account-admin">Instance administrator</Label>
-                <FieldHint className="mt-0.5">Full access to every project and setting.</FieldHint>
+                <Label htmlFor="account-admin">{t('Instance administrator')}</Label>
+                <FieldHint className="mt-0.5">{t('Full access to every project and setting.')}</FieldHint>
               </div>
               <Switch id="account-admin" checked={admin} onCheckedChange={setAdmin} />
             </div>
@@ -381,11 +382,11 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
           {isEdit ? null : (
             <section className="space-y-3 border-t border-border pt-4">
-              <p className="epm-eyebrow">Organisation</p>
+              <p className="epm-eyebrow">{t('Organisation')}</p>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-department">Department</Label>
+                  <Label htmlFor="account-department">{t('Department')}</Label>
                   {/* An empty value while loading shows the placeholder instead
                       of the "No department" option, which would read as a
                       settled answer. */}
@@ -397,13 +398,13 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     }}
                     disabled={departments.isLoading}
                   >
-                    <SelectTrigger id="account-department" aria-label="Select a department">
+                    <SelectTrigger id="account-department" aria-label={t('Select a department')}>
                       <SelectValue
-                        placeholder={departments.isLoading ? 'Loading…' : 'No department'}
+                        placeholder={departments.isLoading ? t('Loading…') : t('No department')}
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>No department</SelectItem>
+                      <SelectItem value={NONE}>{t('No department')}</SelectItem>
                       {(departments.data ?? []).map((department) => (
                         <SelectItem key={department.id} value={department.id}>
                           {department.name}
@@ -414,17 +415,17 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-team">Team</Label>
+                  <Label htmlFor="account-team">{t('Team')}</Label>
                   <Select
                     value={teams.isLoading ? '' : teamId}
                     onValueChange={setTeamId}
                     disabled={teams.isLoading}
                   >
-                    <SelectTrigger id="account-team" aria-label="Select a team">
-                      <SelectValue placeholder={teams.isLoading ? 'Loading…' : 'No team'} />
+                    <SelectTrigger id="account-team" aria-label={t('Select a team')}>
+                      <SelectValue placeholder={teams.isLoading ? t('Loading…') : t('No team')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>No team</SelectItem>
+                      <SelectItem value={NONE}>{t('No team')}</SelectItem>
                       {selectableTeams.map((team) => (
                         <SelectItem key={team.id} value={team.id}>
                           {team.name}
@@ -433,14 +434,14 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     </SelectContent>
                   </Select>
                   {!teams.isLoading && (teams.data ?? []).length === 0 ? (
-                    <FieldHint>No teams yet.</FieldHint>
+                    <FieldHint>{t('No teams yet.')}</FieldHint>
                   ) : null}
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="account-capacity">Weekly capacity</Label>
+                  <Label htmlFor="account-capacity">{t('Weekly capacity')}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="account-capacity"
@@ -451,9 +452,9 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                       value={capacity}
                       onChange={(event) => setCapacity(event.target.value)}
                     />
-                    <span className="shrink-0 text-2xs text-muted-foreground">hours</span>
+                    <span className="shrink-0 text-2xs text-muted-foreground">{t('hours')}</span>
                   </div>
-                  <FieldHint>Used for allocation.</FieldHint>
+                  <FieldHint>{t('Used for allocation.')}</FieldHint>
                 </div>
               </div>
             </section>
@@ -464,10 +465,10 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} disabled={pending}>
-            {isEdit ? 'Save' : 'Create person'}
+            {isEdit ? t('Save') : t('Create person')}
           </Button>
         </DialogFooter>
       </DialogContent>

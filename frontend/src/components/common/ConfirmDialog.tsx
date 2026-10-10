@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { t } from '@/lib/i18n';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -33,8 +34,8 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel = t('Confirm'),
+  cancelLabel = t('Cancel'),
   tone = 'default',
   pending = false,
   onConfirm,
@@ -86,7 +87,7 @@ export function PromptDialog({
   label,
   initialValue = '',
   placeholder,
-  confirmLabel = 'Save',
+  confirmLabel = t('Save'),
   pending = false,
   onSubmit,
 }: PromptDialogProps) {
@@ -130,7 +131,7 @@ export function PromptDialog({
               onClick={() => onOpenChange(false)}
               disabled={pending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" disabled={!trimmed} loading={pending}>
               {confirmLabel}

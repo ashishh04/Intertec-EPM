@@ -1,32 +1,39 @@
-import { button, layout, paragraph, textBody, type RenderedEmail } from './layout.js';
+import { button, layout, paragraph, textBody, type EmailLocale, type RenderedEmail } from './layout.js';
 
 /** An EPM notification — a health change, a capacity change — as an email. */
 export interface NotificationPayload {
   firstName: string;
+  /** Already written in the reader's language when the notification was made. */
   title: string;
   body: string;
   url?: string;
 }
 
-export function render(payload: NotificationPayload): RenderedEmail {
+export function render(payload: NotificationPayload, locale: EmailLocale): RenderedEmail {
+  const { tr } = locale;
   const subject = payload.title;
+  const greeting = payload.firstName ? tr('Hi {name},', { name: payload.firstName }) : tr('Hello,');
 
   const html = layout(
     subject,
-    paragraph(`Hi ${payload.firstName},`) +
+    paragraph(greeting) +
       paragraph(payload.title) +
       (payload.body ? paragraph(payload.body) : '') +
-      (payload.url ? button('Open in EPM', payload.url) : ''),
+      (payload.url ? button(tr('Open in EPM'), payload.url) : ''),
+    locale,
   );
 
-  const text = textBody([
-    `Hi ${payload.firstName},`,
-    '',
-    payload.title,
-    payload.body || undefined,
-    payload.url ? '' : undefined,
-    payload.url,
-  ]);
+  const text = textBody(
+    [
+      greeting,
+      '',
+      payload.title,
+      payload.body || undefined,
+      payload.url ? '' : undefined,
+      payload.url,
+    ],
+    locale,
+  );
 
   return { subject, html, text };
 }

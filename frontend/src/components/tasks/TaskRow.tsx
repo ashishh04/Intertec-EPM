@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { cn, describeDueDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { StatusBadge, PriorityBadge } from '@/components/common/StatusBadge';
 import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -40,12 +41,12 @@ function TaskRow({ task, project, assignee, className }: TaskRowProps) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
-          <span className="truncate text-xs font-medium text-foreground group-hover:text-primary">
+          <span dir="auto" className="truncate text-xs font-medium text-foreground group-hover:text-primary">
             {task.subject}
           </span>
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-2xs text-muted-foreground">
-          <span className="truncate">{project?.name ?? 'Unknown project'}</span>
+          <span className="truncate">{project?.name ?? t('Unknown project')}</span>
           {task.labels.length > 0 ? (
             <>
               <span aria-hidden>·</span>

@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import type { ID, ScheduleItem } from '@/types';
 
 /**
@@ -29,6 +30,6 @@ export const NEAR_CRITICAL_CHOICES = [0, 1, 2, 3, 5, 10, 15, 20];
 
 /** "3 days", "1 day", "no float". */
 export function floatLabel(days: number): string {
-  if (days <= 0) return 'no float';
-  return `${days} working ${days === 1 ? 'day' : 'days'}`;
+  if (days <= 0) return t('no float');
+  return t('{days, plural, one {# working day} other {# working days}}', { days });
 }

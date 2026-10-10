@@ -4,6 +4,7 @@ import { ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
 import { visibleNavSections, type NavItem } from '@/config/navigation';
 import { featureFlags } from '@/config/env';
 import { cn } from '@/lib/utils';
+import { isRightToLeft, t } from '@/lib/i18n';
 import { useUI } from '@/providers/UIProvider';
 import { useAuth } from '@/providers/AuthProvider';
 import { useApprovalInboxCount } from '@/hooks/useApprovals';
@@ -50,7 +51,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
       initial={false}
       transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
       className={cn(
-        'flex h-full flex-col border-r border-sidebar-border bg-sidebar',
+        'flex h-full flex-col border-e border-sidebar-border bg-sidebar',
         variant === 'fixed' && 'shrink-0',
       )}
     >
@@ -70,7 +71,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
 
       {/* Navigation */}
       <nav
-        aria-label="Primary"
+        aria-label={t('Primary')}
         className={cn('epm-scroll relative flex-1 overflow-y-auto py-3', collapsed ? 'px-2' : 'px-3')}
       >
         {sections.map((section, sectionIndex) => (
@@ -107,7 +108,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                         // The brand gradient, so the rail that follows you down
                         // the nav is the same mark as the primary buttons.
                         // Vertical, because the bar is 2px wide.
-                        className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-brand-y"
+                        className="absolute inset-y-1 start-0 w-0.5 rounded-full bg-brand-y"
                         transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
                         aria-hidden
                       />
@@ -117,11 +118,11 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                     {badgeCount > 0 ? (
                       collapsed ? (
                         <span
-                          className="absolute right-1 top-1 h-2 w-2 rounded-full bg-danger ring-2 ring-sidebar"
+                          className="absolute end-1 top-1 h-2 w-2 rounded-full bg-danger ring-2 ring-sidebar"
                           aria-hidden
                         />
                       ) : (
-                        <CountBadge count={badgeCount} max={9} className="ml-auto" />
+                        <CountBadge count={badgeCount} max={9} className="ms-auto" />
                       )
                     ) : null}
                     {collapsed ? <span className="sr-only">{item.label}</span> : null}
@@ -133,9 +134,12 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                     {collapsed ? (
                       <Tooltip>
                         <TooltipTrigger asChild>{link}</TooltipTrigger>
-                        <TooltipContent side="right">
-                          {item.label}
-                          {badgeCount > 0 ? ` · ${badgeCount} ${item.badge === 'approvals' ? 'waiting' : 'unread'}` : ''}
+                        <TooltipContent side={isRightToLeft() ? 'left' : 'right'}>
+                          {badgeCount > 0
+                            ? item.badge === 'approvals'
+                              ? t('{label} · {count, number} waiting', { label: item.label, count: badgeCount })
+                              : t('{label} · {count, number} unread', { label: item.label, count: badgeCount })
+                            : item.label}
                         </TooltipContent>
                       </Tooltip>
                     ) : (
@@ -181,7 +185,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
           {!collapsed ? (
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium text-sidebar-foreground">
-                {user?.name ?? 'Loading…'}
+                {user?.name ?? t('Loading…')}
               </p>
               <p className="truncate text-2xs text-sidebar-muted">{user?.role ?? ''}</p>
             </div>
@@ -193,7 +197,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
             variant="ghost"
             size="sm"
             onClick={toggleSidebar}
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={sidebarCollapsed ? t('Expand sidebar') : t('Collapse sidebar')}
             aria-expanded={!sidebarCollapsed}
             className={cn('mt-2 w-full text-2xs', collapsed && 'justify-center px-0')}
           >
@@ -202,7 +206,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
             ) : (
               <>
                 <ChevronsLeft className="h-3.5 w-3.5" />
-                Collapse
+                {t('Collapse')}
               </>
             )}
           </Button>

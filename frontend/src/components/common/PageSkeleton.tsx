@@ -1,10 +1,11 @@
 import { Skeleton, LoadingAnnouncement } from '@/components/ui/skeleton';
+import { t } from '@/lib/i18n';
 
 /** Generic route-level fallback used while a lazily loaded page resolves. */
 export function PageSkeleton() {
   return (
     <div className="space-y-6">
-      <LoadingAnnouncement label="Loading page" />
+      <LoadingAnnouncement label={t('Loading page')} />
       <div className="space-y-2">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-6 w-64" />

@@ -1,5 +1,6 @@
 import { Bell, FolderKanban, Layers, ListChecks, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /**
  * A static abstraction of the signed-in product, used as the hero visual.
@@ -13,9 +14,9 @@ const RAIL_ICONS = [Layers, FolderKanban, ListChecks, TrendingUp, Bell];
 
 /** Illustrative only — not read from the API. */
 const ILLUSTRATIVE_KPIS = [
-  { label: 'Portfolios', value: '12' },
-  { label: 'Active projects', value: '148' },
-  { label: 'On track', value: '82%' },
+  { get label() { return t('Portfolios'); }, value: '12' },
+  { get label() { return t('Active projects'); }, value: '148' },
+  { get label() { return t('On track'); }, value: '82%' },
 ];
 
 /** Illustrative sprint velocity, as a fraction of the tallest bar. */
@@ -25,10 +26,10 @@ const ILLUSTRATIVE_VELOCITY = [0.38, 0.52, 0.44, 0.62, 0.5, 0.66, 0.55, 0.74, 0.
 const RECENT_BARS = 3;
 
 const ILLUSTRATIVE_ROWS = [
-  { title: 'Core banking migration — Sprint 24', status: 'On track', tone: 'success' },
-  { title: 'Retail portal rollout — UAT sign-off', status: 'At risk', tone: 'warning' },
-  { title: 'Network refresh — capacity plan', status: 'In review', tone: 'primary' },
-  { title: 'Data platform — dependency audit', status: 'Queued', tone: 'neutral' },
+  { get title() { return t('Core banking migration — Sprint 24'); }, get status() { return t('On track'); }, tone: 'success' },
+  { get title() { return t('Retail portal rollout — UAT sign-off'); }, get status() { return t('At risk'); }, tone: 'warning' },
+  { get title() { return t('Network refresh — capacity plan'); }, get status() { return t('In review'); }, tone: 'primary' },
+  { get title() { return t('Data platform — dependency audit'); }, get status() { return t('Queued'); }, tone: 'neutral' },
 ] as const;
 
 const TONE_STYLES: Record<(typeof ILLUSTRATIVE_ROWS)[number]['tone'], { dot: string; pill: string }> = {
@@ -57,13 +58,13 @@ export function ProductPreview({ className }: { className?: string }) {
           <span className="h-2 w-2 rounded-full bg-success/60" />
         </div>
         <p className="font-mono text-2xs text-muted-foreground">
-          epm <span className="text-muted-foreground/60">/ delivery overview</span>
+          epm <span className="text-muted-foreground/60">/ {t('delivery overview')}</span>
         </p>
       </div>
 
       <div className="flex">
         {/* Icon rail */}
-        <div className="flex w-11 shrink-0 flex-col items-center gap-1.5 border-r border-border py-3">
+        <div className="flex w-11 shrink-0 flex-col items-center gap-1.5 border-e border-border py-3">
           {RAIL_ICONS.map((Icon, index) => (
             <span
               key={index}
@@ -93,7 +94,7 @@ export function ProductPreview({ className }: { className?: string }) {
           {/* Velocity */}
           <div className="rounded-lg border border-border bg-surface p-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <p className="text-2xs text-muted-foreground">Velocity · last 12 sprints</p>
+              <p className="text-2xs text-muted-foreground">{t('Velocity · last 12 sprints')}</p>
               <p className="font-mono text-2xs font-medium text-success-strong">+14%</p>
             </div>
             <div className="mt-2.5 flex h-14 items-end gap-1.5">

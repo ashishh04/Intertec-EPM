@@ -122,9 +122,21 @@ export async function enqueueEmail<Name extends TemplateName>(
       return 'away';
     }
 
+    // In the recipient's language (BR-605). Their choice travels with the row,
+    // so the subject written now and the body written at send time agree, and
+    // a change of language later does not rewrite mail already queued.
+    const payload = {
+      ...input.payload,
+      locale: {
+        language: preferences.locale.language,
+        calendar: preferences.locale.calendar,
+        numerals: preferences.locale.numerals,
+      },
+    };
+
     // Rendered now only for the subject, which the row carries so the outbox
     // is readable without re-rendering. The body is rendered at send time.
-    const { subject } = renderTemplate(input.template, input.payload);
+    const { subject } = renderTemplate(input.template, payload);
 
     await prisma.emailOutbox.create({
       data: {
@@ -132,7 +144,7 @@ export async function enqueueEmail<Name extends TemplateName>(
         toEmail,
         template: input.template,
         subject,
-        payload: input.payload as unknown as Prisma.InputJsonValue,
+        payload: payload as unknown as Prisma.InputJsonValue,
         channel: input.channel,
         dedupeKey: input.dedupeKey,
       },

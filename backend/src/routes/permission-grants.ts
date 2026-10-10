@@ -12,6 +12,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { getUsers } from '../mapping/users.js';
 import type { PermissionGrant, PermissionGrants } from '../types/epm.js';
+import { message, requestLanguage, t } from '../lib/i18n.js';
 
 /**
  * EPM's own permissions, granted to people: the ones OpenProject has no
@@ -45,8 +46,15 @@ export const permissionGrantRoutes: FastifyPluginAsync = async (app) => {
     ]);
     const nameOf = new Map(users.map((user) => [user.id, user.name]));
 
+    // The catalogue's words are the page's words, so they come back in the
+    // language the page is shown in.
+    const language = requestLanguage(request);
     return {
-      catalogue: GRANT_CATALOGUE,
+      catalogue: GRANT_CATALOGUE.map((entry) => ({
+        ...entry,
+        label: t(language, entry.label),
+        description: t(language, entry.description),
+      })),
       grants: rows
         // A row naming a permission that no longer exists grants nothing
         // (`applyEpmGrants`), so it is not shown as if it did.
@@ -72,7 +80,7 @@ export const permissionGrantRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'users:manage');
     const body = grantBody.parse(request.body ?? {});
     if (!isGrantable(body.permission)) {
-      throw EpmError.badRequest(`${body.permission} is not a permission EPM grants.`);
+      throw EpmError.badRequest(message('{permission} is not a permission EPM grants.', { permission: body.permission }));
     }
     const permission = body.permission;
 
@@ -83,7 +91,7 @@ export const permissionGrantRoutes: FastifyPluginAsync = async (app) => {
     const existing = await prisma.epmPermissionGrant.findUnique({
       where: { openProjectId_permission: { openProjectId: body.userId, permission } },
     });
-    if (existing) throw EpmError.conflict(`${person.name} already holds ${LABEL.get(permission) ?? permission}.`);
+    if (existing) throw EpmError.conflict(message('{person} already holds {permission}.', { person: person.name, permission: LABEL.get(permission) ?? permission }));
 
     const grantedBy = request.auth!.userId;
     const row = await withAudit(

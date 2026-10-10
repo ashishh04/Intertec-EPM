@@ -7,7 +7,8 @@ import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SprintStateBadge } from '@/components/common/StatusBadge';
 import { BurndownChart } from '@/components/charts/EpmCharts';
-import { cn, daysFromToday, formatNumber, formatPercent, formatShortDate, pluralize } from '@/lib/utils';
+import { cn, daysFromToday, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmSprint } from '@/types';
 
 /** Compact sprint panel used on the dashboard and inside project pages. */
@@ -21,7 +22,7 @@ export function SprintSummary({ sprint, className }: { sprint: EpmSprint; classN
       <CardHeader
         variant="compact"
         actions={
-          <Button asChild variant="ghost" size="icon-sm" aria-label="Open the agile workspace">
+          <Button asChild variant="ghost" size="icon-sm" aria-label={t('Open the agile workspace')}>
             <Link to="/agile">
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -29,7 +30,7 @@ export function SprintSummary({ sprint, className }: { sprint: EpmSprint; classN
         }
       >
         <div className="flex min-w-0 items-center gap-2">
-          <CardTitle className="truncate">{sprint.name}</CardTitle>
+          <CardTitle className="truncate" dir="auto">{sprint.name}</CardTitle>
           <SprintStateBadge state={sprint.state} />
         </div>
         <p className="font-mono text-2xs tabular-nums text-muted-foreground">
@@ -40,41 +41,41 @@ export function SprintSummary({ sprint, className }: { sprint: EpmSprint; classN
       <div className="space-y-4 p-4">
         <div className="flex gap-2.5 rounded-lg bg-muted/70 p-3">
           <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-          <p className="text-2xs leading-relaxed text-muted-foreground">
-            {sprint.goal || 'No sprint goal has been set.'}
+          <p className="text-2xs leading-relaxed text-muted-foreground" dir="auto">
+            {sprint.goal || t('No sprint goal has been set.')}
           </p>
         </div>
 
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between">
-            <span className="epm-eyebrow">Sprint progress</span>
+            <span className="epm-eyebrow">{t('Sprint progress')}</span>
             <span className="font-mono text-sm font-semibold tabular-nums">
               {formatPercent(progress)}
             </span>
           </div>
-          <ProgressBar value={progress} tone="primary" label={`${sprint.name} progress`} />
+          <ProgressBar value={progress} tone="primary" label={t('{name} progress', { name: sprint.name })} />
           <p className="text-2xs text-muted-foreground">
             {daysLeft >= 0
-              ? `${formatNumber(daysLeft)} ${pluralize(daysLeft, 'day')} remaining`
-              : 'Sprint window closed'}
+              ? t('{count, plural, one {# day remaining} other {# days remaining}}', { count: daysLeft })
+              : t('Sprint window closed')}
           </p>
         </div>
 
         <dl className="grid grid-cols-3 gap-2 border-y border-border py-3 text-center">
           <div>
-            <dt className="epm-eyebrow">Committed</dt>
+            <dt className="epm-eyebrow">{t('Committed')}</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
               {formatNumber(sprint.committedPoints)}
             </dd>
           </div>
           <div>
-            <dt className="epm-eyebrow">Completed</dt>
+            <dt className="epm-eyebrow">{t('Completed')}</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-success-strong">
               {formatNumber(sprint.completedPoints)}
             </dd>
           </div>
           <div>
-            <dt className="epm-eyebrow">Remaining</dt>
+            <dt className="epm-eyebrow">{t('Remaining')}</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
               {formatNumber(remaining)}
             </dd>
@@ -98,19 +99,19 @@ export function SprintSummaryEmpty({ className }: { className?: string }) {
   return (
     <Card className={cn('flex flex-col', className)}>
       <CardHeader variant="compact">
-        <CardTitle>Sprint</CardTitle>
+        <CardTitle>{t('Sprint')}</CardTitle>
       </CardHeader>
       <EmptyState
         size="inline"
         icon={Flag}
-        title="No active sprint"
-        description="Start a sprint in the agile workspace to track burndown and committed points here."
+        title={t('No active sprint')}
+        description={t('Start a sprint in the agile workspace to track burndown and committed points here.')}
         className="flex-1"
       />
       <div className="p-4 pt-0">
         <Button asChild variant="secondary" size="sm" className="w-full">
           <Link to="/agile">
-            Open agile workspace
+            {t('Open agile workspace')}
             <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </Button>

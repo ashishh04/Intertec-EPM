@@ -6,6 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { QueryColumn } from '@/services/api/queries';
 
 /**
@@ -71,8 +72,8 @@ export function ColumnPicker({
       <PopoverTrigger asChild>
         <Button variant="secondary" size="sm" className={cn('h-8', className)} disabled={disabled}>
           <Columns3 className="h-3.5 w-3.5" />
-          Columns
-          <Badge tone="neutral" size="sm" className="ml-1">
+          {t('Columns')}
+          <Badge tone="neutral" size="sm" className="ms-1">
             {selected.length}
           </Badge>
         </Button>
@@ -80,9 +81,9 @@ export function ColumnPicker({
 
       <PopoverContent className="w-80 p-0" align="end">
         <div className="border-b border-border px-3 py-2">
-          <p className="text-xs font-medium">Columns</p>
+          <p className="text-xs font-medium">{t('Columns')}</p>
           <p className="text-2xs text-muted-foreground">
-            Shown in this order. Saved with the view.
+            {t('Shown in this order. Saved with the view.')}
           </p>
         </div>
 
@@ -103,17 +104,17 @@ export function ColumnPicker({
                     checked
                     disabled={isRequired}
                     onCheckedChange={() => toggle(id)}
-                    aria-label={`Hide ${column.name}`}
+                    aria-label={t('Hide {name}', { name: column.name })}
                   />
                   <span className="min-w-0 flex-1 truncate text-xs">{column.name}</span>
 
                   {isRequired ? (
-                    <span className="text-2xs text-muted-foreground">required</span>
+                    <span className="text-2xs text-muted-foreground">{t('required')}</span>
                   ) : null}
 
                   <button
                     type="button"
-                    aria-label={`Move ${column.name} up`}
+                    aria-label={t('Move {name} up', { name: column.name })}
                     disabled={index === 0}
                     onClick={() => move(id, -1)}
                     className="rounded p-0.5 text-muted-foreground disabled:opacity-30 hover:bg-muted"
@@ -122,7 +123,7 @@ export function ColumnPicker({
                   </button>
                   <button
                     type="button"
-                    aria-label={`Move ${column.name} down`}
+                    aria-label={t('Move {name} down', { name: column.name })}
                     disabled={index === selected.length - 1}
                     onClick={() => move(id, 1)}
                     className="rounded p-0.5 text-muted-foreground disabled:opacity-30 hover:bg-muted"
@@ -145,7 +146,7 @@ export function ColumnPicker({
                   <Checkbox
                     checked={false}
                     onCheckedChange={() => toggle(column.id)}
-                    aria-label={`Show ${column.name}`}
+                    aria-label={t('Show {name}', { name: column.name })}
                   />
                   <span className="min-w-0 flex-1 truncate text-xs">{column.name}</span>
                 </div>
@@ -155,13 +156,13 @@ export function ColumnPicker({
               <>
                 <div className="my-1.5 h-px bg-border" />
                 <p className="px-1.5 py-1 text-2xs text-muted-foreground">
-                  Not available in this table
+                  {t('Not available in this table')}
                 </p>
                 {unsupported.map((column) => (
                   <div
                     key={column.id}
                     className="flex items-center gap-2 rounded px-1.5 py-1 opacity-55"
-                    title="This attribute is not carried by the task model EPM renders."
+                    title={t('This attribute is not carried by the task model EPM renders.')}
                   >
                     <X className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-xs">{column.name}</span>

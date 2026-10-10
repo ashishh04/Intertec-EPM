@@ -5,6 +5,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Work package watchers.
@@ -68,7 +69,7 @@ async function workPackageLinks(
     })
     .catch(() => null);
 
-  if (!workPackage?._links) throw EpmError.notFound(`Work package ${id}`);
+  if (!workPackage?._links) throw EpmError.notFound(message('Work package {id}', { id }));
 
   return workPackage._links;
 }

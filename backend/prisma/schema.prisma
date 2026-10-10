@@ -786,6 +786,8 @@ model AuditEvent {
   action     String
   /// One readable sentence, written when the event is recorded.
   summary    String
+  /// The summary as a message (template and arguments), so it reads in each reader's language.
+  summaryMessage Json?
   /// The justification, where the action demands one.
   reason     String?
   before     Json?
@@ -831,6 +833,8 @@ model ProjectHealthState {
   /// The per-criterion results: figure, unit, level, reason, thresholds.
   criteria     Json
   explanation  String
+  /// The explanation as a message, for the reader's language.
+  explanationMessage Json?
   /// The figures the calculation used, so a value can be checked later.
   inputs       Json
   ruleVersion  Int
@@ -1033,6 +1037,8 @@ model EscalationEvent {
   /// Who it is raised to.
   raisedFor   String[]
   reason      String
+  /// The reason as a message, for the reader's language.
+  reasonMessage Json?
   dedupeKey   String    @unique
   raisedAt    DateTime  @default(now())
   /// When the condition stopped holding: touched, closed, rescheduled, decided.

@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { usePortfolios, useSetProjectPortfolio } from '@/hooks/usePortfolios';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmProject } from '@/types';
 
@@ -69,11 +70,11 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
       { projectId: project.id, portfolioId: choice === NONE ? '' : choice },
       {
         onSuccess: () => {
-          toast.success(choice === NONE ? 'Removed from its portfolio' : 'Portfolio updated');
+          toast.success(choice === NONE ? t('Removed from its portfolio') : t('Portfolio updated'));
           setOpen(false);
         },
         onError: (error) =>
-          setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+          setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -87,12 +88,12 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <Briefcase className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Portfolio
+          {t('Portfolio')}
         </CardTitle>
         {mayManage ? (
           <Button size="sm" variant="ghost" className="h-8" onClick={openDialog}>
             <Pencil className="h-3.5 w-3.5" />
-            Change
+            {t('Change')}
           </Button>
         ) : null}
       </CardHeader>
@@ -101,6 +102,7 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
         {project.portfolioId ? (
           <Link
             to={`/portfolios/${project.portfolioId}`}
+            dir="auto"
             className="text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {project.portfolio}
@@ -108,10 +110,10 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
         ) : project.portfolio ? (
           // A legacy free-text value, from before portfolios were a real
           // reference. Shown rather than hidden, so nothing is silently lost.
-          <p className="text-sm">{project.portfolio}</p>
+          <p className="text-sm" dir="auto">{project.portfolio}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            This project is not in a portfolio.
+            {t('This project is not in a portfolio.')}
           </p>
         )}
       </CardContent>
@@ -119,16 +121,18 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Change portfolio</DialogTitle>
+            <DialogTitle>{t('Change portfolio')}</DialogTitle>
             <DialogDescription>
-              Which portfolio {project.name} belongs to. The portfolio is an EPM grouping;
-              the project itself is unchanged.
+              {t(
+                'Which portfolio {name} belongs to. The portfolio is an EPM grouping; the project itself is unchanged.',
+                { name: project.name },
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="project-portfolio">Portfolio</Label>
+              <Label htmlFor="project-portfolio">{t('Portfolio')}</Label>
               {/* An empty value while loading shows the placeholder instead of
                   the "No portfolio" option, which would read as a settled answer. */}
               <Select
@@ -136,21 +140,20 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
                 onValueChange={setChoice}
                 disabled={portfolios.isLoading}
               >
-                <SelectTrigger id="project-portfolio" aria-label="Select a portfolio">
-                  <SelectValue placeholder={portfolios.isLoading ? 'Loading…' : 'No portfolio'} />
+                <SelectTrigger id="project-portfolio" aria-label={t('Select a portfolio')}>
+                  <SelectValue placeholder={portfolios.isLoading ? t('Loading…') : t('No portfolio')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>No portfolio</SelectItem>
+                  <SelectItem value={NONE}>{t('No portfolio')}</SelectItem>
                   {options.map((portfolio) => (
                     <SelectItem key={portfolio.id} value={portfolio.id}>
-                      {portfolio.name}
-                      {portfolio.active ? '' : ' (archived)'}
+                      {portfolio.active ? portfolio.name : t('{name} (archived)', { name: portfolio.name })}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {!portfolios.isLoading && options.length === 0 ? (
-                <FieldHint>No portfolios yet. Create one from the Portfolios page.</FieldHint>
+                <FieldHint>{t('No portfolios yet. Create one from the Portfolios page.')}</FieldHint>
               ) : null}
             </div>
 
@@ -159,10 +162,10 @@ export function ProjectPortfolioCard({ project }: ProjectPortfolioCardProps) {
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="button" loading={setPortfolio.isPending} onClick={save}>
-              Save
+              {t('Save')}
             </Button>
           </DialogFooter>
         </DialogContent>

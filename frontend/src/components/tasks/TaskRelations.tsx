@@ -17,6 +17,7 @@ import {
   useRelations,
 } from '@/hooks/useCollaboration';
 import { useDebounce } from '@/hooks/useDebounce';
+import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -67,7 +68,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <GitBranch className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Relations
+          {t('Relations')}
           {items.length > 0 ? (
             <span className="text-2xs font-normal text-muted-foreground">{items.length}</span>
           ) : null}
@@ -80,7 +81,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
           <PopoverTrigger asChild>
             <Button size="sm" variant="secondary" className="h-8">
               <Plus className="h-3.5 w-3.5" />
-              Add relation
+              {t('Add relation')}
             </Button>
           </PopoverTrigger>
 
@@ -90,7 +91,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                 htmlFor="relation-type"
                 className="text-2xs font-medium text-muted-foreground"
               >
-                This task…
+                {t('This task…')}
               </label>
               {/* The vocabulary is served by the backend, so a direction added
                   upstream appears here without a change to this file. */}
@@ -113,7 +114,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
             {chosenType === 'follows' || chosenType === 'precedes' ? (
               <div className="space-y-1">
                 <label htmlFor="relation-lag" className="text-2xs font-medium text-muted-foreground">
-                  Lag, in working days
+                  {t('Lag, in working days')}
                 </label>
                 <Input
                   id="relation-lag"
@@ -129,18 +130,18 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
 
             <div className="space-y-1">
               <label htmlFor="relation-search" className="text-2xs font-medium text-muted-foreground">
-                …this one
+                {t('…this one')}
               </label>
               <div className="relative">
                 <Search
-                  className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                  className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
                   aria-hidden
                 />
                 <Input
                   id="relation-search"
                   value={term}
-                  placeholder="Search by subject or id"
-                  className="h-8 pl-7 text-xs"
+                  placeholder={t('Search by subject or id')}
+                  className="h-8 ps-7 text-xs"
                   onChange={(event) => setTerm(event.target.value)}
                 />
               </div>
@@ -153,7 +154,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
               </div>
             ) : (candidates.data?.length ?? 0) === 0 ? (
               <p className="px-1 py-3 text-center text-xs text-muted-foreground">
-                {search ? 'Nothing matched that search.' : 'No other tasks are available.'}
+                {search ? t('Nothing matched that search.') : t('No other tasks are available.')}
               </p>
             ) : (
               <ul className="relative max-h-56 overflow-y-auto">
@@ -162,7 +163,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                     <button
                       type="button"
                       disabled={create.isPending || !chosenType}
-                      className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => {
                         if (!chosenType) return;
                         const days = Math.max(0, Math.min(365, Math.round(Number(lag) || 0)));
@@ -172,10 +173,10 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                           {
                             onSuccess: () => {
                               close();
-                              toast.success('Relation added');
+                              toast.success(t('Relation added'));
                             },
                             onError: (error) =>
-                              toast.error('Could not add that relation', {
+                              toast.error(t('Could not add that relation'), {
                                 description:
                                   error instanceof Error ? error.message : undefined,
                               }),
@@ -184,7 +185,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                       }}
                     >
                       <span className="shrink-0 text-muted-foreground">#{candidate.id}</span>
-                      <span className="truncate">{candidate.subject}</span>
+                      <span dir="auto" className="truncate">{candidate.subject}</span>
                     </button>
                   </li>
                 ))}
@@ -203,8 +204,8 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
         ) : items.length === 0 ? (
           <EmptyState
             icon={GitBranch}
-            title="No relations"
-            description="Link this task to another to record that it blocks, follows or relates to it."
+            title={t('No relations')}
+            description={t('Link this task to another to record that it blocks, follows or relates to it.')}
           />
         ) : (
           <ul className="space-y-1.5">
@@ -221,6 +222,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                     in OpenProject. */}
                 <Link
                   to={`/tasks/${relation.related.id}`}
+                  dir="auto"
                   className="min-w-0 flex-1 truncate text-xs hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="text-muted-foreground">#{relation.related.id}</span>{' '}
@@ -229,20 +231,20 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
 
                 {relation.lag !== undefined ? (
                   <span className="shrink-0 text-2xs text-muted-foreground">
-                    {relation.lag}d lag
+                    {t('{days, number}d lag', { days: relation.lag })}
                   </span>
                 ) : null}
 
                 {relation.can.delete ? (
                   <button
                     type="button"
-                    aria-label={`Remove relation to ${relation.related.subject}`}
+                    aria-label={t('Remove relation to {subject}', { subject: relation.related.subject })}
                     className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() =>
                       remove.mutate(relation, {
-                        onSuccess: () => toast.success('Relation removed'),
+                        onSuccess: () => toast.success(t('Relation removed')),
                         onError: (error) =>
-                          toast.error('Could not remove that relation', {
+                          toast.error(t('Could not remove that relation'), {
                             description: error instanceof Error ? error.message : undefined,
                           }),
                       })

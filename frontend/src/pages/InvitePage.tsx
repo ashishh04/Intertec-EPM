@@ -23,22 +23,23 @@ import { inviteService } from '@/services';
 import { queryKeys } from '@/lib/queryKeys';
 import { formatLongDate } from '@/lib/utils';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
+import { t } from '@/lib/i18n';
 
 const PILLARS = [
   {
     icon: Layers,
-    title: 'Portfolio in one view',
-    body: 'Every project, sprint and dependency in a single operating picture.',
+    get title() { return t('Portfolio in one view'); },
+    get body() { return t('Every project, sprint and dependency in a single operating picture.'); },
   },
   {
     icon: TrendingUp,
-    title: 'Delivery intelligence',
-    body: 'Velocity, health and risk surfaced before they become escalations.',
+    get title() { return t('Delivery intelligence'); },
+    get body() { return t('Velocity, health and risk surfaced before they become escalations.'); },
   },
   {
     icon: GitBranch,
-    title: 'Connected to your tools',
-    body: 'Work packages are read and written live in the delivery system your teams already use.',
+    get title() { return t('Connected to your tools'); },
+    get body() { return t('Work packages are read and written live in the delivery system your teams already use.'); },
   },
 ];
 
@@ -93,11 +94,11 @@ export default function InvitePage() {
     setProblem(undefined);
 
     if (password.length < MIN_PASSWORD_LENGTH) {
-      setProblem(`Use at least ${MIN_PASSWORD_LENGTH} characters.`);
+      setProblem(t('Use at least {count, number} characters.', { count: MIN_PASSWORD_LENGTH }));
       return;
     }
     if (password !== confirmation) {
-      setProblem('The two passwords do not match.');
+      setProblem(t('The two passwords do not match.'));
       return;
     }
 
@@ -109,7 +110,7 @@ export default function InvitePage() {
           void invite.refetch();
           return;
         }
-        setProblem(error instanceof Error ? error.message : 'That password was not accepted.');
+        setProblem(error instanceof Error ? error.message : t('That password was not accepted.'));
       },
     });
   };
@@ -130,11 +131,11 @@ export default function InvitePage() {
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -left-32 top-[-10rem] h-[34rem] w-[34rem] rounded-full bg-white/15 blur-3xl"
+          className="pointer-events-none absolute -start-32 top-[-10rem] h-[34rem] w-[34rem] rounded-full bg-white/15 blur-3xl"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-40 bottom-[-12rem] h-[36rem] w-[36rem] rounded-full bg-brand-to/50 blur-3xl"
+          className="pointer-events-none absolute -end-40 bottom-[-12rem] h-[36rem] w-[36rem] rounded-full bg-brand-to/50 blur-3xl"
         />
         <div
           aria-hidden
@@ -143,7 +144,11 @@ export default function InvitePage() {
         />
 
         <motion.div {...rise()} className="relative">
-          <Link to="/" className="inline-flex items-center gap-3 rounded-lg" aria-label="EPM home">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-3 rounded-lg"
+            aria-label={t('{app} home', { app: APP_NAME })}
+          >
             <EpmMark className="h-9 w-9" monochrome />
             <span>
               <span className="block text-sm font-semibold tracking-tight">{APP_NAME}</span>
@@ -154,11 +159,11 @@ export default function InvitePage() {
 
         <motion.div {...rise(0.08)} className="relative max-w-xl space-y-9">
           <div className="space-y-3">
-            <p className="epm-eyebrow text-white">Internal platform</p>
+            <p className="epm-eyebrow text-white">{t('Internal platform')}</p>
             <h1 className="text-balance text-4xl font-semibold leading-[1.12] tracking-tight">
-              The connection point between projects, people and delivery.
+              {t('The connection point between projects, people and delivery.')}
             </h1>
-            <p className="text-sm text-white">{APP_DESCRIPTOR}</p>
+            <p className="text-sm text-white">{t(APP_DESCRIPTOR)}</p>
           </div>
 
           <ul className="space-y-3">
@@ -186,7 +191,7 @@ export default function InvitePage() {
         </motion.div>
 
         <p className="relative text-2xs text-white">
-          Internal platform · {ORG_NAME} · Authorised users only
+          {t('Internal platform · {org} · Authorised users only', { org: ORG_NAME })}
         </p>
       </section>
 
@@ -201,14 +206,14 @@ export default function InvitePage() {
           className="relative w-full max-w-sm space-y-6 rounded-2xl border border-border bg-surface p-7 shadow-elevated sm:p-8"
         >
           <div className="lg:hidden">
-            <Link to="/" className="inline-block rounded-lg" aria-label="EPM home">
+            <Link to="/" className="inline-block rounded-lg" aria-label={t('{app} home', { app: APP_NAME })}>
               <EpmLogo variant="full" showDescriptor />
             </Link>
           </div>
 
           {invite.isLoading ? (
             <div className="space-y-6">
-              <LoadingAnnouncement label="Checking your invitation" />
+              <LoadingAnnouncement label={t('Checking your invitation')} />
               <div className="space-y-2">
                 <Skeleton className="h-6 w-2/3" />
                 <Skeleton className="h-3.5 w-full" />
@@ -230,31 +235,30 @@ export default function InvitePage() {
             <div className="space-y-5">
               <div className="space-y-1.5">
                 <h2 className="text-xl font-semibold tracking-tight">
-                  {notFound ? 'Invitation not found' : 'Unable to check this invitation'}
+                  {notFound ? t('Invitation not found') : t('Unable to check this invitation')}
                 </h2>
                 <p className="text-xs text-muted-foreground">
                   {notFound
-                    ? 'This invitation link is not valid.'
-                    : 'Something went wrong on the way to the server.'}
+                    ? t('This invitation link is not valid.')
+                    : t('Something went wrong on the way to the server.')}
                 </p>
               </div>
               {notFound ? (
                 <Alert tone="warning">
-                  Check the link in your email is complete, or ask an administrator to send a new
-                  one.
+                  {t('Check the link in your email is complete, or ask an administrator to send a new one.')}
                 </Alert>
               ) : (
                 <Alert
                   tone="danger"
                   actions={
                     <Button variant="secondary" size="sm" onClick={() => invite.refetch()}>
-                      Try again
+                      {t('Try again')}
                     </Button>
                   }
                 >
                   {invite.error instanceof Error
                     ? invite.error.message
-                    : 'The invitation could not be checked.'}
+                    : t('The invitation could not be checked.')}
                 </Alert>
               )}
               <SignInLink />
@@ -262,17 +266,19 @@ export default function InvitePage() {
           ) : accept.isSuccess ? (
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <h2 className="text-xl font-semibold tracking-tight">Your password is set</h2>
+                <h2 className="text-xl font-semibold tracking-tight">{t('Your password is set')}</h2>
                 <p className="text-xs text-muted-foreground">
-                  Your {APP_NAME} account is ready. Sign in with your username to get started.
+                  {t('Your {app} account is ready. Sign in with your username to get started.', {
+                    app: APP_NAME,
+                  })}
                 </p>
               </div>
-              <Alert tone="success" title="Username">
+              <Alert tone="success" title={t('Username')}>
                 <span className="font-mono">{accept.data.login}</span>
               </Alert>
               <Button asChild size="lg" className="h-11 w-full">
                 <Link to="/login">
-                  Sign in
+                  {t('Sign in')}
                   <ArrowRight />
                 </Link>
               </Button>
@@ -281,7 +287,7 @@ export default function InvitePage() {
             <div className="space-y-5">
               <Greeting firstName={invite.data.firstName} email={invite.data.email} />
               <Alert tone="warning">
-                This invitation has expired. Ask an administrator to send a new one.
+                {t('This invitation has expired. Ask an administrator to send a new one.')}
               </Alert>
               <SignInLink />
             </div>
@@ -289,12 +295,11 @@ export default function InvitePage() {
             <div className="space-y-5">
               <Greeting firstName={invite.data.firstName} email={invite.data.email} />
               <Alert tone="neutral">
-                This invitation has already been used. If that was you, sign in with the password
-                you chose.
+                {t('This invitation has already been used. If that was you, sign in with the password you chose.')}
               </Alert>
               <Button asChild size="lg" className="h-11 w-full">
                 <Link to="/login">
-                  Sign in
+                  {t('Sign in')}
                   <ArrowRight />
                 </Link>
               </Button>
@@ -306,7 +311,7 @@ export default function InvitePage() {
               <form className="space-y-4" onSubmit={submit} noValidate>
                 <div className="space-y-1.5">
                   <Label htmlFor="invite-password" required>
-                    Password
+                    {t('Password')}
                   </Label>
                   <div className="relative">
                     <Input
@@ -317,14 +322,14 @@ export default function InvitePage() {
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       invalid={Boolean(problem)}
-                      className="h-11 pr-10"
+                      className="h-11 pe-10"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((shown) => !shown)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? t('Hide password') : t('Show password')}
                       aria-pressed={showPassword}
-                      className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground"
+                      className="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-lg text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {showPassword ? (
                         <EyeOff className="h-4 w-4" aria-hidden />
@@ -334,14 +339,16 @@ export default function InvitePage() {
                     </button>
                   </div>
                   <FieldHint>
-                    At least {MIN_PASSWORD_LENGTH} characters. A few unrelated words is easier to
-                    remember than a short one with symbols.
+                    {t(
+                      'At least {count, number} characters. A few unrelated words is easier to remember than a short one with symbols.',
+                      { count: MIN_PASSWORD_LENGTH },
+                    )}
                   </FieldHint>
                 </div>
 
                 <div className="space-y-1.5">
                   <Label htmlFor="invite-confirm" required>
-                    Confirm password
+                    {t('Confirm password')}
                   </Label>
                   <Input
                     id="invite-confirm"
@@ -357,19 +364,22 @@ export default function InvitePage() {
                 {problem ? <FieldError>{problem}</FieldError> : null}
 
                 <Button type="submit" size="lg" className="h-11 w-full" loading={accept.isPending}>
-                  Set password and continue
+                  {t('Set password and continue')}
                   <ArrowRight />
                 </Button>
 
-                <FieldHint>This link expires on {formatLongDate(invite.data.expiresAt)}.</FieldHint>
+                <FieldHint>
+                  {t('This link expires on {date}.', { date: formatLongDate(invite.data.expiresAt) })}
+                </FieldHint>
               </form>
 
               <div className="flex items-start gap-2 rounded-lg border border-border bg-surface p-3">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
                 <p className="text-2xs leading-relaxed text-muted-foreground">
-                  Your password is stored by the {APP_NAME} backend only. Nobody at{' '}
-                  {invite.data.organisation || ORG_NAME} can see it, including whoever invited
-                  you.
+                  {t(
+                    'Your password is stored by the {app} backend only. Nobody at {org} can see it, including whoever invited you.',
+                    { app: APP_NAME, org: invite.data.organisation || ORG_NAME },
+                  )}
                 </p>
               </div>
             </>
@@ -386,11 +396,15 @@ function Greeting({ firstName, email }: { firstName: string; email: string }) {
     <div className="space-y-1.5">
       <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
         <KeyRound className="h-4 w-4 text-primary" aria-hidden />
-        Welcome, {firstName}
+        {t('Welcome, {name}', { name: firstName })}
       </h2>
+      {/* One sentence, so it translates whole; the address is no longer set in
+          heavier type, which would split it into fragments. */}
       <p className="text-xs text-muted-foreground">
-        Set a password to finish setting up your {APP_NAME} account for{' '}
-        <span className="font-medium text-foreground">{email}</span>.
+        {t('Set a password to finish setting up your {app} account for {email}.', {
+          app: APP_NAME,
+          email,
+        })}
       </p>
     </div>
   );
@@ -402,7 +416,7 @@ function SignInLink() {
       to="/login"
       className="inline-block rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
     >
-      Already have a password? Sign in
+      {t('Already have a password? Sign in')}
     </Link>
   );
 }

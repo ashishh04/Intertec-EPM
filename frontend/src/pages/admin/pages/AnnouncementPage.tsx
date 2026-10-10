@@ -7,6 +7,7 @@ import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAdminNews } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 import { formatLongDate } from '@/lib/utils';
 import { AdminPagination, AdminTable } from './shared-tables';
 
@@ -22,7 +23,7 @@ export default function AnnouncementPage() {
   return (
     <div className="space-y-4">
       <ListToolbar>
-        <ResultCount count={rows.length} label="news item" />
+        <ResultCount count={rows.length} label={t('news item')} plural={t('news items')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -30,35 +31,35 @@ export default function AnnouncementPage() {
         isError={news.isError}
         error={news.error}
         onRetry={() => void news.refetch()}
-        errorTitle="News could not be loaded"
+        errorTitle={t('News could not be loaded')}
         skeleton={<TableSkeleton columns={4} />}
         isEmpty={rows.length === 0}
         empty={
           <EmptyState
             icon={Megaphone}
-            title="No announcements have been published"
-            description="News is written inside a project in the delivery system and listed here once it exists."
+            title={t('No announcements have been published')}
+            description={t('News is written inside a project in the delivery system and listed here once it exists.')}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="news item" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('news item')} itemLabelPlural={t('news items')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Title</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead>Author</TableHead>
-              <TableHead>Created</TableHead>
+              <TableHead>{t('Title')}</TableHead>
+              <TableHead>{t('Project')}</TableHead>
+              <TableHead>{t('Author')}</TableHead>
+              <TableHead>{t('Created')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paging.items.map((row) => (
               <TableRow key={row.id}>
                 <TableCell className="max-w-md">
-                  <p className="truncate font-medium" title={row.title}>
+                  <p className="truncate font-medium" title={row.title} dir="auto">
                     {row.title}
                   </p>
                   {row.summary ? (
-                    <p className="truncate text-2xs text-muted-foreground" title={row.summary}>
+                    <p className="truncate text-2xs text-muted-foreground" title={row.summary} dir="auto">
                       {row.summary}
                     </p>
                   ) : null}

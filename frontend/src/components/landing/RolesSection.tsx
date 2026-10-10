@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Briefcase, Check, ClipboardList, Compass, Code2 } from 'lucide-react';
 import { useLandingMotion } from './useLandingMotion';
+import { t } from '@/lib/i18n';
 
 /*
  * Four seats, because the page is read by all four and each one arrives
@@ -11,43 +12,51 @@ import { useLandingMotion } from './useLandingMotion';
 const SEATS = [
   {
     icon: Briefcase,
-    seat: 'Executives & portfolio owners',
-    promise: 'The position, without asking for it',
-    points: [
-      'Portfolio health rolled up from the work, not from a status call',
-      'Budget and spend against the dates given to the customer',
-      'Scheduled reports that arrive before the meeting does',
-    ],
+    get seat() { return t('Executives & portfolio owners'); },
+    get promise() { return t('The position, without asking for it'); },
+    get points() {
+      return [
+        t('Portfolio health rolled up from the work, not from a status call'),
+        t('Budget and spend against the dates given to the customer'),
+        t('Scheduled reports that arrive before the meeting does'),
+      ];
+    },
   },
   {
     icon: ClipboardList,
-    seat: 'PMO & delivery managers',
-    promise: 'One record to govern',
-    points: [
-      'Every project to the same shape, with the same fields filled in',
-      'Capacity and allocation across teams and departments',
-      'Risk, dependency and slip visible at the level it was promised at',
-    ],
+    get seat() { return t('PMO & delivery managers'); },
+    get promise() { return t('One record to govern'); },
+    get points() {
+      return [
+        t('Every project to the same shape, with the same fields filled in'),
+        t('Capacity and allocation across teams and departments'),
+        t('Risk, dependency and slip visible at the level it was promised at'),
+      ];
+    },
   },
   {
     icon: Compass,
-    seat: 'Project managers',
-    promise: 'Plan and reality in the same view',
-    points: [
-      'Schedule, dependencies and sprints on one timeline',
-      'Who is loaded, who is free, and what moves if a date does',
-      'Documents and decisions attached to the work they belong to',
-    ],
+    get seat() { return t('Project managers'); },
+    get promise() { return t('Plan and reality in the same view'); },
+    get points() {
+      return [
+        t('Schedule, dependencies and sprints on one timeline'),
+        t('Who is loaded, who is free, and what moves if a date does'),
+        t('Documents and decisions attached to the work they belong to'),
+      ];
+    },
   },
   {
     icon: Code2,
-    seat: 'Engineers & consultants',
-    promise: 'What you owe today, and nothing else',
-    points: [
-      'A single queue across every project you are on',
-      'Boards and sprints you update once, not twice',
-      'Time logged against the task rather than reconstructed on Friday',
-    ],
+    get seat() { return t('Engineers & consultants'); },
+    get promise() { return t('What you owe today, and nothing else'); },
+    get points() {
+      return [
+        t('A single queue across every project you are on'),
+        t('Boards and sprints you update once, not twice'),
+        t('Time logged against the task rather than reconstructed on Friday'),
+      ];
+    },
   },
 ];
 
@@ -66,9 +75,9 @@ export function RolesSection() {
     <section id="roles" className="relative scroll-mt-24 overflow-hidden px-6 pb-28 md:pb-40">
       <div className="mx-auto max-w-6xl">
         <motion.div {...reveal(0, 0.7, { y: 30 })}>
-          <p className="text-xs uppercase tracking-widest text-white/40">Who it&apos;s for</p>
+          <p className="text-xs uppercase tracking-widest text-white/40">{t('Who it\'s for')}</p>
           <h2 className="mt-4 text-3xl tracking-tight text-white md:text-5xl">
-            Four seats, <em className="font-serif italic text-white/50">one record</em>
+            {t('Four seats,')} <em className="font-serif italic text-white/50">{t('one record')}</em>
           </h2>
         </motion.div>
 

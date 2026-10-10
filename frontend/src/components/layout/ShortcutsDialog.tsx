@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/dialog';
 import { featureFlags } from '@/config/env';
 import { SHORTCUT_GROUPS, formatKeys, isMacPlatform } from '@/config/shortcuts';
+import { t } from '@/lib/i18n';
 
 /**
  * The keyboard shortcuts reference.
@@ -33,10 +34,10 @@ export function ShortcutsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Keyboard shortcuts</DialogTitle>
+          <DialogTitle>{t('Keyboard shortcuts')}</DialogTitle>
           <DialogDescription>
-            {mac ? '⌘ is Command.' : 'Ctrl is Control.'} Shortcuts that need the cursor out of a
-            field say so.
+            {mac ? t('⌘ is Command.') : t('Ctrl is Control.')}{' '}
+            {t('Shortcuts that need the cursor out of a field say so.')}
           </DialogDescription>
         </DialogHeader>
 

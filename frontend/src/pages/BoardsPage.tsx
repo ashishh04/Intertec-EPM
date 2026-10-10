@@ -21,6 +21,7 @@ import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
+import { t } from '@/lib/i18n';
 import type { ID, TaskFilters, TaskStatusCategory } from '@/types';
 
 /**
@@ -66,8 +67,8 @@ export default function BoardsPage() {
     updateTask.mutate(
       { id: taskId, status },
       {
-        onSuccess: (task) => toast.success('Task moved', { description: task.key }),
-        onError: () => toast.error('Unable to move the task'),
+        onSuccess: (task) => toast.success(t('Task moved'), { description: task.key }),
+        onError: () => toast.error(t('Unable to move the task')),
       },
     );
   };
@@ -75,8 +76,8 @@ export default function BoardsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Boards"
-        description="Visual delivery flow for any project in the portfolio."
+        title={t('Boards')}
+        description={t('Visual delivery flow for any project in the portfolio.')}
         meta={
           project ? (
             <span className="font-mono text-2xs text-muted-foreground">{project.identifier}</span>
@@ -84,8 +85,8 @@ export default function BoardsPage() {
         }
         actions={
           <Select value={projectId} onValueChange={(value) => setProjectId(value as ID)}>
-            <SelectTrigger className="w-56" aria-label="Select a board">
-              <SelectValue placeholder="Select a project" />
+            <SelectTrigger className="w-56" aria-label={t('Select a board')}>
+              <SelectValue placeholder={t('Select a project')} />
             </SelectTrigger>
             <SelectContent>
               {(projectsQuery.data ?? []).map((item) => (
@@ -104,7 +105,7 @@ export default function BoardsPage() {
         users={userList ?? []}
         sprints={sprintsQuery.data ?? []}
         hide={['project']}
-        searchPlaceholder="Search this board..."
+        searchPlaceholder={t('Search this board...')}
       />
 
       <QueryBoundary
@@ -112,16 +113,16 @@ export default function BoardsPage() {
         isError={tasksQuery.isError}
         error={tasksQuery.error}
         onRetry={() => tasksQuery.refetch()}
-        errorTitle="Unable to load the board"
+        errorTitle={t('Unable to load the board')}
         skeleton={<KanbanBoardSkeleton />}
         isEmpty={tasks.length === 0}
         empty={
           <Card>
             <EmptyState
               icon={SquareKanban}
-              title="This board is empty"
-              description="Create the first work package to start planning delivery."
-              action={{ label: 'Create a task', onClick: () => openTaskDrawer({ projectId }) }}
+              title={t('This board is empty')}
+              description={t('Create the first work package to start planning delivery.')}
+              action={{ label: t('Create a task'), onClick: () => openTaskDrawer({ projectId }) }}
             />
           </Card>
         }
@@ -139,8 +140,7 @@ export default function BoardsPage() {
           <TruncationNotice
             shown={tasks.length}
             total={total}
-            itemLabel="task"
-            affected="The column counts"
+            affected={t('The column counts')}
             step={BOARD_PAGE_SIZE}
             loading={tasksQuery.isFetching}
             onLoadMore={() =>

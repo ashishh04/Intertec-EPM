@@ -4,7 +4,15 @@
  * The frontend's ApiClient parses `{ message, code, details }` off any non-2xx
  * response (see frontend/src/services/api/client.ts). Every error leaving this
  * service must match that shape or the UI falls back to a generic status string.
+ *
+ * Messages are written in English where they are raised and translated where
+ * they leave (BR-605): each error keeps its English template and arguments, and
+ * `toBody(language)` writes it in the language the request asked for. A message
+ * with values in it is raised as `message('… {name} …', { name })` rather than
+ * as an interpolated string, so the template stays a catalogue key.
  */
+
+import { message as messageOf, render, type Language, type Message } from './i18n.js';
 
 export type ErrorCode =
   | 'BAD_REQUEST'
@@ -31,41 +39,46 @@ export class EpmError extends Error {
   readonly details?: unknown;
   /** Set when the failure originated upstream; logged, never sent to the client. */
   readonly upstream?: unknown;
+  /** The message as raised: its English template and arguments. */
+  readonly source: Message;
 
   constructor(
     status: number,
     code: ErrorCode,
-    message: string,
+    message: string | Message,
     options: { details?: unknown; upstream?: unknown; cause?: unknown } = {},
   ) {
-    super(message, { cause: options.cause });
+    super(typeof message === 'string' ? message : render('en', message), { cause: options.cause });
     this.name = 'EpmError';
     this.status = status;
     this.code = code;
     this.details = options.details;
     this.upstream = options.upstream;
+    this.source = typeof message === 'string' ? messageOf(message) : message;
   }
 
-  toBody(): ErrorBody {
+  /** The response body, in `language`. The log keeps the English `message`. */
+  toBody(language: Language = 'en'): ErrorBody {
+    const text = language === 'en' ? this.message : render(language, this.source);
     return this.details === undefined
-      ? { message: this.message, code: this.code }
-      : { message: this.message, code: this.code, details: this.details };
+      ? { message: text, code: this.code }
+      : { message: text, code: this.code, details: this.details };
   }
 
-  static badRequest(message: string, details?: unknown) {
+  static badRequest(message: string | Message, details?: unknown) {
     return new EpmError(400, 'BAD_REQUEST', message, { details });
   }
 
-  static unauthorized(message = 'Your session has expired. Please sign in again.') {
+  static unauthorized(message: string | Message = 'Your session has expired. Please sign in again.') {
     return new EpmError(401, 'UNAUTHORIZED', message);
   }
 
-  static forbidden(message = 'You do not have access to this resource.') {
+  static forbidden(message: string | Message = 'You do not have access to this resource.') {
     return new EpmError(403, 'FORBIDDEN', message);
   }
 
-  static notFound(what = 'The requested resource') {
-    return new EpmError(404, 'NOT_FOUND', `${what} could not be found.`);
+  static notFound(what: string | Message = 'The requested resource') {
+    return new EpmError(404, 'NOT_FOUND', messageOf('{what} could not be found.', { what }));
   }
 
   /**
@@ -73,28 +86,28 @@ export class EpmError extends Error {
    * action that has already been taken. Distinct from a validation failure:
    * the request is well formed and would have worked a moment ago.
    */
-  static conflict(message: string) {
+  static conflict(message: string | Message) {
     return new EpmError(409, 'CONFLICT', message);
   }
 
   /** The resource existed and no longer does — a used or expired invitation. */
-  static gone(message: string) {
+  static gone(message: string | Message) {
     return new EpmError(410, 'GONE', message);
   }
 
-  static validation(message: string, details?: unknown) {
+  static validation(message: string | Message, details?: unknown) {
     return new EpmError(422, 'VALIDATION_FAILED', message, { details });
   }
 
-  static timeout(message = 'The upstream request timed out.') {
+  static timeout(message: string | Message = 'The upstream request timed out.') {
     return new EpmError(504, 'TIMEOUT', message);
   }
 
-  static unavailable(message = 'The upstream service is unavailable.', cause?: unknown) {
+  static unavailable(message: string | Message = 'The upstream service is unavailable.', cause?: unknown) {
     return new EpmError(503, 'UPSTREAM_UNAVAILABLE', message, { cause });
   }
 
-  static internal(message = 'Something went wrong on our end.', cause?: unknown) {
+  static internal(message: string | Message = 'Something went wrong on our end.', cause?: unknown) {
     return new EpmError(500, 'INTERNAL', message, { cause });
   }
 }

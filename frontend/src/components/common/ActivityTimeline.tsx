@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { t } from '@/lib/i18n';
 import { cn, formatRelative } from '@/lib/utils';
 import { ACTIVITY_ACTION_LABEL, ACTIVITY_ACTION_TONE, TONE_FILL } from '@/lib/domain';
 import { UserAvatar } from './UserAvatar';
@@ -26,7 +27,13 @@ function ActivityTimeline({ entries, users, limit, className }: ActivityTimeline
   const visible = limit ? entries.slice(0, limit) : entries;
 
   if (visible.length === 0) {
-    return <EmptyState size="inline" title="No recent activity" description="Updates will appear here as work moves." />;
+    return (
+      <EmptyState
+        size="inline"
+        title={t('No recent activity')}
+        description={t('Updates will appear here as work moves.')}
+      />
+    );
   }
 
   return (
@@ -40,14 +47,14 @@ function ActivityTimeline({ entries, users, limit, className }: ActivityTimeline
         return (
           <li key={entry.id} className="relative flex gap-3 pb-3 last:pb-0">
             {!isLast ? (
-              <span className="absolute left-[15px] top-8 h-[calc(100%-1.5rem)] w-px bg-border" aria-hidden />
+              <span className="absolute start-[15px] top-8 h-[calc(100%-1.5rem)] w-px bg-border" aria-hidden />
             ) : null}
 
             <span className="relative mt-0.5 shrink-0">
               <UserAvatar user={actor} size="default" />
               <span
                 className={cn(
-                  'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface',
+                  'absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface',
                   TONE_FILL[tone],
                 )}
                 aria-hidden
@@ -56,21 +63,22 @@ function ActivityTimeline({ entries, users, limit, className }: ActivityTimeline
 
             <div className="min-w-0 flex-1 pt-0.5">
               <p className="text-xs leading-relaxed text-foreground">
-                <span className="font-medium">{actor?.name ?? entry.actorName ?? 'A teammate'}</span>{' '}
+                <span className="font-medium" dir="auto">{actor?.name ?? entry.actorName ?? t('A teammate')}</span>{' '}
                 <span className="text-muted-foreground">{ACTIVITY_ACTION_LABEL[entry.action]}</span>{' '}
                 {href ? (
                   <Link
                     to={href}
+                    dir="auto"
                     className="font-medium text-primary underline-offset-2 hover:underline"
                   >
                     {entry.objectLabel}
                   </Link>
                 ) : (
-                  <span className="font-medium">{entry.objectLabel}</span>
+                  <span className="font-medium" dir="auto">{entry.objectLabel}</span>
                 )}
               </p>
               {entry.detail ? (
-                <p className="mt-0.5 truncate text-2xs text-muted-foreground">{entry.detail}</p>
+                <p className="mt-0.5 truncate text-2xs text-muted-foreground" dir="auto">{entry.detail}</p>
               ) : null}
               <time className="mt-0.5 block font-mono text-2xs text-muted-foreground/80">
                 {formatRelative(entry.timestamp)}

@@ -19,7 +19,8 @@ import {
 } from '@/components/ui/table';
 import { useAdminPermissions, useAdminRoles, useUpdateRole } from '@/hooks/useAdmin';
 import type { AdminPermissionModule, AdminRole } from '@/services/api/admin';
-import { cn, formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import { describeError } from './shared-format';
 import {
   PermissionSectionHeader,
@@ -54,14 +55,14 @@ export default function PermissionsReportPage() {
         void roles.refetch();
         void permissions.refetch();
       }}
-      errorTitle="Unable to load the permissions report"
+      errorTitle={t('Unable to load the permissions report')}
       skeleton={<TableSkeleton columns={5} rows={10} />}
       isEmpty={columns.length === 0 || (permissions.data ?? []).length === 0}
       empty={
         <EmptyState
           icon={ShieldCheck}
-          title="Nothing to report"
-          description="The report needs at least one project or global role and a permission catalogue."
+          title={t('Nothing to report')}
+          description={t('The report needs at least one project or global role and a permission catalogue.')}
         />
       }
     >
@@ -128,12 +129,15 @@ function ReportMatrix({
           Object.fromEntries(Object.entries(current).filter(([id]) => id !== role.id)),
         );
       }
-      toast.success(saved === 1 ? 'One role saved' : `${formatNumber(saved)} roles saved`);
+      toast.success(t('{count, plural, one {One role saved} other {# roles saved}}', { count: saved }));
     } catch (error) {
       toast.error(
         saved === 0
-          ? 'The report was not saved'
-          : `${formatNumber(saved)} of ${formatNumber(dirtyRoles.length)} roles saved before an error`,
+          ? t('The report was not saved')
+          : t('{saved, number} of {total, number} roles saved before an error', {
+              saved,
+              total: dirtyRoles.length,
+            }),
         { description: describeError(error) },
       );
     } finally {
@@ -151,13 +155,14 @@ function ReportMatrix({
     }))
     .filter((module) => module.byRole.some((list) => list.length > 0));
 
-  const stickyCell = 'sticky left-0 z-10 bg-surface';
+  const stickyCell = 'sticky start-0 z-10 bg-surface';
 
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Tick a box to grant that permission to the role. Global permissions apply to global roles
-        and the rest to project roles, so some cells stay empty.
+        {t(
+          'Tick a box to grant that permission to the role. Global permissions apply to global roles and the rest to project roles, so some cells stay empty.',
+        )}
       </p>
 
       {/* Bounded so the role headings stay in view while the long list of
@@ -168,7 +173,7 @@ function ReportMatrix({
           <TableHeader sticky>
             <TableRow>
               <TableHead className={cn(stickyCell, 'z-20 min-w-64 bg-surface-sunken')}>
-                Permission
+                {t('Permission')}
               </TableHead>
               {roles.map((role) => {
                 const changed = dirtyRoles.some((item) => item.id === role.id);
@@ -181,6 +186,7 @@ function ReportMatrix({
                       <Link
                         to={`${ROLES_PATH}/${role.id}`}
                         className="rounded text-xs font-semibold text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        dir="auto"
                       >
                         {role.name}
                         {changed ? (
@@ -188,7 +194,7 @@ function ReportMatrix({
                             {' *'}
                           </span>
                         ) : null}
-                        {changed ? <span className="sr-only"> (unsaved)</span> : null}
+                        {changed ? <span className="sr-only"> {t('(unsaved)')}</span> : null}
                       </Link>
                       <Badge tone="neutral" size="sm">
                         {ROLE_KIND_LABEL[role.kind]}
@@ -257,7 +263,10 @@ function ReportMatrix({
                         <Checkbox
                           checked={state}
                           disabled={saving}
-                          aria-label={`All ${module.label} permissions for ${role.name}`}
+                          aria-label={t('All {module} permissions for {role}', {
+                            module: module.label,
+                            role: role.name,
+                          })}
                           onCheckedChange={(checked) =>
                             apply([
                               {
@@ -294,7 +303,10 @@ function ReportMatrix({
                               <Checkbox
                                 checked={grantsFor(role).has(permission.name)}
                                 disabled={saving}
-                                aria-label={`${permission.label} for ${role.name}`}
+                                aria-label={t('{permission} for {role}', {
+                                  permission: permission.label,
+                                  role: role.name,
+                                })}
                                 onCheckedChange={(checked) =>
                                   apply([
                                     {
@@ -319,18 +331,20 @@ function ReportMatrix({
       <div
         className="sticky bottom-4 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface p-3 shadow-elevated"
         role="region"
-        aria-label="Save changes"
+        aria-label={t('Save changes')}
       >
         <Button size="sm" onClick={() => void save()} disabled={!dirty} loading={saving}>
-          Save
+          {t('Save')}
         </Button>
         <Button size="sm" variant="ghost" onClick={reset} disabled={!dirty || saving}>
-          Reset
+          {t('Reset')}
         </Button>
-        <p className="ml-auto text-2xs text-muted-foreground" aria-live="polite">
+        <p className="ms-auto text-2xs text-muted-foreground" aria-live="polite">
           {dirty
-            ? `${formatNumber(dirtyRoles.length)} ${pluralize(dirtyRoles.length, 'role')} with unsaved changes`
-            : 'No unsaved changes'}
+            ? t('{count, plural, one {# role with unsaved changes} other {# roles with unsaved changes}}', {
+                count: dirtyRoles.length,
+              })
+            : t('No unsaved changes')}
         </p>
       </div>
     </div>

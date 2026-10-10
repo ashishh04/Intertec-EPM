@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
+import { t } from '@/lib/i18n';
 import { queryKeys } from '@/lib/queryKeys';
 import { preferenceService } from '@/services';
 import type { UserPreferences } from '@/types';
@@ -77,6 +78,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   locale: {
     language: '',
     dateFormat: 'system',
+    calendar: 'gregory',
+    numerals: 'latn',
   },
   availability: {
     workingDays: DEFAULT_WORKING_DAYS,
@@ -127,6 +130,15 @@ function readLocal(): Preferences {
     local = merge(null);
   }
   return local;
+}
+
+/**
+ * The preferences this browser last saw, before any request: what `main.tsx`
+ * reads to load the right language and set the page direction before the first
+ * paint, so an Arabic reader never sees a frame of left-to-right English.
+ */
+export function storedPreferences(): Preferences {
+  return readLocal();
 }
 
 function writeLocal(next: Preferences) {
@@ -189,7 +201,7 @@ export function usePreferences(options: { enabled?: boolean } = {}) {
         client.setQueryData(queryKeys.preferences, context.previous);
         writeLocal(context.previous);
       }
-      toast.error('That preference could not be saved', {
+      toast.error(t('That preference could not be saved'), {
         description: error instanceof Error ? error.message : undefined,
       });
     },

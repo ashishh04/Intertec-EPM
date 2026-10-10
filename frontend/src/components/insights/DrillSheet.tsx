@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useMeasureMembers } from '@/hooks/useInsights';
 import { usePagination } from '@/hooks/usePagination';
 import { formatShortDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { InsightQuery } from '@/services/api/insights';
 import type { MeasureMembers, MeasureScopeKind } from '@/types';
 import { formatMeasure } from './format';
@@ -62,7 +63,7 @@ export function DrillSheet({
             isError={result.isError}
             error={result.error}
             onRetry={() => result.refetch()}
-            errorTitle="Unable to load what is behind this figure"
+            errorTitle={t('Unable to load what is behind this figure')}
             skeleton={
               <div className="space-y-2 p-5">
                 {Array.from({ length: 6 }, (_, index) => (
@@ -75,8 +76,8 @@ export function DrillSheet({
               <EmptyState
                 size="inline"
                 icon={Inbox}
-                title="Nothing behind this figure"
-                description="Nothing in this scope and period matches the definition."
+                title={t('Nothing behind this figure')}
+                description={t('Nothing in this scope and period matches the definition.')}
               />
             }
           >
@@ -108,10 +109,10 @@ export function MemberList({
           <>
             <TableHeader>
               <TableRow>
-                <TableHead>Work package</TableHead>
-                <TableHead>Project</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Due</TableHead>
+                <TableHead>{t('Work package')}</TableHead>
+                <TableHead>{t('Project')}</TableHead>
+                <TableHead>{t('Status')}</TableHead>
+                <TableHead>{t('Due')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -122,6 +123,7 @@ export function MemberList({
                       to={`/tasks/${item.id}`}
                       onClick={onClose}
                       className="line-clamp-2 font-medium text-foreground hover:text-primary hover:underline"
+                      dir="auto"
                     >
                       {item.subject}
                     </Link>
@@ -138,7 +140,7 @@ export function MemberList({
                       <Badge
                         size="sm"
                         tone={item.flag === 'met' ? 'success' : 'danger'}
-                        className="ml-1.5"
+                        className="ms-1.5"
                       >
                         {item.flag}
                       </Badge>
@@ -152,10 +154,10 @@ export function MemberList({
           <>
             <TableHeader>
               <TableRow>
-                <TableHead>Project</TableHead>
-                <TableHead>Health</TableHead>
-                <TableHead numeric>Schedule</TableHead>
-                <TableHead numeric>Budget</TableHead>
+                <TableHead>{t('Project')}</TableHead>
+                <TableHead>{t('Health')}</TableHead>
+                <TableHead numeric>{t('Schedule')}</TableHead>
+                <TableHead numeric>{t('Budget')}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -176,9 +178,9 @@ export function MemberList({
                   </TableCell>
                   <TableCell numeric>{formatMeasure(item.scheduleVarianceDays, 'days')}</TableCell>
                   <TableCell numeric>{formatMeasure(item.budget, 'money')}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <Button size="sm" variant="ghost" onClick={() => onScope('project', String(item.id))}>
-                      Dashboard
+                      {t('Dashboard')}
                       <ArrowUpRight className="h-3.5 w-3.5" />
                     </Button>
                   </TableCell>
@@ -190,10 +192,10 @@ export function MemberList({
           <>
             <TableHeader>
               <TableRow>
-                <TableHead>Person</TableHead>
-                <TableHead numeric>Capacity / wk</TableHead>
-                <TableHead numeric>Logged</TableHead>
-                <TableHead numeric>Utilisation</TableHead>
+                <TableHead>{t('Person')}</TableHead>
+                <TableHead numeric>{t('Capacity / wk')}</TableHead>
+                <TableHead numeric>{t('Logged')}</TableHead>
+                <TableHead numeric>{t('Utilisation')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -225,7 +227,8 @@ export function MemberList({
           onPageChange={paged.setPage}
           onPageSizeChange={paged.setPageSize}
           pageSizeOptions={[15, 25, 50]}
-          itemLabel={members.kind === 'work_package' ? 'work package' : members.kind}
+          itemLabel={members.kind === 'work_package' ? t('work package') : members.kind === 'project' ? t('project') : t('item')}
+          itemLabelPlural={members.kind === 'work_package' ? t('work packages') : members.kind === 'project' ? t('projects') : t('items')}
           className="border-t border-border"
         />
       ) : null}

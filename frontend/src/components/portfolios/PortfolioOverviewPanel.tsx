@@ -17,7 +17,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useMeasureCatalogue, useMeasureMembers } from '@/hooks/useInsights';
 import { useCostEntries } from '@/hooks/usePortfolioViews';
-import { cn, formatNumber, formatShortDate, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { cn, formatNumber, formatShortDate } from '@/lib/utils';
 import type { MeasureInfo, MeasureScopeKind, OverviewFigure, PortfolioOverview, PortfolioOverviewProject } from '@/types';
 
 /**
@@ -42,40 +43,40 @@ export const DEFAULT_COLUMNS = [
 ];
 
 const GROUPS: { title: string; hint: string; primary: string; rows: string[] }[] = [
-  { title: 'Status', hint: 'Effective health of the active projects.', primary: 'projects.atRisk', rows: ['health.green', 'health.amber', 'health.red'] },
-  { title: 'Schedule', hint: 'Forecast finish against the plan.', primary: 'schedule.varianceDays', rows: ['schedule.slipping'] },
+  { get title() { return t('Status'); }, get hint() { return t('Effective health of the active projects.'); }, primary: 'projects.atRisk', rows: ['health.green', 'health.amber', 'health.red'] },
+  { get title() { return t('Schedule'); }, get hint() { return t('Forecast finish against the plan.'); }, primary: 'schedule.varianceDays', rows: ['schedule.slipping'] },
   {
-    title: 'Budget',
-    hint: 'Labour cost against the budgets.',
+    get title() { return t('Budget'); },
+    get hint() { return t('Labour cost against the budgets.'); },
     primary: 'budget.consumed',
     rows: ['cost.actual', 'budget.total', 'cost.variance', 'budget.variancePct'],
   },
-  { title: 'Risks', hint: 'Open work packages of a risk type.', primary: 'risk.open', rows: ['risk.high'] },
-  { title: 'Milestones', hint: 'Where the milestones stand.', primary: 'milestones.missed', rows: ['milestones.upcoming', 'milestones.onTime'] },
+  { get title() { return t('Risks'); }, get hint() { return t('Open work packages of a risk type.'); }, primary: 'risk.open', rows: ['risk.high'] },
+  { get title() { return t('Milestones'); }, get hint() { return t('Where the milestones stand.'); }, primary: 'milestones.missed', rows: ['milestones.upcoming', 'milestones.onTime'] },
 ];
 
 type Drill = { measureId: string; projectId?: number };
 
 /** Short column headings, so a row of figures fits; the full name and definition are in the tooltip. */
 const SHORT: Record<string, string> = {
-  'schedule.varianceDays': 'Schedule',
-  'schedule.slipping': 'Slipping',
-  'budget.total': 'Budget',
-  'budget.consumed': 'Budget used',
-  'budget.variancePct': 'Budget var.',
-  'cost.actual': 'Actual cost',
-  'cost.plannedToDate': 'Planned',
-  'cost.variance': 'Cost var.',
-  'risk.open': 'Risks',
-  'risk.high': 'High risks',
-  'milestones.missed': 'Missed',
-  'milestones.upcoming': 'Coming up',
-  'milestones.onTime': 'On time',
-  'work.open': 'Open',
-  'work.overdue': 'Overdue',
-  'work.progress': 'Progress',
-  'projects.atRisk': 'At risk',
-  'health.greenPct': 'Green',
+  get 'schedule.varianceDays'() { return t('Schedule'); },
+  get 'schedule.slipping'() { return t('Slipping'); },
+  get 'budget.total'() { return t('Budget'); },
+  get 'budget.consumed'() { return t('Budget used'); },
+  get 'budget.variancePct'() { return t('Budget var.'); },
+  get 'cost.actual'() { return t('Actual cost'); },
+  get 'cost.plannedToDate'() { return t('Planned'); },
+  get 'cost.variance'() { return t('Cost var.'); },
+  get 'risk.open'() { return t('Risks'); },
+  get 'risk.high'() { return t('High risks'); },
+  get 'milestones.missed'() { return t('Missed'); },
+  get 'milestones.upcoming'() { return t('Coming up'); },
+  get 'milestones.onTime'() { return t('On time'); },
+  get 'work.open'() { return t('Open'); },
+  get 'work.overdue'() { return t('Overdue'); },
+  get 'work.progress'() { return t('Progress'); },
+  get 'projects.atRisk'() { return t('At risk'); },
+  get 'health.greenPct'() { return t('Green'); },
 };
 
 const money = (value: number | null | undefined) => formatMeasure(value ?? null, 'money');
@@ -86,19 +87,19 @@ function partsText(measureId: string, figure: OverviewFigure | undefined): strin
   if (!parts) return undefined;
   switch (measureId) {
     case 'budget.consumed':
-      return `${money(parts.actual)} of ${money(parts.budget)}`;
+      return t('{actual} of {budget}', { actual: money(parts.actual), budget: money(parts.budget) });
     case 'budget.variancePct':
-      return `${money(parts.actual)} spent, ${money(parts.planned)} planned to date`;
+      return t('{actual} spent, {planned} planned to date', { actual: money(parts.actual), planned: money(parts.planned) });
     case 'cost.variance':
-      return `${money(parts.planned)} planned, ${money(parts.actual)} spent`;
+      return t('{planned} planned, {actual} spent', { planned: money(parts.planned), actual: money(parts.actual) });
     case 'milestones.onTime':
-      return `${formatNumber(parts.met ?? 0)} met, ${formatNumber(parts.missed ?? 0)} missed`;
+      return t('{met, number} met, {missed, number} missed', { met: parts.met ?? 0, missed: parts.missed ?? 0 });
     case 'work.progress':
-      return `${formatNumber(parts.closed ?? 0)} of ${formatNumber(parts.total ?? 0)} closed`;
+      return t('{closed, number} of {total, number} closed', { closed: parts.closed ?? 0, total: parts.total ?? 0 });
     case 'health.greenPct':
-      return `${formatNumber(parts.green ?? 0)} of ${formatNumber(parts.assessed ?? 0)} assessed`;
+      return t('{green, number} of {assessed, number} assessed', { green: parts.green ?? 0, assessed: parts.assessed ?? 0 });
     case 'cost.actual':
-      return (parts.uncostedHours ?? 0) > 0 ? `${formatNumber(parts.uncostedHours ?? 0)} h not costed` : undefined;
+      return (parts.uncostedHours ?? 0) > 0 ? t('{hours, number} h not costed', { hours: parts.uncostedHours ?? 0 }) : undefined;
     default:
       return undefined;
   }
@@ -128,31 +129,38 @@ export function PortfolioOverviewPanel({
     <div className={cn('space-y-4', stale && 'opacity-60 transition-opacity')}>
       <div className="flex flex-wrap items-center gap-2">
         {overview.reconciled ? (
-          <Badge tone="success" size="sm" title="Each figure for the whole set equals the roll-up of the project rows below it.">
+          <Badge tone="success" size="sm" title={t('Each figure for the whole set equals the roll-up of the project rows below it.')}>
             <CheckCircle2 className="h-3 w-3" aria-hidden />
-            Every figure adds up to its projects
+            {t('Every figure adds up to its projects')}
           </Badge>
         ) : (
           <Badge tone="danger" size="sm">
             <CircleAlert className="h-3 w-3" aria-hidden />
-            {mismatched.length} {mismatched.length === 1 ? 'figure does' : 'figures do'} not add up to the projects
+            {t(
+              '{count, plural, one {# figure does not add up to the projects} other {# figures do not add up to the projects}}',
+              { count: mismatched.length },
+            )}
           </Badge>
         )}
         <span className="text-2xs text-muted-foreground">
-          {overview.set.shown} {pluralize(overview.set.shown, 'project')} · {formatShortDate(overview.period.from)} – {formatShortDate(overview.period.to)}
+          {t('{count, plural, one {# project} other {# projects}}', { count: overview.set.shown })} · {formatShortDate(overview.period.from)} – {formatShortDate(overview.period.to)}
         </span>
       </div>
 
       {overview.set.hidden > 0 ? (
         <Alert tone="neutral" icon={EyeOff}>
-          {overview.set.hidden} of the {overview.set.projects} projects in this {overview.set.kind === 'view' ? 'view' : 'portfolio'}{' '}
-          {overview.set.hidden === 1 ? 'is' : 'are'} not shown: you do not have access to {overview.set.hidden === 1 ? 'it' : 'them'}. Every figure
-          here leaves {overview.set.hidden === 1 ? 'it' : 'them'} out.
+          {t(
+            '{hidden, plural, one {# of the {projects, number} projects in this {kind, select, view {view} other {portfolio}} is not shown: you do not have access to it. Every figure here leaves it out.} other {# of the {projects, number} projects in this {kind, select, view {view} other {portfolio}} are not shown: you do not have access to them. Every figure here leaves them out.}}',
+            { hidden: overview.set.hidden, projects: overview.set.projects, kind: overview.set.kind },
+          )}
         </Alert>
       ) : null}
       {overview.set.filtered > 0 ? (
         <p className="text-2xs text-muted-foreground">
-          {overview.set.filtered} {pluralize(overview.set.filtered, 'project')} left out by this view&rsquo;s health filter.
+          {t(
+            '{count, plural, one {# project left out by this view’s health filter.} other {# projects left out by this view’s health filter.}}',
+            { count: overview.set.filtered },
+          )}
         </p>
       ) : null}
 
@@ -168,7 +176,7 @@ export function PortfolioOverviewPanel({
               </div>
               <button
                 type="button"
-                className="group text-left"
+                className="group text-start"
                 onClick={() => setDrill({ measureId: group.primary })}
                 title={primaryInfo?.definition}
               >
@@ -176,10 +184,12 @@ export function PortfolioOverviewPanel({
                   {formatMeasure(primary?.value ?? null, primary?.unit)}
                 </span>
                 <span className="block text-2xs text-muted-foreground">
-                  {primary?.label ?? group.primary}
                   {group.primary === 'projects.atRisk' && figure('projects.active')?.value !== null
-                    ? ` of ${formatNumber(figure('projects.active')?.value ?? 0)} active`
-                    : ''}
+                    ? t('{label} of {count, number} active', {
+                        label: primary?.label ?? group.primary,
+                        count: figure('projects.active')?.value ?? 0,
+                      })
+                    : (primary?.label ?? group.primary)}
                   {partsText(group.primary, primary) ? ` · ${partsText(group.primary, primary)}` : ''}
                 </span>
               </button>
@@ -214,25 +224,25 @@ export function PortfolioOverviewPanel({
           <EmptyState
             size="inline"
             icon={Inbox}
-            title="No projects to show"
-            description={overview.set.hidden > 0 ? 'None of the projects in this set is one you can see.' : 'This set has no active projects.'}
+            title={t('No projects to show')}
+            description={overview.set.hidden > 0 ? t('None of the projects in this set is one you can see.') : t('This set has no active projects.')}
           />
         ) : (
           <div className="epm-scroll overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Project</TableHead>
+                  <TableHead>{t('Project')}</TableHead>
                   {columns.map((column) => (
                     <TableHead
                       key={column}
                       numeric={column !== 'health'}
                       title={column === 'health' ? undefined : `${info.get(column)?.label ?? column}: ${info.get(column)?.definition ?? ''}`}
                     >
-                      {column === 'health' ? 'Health' : (SHORT[column] ?? info.get(column)?.label ?? column)}
+                      {column === 'health' ? t('Health') : (SHORT[column] ?? info.get(column)?.label ?? column)}
                     </TableHead>
                   ))}
-                  <TableHead>Next milestone</TableHead>
+                  <TableHead>{t('Next milestone')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -248,7 +258,7 @@ export function PortfolioOverviewPanel({
               </TableBody>
               <TableFooter>
                 <TableRow>
-                  <TableCell className="text-xs font-semibold">All {overview.projects.length} shown</TableCell>
+                  <TableCell className="text-xs font-semibold">{t('All {count, number} shown', { count: overview.projects.length })}</TableCell>
                   {columns.map((column) => {
                     if (column === 'health') return <TableCell key={column} />;
                     const line = check.get(column);
@@ -261,17 +271,19 @@ export function PortfolioOverviewPanel({
                           title={
                             line
                               ? line.matches
-                                ? `Adds up: ${info.get(column)?.rollup?.describe ?? line.rule}`
-                                : `Does not add up: the projects make ${formatMeasure(line.fromProjects, figure(column)?.unit)}`
+                                ? t('Adds up: {rule}', { rule: info.get(column)?.rollup?.describe ?? line.rule })
+                                : t('Does not add up: the projects make {value}', {
+                                    value: formatMeasure(line.fromProjects, figure(column)?.unit),
+                                  })
                               : undefined
                           }
                         >
                           {formatMeasure(figure(column)?.value ?? null, figure(column)?.unit)}
                           {line ? (
                             line.matches ? (
-                              <CheckCircle2 className="h-3 w-3 text-success" aria-label="Adds up to the projects" />
+                              <CheckCircle2 className="h-3 w-3 text-success" aria-label={t('Adds up to the projects')} />
                             ) : (
-                              <CircleAlert className="h-3 w-3 text-danger" aria-label="Does not add up to the projects" />
+                              <CircleAlert className="h-3 w-3 text-danger" aria-label={t('Does not add up to the projects')} />
                             )
                           ) : null}
                         </button>
@@ -305,7 +317,7 @@ function ProjectRow({
   return (
     <TableRow>
       <TableCell className="max-w-56">
-        <Link to={`/projects/${project.id}`} className="line-clamp-2 font-medium text-foreground hover:text-primary hover:underline">
+        <Link to={`/projects/${project.id}`} dir="auto" className="line-clamp-2 font-medium text-foreground hover:text-primary hover:underline">
           {project.name}
         </Link>
       </TableCell>
@@ -336,12 +348,12 @@ function ProjectRow({
         {project.nextMilestone ? (
           <Link to={`/tasks/${project.nextMilestone.id}`} className="hover:underline" title={project.nextMilestone.subject}>
             {formatShortDate(project.nextMilestone.dueDate)}
-            <span className={cn('ml-1.5 text-2xs', project.nextMilestone.daysToGo < 0 ? 'text-danger' : 'text-muted-foreground')}>
+            <span className={cn('ms-1.5 text-2xs', project.nextMilestone.daysToGo < 0 ? 'text-danger' : 'text-muted-foreground')}>
               {project.nextMilestone.daysToGo < 0
-                ? `${-project.nextMilestone.daysToGo} d late`
+                ? t('{days, number} d late', { days: -project.nextMilestone.daysToGo })
                 : project.nextMilestone.daysToGo === 0
-                  ? 'today'
-                  : `in ${project.nextMilestone.daysToGo} d`}
+                  ? t('today')
+                  : t('in {days, number} d', { days: project.nextMilestone.daysToGo })}
             </span>
           </Link>
         ) : (
@@ -378,9 +390,9 @@ function PortfolioDrill({
   return (
     <Sheet open={Boolean(drill)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-3xl">
-        <SheetHeader className="border-b border-border p-5 pr-12">
-          <nav aria-label="Drill path" className="flex flex-wrap items-center gap-1 text-2xs text-muted-foreground">
-            <span>{overview.set.name}</span>
+        <SheetHeader className="border-b border-border p-5 pe-12">
+          <nav aria-label={t('Drill path')} className="flex flex-wrap items-center gap-1 text-2xs text-muted-foreground">
+            <span dir="auto">{overview.set.name}</span>
             <ChevronRight className="h-3 w-3" aria-hidden />
             {project ? (
               <button type="button" className="hover:text-foreground hover:underline" onClick={() => drill && onDrill({ measureId: drill.measureId })}>
@@ -392,16 +404,16 @@ function PortfolioDrill({
             {project ? (
               <>
                 <ChevronRight className="h-3 w-3" aria-hidden />
-                <span>{project.name}</span>
+                <span dir="auto">{project.name}</span>
               </>
             ) : null}
-            <span className="ml-auto">
+            <span className="ms-auto">
               {formatShortDate(overview.period.from)} – {formatShortDate(overview.period.to)}
             </span>
           </nav>
           <SheetTitle className="flex flex-wrap items-baseline gap-2">
             {project ? (
-              <Button size="icon-sm" variant="ghost" aria-label="Back to the projects" onClick={() => drill && onDrill({ measureId: drill.measureId })}>
+              <Button size="icon-sm" variant="ghost" aria-label={t('Back to the projects')} onClick={() => drill && onDrill({ measureId: drill.measureId })}>
                 <ArrowLeft className="h-4 w-4" />
               </Button>
             ) : null}
@@ -448,9 +460,9 @@ function ProjectsOfFigure({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Project</TableHead>
+            <TableHead>{t('Project')}</TableHead>
             <TableHead numeric>{overview.measures[measureId]?.label ?? measure?.label}</TableHead>
-            <TableHead>Made of</TableHead>
+            <TableHead>{t('Made of')}</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -459,12 +471,12 @@ function ProjectsOfFigure({
             const value = project.figures[measureId];
             return (
               <TableRow key={project.id} className="cursor-pointer" onClick={() => onProject(project.id)}>
-                <TableCell className="font-medium">{project.name}</TableCell>
+                <TableCell className="font-medium" dir="auto">{project.name}</TableCell>
                 <TableCell numeric className="tabular-nums">
                   {formatMeasure(value?.value ?? null, unit)}
                 </TableCell>
                 <TableCell className="text-2xs text-muted-foreground">{value?.note ?? partsText(measureId, value) ?? ''}</TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-end">
                   <ChevronRight className="inline h-4 w-4 text-muted-foreground" aria-hidden />
                 </TableCell>
               </TableRow>
@@ -473,7 +485,7 @@ function ProjectsOfFigure({
         </TableBody>
         <TableFooter>
           <TableRow>
-            <TableCell className="font-semibold">All shown</TableCell>
+            <TableCell className="font-semibold">{t('All shown')}</TableCell>
             <TableCell numeric className="font-semibold tabular-nums">
               {formatMeasure(overview.measures[measureId]?.value ?? null, unit)}
             </TableCell>
@@ -491,11 +503,14 @@ function ProjectsOfFigure({
             <CircleAlert className="mt-px h-3 w-3 shrink-0" aria-hidden />
           )}
           {line.matches
-            ? `Adds up: ${measure?.rollup?.describe ?? line.rule}`
-            : `Does not add up: the projects make ${formatMeasure(line.fromProjects, unit)}, the whole is ${formatMeasure(line.aggregate, unit)}.`}
+            ? t('Adds up: {rule}', { rule: measure?.rollup?.describe ?? line.rule })
+            : t('Does not add up: the projects make {projects}, the whole is {whole}.', {
+                projects: formatMeasure(line.fromProjects, unit),
+                whole: formatMeasure(line.aggregate, unit),
+              })}
         </p>
       ) : (
-        <p className="text-2xs text-muted-foreground">This figure is not one that adds up across projects.</p>
+        <p className="text-2xs text-muted-foreground">{t('This figure is not one that adds up across projects.')}</p>
       )}
     </div>
   );
@@ -524,9 +539,9 @@ function ProjectShare({
   if (!measure?.memberKind) {
     return (
       <div className="space-y-2 p-5 text-xs text-muted-foreground">
-        <p>This figure is made from the project&rsquo;s own plan, budget and health rather than from a list of items.</p>
+        <p>{t('This figure is made from the project’s own plan, budget and health rather than from a list of items.')}</p>
         <Link to={`/projects/${projectId}`} onClick={onClose} className="font-medium text-primary hover:underline">
-          Open the project
+          {t('Open the project')}
         </Link>
       </div>
     );
@@ -538,7 +553,7 @@ function ProjectShare({
       isError={members.isError}
       error={members.error}
       onRetry={() => members.refetch()}
-      errorTitle="Unable to load what is behind this figure"
+      errorTitle={t('Unable to load what is behind this figure')}
       skeleton={
         <div className="space-y-2 p-5">
           {Array.from({ length: 5 }, (_, index) => (
@@ -547,7 +562,7 @@ function ProjectShare({
         </div>
       }
       isEmpty={(members.data?.members.items.length ?? 0) === 0}
-      empty={<EmptyState size="inline" icon={Inbox} title="Nothing behind this figure" description="Nothing in this project matches the definition." />}
+      empty={<EmptyState size="inline" icon={Inbox} title={t('Nothing behind this figure')} description={t('Nothing in this project matches the definition.')} />}
     >
       {members.data ? (
         <MemberList
@@ -576,7 +591,7 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
       isError={entries.isError}
       error={entries.error}
       onRetry={() => entries.refetch()}
-      errorTitle="Unable to load the time entries"
+      errorTitle={t('Unable to load the time entries')}
       skeleton={
         <div className="space-y-2 p-5">
           {Array.from({ length: 6 }, (_, index) => (
@@ -585,45 +600,51 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
         </div>
       }
       isEmpty={(data?.total ?? 0) === 0}
-      empty={<EmptyState size="inline" icon={Inbox} title="No time logged" description="No time entry you can see is behind this figure." />}
+      empty={<EmptyState size="inline" icon={Inbox} title={t('No time logged')} description={t('No time entry you can see is behind this figure.')} />}
     >
       {data ? (
         <div className="space-y-3 p-5">
           <p className={cn('flex items-start gap-1.5 text-2xs', data.figure.matches ? 'text-muted-foreground' : 'text-warning')}>
             {data.figure.matches ? <CheckCircle2 className="mt-px h-3 w-3 shrink-0 text-success" aria-hidden /> : <CircleAlert className="mt-px h-3 w-3 shrink-0" aria-hidden />}
             {data.figure.matches
-              ? `These ${formatNumber(data.total)} entries make the project's labour cost: ${money(data.totals.cost)}.`
-              : `These ${formatNumber(data.total)} entries come to ${money(data.totals.cost)}; the figure counts ${money(data.figure.actual)} — some time on this project may not be visible to you, or was logged since the figures were read.`}
+              ? t('These {count, number} entries make the project\'s labour cost: {cost}.', {
+                  count: data.total,
+                  cost: money(data.totals.cost),
+                })
+              : t(
+                  'These {count, number} entries come to {cost}; the figure counts {actual} — some time on this project may not be visible to you, or was logged since the figures were read.',
+                  { count: data.total, cost: money(data.totals.cost), actual: money(data.figure.actual) },
+                )}
             {/* Without leave to read rates (BRL-01) the entries come without their
                 cost: one entry's cost is one person's rate times their hours. */}
             {data.costHidden
-              ? " Each entry's cost is shown to people allowed to see hourly rates."
+              ? ` ${t('Each entry\'s cost is shown to people allowed to see hourly rates.')}`
               : data.totals.uncostedHours > 0
-                ? ` ${formatNumber(data.totals.uncostedHours)} h by people without an hourly rate are not costed.`
+                ? ` ${t('{hours, number} h by people without an hourly rate are not costed.', { hours: data.totals.uncostedHours })}`
                 : ''}
           </p>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Person</TableHead>
-                <TableHead>Work package</TableHead>
-                <TableHead numeric>Hours</TableHead>
-                {data.costHidden ? null : <TableHead numeric>Cost</TableHead>}
+                <TableHead>{t('Date')}</TableHead>
+                <TableHead>{t('Person')}</TableHead>
+                <TableHead>{t('Work package')}</TableHead>
+                <TableHead numeric>{t('Hours')}</TableHead>
+                {data.costHidden ? null : <TableHead numeric>{t('Cost')}</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.entries.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="whitespace-nowrap text-xs">{formatShortDate(entry.spentOn)}</TableCell>
-                  <TableCell className="text-xs">{entry.userName}</TableCell>
+                  <TableCell className="text-xs" dir="auto">{entry.userName}</TableCell>
                   <TableCell className="max-w-56 text-xs">
                     {entry.workPackageId ? (
-                      <Link to={`/tasks/${entry.workPackageId}`} className="line-clamp-1 hover:text-primary hover:underline">
+                      <Link to={`/tasks/${entry.workPackageId}`} dir="auto" className="line-clamp-1 hover:text-primary hover:underline">
                         {entry.workPackageSubject ?? `#${entry.workPackageId}`}
                       </Link>
                     ) : (
-                      <span className="text-muted-foreground">On the project</span>
+                      <span className="text-muted-foreground">{t('On the project')}</span>
                     )}
                   </TableCell>
                   <TableCell numeric className="tabular-nums">
@@ -631,7 +652,7 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
                   </TableCell>
                   {data.costHidden ? null : (
                     <TableCell numeric className="tabular-nums">
-                      {entry.cost === null ? <span className="text-muted-foreground">not costed</span> : money(entry.cost)}
+                      {entry.cost === null ? <span className="text-muted-foreground">{t('not costed')}</span> : money(entry.cost)}
                     </TableCell>
                   )}
                 </TableRow>
@@ -640,8 +661,8 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
             <TableFooter>
               <TableRow>
                 <TableCell colSpan={3} className="font-semibold">
-                  {formatNumber(data.total)} {pluralize(data.total, 'entry', 'entries')}
-                  {data.window.from ? ` · ${formatShortDate(data.window.from)} – ${formatShortDate(data.window.to ?? data.window.from)}` : ' · to date'}
+                  {t('{count, plural, one {# entry} other {# entries}}', { count: data.total })}
+                  {data.window.from ? ` · ${formatShortDate(data.window.from)} – ${formatShortDate(data.window.to ?? data.window.from)}` : ` · ${t('to date')}`}
                 </TableCell>
                 <TableCell numeric className="font-semibold tabular-nums">
                   {formatNumber(data.totals.hours)}
@@ -665,8 +686,8 @@ function CostEntriesList({ measureId, projectId, from, to }: { measureId: string
                 setPage(1);
               }}
               pageSizeOptions={[25, 50, 100]}
-              itemLabel="entry"
-              itemLabelPlural="entries"
+              itemLabel={t('entry')}
+              itemLabelPlural={t('entries')}
             />
           ) : null}
         </div>

@@ -1,4 +1,15 @@
-import { button, escape, layout, muted, paragraph, paragraphHtml, textBody, type RenderedEmail } from './layout.js';
+import { listOf } from '../../lib/i18n.js';
+import {
+  button,
+  escape,
+  layout,
+  muted,
+  paragraph,
+  paragraphHtml,
+  textBody,
+  type EmailLocale,
+  type RenderedEmail,
+} from './layout.js';
 
 /**
  * A scheduled report (BR-207, BR-208).
@@ -27,47 +38,63 @@ export interface ScheduledReportPayload {
   attachmentNames: string[];
 }
 
-export function render(payload: ScheduledReportPayload): RenderedEmail {
+export function render(payload: ScheduledReportPayload, locale: EmailLocale): RenderedEmail {
+  const { tr } = locale;
   const subject = `${payload.reportName} — ${payload.periodLabel}`;
+  const greeting = payload.firstName ? tr('Hi {name},', { name: payload.firstName }) : tr('Hello,');
+  const intro = tr('Here is {title} for {period}.', { title: payload.title, period: payload.periodLabel });
   const excluded =
     payload.excludedProjects > 0
-      ? `${payload.excludedProjects} ${payload.excludedProjects === 1 ? 'project' : 'projects'} in this report's scope ${payload.excludedProjects === 1 ? 'is' : 'are'} not included, because you do not have access to ${payload.excludedProjects === 1 ? 'it' : 'them'}.`
+      ? tr(
+          '{count, plural, one {# project in this report\'s scope is not included, because you do not have access to it.} other {# projects in this report\'s scope are not included, because you do not have access to them.}}',
+          { count: payload.excludedProjects },
+        )
       : undefined;
+  const attached =
+    payload.attachmentNames.length > 0 ? tr('Attached: {files}.', { files: listOf(payload.attachmentNames) }) : undefined;
+  const why = tr('You receive this because you are a recipient of the scheduled report "{report}".', {
+    report: payload.reportName,
+  });
 
+  // The space between a figure's label and its value is on the side the value
+  // is: the right in English, the left in Arabic.
+  const gap = locale.dir === 'rtl' ? '4px 0 4px 12px' : '4px 12px 4px 0';
   const figures = payload.figures
     .map(
       (figure) =>
-        `<tr><td style="padding:4px 12px 4px 0;color:#667085">${escape(figure.label)}</td>` +
+        `<tr><td style="padding:${gap};color:#667085">${escape(figure.label)}</td>` +
         `<td style="padding:4px 0;font-weight:600">${escape(figure.value)}</td></tr>`,
     )
     .join('');
 
   const html = layout(
     subject,
-    paragraph(`Hi ${payload.firstName},`) +
-      paragraph(`Here is ${payload.title} for ${payload.periodLabel}.`) +
+    paragraph(greeting) +
+      paragraph(intro) +
       (figures ? paragraphHtml(`<table role="presentation" style="border-collapse:collapse">${figures}</table>`) : '') +
       (excluded ? paragraph(excluded) : '') +
-      (payload.attachmentNames.length > 0
-        ? muted(`Attached: ${payload.attachmentNames.join(', ')}.`)
-        : '') +
-      (payload.url ? button('Open the dashboard', payload.url) : '') +
-      muted(`You receive this because you are a recipient of the scheduled report "${payload.reportName}".`),
+      (attached ? muted(attached) : '') +
+      (payload.url ? button(tr('Open the dashboard'), payload.url) : '') +
+      muted(why),
+    locale,
   );
 
-  const text = textBody([
-    `Hi ${payload.firstName},`,
-    '',
-    `Here is ${payload.title} for ${payload.periodLabel}.`,
-    '',
-    ...payload.figures.map((figure) => `  ${figure.label}: ${figure.value}`),
-    '',
-    excluded,
-    payload.attachmentNames.length > 0 ? `Attached: ${payload.attachmentNames.join(', ')}.` : undefined,
-    payload.url,
-    '',
-    `You receive this because you are a recipient of the scheduled report "${payload.reportName}".`,
-  ]);
+  const text = textBody(
+    [
+      greeting,
+      '',
+      intro,
+      '',
+      ...payload.figures.map((figure) => `  ${figure.label}: ${figure.value}`),
+      '',
+      excluded,
+      attached,
+      payload.url,
+      '',
+      why,
+    ],
+    locale,
+  );
 
   return { subject, html, text };
 }

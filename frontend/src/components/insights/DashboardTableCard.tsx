@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { usePagination } from '@/hooks/usePagination';
 import { cn, formatShortDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { DashboardRow, DashboardTable, HealthLevel, MeasureScopeKind } from '@/types';
 import { formatMeasure } from './format';
 
@@ -57,13 +58,14 @@ export function DashboardTableCard({
             total={paged.total}
             onPageChange={paged.setPage}
             onPageSizeChange={paged.setPageSize}
-            itemLabel="row"
+            itemLabel={t('row')}
+            itemLabelPlural={t('rows')}
           />
         ) : undefined
       }
     >
       {table.rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-xs text-muted-foreground">Nothing in this scope and period.</p>
+        <p className="px-4 py-6 text-center text-xs text-muted-foreground">{t('Nothing in this scope and period.')}</p>
       ) : (
         <Table>
           <TableHeader>
@@ -74,7 +76,7 @@ export function DashboardTableCard({
                     {column.label}
                     {column.measureId && definitions.get(column.measureId) ? (
                       <InfoTooltip label={definitions.get(column.measureId)!}>
-                        <span tabIndex={0} aria-label={`How ${column.label} is defined`}>
+                        <span tabIndex={0} aria-label={t('How {label} is defined', { label: column.label })}>
                           <Info className="h-3 w-3 text-muted-foreground" />
                         </span>
                       </InfoTooltip>
@@ -104,12 +106,12 @@ export function DashboardTableCard({
                     return (
                       <TableCell key={column.key} className="max-w-72">
                         <span className="flex items-center gap-1.5">
-                          <span className="line-clamp-2 font-medium text-foreground">{String(value ?? '')}</span>
+                          <span className="line-clamp-2 font-medium text-foreground" dir="auto">{String(value ?? '')}</span>
                           {row.link?.kind === 'project' ? (
                             <Link
                               to={`/projects/${row.link.id}`}
                               onClick={(event) => event.stopPropagation()}
-                              aria-label={`Open the project ${String(value ?? '')}`}
+                              aria-label={t('Open the project {name}', { name: String(value ?? '') })}
                               className="text-muted-foreground hover:text-primary"
                             >
                               <ExternalLink className="h-3 w-3" />

@@ -1,4 +1,5 @@
 import { PlateFrame } from './PlateFrame';
+import { msg, t } from '@/lib/i18n';
 
 /**
  * The signature plate: a delivery schedule resolving itself.
@@ -19,18 +20,18 @@ import { PlateFrame } from './PlateFrame';
 const PAD_TOP = 24;
 const PAD_BOTTOM = 10;
 
-const MONTHS = ['SEP', 'OCT', 'NOV', 'DEC', 'JAN', 'FEB', 'MAR', 'APR'];
+const MONTHS = [msg('SEP'), msg('OCT'), msg('NOV'), msg('DEC'), msg('JAN'), msg('FEB'), msg('MAR'), msg('APR')];
 
 const TRACKS = [
-  { label: 'Discovery & scope', left: 4, width: 20, tone: 'muted' },
-  { label: 'Core banking migration', left: 8, width: 26, tone: 'brand', pct: '86%' },
-  { label: 'Vendor onboarding', left: 22, width: 16, tone: 'muted' },
-  { label: 'Retail portal rollout', left: 30, width: 24, tone: 'accent' },
-  { label: 'Data platform build', left: 44, width: 32, tone: 'brand', pct: '64%' },
-  { label: 'Network refresh', left: 52, width: 18, tone: 'muted' },
-  { label: 'UAT & sign-off', left: 60, width: 24, tone: 'muted' },
-  { label: 'Cutover rehearsal', left: 68, width: 20, tone: 'accent' },
-  { label: 'Hypercare', left: 74, width: 18, tone: 'muted' },
+  { get label() { return t('Discovery & scope'); }, left: 4, width: 20, tone: 'muted' },
+  { get label() { return t('Core banking migration'); }, left: 8, width: 26, tone: 'brand', pct: '86%' },
+  { get label() { return t('Vendor onboarding'); }, left: 22, width: 16, tone: 'muted' },
+  { get label() { return t('Retail portal rollout'); }, left: 30, width: 24, tone: 'accent' },
+  { get label() { return t('Data platform build'); }, left: 44, width: 32, tone: 'brand', pct: '64%' },
+  { get label() { return t('Network refresh'); }, left: 52, width: 18, tone: 'muted' },
+  { get label() { return t('UAT & sign-off'); }, left: 60, width: 24, tone: 'muted' },
+  { get label() { return t('Cutover rehearsal'); }, left: 68, width: 20, tone: 'accent' },
+  { get label() { return t('Hypercare'); }, left: 74, width: 18, tone: 'muted' },
 ] as const;
 
 /** Drawn as elbows: the end of one bar down to the start of the next. */
@@ -48,7 +49,10 @@ const LINKS = [
  * call-to-action button, so a label there is printed over from the outside.
  * These two sit on unlabelled tracks in the clear upper half.
  */
-const MILESTONES: Record<number, string> = { 0: 'KICK-OFF', 6: 'GO-LIVE' };
+const MILESTONES: Record<number, string> = {
+  get 0() { return t('KICK-OFF'); },
+  get 6() { return t('GO-LIVE'); },
+};
 
 const TONE_CLASS: Record<(typeof TRACKS)[number]['tone'], string> = {
   brand: 'bg-brand shadow-[0_0_12px_-2px_hsl(var(--brand-to)/0.9)]',
@@ -73,9 +77,9 @@ export function TimelinePlate() {
       {/* Header */}
       <div className={`absolute inset-x-[4%] top-[6%] flex items-center justify-between ${LABEL}`}>
         <span className="font-display font-semibold uppercase tracking-[0.18em] text-white/55">
-          Delivery timeline
+          {t('Delivery timeline')}
         </span>
-        <span className="font-mono text-white/35">FY26 · Q3–Q4</span>
+        <span className="font-mono text-white/35">{t('FY26 · Q3–Q4')}</span>
       </div>
 
       {/* Month ruler */}
@@ -83,9 +87,9 @@ export function TimelinePlate() {
         {MONTHS.map((month) => (
           <span
             key={month}
-            className={`w-[12.5%] border-l border-white/10 pl-[4%] font-mono text-white/30 ${LABEL}`}
+            className={`w-[12.5%] border-s border-white/10 ps-[4%] font-mono text-white/30 ${LABEL}`}
           >
-            {month}
+            {t(month)}
           </span>
         ))}
       </div>
@@ -124,7 +128,7 @@ export function TimelinePlate() {
             className={`absolute -translate-y-[190%] whitespace-nowrap text-white/60 ${LABEL}`}
             style={{
               top: `${rowY(index)}%`,
-              left: `${track.left}%`,
+              insetInlineStart: `${track.left}%`,
               animation: `epm-label-in ${CYCLE_SECONDS}s ease-in-out infinite`,
               animationDelay: `${index * 0.14}s`,
             }}
@@ -135,13 +139,13 @@ export function TimelinePlate() {
           {/* The empty track the bar sits on */}
           <span
             className="absolute h-[1%] min-h-[2px] -translate-y-1/2 rounded-full bg-white/[0.05]"
-            style={{ top: `${rowY(index)}%`, left: '4%', right: '6%' }}
+            style={{ top: `${rowY(index)}%`, insetInlineStart: '4%', insetInlineEnd: '6%' }}
           />
           <span
-            className={`absolute h-[2.2%] min-h-[4px] origin-left -translate-y-1/2 rounded-full ${TONE_CLASS[track.tone]}`}
+            className={`absolute h-[2.2%] min-h-[4px] origin-left rtl:origin-right -translate-y-1/2 rounded-full ${TONE_CLASS[track.tone]}`}
             style={{
               top: `${rowY(index)}%`,
-              left: `${track.left}%`,
+              insetInlineStart: `${track.left}%`,
               width: `${track.width}%`,
               animation: `epm-bar-draw ${CYCLE_SECONDS}s cubic-bezier(0.32,0.72,0,1) infinite`,
               animationDelay: `${index * 0.14}s`,
@@ -152,10 +156,10 @@ export function TimelinePlate() {
               drawn where a milestone already occupies the bar's end. */}
           {'pct' in track && !MILESTONES[index] ? (
             <span
-              className={`absolute -translate-y-1/2 pl-[0.8%] font-mono text-white/45 ${LABEL}`}
+              className={`absolute -translate-y-1/2 ps-[0.8%] font-mono text-white/45 ${LABEL}`}
               style={{
                 top: `${rowY(index)}%`,
-                left: `${track.left + track.width}%`,
+                insetInlineStart: `${track.left + track.width}%`,
                 animation: `epm-label-in ${CYCLE_SECONDS}s ease-in-out infinite`,
                 animationDelay: `${0.25 + index * 0.14}s`,
               }}
@@ -167,19 +171,19 @@ export function TimelinePlate() {
           {MILESTONES[index] ? (
             <>
               <span
-                className="absolute h-[2.6%] min-h-[5px] w-[1%] min-w-[5px] -translate-x-1/2 -translate-y-1/2 rotate-45 bg-brand-from"
+                className="absolute h-[2.6%] min-h-[5px] w-[1%] min-w-[5px] -translate-x-1/2 -translate-y-1/2 rotate-45 rtl:translate-x-1/2 bg-brand-from"
                 style={{
                   top: `${rowY(index)}%`,
-                  left: `${track.left + track.width}%`,
+                  insetInlineStart: `${track.left + track.width}%`,
                   animation: `epm-link-in ${CYCLE_SECONDS}s ease-in-out infinite`,
                   animationDelay: `${0.3 + index * 0.14}s`,
                 }}
               />
               <span
-                className={`absolute -translate-y-1/2 whitespace-nowrap pl-[1.4%] font-mono tracking-[0.12em] text-brand-from/90 ${LABEL}`}
+                className={`absolute -translate-y-1/2 whitespace-nowrap ps-[1.4%] font-mono tracking-[0.12em] text-brand-from/90 ${LABEL}`}
                 style={{
                   top: `${rowY(index)}%`,
-                  left: `${track.left + track.width}%`,
+                  insetInlineStart: `${track.left + track.width}%`,
                   animation: `epm-link-in ${CYCLE_SECONDS}s ease-in-out infinite`,
                   animationDelay: `${0.45 + index * 0.14}s`,
                 }}
@@ -193,15 +197,15 @@ export function TimelinePlate() {
 
       {/* Today */}
       <div
-        className="absolute inset-y-0 left-0 w-full"
+        className="absolute inset-y-0 start-0 w-full"
         style={{ animation: `epm-sweep-x ${CYCLE_SECONDS}s linear infinite` }}
       >
-        <span className="absolute inset-y-[18%] left-0 w-px bg-gradient-to-b from-transparent via-white/70 to-transparent" />
-        <span className="absolute inset-y-[18%] left-0 w-[6px] -translate-x-1/2 bg-gradient-to-r from-transparent via-white/12 to-transparent blur-[2px]" />
+        <span className="absolute inset-y-[18%] start-0 w-px bg-gradient-to-b from-transparent via-white/70 to-transparent" />
+        <span className="absolute inset-y-[18%] start-0 w-[6px] -translate-x-1/2 rtl:translate-x-1/2 bg-gradient-to-r from-transparent via-white/12 to-transparent blur-[2px]" />
         <span
-          className={`absolute left-0 top-[16%] -translate-x-1/2 whitespace-nowrap rounded-full bg-white/12 px-[0.6em] py-[0.35em] font-mono tracking-[0.14em] text-white/70 ${LABEL}`}
+          className={`absolute start-0 top-[16%] -translate-x-1/2 rtl:translate-x-1/2 whitespace-nowrap rounded-full bg-white/12 px-[0.6em] py-[0.35em] font-mono tracking-[0.14em] text-white/70 ${LABEL}`}
         >
-          TODAY
+          {t('TODAY')}
         </span>
       </div>
     </PlateFrame>

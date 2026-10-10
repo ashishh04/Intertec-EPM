@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isRightToLeft, t } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -14,12 +15,12 @@ import { EpmLogo } from '@/components/common/EpmLogo';
 import { APP_NAME } from '@/config/env';
 
 const SECTIONS = [
-  { href: '#platform', label: 'Platform' },
-  { href: '#capabilities', label: 'Capabilities' },
-  { href: '#how-it-works', label: 'How it works' },
-  { href: '#integrations', label: 'Integrations' },
-  { href: '#faq', label: 'FAQ' },
-  { href: '#security', label: 'Security' },
+  { href: '#platform', get label() { return t('Platform'); } },
+  { href: '#capabilities', get label() { return t('Capabilities'); } },
+  { href: '#how-it-works', get label() { return t('How it works'); } },
+  { href: '#integrations', get label() { return t('Integrations'); } },
+  { href: '#faq', get label() { return t('FAQ'); } },
+  { href: '#security', get label() { return t('Security'); } },
 ];
 
 /**
@@ -52,14 +53,14 @@ export function LandingHeader() {
         )}
       >
         <div className="flex items-center gap-8">
-          <Link to="/" className="rounded-full" aria-label={`${APP_NAME} home`}>
+          <Link to="/" className="rounded-full" aria-label={t('{app} home', { app: APP_NAME })}>
             {/* The logotype paints in `currentColor`, so the reversed-out
                 version is just white text — no second asset. The crimson dot
                 is fixed either way, which is how the brand specifies it. */}
             <EpmLogo className="text-white [&_span[aria-hidden]]:bg-white/20" />
           </Link>
 
-          <nav aria-label="Sections" className="hidden lg:block">
+          <nav aria-label={t('Sections')} className="hidden lg:block">
             <ul className="flex items-center gap-8">
               {SECTIONS.map((section) => (
                 <li key={section.href}>
@@ -77,7 +78,7 @@ export function LandingHeader() {
 
         <div className="flex items-center gap-2">
           <Button asChild className="hidden ring-offset-black sm:inline-flex" arrow>
-            <Link to="/login">Sign in</Link>
+            <Link to="/login">{t('Sign in')}</Link>
           </Button>
 
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -86,19 +87,19 @@ export function LandingHeader() {
                 variant="ghost"
                 size="icon"
                 className="rounded-full text-white ring-offset-black hover:bg-white/10 hover:text-white lg:hidden"
-                aria-label="Open menu"
+                aria-label={t('Open menu')}
               >
                 <Menu />
               </Button>
             </SheetTrigger>
             <SheetContent
-              side="right"
+              side={isRightToLeft() ? 'left' : 'right'}
               className="w-72 bg-black/95 text-white backdrop-blur-xl [&>button]:text-white/60 [&>button]:hover:text-white"
             >
               <SheetHeader className="border-white/10">
-                <SheetTitle className="text-white">Menu</SheetTitle>
+                <SheetTitle className="text-white">{t('Menu')}</SheetTitle>
               </SheetHeader>
-              <nav aria-label="Sections" className="mt-6 px-5">
+              <nav aria-label={t('Sections')} className="mt-6 px-5">
                 <ul className="space-y-1">
                   {SECTIONS.map((section) => (
                     <li key={section.href}>
@@ -115,7 +116,7 @@ export function LandingHeader() {
               </nav>
               <Button asChild className="mx-5 mt-6 ring-offset-black" arrow>
                 <Link to="/login" onClick={() => setMenuOpen(false)}>
-                  Sign in
+                  {t('Sign in')}
                 </Link>
               </Button>
             </SheetContent>

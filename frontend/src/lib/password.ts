@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import type { PasswordPolicy, PasswordRule } from '@/types';
 
 /**
@@ -14,10 +15,18 @@ import type { PasswordPolicy, PasswordRule } from '@/types';
  */
 
 export const RULE_LABELS: Record<PasswordRule, string> = {
-  lowercase: 'A lowercase letter',
-  uppercase: 'An uppercase letter',
-  numeric: 'A number',
-  special: 'A symbol',
+  get lowercase() {
+    return t('A lowercase letter');
+  },
+  get uppercase() {
+    return t('An uppercase letter');
+  },
+  get numeric() {
+    return t('A number');
+  },
+  get special() {
+    return t('A symbol');
+  },
 };
 
 export const RULE_TESTS: Record<PasswordRule, (value: string) => boolean> = {
@@ -46,7 +55,7 @@ export function passwordRuleRows(
   if (policy.minLength > 0) {
     rows.push({
       id: 'length',
-      label: `At least ${policy.minLength} characters`,
+      label: t('{count, plural, one {At least # character} other {At least # characters}}', { count: policy.minLength }),
       ok: value.length >= policy.minLength,
     });
   }

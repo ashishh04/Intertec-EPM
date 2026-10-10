@@ -46,6 +46,7 @@ import { usePagination } from '@/hooks/usePagination';
 import { useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import type { Tone } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { formatCurrency, formatNumber } from '@/lib/utils';
 import { env } from '@/config/env';
 import { useAuth } from '@/providers/AuthProvider';
@@ -75,6 +76,13 @@ const ACCOUNT_STATUS_TONE: Record<AccountStatus, Tone> = {
   invited: 'warning',
   registered: 'warning',
   locked: 'danger',
+};
+
+const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
+  get active() { return t('Active'); },
+  get invited() { return t('Invited'); },
+  get registered() { return t('Registered'); },
+  get locked() { return t('Locked'); },
 };
 
 export default function EmployeesPage() {
@@ -138,9 +146,13 @@ export default function EmployeesPage() {
       { id: account.id, locked },
       {
         onSuccess: () =>
-          toast.success(locked ? `${account.name} deactivated` : `${account.name} reactivated`),
+          toast.success(
+            locked
+              ? t('{name} deactivated', { name: account.name })
+              : t('{name} reactivated', { name: account.name }),
+          ),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -151,9 +163,9 @@ export default function EmployeesPage() {
   // working.
   const sendInvitation = (account: EpmAccount) => {
     resendInvite.mutate(account.id, {
-      onSuccess: () => toast.success(`Invitation sent to ${account.email}`),
+      onSuccess: () => toast.success(t('Invitation sent to {email}', { email: account.email })),
       onError: (error) =>
-        toast.error('The invitation could not be sent', {
+        toast.error(t('The invitation could not be sent'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -187,32 +199,32 @@ export default function EmployeesPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Employees"
-        description="Where each person sits in the organisation."
+        title={t('Employees')}
+        description={t('Where each person sits in the organisation.')}
         actions={
           mayManageAccounts ? (
             <Button size="sm" onClick={openCreate}>
               <UserPlus className="h-3.5 w-3.5" />
-              Add person
+              {t('Add person')}
             </Button>
           ) : null
         }
       />
 
-      <ListToolbar trailing={<ResultCount count={items.length} label="person" plural="people" />}>
+      <ListToolbar trailing={<ResultCount count={items.length} label={t('person')} plural={t('people')} />}>
         <SearchInput
           value={search}
           onValueChange={setSearch}
-          placeholder="Search people"
-          aria-label="Search employees"
+          placeholder={t('Search people')}
+          aria-label={t('Search employees')}
         />
 
         <Select value={departmentId} onValueChange={setDepartmentId}>
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label="Filter by department">
-            <SelectValue placeholder="All departments" />
+          <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by department')}>
+            <SelectValue placeholder={t('All departments')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All departments</SelectItem>
+            <SelectItem value={ALL}>{t('All departments')}</SelectItem>
             {(departments.data ?? []).map((department) => (
               <SelectItem key={department.id} value={department.id}>
                 {department.name}
@@ -222,11 +234,11 @@ export default function EmployeesPage() {
         </Select>
 
         <Select value={teamId} onValueChange={setTeamId}>
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label="Filter by team">
-            <SelectValue placeholder="All teams" />
+          <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by team')}>
+            <SelectValue placeholder={t('All teams')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All teams</SelectItem>
+            <SelectItem value={ALL}>{t('All teams')}</SelectItem>
             {(teams.data ?? []).map((team) => (
               <SelectItem key={team.id} value={team.id}>
                 {team.name}
@@ -240,17 +252,17 @@ export default function EmployeesPage() {
         isLoading={employees.isLoading}
         isError={employees.isError}
         onRetry={() => employees.refetch()}
-        errorTitle="Unable to load employees"
+        errorTitle={t('Unable to load employees')}
         skeleton={<TableSkeleton columns={columnCount} rows={8} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={UserRound}
-            title={filtered ? 'Nobody matches' : 'No people'}
+            title={filtered ? t('Nobody matches') : t('No people')}
             description={
               filtered
-                ? 'Try a different search or filter.'
-                : 'People appear here once they have an account.'
+                ? t('Try a different search or filter.')
+                : t('People appear here once they have an account.')
             }
           />
         }
@@ -263,20 +275,20 @@ export default function EmployeesPage() {
               total={paged.total}
               onPageChange={paged.setPage}
               onPageSizeChange={paged.setPageSize}
-              itemLabel="person"
-              itemLabelPlural="people"
+              itemLabel={t('person')}
+              itemLabelPlural={t('people')}
             />
           }
         >
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Person</TableHead>
-                <TableHead>Department</TableHead>
-                <TableHead>Team</TableHead>
-                <TableHead numeric>Capacity</TableHead>
-                {mayReadRates ? <TableHead numeric>Rate</TableHead> : null}
-                {mayManageAccounts ? <TableHead>Account</TableHead> : null}
+                <TableHead>{t('Person')}</TableHead>
+                <TableHead>{t('Department')}</TableHead>
+                <TableHead>{t('Team')}</TableHead>
+                <TableHead numeric>{t('Capacity')}</TableHead>
+                {mayReadRates ? <TableHead numeric>{t('Rate')}</TableHead> : null}
+                {mayManageAccounts ? <TableHead>{t('Account')}</TableHead> : null}
                 {mayManage || mayManageAccounts ? <TableHead className="w-44" /> : null}
               </TableRow>
             </TableHeader>
@@ -289,7 +301,7 @@ export default function EmployeesPage() {
                           only consulted for the avatar. */}
                       <UserAvatar user={users.get(employee.id)} size="xs" />
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-medium">{employee.name}</p>
+                        <p className="truncate text-xs font-medium" dir="auto">{employee.name}</p>
                         {employee.email ? (
                           <p className="truncate text-2xs text-muted-foreground">
                             {employee.email}
@@ -306,12 +318,12 @@ export default function EmployeesPage() {
                         {/* A mapping outlives its department's archival. */}
                         {employee.department.active ? null : (
                           <Badge tone="warning" size="sm">
-                            Archived
+                            {t('Archived')}
                           </Badge>
                         )}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">Unassigned</span>
+                      <span className="text-muted-foreground">{t('Unassigned')}</span>
                     )}
                   </TableCell>
 
@@ -322,18 +334,18 @@ export default function EmployeesPage() {
                         {employee.team.name}
                         {employee.team.active ? null : (
                           <Badge tone="warning" size="sm">
-                            Archived
+                            {t('Archived')}
                           </Badge>
                         )}
                       </span>
                     ) : (
-                      <span className="text-muted-foreground">Unassigned</span>
+                      <span className="text-muted-foreground">{t('Unassigned')}</span>
                     )}
                   </TableCell>
 
                   <TableCell numeric>
-                    {formatNumber(employee.hoursCapacity)} h
-                    <span className="text-muted-foreground">/wk</span>
+                    {formatNumber(employee.hoursCapacity)}{' '}
+                    <span className="text-muted-foreground">{t('h/wk')}</span>
                   </TableCell>
 
                   {/* Absent rather than zero: nobody has costed this person, and
@@ -342,13 +354,13 @@ export default function EmployeesPage() {
                   {mayReadRates ? (
                     <TableCell numeric>
                       {employee.hourlyRate === undefined ? (
-                        <span className="text-muted-foreground" title="Not costed">
+                        <span className="text-muted-foreground" title={t('Not costed')}>
                           &mdash;
                         </span>
                       ) : (
                         <>
                           {formatCurrency(employee.hourlyRate, env.currency, 2)}
-                          <span className="text-muted-foreground">/h</span>
+                          <span className="text-muted-foreground">{t('/h')}</span>
                         </>
                       )}
                     </TableCell>
@@ -371,7 +383,7 @@ export default function EmployeesPage() {
                             dot
                             className="capitalize"
                           >
-                            {account.status}
+                            {ACCOUNT_STATUS_LABEL[account.status]}
                           </Badge>
                         );
                       })()}
@@ -386,18 +398,18 @@ export default function EmployeesPage() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              aria-label={`Assign ${employee.name}`}
+                              aria-label={t('Assign {name}', { name: employee.name })}
                               onClick={() => openEdit(employee)}
                             >
-                              Assign
+                              {t('Assign')}
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
-                              aria-label={`Set staffing for ${employee.name}`}
+                              aria-label={t('Set staffing for {name}', { name: employee.name })}
                               onClick={() => openStaffing(employee)}
                             >
-                              Staffing
+                              {t('Staffing')}
                             </Button>
                           </>
                         ) : null}
@@ -425,7 +437,7 @@ export default function EmployeesPage() {
                                 <Button
                                   size="icon-sm"
                                   variant="ghost"
-                                  aria-label={`Account actions for ${employee.name}`}
+                                  aria-label={t('Account actions for {name}', { name: employee.name })}
                                 >
                                   <Ellipsis className="h-4 w-4" />
                                 </Button>
@@ -434,21 +446,21 @@ export default function EmployeesPage() {
                                 {update ? (
                                   <DropdownMenuItem onSelect={() => openAccount(account)}>
                                     <Pencil />
-                                    Edit details
+                                    {t('Edit details')}
                                   </DropdownMenuItem>
                                 ) : null}
 
                                 {update ? (
                                   <DropdownMenuItem onSelect={() => sendInvitation(account)}>
                                     <Mail />
-                                    Resend invitation
+                                    {t('Resend invitation')}
                                   </DropdownMenuItem>
                                 ) : null}
 
                                 {lock || unlock ? (
                                   <DropdownMenuItem onSelect={() => toggleLocked(account)}>
                                     {unlock ? <Unlock /> : <Lock />}
-                                    {unlock ? 'Reactivate' : 'Deactivate'}
+                                    {unlock ? t('Reactivate') : t('Deactivate')}
                                   </DropdownMenuItem>
                                 ) : null}
 
@@ -462,7 +474,7 @@ export default function EmployeesPage() {
                                   onSelect={() => setRemovingId(account.id)}
                                 >
                                   <Trash2 />
-                                  Remove person…
+                                  {t('Remove person…')}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>

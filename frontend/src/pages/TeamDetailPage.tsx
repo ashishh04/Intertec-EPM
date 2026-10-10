@@ -18,6 +18,7 @@ import { usePagination } from '@/hooks/usePagination';
 import { useSetTeamActive, useTeam, useTeamWorkloads } from '@/hooks/useTeams';
 import { useTeamMembers } from '@/hooks/useEmployees';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { formatHours, formatNumber, formatPercent } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -64,9 +65,9 @@ export default function TeamDetailPage() {
     setActive.mutate(
       { id: team.data.id, active },
       {
-        onSuccess: () => toast.success(active ? 'Team restored' : 'Team archived'),
+        onSuccess: () => toast.success(active ? t('Team restored') : t('Team archived')),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -78,7 +79,7 @@ export default function TeamDetailPage() {
       isLoading={team.isLoading}
       isError={team.isError}
       onRetry={() => team.refetch()}
-      errorTitle="Unable to load this team"
+      errorTitle={t('Unable to load this team')}
       skeleton={
         <div className="space-y-5">
           <Skeleton className="h-16 w-full" />
@@ -95,7 +96,7 @@ export default function TeamDetailPage() {
             meta={
               team.data.active ? null : (
                 <Badge tone="warning" size="sm">
-                  Archived
+                  {t('Archived')}
                 </Badge>
               )
             }
@@ -104,7 +105,7 @@ export default function TeamDetailPage() {
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="secondary" onClick={() => setDialogOpen(true)}>
                     <Pencil className="h-3.5 w-3.5" />
-                    Edit
+                    {t('Edit')}
                   </Button>
                   <Button
                     size="sm"
@@ -117,7 +118,7 @@ export default function TeamDetailPage() {
                     ) : (
                       <RotateCcw className="h-3.5 w-3.5" />
                     )}
-                    {team.data.active ? 'Archive' : 'Restore'}
+                    {team.data.active ? t('Archive') : t('Restore')}
                   </Button>
                 </div>
               ) : null
@@ -129,31 +130,31 @@ export default function TeamDetailPage() {
               the same period, so the ratio between them means something. */}
           <div className="grid gap-4 sm:grid-cols-3">
             <Card className="p-4">
-              <p className="epm-eyebrow">Members</p>
+              <p className="epm-eyebrow">{t('Members')}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
                 {formatNumber(team.data.memberCount)}
               </p>
             </Card>
             <Card className="p-4">
-              <p className="epm-eyebrow">Capacity</p>
+              <p className="epm-eyebrow">{t('Capacity')}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
                 {formatNumber(team.data.capacityHours)}
-                <span className="ml-1 text-xs text-muted-foreground">h/wk</span>
+                <span className="ms-1 text-xs text-muted-foreground">{t('h/wk')}</span>
               </p>
             </Card>
             <Card className="p-4">
-              <p className="epm-eyebrow">Logged this week</p>
+              <p className="epm-eyebrow">{t('Logged this week')}</p>
               <p className="mt-1 font-mono text-lg tabular-nums">
                 {formatHours(loggedThisWeek)}
                 {utilization === null ? null : (
-                  <span className="ml-1 text-xs text-muted-foreground">
+                  <span className="ms-1 text-xs text-muted-foreground">
                     · {formatPercent(utilization)}
                   </span>
                 )}
               </p>
               {utilization === null ? (
                 <p className="mt-0.5 text-2xs text-muted-foreground">
-                  No capacity set, so utilisation is undefined.
+                  {t('No capacity set, so utilisation is undefined.')}
                 </p>
               ) : null}
             </Card>
@@ -164,16 +165,16 @@ export default function TeamDetailPage() {
               <CardHeader variant="compact">
                 <CardTitle className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-muted-foreground" aria-hidden />
-                  Department
+                  {t('Department')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
                 {team.data.department ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">{team.data.department.name}</span>
+                    <span className="text-sm" dir="auto">{team.data.department.name}</span>
                     {team.data.department.active ? null : (
                       <Badge tone="warning" size="sm">
-                        Archived
+                        {t('Archived')}
                       </Badge>
                     )}
                   </div>
@@ -181,8 +182,8 @@ export default function TeamDetailPage() {
                   <EmptyState
                     size="inline"
                     icon={Building2}
-                    title="No department"
-                    description="This team does not belong to a department."
+                    title={t('No department')}
+                    description={t('This team does not belong to a department.')}
                   />
                 )}
               </CardContent>
@@ -192,7 +193,7 @@ export default function TeamDetailPage() {
               <CardHeader variant="compact">
                 <CardTitle className="flex items-center gap-2">
                   <UserRound className="h-4 w-4 text-muted-foreground" aria-hidden />
-                  Lead
+                  {t('Lead')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
@@ -201,14 +202,14 @@ export default function TeamDetailPage() {
                     {/* The name comes from the backend; the directory is only
                         consulted for the avatar. */}
                     <UserAvatar user={users.get(team.data.lead.id)} size="sm" />
-                    <span className="text-sm">{team.data.lead.name}</span>
+                    <span className="text-sm" dir="auto">{team.data.lead.name}</span>
                   </div>
                 ) : (
                   <EmptyState
                     size="inline"
                     icon={UserRound}
-                    title="No lead"
-                    description="No lead has been assigned."
+                    title={t('No lead')}
+                    description={t('No lead has been assigned.')}
                   />
                 )}
               </CardContent>
@@ -219,7 +220,7 @@ export default function TeamDetailPage() {
             <CardHeader variant="compact">
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
-                Members
+                {t('Members')}
                 {memberItems.length > 0 ? (
                   <span className="font-mono text-2xs font-normal tabular-nums text-muted-foreground">
                     {formatNumber(memberItems.length)}
@@ -232,15 +233,15 @@ export default function TeamDetailPage() {
                 isLoading={members.isLoading}
                 isError={members.isError}
                 onRetry={() => members.refetch()}
-                errorTitle="Unable to load members"
+                errorTitle={t('Unable to load members')}
                 skeleton={<ListSkeleton rows={3} height="h-8" />}
                 isEmpty={memberItems.length === 0}
                 empty={
                   <EmptyState
                     size="inline"
                     icon={Users}
-                    title="Nobody is assigned to this team yet"
-                    description="People are assigned on the employees page."
+                    title={t('Nobody is assigned to this team yet')}
+                    description={t('People are assigned on the employees page.')}
                   />
                 }
               >
@@ -248,7 +249,7 @@ export default function TeamDetailPage() {
                   {pagedMembers.items.map((member) => (
                     <li key={member.id} className="flex items-center gap-2">
                       <UserAvatar user={users.get(member.id)} size="xs" />
-                      <span className="text-xs">{member.name}</span>
+                      <span className="text-xs" dir="auto">{member.name}</span>
                       {member.email ? (
                         <span className="text-2xs text-muted-foreground">{member.email}</span>
                       ) : null}
@@ -263,7 +264,8 @@ export default function TeamDetailPage() {
               pageSize={pagedMembers.pageSize}
               total={pagedMembers.total}
               onPageChange={pagedMembers.setPage}
-              itemLabel="member"
+              itemLabel={t('member')}
+              itemLabelPlural={t('members')}
               className="border-t border-border"
             />
           </Card>

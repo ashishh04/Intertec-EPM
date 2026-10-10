@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useDeleteNews, useNews, useUpdateNews } from '@/hooks/useCollaborationModules';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { formatLongDate, formatRelative } from '@/lib/utils';
 import type { EpmNewsPost, ID } from '@/types';
 
@@ -65,13 +66,13 @@ export function NewsFeed({
           {/* "My drafts", not "drafts": the backend will only ever include this
               person's own, and a label saying otherwise would promise more. */}
           <Label htmlFor="news-drafts" className="text-2xs text-muted-foreground">
-            Include my drafts
+            {t('Include my drafts')}
           </Label>
         </div>
 
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="h-3.5 w-3.5" />
-          Write a post
+          {t('Write a post')}
         </Button>
       </div>
 
@@ -80,7 +81,7 @@ export function NewsFeed({
         isError={query.isError}
         error={query.error}
         onRetry={() => query.refetch()}
-        errorTitle="Unable to load the news"
+        errorTitle={t('Unable to load the news')}
         skeleton={
           <div className="space-y-3">
             {[0, 1].map((index) => (
@@ -93,9 +94,9 @@ export function NewsFeed({
           <Card>
             <EmptyState
               icon={Megaphone}
-              title="Nothing announced yet"
-              description="Post here when something happens that people need to know about rather than find out."
-              action={{ label: 'Write a post', onClick: () => setCreating(true) }}
+              title={t('Nothing announced yet')}
+              description={t('Post here when something happens that people need to know about rather than find out.')}
+              action={{ label: t('Write a post'), onClick: () => setCreating(true) }}
             />
           </Card>
         }
@@ -113,9 +114,9 @@ export function NewsFeed({
                   update.mutate(
                     { id: post.id, input: { published: false } },
                     {
-                      onSuccess: () => toast.success('Returned to a draft'),
+                      onSuccess: () => toast.success(t('Returned to a draft')),
                       onError: (error) =>
-                        toast.error('That could not be unpublished', {
+                        toast.error(t('That could not be unpublished'), {
                           description: error instanceof Error ? error.message : undefined,
                         }),
                     },
@@ -125,9 +126,9 @@ export function NewsFeed({
                   update.mutate(
                     { id: post.id, input: { published: true } },
                     {
-                      onSuccess: () => toast.success('Post published'),
+                      onSuccess: () => toast.success(t('Post published')),
                       onError: (error) =>
-                        toast.error('That could not be published', {
+                        toast.error(t('That could not be published'), {
                           description: error instanceof Error ? error.message : undefined,
                         }),
                     },
@@ -148,7 +149,8 @@ export function NewsFeed({
             setPage(1);
           }}
           pageSizeOptions={[5, 10, 25]}
-          itemLabel="post"
+          itemLabel={t('post')}
+          itemLabelPlural={t('posts')}
         />
       </QueryBoundary>
 
@@ -166,20 +168,20 @@ export function NewsFeed({
       <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete this post?"
-        description={deleting ? `"${deleting.title}" will be removed. This cannot be undone.` : undefined}
-        confirmLabel="Delete"
+        title={t('Delete this post?')}
+        description={deleting ? t('"{title}" will be removed. This cannot be undone.', { title: deleting.title }) : undefined}
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() => {
           if (!deleting) return;
           remove.mutate(deleting.id, {
             onSuccess: () => {
-              toast.success('Post deleted');
+              toast.success(t('Post deleted'));
               setDeleting(null);
             },
             onError: (error) =>
-              toast.error('That post could not be deleted', {
+              toast.error(t('That post could not be deleted'), {
                 description: error instanceof Error ? error.message : undefined,
               }),
           });
@@ -217,58 +219,58 @@ function NewsCard({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-display text-sm font-semibold tracking-[-0.02em]">{post.title}</h3>
+              <h3 dir="auto" className="font-display text-sm font-semibold tracking-[-0.02em]">{post.title}</h3>
               {!post.publishedAt ? (
                 <Badge tone="warning" size="sm">
-                  Draft
+                  {t('Draft')}
                 </Badge>
               ) : null}
               {showProject ? (
                 <Badge tone="neutral" size="sm">
-                  {post.projectName ?? (post.projectId ? 'Project' : 'Organisation-wide')}
+                  {post.projectName ?? (post.projectId ? t('Project') : t('Organisation-wide'))}
                 </Badge>
               ) : null}
             </div>
 
             <p className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
               <UserAvatar user={author} size="xs" />
-              {post.authorName ?? 'Unknown'}
+              {post.authorName ?? t('Unknown')}
               {' · '}
               {post.publishedAt
                 ? `${formatLongDate(post.publishedAt)} (${formatRelative(post.publishedAt)})`
-                : `Written ${formatRelative(post.createdAt)}`}
+                : t('Written {when}', { when: formatRelative(post.createdAt) })}
             </p>
           </div>
 
           <div className="flex shrink-0 gap-1">
             {post.can.update && !post.publishedAt ? (
               <Button variant="secondary" size="sm" onClick={onPublish}>
-                Publish
+                {t('Publish')}
               </Button>
             ) : null}
             {post.can.update && post.publishedAt ? (
               <Button variant="ghost" size="sm" onClick={onUnpublish}>
-                Unpublish
+                {t('Unpublish')}
               </Button>
             ) : null}
             {post.can.update ? (
               <Button variant="ghost" size="sm" onClick={onEdit}>
-                Edit
+                {t('Edit')}
               </Button>
             ) : null}
             {post.can.delete ? (
               <Button variant="ghost" size="sm" onClick={onDelete}>
-                Delete
+                {t('Delete')}
               </Button>
             ) : null}
           </div>
         </div>
 
         {post.summary ? (
-          <p className="text-xs font-medium text-muted-foreground">{post.summary}</p>
+          <p dir="auto" className="text-xs font-medium text-muted-foreground">{post.summary}</p>
         ) : null}
 
-        <div className={long && !expanded ? 'relative max-h-48 overflow-hidden' : undefined}>
+        <div dir="auto" className={long && !expanded ? 'relative max-h-48 overflow-hidden' : undefined}>
           <Markdown>{post.body}</Markdown>
           {long && !expanded ? (
             // A fade rather than a hard cut, so it reads as "there is more"
@@ -284,7 +286,7 @@ function NewsCard({
             className="text-2xs"
             onClick={() => setExpanded((open) => !open)}
           >
-            {expanded ? 'Show less' : 'Read the rest'}
+            {expanded ? t('Show less') : t('Read the rest')}
           </Button>
         ) : null}
       </CardContent>

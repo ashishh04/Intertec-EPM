@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma.js';
 import { aggregateCache } from '../lib/cache.js';
 import { appLog } from '../lib/log.js';
 import { daysBetween, today as todayIso } from '../lib/dates.js';
+import { message, type Message } from '../lib/i18n.js';
 import { countsByProject, listProjects, type ProjectHealthView } from '../mapping/projects.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
 import type {
@@ -20,7 +21,7 @@ import type {
 import { recordAuditQuietly, type AuditInput } from './audit.js';
 import { projectCosts, type ProjectCost } from './costs.js';
 import { HEALTH_CRITERIA, getHealthRules, resolveRiskSelection } from './health-rules.js';
-import { notifyHealthChange } from './notifications.js';
+import { clauses, notifyHealthChange } from './notifications.js';
 import { noteRuleEvent } from './rule-events.js';
 import { OVERDUE_DUE_FILTER } from './work-definitions.js';
 
@@ -630,6 +631,16 @@ function changedCriteria(before: ProjectHealth, after: ProjectHealth): string[] 
   });
 }
 
+/** The same, as messages for the owner, who reads them in their own language. */
+function changedCriteriaMessages(before: ProjectHealth, after: ProjectHealth): Message[] {
+  return HEALTH_CRITERIA.filter((key) => before[key] !== after[key]).map((key) =>
+    message(
+      '{criterion, select, schedule {schedule variance} budget {budget variance} risks {open high risks} other {overdue items}} {from, select, healthy {green} warning {amber} critical {red} other {not assessed}} → {to, select, healthy {green} warning {amber} critical {red} other {not assessed}}',
+      { criterion: key, from: before[key] ?? 'none', to: after[key] ?? 'none' },
+    ),
+  );
+}
+
 function sameLevels(a: ProjectHealth, b: ProjectHealth): boolean {
   return DIMENSIONS.every((key) => a[key] === b[key]);
 }
@@ -777,7 +788,9 @@ export async function recalculateHealth(
         next: nowEffective,
         overridden: Boolean(pinned),
         occurrence: calculatedAt.toISOString().slice(0, 10),
-        detail: moved.length ? `What moved: ${moved.join('; ')}.` : undefined,
+        detail: moved.length
+          ? message('What moved: {changes}.', { changes: clauses(changedCriteriaMessages(before.calculated, computed.levels)) })
+          : undefined,
       });
     }
   }

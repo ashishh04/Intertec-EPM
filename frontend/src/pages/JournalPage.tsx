@@ -22,32 +22,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useJournal } from '@/hooks/useGovernance';
 import { downloadCsv } from '@/lib/csv';
 import { formatDateTime } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { JournalEntry } from '@/types';
 
 const ALL = '__all__';
 
 /** How the journal names a kind of record, for people rather than for code. */
 const KIND_LABEL: Record<string, string> = {
-  account: 'Account',
-  approval_chain: 'Approval chain',
-  approval_delegation: 'Approval delegation',
-  approval_request: 'Approval',
-  automation_rule: 'Rule',
-  department: 'Department',
-  employee: 'Person',
-  escalation: 'Escalation',
-  escalation_policy: 'Escalation policy',
-  health_rules: 'Health rules',
-  invitation: 'Invitation',
-  operations: 'Operations alert',
-  permission_grant: 'EPM permission',
-  placeholder: 'Placeholder',
-  portfolio: 'Portfolio',
-  portfolio_view: 'Portfolio view',
-  project: 'Project',
-  report_schedule: 'Scheduled report',
-  team: 'Team',
-  work_package: 'Work package',
+  get account() { return t('Account'); },
+  get approval_chain() { return t('Approval chain'); },
+  get approval_delegation() { return t('Approval delegation'); },
+  get approval_request() { return t('Approval'); },
+  get automation_rule() { return t('Rule'); },
+  get department() { return t('Department'); },
+  get employee() { return t('Person'); },
+  get escalation() { return t('Escalation'); },
+  get escalation_policy() { return t('Escalation policy'); },
+  get health_rules() { return t('Health rules'); },
+  get invitation() { return t('Invitation'); },
+  get operations() { return t('Operations alert'); },
+  get permission_grant() { return t('EPM permission'); },
+  get placeholder() { return t('Placeholder'); },
+  get portfolio() { return t('Portfolio'); },
+  get portfolio_view() { return t('Portfolio view'); },
+  get project() { return t('Project'); },
+  get report_schedule() { return t('Scheduled report'); },
+  get team() { return t('Team'); },
+  get work_package() { return t('Work package'); },
 };
 
 // Earlier modules wrote kinds with hyphens (`approval-chain`), later ones with
@@ -100,7 +101,7 @@ export default function JournalPage() {
     if (!data || data.items.length === 0) return;
     downloadCsv(
       `epm-journal-page-${data.page}.csv`,
-      ['When (UTC)', 'Who', 'Kind', 'Action', 'Record', 'Project', 'What', 'Reason'],
+      [t('When (UTC)'), t('Who'), t('Kind'), t('Action'), t('Record'), t('Project'), t('What'), t('Reason')],
       data.items.map((entry) => [
         entry.occurredAt,
         actorOf(entry),
@@ -117,13 +118,13 @@ export default function JournalPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Administration"
-        title="Audit journal"
-        description="Every change EPM has recorded, across projects and organisation data. Entries cannot be edited or removed."
+        eyebrow={t('Administration')}
+        title={t('Audit journal')}
+        description={t('Every change EPM has recorded, across projects and organisation data. Entries cannot be edited or removed.')}
         actions={
           <Button variant="secondary" size="sm" onClick={exportPage} disabled={!data || data.items.length === 0}>
             <Download className="h-3.5 w-3.5" />
-            Export this page
+            {t('Export this page')}
           </Button>
         }
       />
@@ -137,21 +138,21 @@ export default function JournalPage() {
         }}
       >
         <div className="min-w-56 flex-1 space-y-1.5">
-          <Label htmlFor="journal-search">Search what changed</Label>
+          <Label htmlFor="journal-search">{t('Search what changed')}</Label>
           <div className="flex gap-2">
             <Input
               id="journal-search"
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder="A name, a project, a word in the summary"
+              placeholder={t('A name, a project, a word in the summary')}
             />
-            <Button type="submit" variant="secondary" size="sm" aria-label="Search">
+            <Button type="submit" variant="secondary" size="sm" aria-label={t('Search')}>
               <Search className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
         <div className="w-48 space-y-1.5">
-          <Label htmlFor="journal-kind">Kind of record</Label>
+          <Label htmlFor="journal-kind">{t('Kind of record')}</Label>
           <Select
             value={kind}
             onValueChange={(value) => {
@@ -163,7 +164,7 @@ export default function JournalPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>Every kind</SelectItem>
+              <SelectItem value={ALL}>{t('Every kind')}</SelectItem>
               {(data?.entityTypes ?? []).map((type) => (
                 <SelectItem key={type} value={type}>
                   {kindLabel(type)}
@@ -173,7 +174,7 @@ export default function JournalPage() {
           </Select>
         </div>
         <div className="w-40 space-y-1.5">
-          <Label htmlFor="journal-from">From</Label>
+          <Label htmlFor="journal-from">{t('From')}</Label>
           <Input
             id="journal-from"
             type="date"
@@ -185,7 +186,7 @@ export default function JournalPage() {
           />
         </div>
         <div className="w-40 space-y-1.5">
-          <Label htmlFor="journal-to">To</Label>
+          <Label htmlFor="journal-to">{t('To')}</Label>
           <Input
             id="journal-to"
             type="date"
@@ -199,7 +200,7 @@ export default function JournalPage() {
         {filtered ? (
           <Button type="button" variant="ghost" size="sm" onClick={reset}>
             <X className="h-3.5 w-3.5" />
-            Clear
+            {t('Clear')}
           </Button>
         ) : null}
       </form>
@@ -209,16 +210,16 @@ export default function JournalPage() {
         isError={journal.isError}
         error={journal.error}
         onRetry={() => void journal.refetch()}
-        errorTitle="The journal could not be loaded"
+        errorTitle={t('The journal could not be loaded')}
         skeleton={<TableSkeleton columns={5} rows={8} />}
         isEmpty={(data?.items.length ?? 0) === 0}
         empty={
           <TableCard>
             <EmptyState
               icon={ScrollText}
-              title={filtered ? 'Nothing matches' : 'Nothing recorded yet'}
+              title={filtered ? t('Nothing matches') : t('Nothing recorded yet')}
               description={
-                filtered ? 'Widen the dates or clear the filters.' : 'Changes appear here as people make them.'
+                filtered ? t('Widen the dates or clear the filters.') : t('Changes appear here as people make them.')
               }
             />
           </TableCard>
@@ -229,11 +230,11 @@ export default function JournalPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-44">When</TableHead>
-                  <TableHead className="w-44">Who</TableHead>
-                  <TableHead>What</TableHead>
-                  <TableHead className="w-40">Kind</TableHead>
-                  <TableHead className="w-48">Project</TableHead>
+                  <TableHead className="w-44">{t('When')}</TableHead>
+                  <TableHead className="w-44">{t('Who')}</TableHead>
+                  <TableHead>{t('What')}</TableHead>
+                  <TableHead className="w-40">{t('Kind')}</TableHead>
+                  <TableHead className="w-48">{t('Project')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -270,7 +271,7 @@ export default function JournalPage() {
                           className="hover:text-primary hover:underline"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          {entry.projectName ?? `Project ${entry.projectId}`}
+                          {entry.projectName ?? t('Project {id}', { id: entry.projectId })}
                         </Link>
                       ) : (
                         <span className="text-muted-foreground">—</span>
@@ -290,8 +291,8 @@ export default function JournalPage() {
                   setPageSize(size);
                   setPage(1);
                 }}
-                itemLabel="entry"
-                itemLabelPlural="entries"
+                itemLabel={t('entry')}
+                itemLabelPlural={t('entries')}
               />
             </div>
           </TableCard>
@@ -301,25 +302,32 @@ export default function JournalPage() {
       <Dialog open={Boolean(open)} onOpenChange={(next) => !next && setOpen(undefined)}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{open?.summary}</DialogTitle>
+            <DialogTitle dir="auto">{open?.summary}</DialogTitle>
             <DialogDescription>
-              {open ? `${formatDateTime(open.occurredAt)} · ${actorOf(open)} · ${open.action} · entry ${open.seq}` : ''}
+              {open
+                ? t('{when} · {who} · {action} · entry {seq}', {
+                    when: formatDateTime(open.occurredAt),
+                    who: actorOf(open),
+                    action: open.action,
+                    seq: open.seq,
+                  })
+                : ''}
             </DialogDescription>
           </DialogHeader>
           {open ? (
             <div className="space-y-3 text-xs">
               <p>
-                <span className="text-muted-foreground">Record:</span> {kindLabel(open.entityType)} {open.entityId}
-                {open.projectId ? ` · ${open.projectName ?? `project ${open.projectId}`}` : ''}
+                <span className="text-muted-foreground">{t('Record:')}</span> {kindLabel(open.entityType)} {open.entityId}
+                {open.projectId ? ` · ${open.projectName ?? t('project {id}', { id: open.projectId })}` : ''}
               </p>
               {open.reason ? (
                 <p>
-                  <span className="text-muted-foreground">Reason:</span> {open.reason}
+                  <span className="text-muted-foreground">{t('Reason:')}</span> {open.reason}
                 </p>
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
-                <ValueBlock title="Before" value={open.before} />
-                <ValueBlock title="After" value={open.after} />
+                <ValueBlock title={t('Before')} value={open.before} />
+                <ValueBlock title={t('After')} value={open.after} />
               </div>
             </div>
           ) : null}
@@ -330,9 +338,11 @@ export default function JournalPage() {
 }
 
 function actorOf(entry: JournalEntry): string {
-  if (entry.actorKind === 'system') return 'EPM (automatic)';
-  if (entry.actorKind === 'service') return entry.actorName ? `${entry.actorName} (automation)` : 'EPM Automation';
-  return entry.actorName ?? (entry.actorId ? `User ${entry.actorId}` : 'Unknown');
+  if (entry.actorKind === 'system') return t('EPM (automatic)');
+  if (entry.actorKind === 'service') {
+    return entry.actorName ? t('{name} (automation)', { name: entry.actorName }) : t('EPM Automation');
+  }
+  return entry.actorName ?? (entry.actorId ? t('User {id}', { id: entry.actorId }) : t('Unknown'));
 }
 
 function ValueBlock({ title, value }: { title: string; value: unknown }) {

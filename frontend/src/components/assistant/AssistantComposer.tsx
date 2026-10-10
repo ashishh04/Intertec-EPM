@@ -3,6 +3,7 @@ import { SendHorizontal, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/input';
 import { InfoTooltip } from '@/components/ui/tooltip';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 /** The composer grows with the draft, from one line up to this many. */
@@ -94,8 +95,8 @@ export function AssistantComposer({
           value={draft}
           rows={1}
           disabled={disabled}
-          placeholder={disabled ? 'The assistant is unavailable' : 'Ask about your work…'}
-          aria-label="Message"
+          placeholder={disabled ? t('The assistant is unavailable') : t('Ask about your work…')}
+          aria-label={t('Message')}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -106,13 +107,13 @@ export function AssistantComposer({
           className="min-h-0 resize-none border-0 bg-transparent px-2 py-2 leading-5 shadow-none focus-visible:border-0 focus-visible:ring-0"
         />
         {streaming ? (
-          <InfoTooltip label="Stop generating">
+          <InfoTooltip label={t('Stop generating')}>
             <Button
               type="button"
               variant="secondary"
               size="icon-sm"
               onClick={onStop}
-              aria-label="Stop generating"
+              aria-label={t('Stop generating')}
               className="shrink-0"
             >
               <Square className="h-3.5 w-3.5 fill-current" />
@@ -123,7 +124,7 @@ export function AssistantComposer({
             type="submit"
             size="icon-sm"
             disabled={!canSend}
-            aria-label="Send message"
+            aria-label={t('Send message')}
             className="shrink-0"
           >
             <SendHorizontal className="h-4 w-4" />
@@ -131,7 +132,7 @@ export function AssistantComposer({
         )}
       </div>
       <p className="px-1 text-2xs text-muted-foreground">
-        Answers are generated from EPM data you can access. Check important figures.
+        {t('Answers are generated from EPM data you can access. Check important figures.')}
       </p>
     </form>
   );

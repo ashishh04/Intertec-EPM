@@ -1,5 +1,6 @@
 import { apiClient, ApiError } from './client';
 import { env } from '@/config/env';
+import { currentLanguage, t } from '@/lib/i18n';
 import type {
   AssistantConversation,
   AssistantMessage,
@@ -89,20 +90,22 @@ export async function streamChat(
       headers: {
         Accept: 'text/event-stream',
         'Content-Type': 'application/json',
+        // The backend answers in the language this page is showing (BR-605).
+        'Accept-Language': currentLanguage(),
       },
       body: JSON.stringify(input),
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
     throw new ApiError(
-      'Unable to reach the EPM backend. Check your connection and try again.',
+      t('Unable to reach the EPM backend. Check your connection and try again.'),
       0,
       'NETWORK',
     );
   }
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
+    let message = t('Request failed with status {status}', { status: response.status });
     let code: string | undefined;
     try {
       const payload = (await response.json()) as { message?: string; code?: string };
@@ -115,7 +118,7 @@ export async function streamChat(
   }
 
   if (!response.body) {
-    throw new ApiError('The assistant returned an empty reply.', 502, 'EMPTY_STREAM');
+    throw new ApiError(t('The assistant returned an empty reply.'), 502, 'EMPTY_STREAM');
   }
 
   const reader = response.body.getReader();
@@ -138,7 +141,7 @@ export async function streamChat(
     if (buffer.trim()) drainFrames(`${buffer}\n\n`, emit);
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    throw new ApiError('The reply was interrupted. Try again.', 0, 'STREAM');
+    throw new ApiError(t('The reply was interrupted. Try again.'), 0, 'STREAM');
   } finally {
     reader.releaseLock();
   }

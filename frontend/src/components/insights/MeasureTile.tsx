@@ -4,6 +4,7 @@ import { ArrowUpRight, Info } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { MeasureResult } from '@/types';
 import { formatMeasure } from './format';
 
@@ -40,7 +41,10 @@ export function MeasureTile({
           ? {
               role: 'button',
               tabIndex: 0,
-              'aria-label': `${measure.label}: ${formatMeasure(measure.value, measure.unit)}. Show what is behind it`,
+              'aria-label': t('{label}: {value}. Show what is behind it', {
+                label: measure.label,
+                value: formatMeasure(measure.value, measure.unit),
+              }),
               onClick: onOpen,
               onKeyDown: (event: React.KeyboardEvent) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -62,7 +66,7 @@ export function MeasureTile({
             <InfoTooltip label={measure.definition}>
               <span
                 tabIndex={0}
-                aria-label={`How ${measure.label} is defined`}
+                aria-label={t('How {label} is defined', { label: measure.label })}
                 className="rounded p-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={(event) => event.stopPropagation()}
               >
@@ -95,21 +99,32 @@ function partsLine(measure: MeasureResult): string {
   const parts = measure.parts ?? {};
   switch (measure.id) {
     case 'milestones.onTime':
-      return `${parts.met ?? 0} met, ${parts.missed ?? 0} missed`;
+      return t('{met, number} met, {missed, number} missed', { met: parts.met ?? 0, missed: parts.missed ?? 0 });
     case 'health.greenPct':
-      return `${parts.green ?? 0} of ${parts.assessed ?? 0} assessed projects`;
+      return t('{green, number} of {assessed, number} assessed projects', {
+        green: parts.green ?? 0,
+        assessed: parts.assessed ?? 0,
+      });
     case 'utilisation':
-      return `${formatMeasure(parts.logged ?? 0, 'hours')} of ${formatMeasure(parts.capacity ?? 0, 'hours')}`;
+      return t('{logged} of {capacity}', {
+        logged: formatMeasure(parts.logged ?? 0, 'hours'),
+        capacity: formatMeasure(parts.capacity ?? 0, 'hours'),
+      });
     case 'work.progress':
-      return `${parts.closed ?? 0} of ${parts.total ?? 0} closed`;
+      return t('{closed, number} of {total, number} closed', { closed: parts.closed ?? 0, total: parts.total ?? 0 });
     case 'work.throughput':
-      return `${parts.delivered ?? 0} delivered`;
+      return t('{delivered, number} delivered', { delivered: parts.delivered ?? 0 });
     case 'cost.actual':
-      return parts.uncostedHours ? `${formatMeasure(parts.uncostedHours, 'hours')} not costed` : '';
+      return parts.uncostedHours
+        ? t('{hours} not costed', { hours: formatMeasure(parts.uncostedHours, 'hours') })
+        : '';
     case 'budget.consumed':
-      return `${formatMeasure(parts.actual ?? 0, 'money')} of ${formatMeasure(parts.budget ?? 0, 'money')}`;
+      return t('{actual} of {budget}', {
+        actual: formatMeasure(parts.actual ?? 0, 'money'),
+        budget: formatMeasure(parts.budget ?? 0, 'money'),
+      });
     case 'sprint.velocity':
-      return `over ${parts.sprints ?? 0} sprint${parts.sprints === 1 ? '' : 's'}`;
+      return t('{sprints, plural, one {over # sprint} other {over # sprints}}', { sprints: parts.sprints ?? 0 });
     default:
       return '';
   }

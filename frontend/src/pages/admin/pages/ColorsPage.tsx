@@ -9,6 +9,7 @@ import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Card } from '@/components/ui/card';
 import { useAdminPriorities, useAdminStatuses, useAdminTypes } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 
 interface Swatch {
   hex: string;
@@ -47,9 +48,9 @@ export default function ColorsPage() {
       swatches: dedupe(items ?? []),
     });
     return [
-      build('Types', types.data),
-      build('Statuses', statuses.data),
-      build('Priorities', priorities.data),
+      build(t('Types'), types.data),
+      build(t('Statuses'), statuses.data),
+      build(t('Priorities'), priorities.data),
     ].filter((group) => group.swatches.length > 0);
   }, [types.data, statuses.data, priorities.data]);
 
@@ -74,7 +75,7 @@ export default function ColorsPage() {
   return (
     <div className="space-y-4">
       <ListToolbar>
-        <ResultCount count={flat.length} label="colour" />
+        <ResultCount count={flat.length} label={t('colour')} plural={t('colours')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -82,14 +83,14 @@ export default function ColorsPage() {
         isError={isError}
         error={error}
         onRetry={retry}
-        errorTitle="Colours could not be loaded"
+        errorTitle={t('Colours could not be loaded')}
         skeleton={<ListSkeleton rows={3} height="h-32" />}
         isEmpty={groups.length === 0}
         empty={
           <EmptyState
             icon={Palette}
-            title="No colours are in use"
-            description="Types, statuses and priorities have no colour assigned yet."
+            title={t('No colours are in use')}
+            description={t('Types, statuses and priorities have no colour assigned yet.')}
           />
         }
       >
@@ -111,7 +112,7 @@ export default function ColorsPage() {
                         className="block h-10 w-full rounded-md border border-border/60"
                         style={{ backgroundColor: swatch.hex }}
                         role="img"
-                        aria-label={`Colour ${swatch.hex}`}
+                        aria-label={t('Colour {hex}', { hex: swatch.hex })}
                       />
                       <span className="font-mono text-2xs tabular-nums text-muted-foreground">
                         {swatch.hex}
@@ -133,7 +134,8 @@ export default function ColorsPage() {
               onPageChange={paging.setPage}
               onPageSizeChange={paging.setPageSize}
               pageSizeOptions={[24, 48, 96]}
-              itemLabel="colour"
+              itemLabel={t('colour')}
+              itemLabelPlural={t('colours')}
             />
           </div>
         </Card>

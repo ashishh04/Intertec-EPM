@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAdminHelpTexts } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 import { AdminPagination, AdminTable } from './shared-tables';
 
 /**
@@ -23,7 +24,7 @@ export default function HelpTextsPage() {
   return (
     <div className="space-y-4">
       <ListToolbar>
-        <ResultCount count={rows.length} label="help text" />
+        <ResultCount count={rows.length} label={t('help text')} plural={t('help texts')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -31,39 +32,43 @@ export default function HelpTextsPage() {
         isError={helpTexts.isError}
         error={helpTexts.error}
         onRetry={() => void helpTexts.refetch()}
-        errorTitle="Help texts could not be loaded"
+        errorTitle={t('Help texts could not be loaded')}
         skeleton={<TableSkeleton columns={3} />}
         isEmpty={rows.length === 0}
         empty={
           <EmptyState
             icon={HelpCircle}
-            title="No attribute help texts have been written yet"
-            description="Help texts are authored centrally in the delivery system and appear here once they exist."
+            title={t('No attribute help texts have been written yet')}
+            description={t('Help texts are authored centrally in the delivery system and appear here once they exist.')}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="help text" />}>
+        <AdminTable
+          footer={<AdminPagination paging={paging} itemLabel={t('help text')} itemLabelPlural={t('help texts')} />}
+        >
           <TableHeader>
             <TableRow>
-              <TableHead>Attribute</TableHead>
-              <TableHead>Scope</TableHead>
-              <TableHead>Help text</TableHead>
+              <TableHead>{t('Attribute')}</TableHead>
+              <TableHead>{t('Scope')}</TableHead>
+              <TableHead>{t('Help text')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paging.items.map((row) => (
               <TableRow key={row.id}>
                 <TableCell>
-                  <p className="font-medium">{row.attributeCaption}</p>
+                  <p className="font-medium" dir="auto">{row.attributeCaption}</p>
                   <p className="font-mono text-2xs text-muted-foreground">{row.attribute}</p>
                 </TableCell>
                 <TableCell>
                   <Badge tone="neutral" size="sm" className="capitalize">
-                    {row.scope}
+                    {t('{scope, select, WorkPackage {WorkPackage} Project {Project} other {{scope}}}', {
+                      scope: row.scope,
+                    })}
                   </Badge>
                 </TableCell>
                 <TableCell className="max-w-md">
-                  <p className="truncate text-muted-foreground" title={row.helpText}>
+                  <p className="truncate text-muted-foreground" title={row.helpText} dir="auto">
                     {row.helpText}
                   </p>
                 </TableCell>

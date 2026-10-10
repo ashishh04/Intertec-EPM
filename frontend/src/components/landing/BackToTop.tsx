@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ArrowUp } from 'lucide-react';
+import { t } from '@/lib/i18n';
 
 /** Roughly one screen down — far enough that the hero's own nav is long gone. */
 const APPEAR_AFTER_PX = 700;
@@ -37,7 +38,7 @@ export function BackToTop() {
             // turned off, so they get the jump instead.
             window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
           }
-          aria-label="Back to top"
+          aria-label={t('Back to top')}
           initial={reduceMotion ? undefined : { opacity: 0, y: 12 }}
           animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
           exit={reduceMotion ? undefined : { opacity: 0, y: 12 }}
@@ -46,7 +47,7 @@ export function BackToTop() {
           whileTap={reduceMotion ? undefined : { scale: 0.94 }}
           // Clears the mobile bottom rail's height on small screens, so it
           // never covers a sign-in control on a phone.
-          className="liquid-glass fixed bottom-6 right-5 z-40 grid h-11 w-11 place-items-center rounded-full text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 sm:bottom-8 sm:right-8"
+          className="liquid-glass fixed bottom-6 end-5 z-40 grid h-11 w-11 place-items-center rounded-full text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 sm:bottom-8 sm:end-8"
         >
           <ArrowUp className="h-4.5 w-4.5" aria-hidden />
         </motion.button>

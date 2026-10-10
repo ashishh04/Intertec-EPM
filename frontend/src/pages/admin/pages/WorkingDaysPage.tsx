@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAdminConfiguration, useUpdateWeekDays, useWeekDays } from '@/hooks/useAdmin';
-import { formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { AdminWeekDay } from '@/services/api/admin';
 import { describeError, isNotImplementedUpstream, valueOr } from './shared-format';
 import { ManagedUpstreamNotice } from './shared-notices';
@@ -54,13 +54,13 @@ export default function WorkingDaysPage() {
       {
         onSuccess: () => {
           setEdits({});
-          toast.success('Working days saved', {
-            description: `${formatNumber(workingCount)} working ${pluralize(workingCount, 'day')} a week.`,
+          toast.success(t('Working days saved'), {
+            description: t('{count, plural, one {# working day a week.} other {# working days a week.}}', { count: workingCount }),
           });
         },
         onError: (error) => {
           if (isNotImplementedUpstream(error)) setManagedUpstream(true);
-          toast.error('Working days were not saved', { description: describeError(error) });
+          toast.error(t('Working days were not saved'), { description: describeError(error) });
         },
       },
     );
@@ -72,10 +72,9 @@ export default function WorkingDaysPage() {
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Working days</CardTitle>
+          <CardTitle>{t('Working days')}</CardTitle>
           <CardDescription>
-            The days of the week work is scheduled on. Days switched off are skipped when
-            start and finish dates are calculated.
+            {t('The days of the week work is scheduled on. Days switched off are skipped when start and finish dates are calculated.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
@@ -84,7 +83,7 @@ export default function WorkingDaysPage() {
             isError={weekDays.isError}
             error={weekDays.error}
             onRetry={() => void weekDays.refetch()}
-            errorTitle="Working days could not be loaded"
+            errorTitle={t('Working days could not be loaded')}
             skeleton={<ListSkeleton rows={7} height="h-10" />}
           >
             <ul className="divide-y divide-border rounded-lg border border-border">
@@ -97,7 +96,7 @@ export default function WorkingDaysPage() {
                     </Label>
                     <div className="flex items-center gap-2">
                       <span className="text-2xs text-muted-foreground">
-                        {day.working ? 'Working' : 'Not working'}
+                        {day.working ? t('Working') : t('Not working')}
                       </span>
                       <Switch
                         id={id}
@@ -114,19 +113,18 @@ export default function WorkingDaysPage() {
             </ul>
 
             <p className="text-xs text-muted-foreground" aria-live="polite">
-              {formatNumber(workingCount)} working {pluralize(workingCount, 'day')}
-              {dirty ? ' (unsaved)' : ''}
+              {dirty
+                ? t('{count, plural, one {# working day (unsaved)} other {# working days (unsaved)}}', { count: workingCount })
+                : t('{count, plural, one {# working day} other {# working days}}', { count: workingCount })}
             </p>
 
             <Alert tone="warning">
-              Changing working days reschedules work packages in the delivery system. Every item
-              whose dates fall on a day that stops being a working day is moved, and durations
-              are recalculated. This applies to all projects.
+              {t('Changing working days reschedules work packages in the delivery system. Every item whose dates fall on a day that stops being a working day is moved, and durations are recalculated. This applies to all projects.')}
             </Alert>
 
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" onClick={save} disabled={!dirty} loading={update.isPending}>
-                Save
+                {t('Save')}
               </Button>
               <Button
                 size="sm"
@@ -134,7 +132,7 @@ export default function WorkingDaysPage() {
                 onClick={() => setEdits({})}
                 disabled={!dirty || update.isPending}
               >
-                Reset
+                {t('Reset')}
               </Button>
             </div>
           </QueryBoundary>
@@ -145,10 +143,9 @@ export default function WorkingDaysPage() {
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Hours and days</CardTitle>
+          <CardTitle>{t('Hours and days')}</CardTitle>
           <CardDescription>
-            What one day and one month mean when durations are converted. Read from the
-            configuration; changed centrally.
+            {t('What one day and one month mean when durations are converted. Read from the configuration; changed centrally.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
@@ -157,13 +154,13 @@ export default function WorkingDaysPage() {
             isError={configuration.isError}
             error={configuration.error}
             onRetry={() => void configuration.refetch()}
-            errorTitle="Configuration could not be loaded"
+            errorTitle={t('Configuration could not be loaded')}
             skeleton={<ListSkeleton rows={2} height="h-10" />}
           >
             <FactList
               facts={[
-                { label: 'Hours per day', value: valueOr(configuration.data?.hoursPerDay, 'Not set') },
-                { label: 'Days per month', value: valueOr(configuration.data?.daysPerMonth, 'Not set') },
+                { label: t('Hours per day'), value: valueOr(configuration.data?.hoursPerDay, t('Not set')) },
+                { label: t('Days per month'), value: valueOr(configuration.data?.daysPerMonth, t('Not set')) },
               ]}
             />
           </QueryBoundary>

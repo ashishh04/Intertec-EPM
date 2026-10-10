@@ -13,41 +13,35 @@ import { FieldRow } from './SettingsRows';
 import { usePreferences, type Preferences } from '@/hooks/usePreferences';
 import { useUpdateProfile } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
+import { LANGUAGES, msg, t } from '@/lib/i18n';
 import { formatLongDate, formatShortDate } from '@/lib/utils';
 
 /**
  * Language and regional formatting.
  *
- * Two different owners on one card, which is why it says so. Language is
- * OpenProject's — it is an attribute of the account, the instance decides which
- * ones exist, and it governs the language of anything the instance itself sends.
- * Date format and clock are EPM's: they only affect how this interface writes a
- * value, so there is nothing upstream to ask.
+ * The language is EPM's and OpenProject's at once: EPM's screens, messages and
+ * email follow it (BR-605), and it is also written to the OpenProject account so
+ * the delivery system's own screens and mail agree. EPM switches first and does
+ * not wait on OpenProject — an instance that has not enabled a language refuses
+ * it, and that must not keep EPM in English. Date format, calendar, digits and
+ * clock are EPM's alone: they only affect how this interface writes a value.
  */
-
-/**
- * The languages offered.
- *
- * OpenProject publishes no list of its available locales over API v3, so this is
- * a short list of common ones. Choosing one writes it to the account, and the
- * instance refuses a code it does not have — which is the check, rather than a
- * list here pretending to be one. It changes OpenProject's own screens and the
- * emails OpenProject sends; EPM's interface and emails are English until there
- * is a translation framework (BR-605), and the hint says so.
- */
-const LANGUAGES: { code: string; label: string }[] = [
-  { code: 'en', label: 'English' },
-  { code: 'de', label: 'Deutsch' },
-  { code: 'fr', label: 'Français' },
-  { code: 'es', label: 'Español' },
-  { code: 'ar', label: 'العربية' },
-];
 
 const DATE_FORMATS: { value: Preferences['locale']['dateFormat']; label: string }[] = [
-  { value: 'system', label: 'Follow this device' },
+  { value: 'system', label: msg('Follow this device') },
   { value: 'iso', label: '2026-09-29' },
   { value: 'dmy', label: '29/09/2026' },
   { value: 'mdy', label: '09/29/2026' },
+];
+
+const CALENDARS: { value: Preferences['locale']['calendar']; label: string }[] = [
+  { value: 'gregory', label: msg('Gregorian') },
+  { value: 'islamic-umalqura', label: msg('Hijri (Umm al-Qura)') },
+];
+
+const NUMERALS: { value: Preferences['locale']['numerals']; label: string }[] = [
+  { value: 'latn', label: msg('Western (0-9)') },
+  { value: 'arab', label: msg('Arabic-Indic (٠-٩)') },
 ];
 
 /** Follows the instance default rather than claiming a language of its own. */
@@ -58,26 +52,19 @@ export function LocaleSettings() {
   const { preferences, update } = usePreferences();
   const updateProfile = useUpdateProfile();
 
-  // The account is authoritative for language, so the control reflects what is
-  // on the account and the preference copy follows it. Showing the preference
-  // would let the two disagree after a write the instance refused.
-  const language = user?.language || preferences.locale.language || '';
+  // EPM's own setting first: it is what the screens follow. The account's value
+  // fills in for somebody who chose a language before EPM had any but English.
+  const language = preferences.locale.language || user?.language || '';
 
   const setLanguage = (next: string) => {
     const code = next === INSTANCE_DEFAULT ? '' : next;
+    update('locale', 'language', code);
 
-    // Written to the account first. The preference copy exists so the email
-    // pipeline can read a language without a session, and is only worth updating
-    // once the instance has accepted the value.
     updateProfile.mutate(
       { language: code },
       {
-        onSuccess: () => {
-          update('locale', 'language', code);
-          toast.success('Language saved');
-        },
         onError: (error) =>
-          toast.error('That language could not be saved', {
+          toast.warning(t('EPM has switched; the delivery system kept its own language'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -87,29 +74,27 @@ export function LocaleSettings() {
   return (
     <Card>
       <CardHeader variant="compact">
-        <CardTitle>Language and region</CardTitle>
-        <CardDescription>How EPM reads and writes dates, times and text.</CardDescription>
+        <CardTitle>{t('Language and region')}</CardTitle>
+        <CardDescription>{t('How EPM reads and writes dates, times and text.')}</CardDescription>
       </CardHeader>
       <CardContent className="p-0">
         <div className="divide-y divide-border">
           <FieldRow
-            label="Language"
-            hint="Set on your account, for the delivery system's own screens and emails. EPM's screens and emails are in English."
+            label={t('Language')}
+            hint={t('EPM’s screens, messages and email, and the delivery system’s own screens. Arabic reads right to left.')}
             htmlFor="locale-language"
           >
-            <Select
-              value={language || INSTANCE_DEFAULT}
-              disabled={updateProfile.isPending}
-              onValueChange={setLanguage}
-            >
+            <Select value={language || INSTANCE_DEFAULT} onValueChange={setLanguage}>
               <SelectTrigger id="locale-language" className="w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={INSTANCE_DEFAULT}>Instance default</SelectItem>
+                <SelectItem value={INSTANCE_DEFAULT}>{t('Instance default')}</SelectItem>
                 {LANGUAGES.map((option) => (
-                  <SelectItem key={option.code} value={option.code}>
-                    {option.label}
+                  // Each language is named in itself, so it can be found by
+                  // someone who cannot read the one currently shown.
+                  <SelectItem key={option.value} value={option.value}>
+                    <span lang={option.value}>{option.label}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -117,8 +102,11 @@ export function LocaleSettings() {
           </FieldRow>
 
           <FieldRow
-            label="Date format"
-            hint={`Dates read as ${formatShortDate('2026-09-29')} — for example ${formatLongDate('2026-09-29')}.`}
+            label={t('Date format')}
+            hint={t('Dates read as {short} — for example {long}.', {
+              short: formatShortDate('2026-09-29'),
+              long: formatLongDate('2026-09-29'),
+            })}
             htmlFor="locale-date-format"
           >
             <Select
@@ -133,14 +121,58 @@ export function LocaleSettings() {
               <SelectContent>
                 {DATE_FORMATS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </FieldRow>
 
-          <FieldRow label="Clock" hint="Applies wherever a time of day is shown." htmlFor="locale-clock">
+          <FieldRow
+            label={t('Calendar')}
+            hint={t('How dates are shown. They are stored and exchanged as Gregorian dates either way.')}
+            htmlFor="locale-calendar"
+          >
+            <Select
+              value={preferences.locale.calendar}
+              onValueChange={(value) => update('locale', 'calendar', value as Preferences['locale']['calendar'])}
+            >
+              <SelectTrigger id="locale-calendar" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CALENDARS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldRow>
+
+          <FieldRow
+            label={t('Digits')}
+            hint={t('Used in figures, dates and times.')}
+            htmlFor="locale-numerals"
+          >
+            <Select
+              value={preferences.locale.numerals}
+              onValueChange={(value) => update('locale', 'numerals', value as Preferences['locale']['numerals'])}
+            >
+              <SelectTrigger id="locale-numerals" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {NUMERALS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FieldRow>
+
+          <FieldRow label={t('Clock')} hint={t('Applies wherever a time of day is shown.')} htmlFor="locale-clock">
             <Select
               value={preferences.workweek.timeFormat}
               onValueChange={(value) =>
@@ -151,15 +183,15 @@ export function LocaleSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="24h">24-hour</SelectItem>
-                <SelectItem value="12h">12-hour</SelectItem>
+                <SelectItem value="24h">{t('24-hour')}</SelectItem>
+                <SelectItem value="12h">{t('12-hour')}</SelectItem>
               </SelectContent>
             </Select>
           </FieldRow>
 
           <FieldRow
-            label="Week starts on"
-            hint="Used by the calendar, the timesheet and every weekly total."
+            label={t('Week starts on')}
+            hint={t('Used by the calendar, the timesheet and every weekly total.')}
             htmlFor="locale-week-start"
           >
             <Select
@@ -172,16 +204,17 @@ export function LocaleSettings() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="monday">Monday</SelectItem>
-                <SelectItem value="sunday">Sunday</SelectItem>
+                <SelectItem value="monday">{t('Monday')}</SelectItem>
+                <SelectItem value="sunday">{t('Sunday')}</SelectItem>
               </SelectContent>
             </Select>
           </FieldRow>
 
           <div className="px-4 py-2.5">
             <FieldHint>
-              Your timezone is on the Profile section. It decides what a date means, where these
-              decide how one is written.
+              {t(
+                'Your timezone is on the Profile section. It decides what a date means, where these decide how one is written.',
+              )}
             </FieldHint>
           </div>
         </div>

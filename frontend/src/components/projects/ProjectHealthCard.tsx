@@ -19,6 +19,7 @@ import { InfoTooltip } from '@/components/ui/tooltip';
 import { useRecalculateHealth } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { HEALTH_CRITERIA_META, HEALTH_META, formatHealthValue } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmProject } from '@/types';
@@ -54,17 +55,17 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
         actions={
           <div className="flex items-center gap-1">
             {canRecalculate ? (
-              <InfoTooltip label="Recalculate now">
+              <InfoTooltip label={t('Recalculate now')}>
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  aria-label="Recalculate health now"
+                  aria-label={t('Recalculate health now')}
                   disabled={recalculate.isPending}
                   onClick={() =>
                     recalculate.mutate(project.id, {
-                      onSuccess: () => toast.success('Health recalculated'),
+                      onSuccess: () => toast.success(t('Health recalculated')),
                       onError: (error) =>
-                        toast.error('Health could not be recalculated', {
+                        toast.error(t('Health could not be recalculated'), {
                           description: error instanceof Error ? error.message : undefined,
                         }),
                     })
@@ -77,13 +78,13 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
             {canOverride ? (
               <Button size="sm" variant="ghost" onClick={() => setOverrideOpen(true)}>
                 <Pencil className="h-3.5 w-3.5" />
-                Override
+                {t('Override')}
               </Button>
             ) : null}
           </div>
         }
       >
-        <CardTitle>Project health</CardTitle>
+        <CardTitle>{t('Project health')}</CardTitle>
       </CardHeader>
 
       <CardContent className="space-y-4 p-4">
@@ -91,10 +92,10 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="flex items-center gap-1.5 text-xs font-semibold">
-              Overall
+              {t('Overall')}
               {pinnedOverall ? (
                 <Badge tone="accent" className="text-2xs">
-                  Overridden
+                  {t('Overridden')}
                 </Badge>
               ) : null}
             </p>
@@ -104,7 +105,9 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
             <p className="mt-0.5 text-2xs leading-relaxed text-muted-foreground">
               {pinnedOverall ? (
                 <span className="font-medium text-foreground">
-                  Calculated {HEALTH_META[project.healthCalculated.overall].label.toLowerCase()}.{' '}
+                  {t('Calculated {level}.', {
+                    level: HEALTH_META[project.healthCalculated.overall].label.toLowerCase(),
+                  })}{' '}
                 </span>
               ) : null}
               {detail?.explanation}
@@ -115,12 +118,14 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
 
         {override ? (
           <div className="rounded-lg border border-accent/30 bg-accent-soft/40 p-2.5">
-            <p className="text-2xs font-medium text-foreground">Why it is overridden</p>
-            <p className="mt-0.5 text-xs leading-relaxed">{override.reason}</p>
+            <p className="text-2xs font-medium text-foreground">{t('Why it is overridden')}</p>
+            <p className="mt-0.5 text-xs leading-relaxed" dir="auto">{override.reason}</p>
             <p className="mt-1 text-2xs text-muted-foreground">
               {override.setBy === 'unknown'
-                ? 'Carried over from before overrides needed a reason.'
-                : `${setBy?.name ?? 'Someone no longer listed'}, ${formatDateTime(override.setAt)}`}
+                ? t('Carried over from before overrides needed a reason.')
+                : setBy?.name
+                  ? t('{name}, {date}', { name: setBy.name, date: formatDateTime(override.setAt) })
+                  : t('Someone no longer listed, {date}', { date: formatDateTime(override.setAt) })}
             </p>
           </div>
         ) : null}
@@ -144,12 +149,12 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
                     ) : null}
                     {pinned ? (
                       <Badge tone="accent" className="text-2xs">
-                        Overridden
+                        {t('Overridden')}
                       </Badge>
                     ) : null}
                     {result?.weight === 0 ? (
                       <Badge tone="neutral" className="text-2xs">
-                        Not counted
+                        {t('Not counted')}
                       </Badge>
                     ) : null}
                   </p>
@@ -158,10 +163,11 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
                   <p className="text-2xs leading-relaxed text-muted-foreground">{result?.reason ?? meta.hint}</p>
                   {pinned ? (
                     <p className="mt-0.5 text-2xs text-muted-foreground">
-                      Calculated:{' '}
-                      {project.healthCalculated[meta.key]
-                        ? HEALTH_META[project.healthCalculated[meta.key]!].label
-                        : 'Not assessed'}
+                      {t('Calculated: {level}', {
+                        level: project.healthCalculated[meta.key]
+                          ? HEALTH_META[project.healthCalculated[meta.key]!].label
+                          : t('Not assessed'),
+                      })}
                     </p>
                   ) : null}
                 </div>
@@ -174,19 +180,21 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
         <div className="flex items-center justify-between gap-2 border-t border-border pt-3 text-2xs text-muted-foreground">
           <span>
             {neverCalculated ? (
-              'Not calculated yet'
+              t('Not calculated yet')
             ) : (
               <InfoTooltip label={formatDateTime(detail.calculatedAt)}>
                 <span tabIndex={0}>
-                  Calculated {formatRelative(detail.calculatedAt)}
-                  {detail.ruleVersion > 0 ? ` · rules v${detail.ruleVersion}` : ' · default rules'}
+                  {t('Calculated {when}', { when: formatRelative(detail.calculatedAt) })}
+                  {detail.ruleVersion > 0
+                    ? ` · ${t('rules v{version}', { version: detail.ruleVersion })}`
+                    : ` · ${t('default rules')}`}
                 </span>
               </InfoTooltip>
             )}
           </span>
           <Button size="sm" variant="ghost" onClick={() => setHistoryOpen(true)}>
             <History className="h-3.5 w-3.5" />
-            History
+            {t('History')}
           </Button>
         </div>
       </CardContent>
@@ -198,13 +206,14 @@ export function ProjectHealthCard({ project }: { project: EpmProject }) {
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Health history</DialogTitle>
+            <DialogTitle>{t('Health history')}</DialogTitle>
             <DialogDescription>
-              Every calculation that moved, and every override, with who and why. Recorded as it
-              happened and never edited.
+              {t(
+                'Every calculation that moved, and every override, with who and why. Recorded as it happened and never edited.',
+              )}
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto pr-1">
+          <div className="max-h-[60vh] overflow-y-auto pe-1">
             <ProjectJournal projectId={project.id} action="health." limit={100} />
           </div>
         </DialogContent>

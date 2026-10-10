@@ -28,7 +28,8 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { useAdminGroups, useCreateGroup, useDeleteGroup, useUpdateGroup } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
 import { useUsers } from '@/hooks/useUsers';
-import { formatLongDate, formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { formatLongDate, formatNumber } from '@/lib/utils';
 import type { AdminGroup } from '@/services/api/admin';
 import { describeError } from './shared-format';
 import { AdminPagination, AdminTable, byName } from './shared-tables';
@@ -66,10 +67,10 @@ export default function GroupsPage() {
     remove.mutate(target.id, {
       onSuccess: () => {
         setRemoving(undefined);
-        toast.success('Group deleted', { description: target.name });
+        toast.success(t('Group deleted'), { description: target.name });
       },
       onError: (error) =>
-        toast.error('Group was not deleted', { description: describeError(error) }),
+        toast.error(t('Group was not deleted'), { description: describeError(error) }),
     });
   };
 
@@ -79,11 +80,11 @@ export default function GroupsPage() {
         trailing={
           <Button size="sm" onClick={openCreate}>
             <Plus className="h-3.5 w-3.5" />
-            New group
+            {t('New group')}
           </Button>
         }
       >
-        <ResultCount count={items.length} label="group" />
+        <ResultCount count={items.length} label={t('group')} plural={t('groups')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -91,27 +92,27 @@ export default function GroupsPage() {
         isError={groups.isError}
         error={groups.error}
         onRetry={() => void groups.refetch()}
-        errorTitle="Unable to load groups"
+        errorTitle={t('Unable to load groups')}
         skeleton={<TableSkeleton columns={5} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={Users}
-            title="No groups"
-            description="Groups let several people be added to a project at once, with the same role."
-            action={{ label: 'New group', onClick: openCreate }}
+            title={t('No groups')}
+            description={t('Groups let several people be added to a project at once, with the same role.')}
+            action={{ label: t('New group'), onClick: openCreate }}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="group" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('group')} itemLabelPlural={t('groups')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead numeric>Members</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Updated</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead numeric>{t('Members')}</TableHead>
+              <TableHead>{t('Created')}</TableHead>
+              <TableHead>{t('Updated')}</TableHead>
               <TableHead className="w-12">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -123,11 +124,15 @@ export default function GroupsPage() {
 
               return (
                 <TableRow key={group.id}>
-                  <TableCell className="font-medium">{group.name}</TableCell>
+                  <TableCell className="font-medium" dir="auto">{group.name}</TableCell>
                   <TableCell numeric>
                     <span
-                      title={names || 'No members'}
-                      aria-label={`${formatNumber(count)} ${pluralize(count, 'member')}${names ? `: ${names}` : ''}`}
+                      title={names || t('No members')}
+                      aria-label={
+                        names
+                          ? t('{count, plural, one {# member} other {# members}}: {names}', { count, names })
+                          : t('{count, plural, one {# member} other {# members}}', { count })
+                      }
                     >
                       {formatNumber(count)}
                     </span>
@@ -138,21 +143,21 @@ export default function GroupsPage() {
                   <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                     {formatLongDate(group.updatedAt)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button size="icon-sm" variant="ghost" aria-label={`Actions for ${group.name}`}>
+                        <Button size="icon-sm" variant="ghost" aria-label={t('Actions for {name}', { name: group.name })}>
                           <Ellipsis className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onSelect={() => openEdit(group)}>
                           <Pencil />
-                          Edit
+                          {t('Edit')}
                         </DropdownMenuItem>
                         <DropdownMenuItem destructive onSelect={() => setRemoving(group)}>
                           <Trash2 />
-                          Delete
+                          {t('Delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -169,19 +174,17 @@ export default function GroupsPage() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              The group is removed from every project it is a member of, and its members lose the
-              roles they held through it. Their own accounts are not touched. This cannot be
-              undone.
+              {t('The group is removed from every project it is a member of, and its members lose the roles they held through it. Their own accounts are not touched. This cannot be undone.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoving(undefined)} disabled={remove.isPending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} loading={remove.isPending}>
-              Delete
+              {t('Delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -240,7 +243,7 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
 
   const pending = create.isPending || update.isPending;
 
-  const fail = (error: unknown) => setProblem(describeError(error, 'That could not be saved.'));
+  const fail = (error: unknown) => setProblem(describeError(error, t('That could not be saved.')));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -248,7 +251,7 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
 
     const trimmed = name.trim();
     if (!trimmed) {
-      setProblem('Give the group a name.');
+      setProblem(t('Give the group a name.'));
       return;
     }
 
@@ -259,7 +262,7 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
         { id: group.id, input: { name: trimmed, memberIds } },
         {
           onSuccess: () => {
-            toast.success('Group updated', { description: trimmed });
+            toast.success(t('Group updated'), { description: trimmed });
             onOpenChange(false);
           },
           onError: fail,
@@ -272,8 +275,8 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
       { name: trimmed, memberIds },
       {
         onSuccess: (created) => {
-          toast.success('Group created', {
-            description: `${created.name}, ${formatNumber(memberIds.length)} ${pluralize(memberIds.length, 'member')}.`,
+          toast.success(t('Group created'), {
+            description: t('{name}, {count, plural, one {# member} other {# members}}.', { name: created.name, count: memberIds.length }),
           });
           onOpenChange(false);
         },
@@ -287,24 +290,24 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={submit} className="flex min-h-0 flex-col gap-4" noValidate>
           <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit group' : 'New group'}</DialogTitle>
+            <DialogTitle>{isEdit ? t('Edit group') : t('New group')}</DialogTitle>
             <DialogDescription>
               {isEdit
-                ? 'Rename the group or change who is in it.'
-                : 'A named set of people that can be added to projects together.'}
+                ? t('Rename the group or change who is in it.')
+                : t('A named set of people that can be added to projects together.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="epm-dialog-body epm-scroll space-y-4 pb-4">
             <div className="space-y-1.5">
               <Label htmlFor="group-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="group-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Platform team"
+                placeholder={t('Platform team')}
                 invalid={Boolean(problem) && !name.trim()}
                 autoFocus
                 maxLength={255}
@@ -312,21 +315,21 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="group-members">Members</Label>
+              <Label htmlFor="group-members">{t('Members')}</Label>
               <MultiSelect
-                label="Members"
+                label={t('Members')}
                 options={options}
                 selected={members}
                 onChange={setMembers}
-                placeholder={users.isLoading ? 'Loading people' : 'Choose people'}
+                placeholder={users.isLoading ? t('Loading people') : t('Choose people')}
                 disabled={pending}
                 className="w-full"
                 maxVisible={3}
               />
               <FieldHint id="group-members-hint">
                 {members.length === 0
-                  ? 'No members yet. A group can be created empty and filled later.'
-                  : `${formatNumber(members.length)} ${pluralize(members.length, 'member')}.`}
+                  ? t('No members yet. A group can be created empty and filled later.')
+                  : t('{count, plural, one {# member} other {# members}}.', { count: members.length })}
               </FieldHint>
             </div>
 
@@ -335,10 +338,10 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={pending}>
-              {isEdit ? 'Save' : 'Create group'}
+              {isEdit ? t('Save') : t('Create group')}
             </Button>
           </DialogFooter>
         </form>

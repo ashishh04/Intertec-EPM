@@ -36,6 +36,7 @@ import { useUserMap } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
 import { ALL_PROJECT_STATUSES, PROJECT_STATUS_META } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { cn, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
 import type { ProjectStatus } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
@@ -89,12 +90,12 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Projects"
-        description="Delivery portfolio across every active engagement."
+        title={t('Projects')}
+        description={t('Delivery portfolio across every active engagement.')}
         actions={
           <Button onClick={() => setCreateOpen(true)} disabled={!can('project:create')}>
             <Plus className="h-4 w-4" />
-            New Project
+            {t('New Project')}
           </Button>
         }
       />
@@ -108,7 +109,7 @@ export default function ProjectsPage() {
             onClick={() => setStatus(status === key ? ALL : key)}
             aria-pressed={status === key}
             className={cn(
-              'flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               status === key
                 ? 'border-primary/40 bg-primary-soft'
                 : 'border-border bg-surface hover:border-primary/25',
@@ -133,14 +134,15 @@ export default function ProjectsPage() {
             <ResultCount
               count={projects.length}
               total={projectsQuery.data?.length}
-              label="project"
+              label={t('project')}
+              plural={t('projects')}
             />
             <Tabs value={view} onValueChange={(value) => setView(value as 'grid' | 'table')}>
-              <TabsList aria-label="View mode">
-                <TabsTrigger value="grid" aria-label="Card view">
+              <TabsList aria-label={t('View mode')}>
+                <TabsTrigger value="grid" aria-label={t('Card view')}>
                   <LayoutGrid className="h-3.5 w-3.5" />
                 </TabsTrigger>
-                <TabsTrigger value="table" aria-label="Table view">
+                <TabsTrigger value="table" aria-label={t('Table view')}>
                   <List className="h-3.5 w-3.5" />
                 </TabsTrigger>
               </TabsList>
@@ -151,16 +153,16 @@ export default function ProjectsPage() {
         <SearchInput
           value={search}
           onValueChange={setSearch}
-          placeholder="Search projects..."
-          aria-label="Search projects"
+          placeholder={t('Search projects...')}
+          aria-label={t('Search projects')}
         />
 
         <Select value={portfolio} onValueChange={setPortfolio}>
-          <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label="Filter by portfolio">
-            <SelectValue placeholder="All portfolios" />
+          <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label={t('Filter by portfolio')}>
+            <SelectValue placeholder={t('All portfolios')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All portfolios</SelectItem>
+            <SelectItem value={ALL}>{t('All portfolios')}</SelectItem>
             {portfolios.map((item) => (
               <SelectItem key={item} value={item}>
                 {item}
@@ -170,11 +172,11 @@ export default function ProjectsPage() {
         </Select>
 
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-8 w-auto min-w-32 text-xs" aria-label="Filter by status">
-            <SelectValue placeholder="All statuses" />
+          <SelectTrigger className="h-8 w-auto min-w-32 text-xs" aria-label={t('Filter by status')}>
+            <SelectValue placeholder={t('All statuses')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All statuses</SelectItem>
+            <SelectItem value={ALL}>{t('All statuses')}</SelectItem>
             {ALL_PROJECT_STATUSES.map((key) => (
               <SelectItem key={key} value={key}>
                 {PROJECT_STATUS_META[key].label}
@@ -189,7 +191,7 @@ export default function ProjectsPage() {
         isError={projectsQuery.isError}
         error={projectsQuery.error}
         onRetry={() => projectsQuery.refetch()}
-        errorTitle="Unable to load projects"
+        errorTitle={t('Unable to load projects')}
         skeleton={
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2, 3, 4, 5].map((index) => (
@@ -202,10 +204,10 @@ export default function ProjectsPage() {
           <Card>
             <EmptyState
               icon={FolderKanban}
-              title="No projects match those filters"
-              description="Try a different status or portfolio, or clear the search."
+              title={t('No projects match those filters')}
+              description={t('Try a different status or portfolio, or clear the search.')}
               action={{
-                label: 'Clear filters',
+                label: t('Clear filters'),
                 onClick: () => {
                   setSearch('');
                   setStatus(ALL);
@@ -244,7 +246,8 @@ export default function ProjectsPage() {
                 onPageChange={paged.setPage}
                 onPageSizeChange={paged.setPageSize}
                 pageSizeOptions={[12, 24, 48]}
-                itemLabel="project"
+                itemLabel={t('project')}
+                itemLabelPlural={t('projects')}
               />
             </Card>
           </div>
@@ -258,23 +261,24 @@ export default function ProjectsPage() {
                 onPageChange={paged.setPage}
                 onPageSizeChange={paged.setPageSize}
                 pageSizeOptions={[15, 25, 50]}
-                itemLabel="project"
+                itemLabel={t('project')}
+                itemLabelPlural={t('projects')}
               />
             }
           >
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Project</TableHead>
-                  <TableHead>Portfolio</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Health</TableHead>
+                  <TableHead>{t('Project')}</TableHead>
+                  <TableHead>{t('Portfolio')}</TableHead>
+                  <TableHead>{t('Status')}</TableHead>
+                  <TableHead>{t('Health')}</TableHead>
                   <TableHead numeric className="min-w-36">
-                    Progress
+                    {t('Progress')}
                   </TableHead>
-                  <TableHead numeric>Tasks</TableHead>
-                  <TableHead>Due</TableHead>
-                  <TableHead>Team</TableHead>
+                  <TableHead numeric>{t('Tasks')}</TableHead>
+                  <TableHead>{t('Due')}</TableHead>
+                  <TableHead>{t('Team')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -304,7 +308,7 @@ export default function ProjectsPage() {
                           value={project.progress}
                           size="xs"
                           tone={PROJECT_STATUS_META[project.status].tone}
-                          label={`${project.name} progress`}
+                          label={t('{name} progress', { name: project.name })}
                           className="w-20"
                         />
                         <span className="text-muted-foreground">

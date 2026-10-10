@@ -47,8 +47,8 @@ import {
   formatNumber,
   formatPercent,
   formatShortDate,
-  pluralize,
 } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /** Sentinel: a select cannot hold an empty string as a value. */
 const NO_OWNER = '__none__';
@@ -116,19 +116,19 @@ export default function ProjectOverviewTab() {
               canEditProject ? (
                 <Button size="sm" variant="ghost" onClick={() => setPlanOpen(true)}>
                   <Pencil className="h-3.5 w-3.5" />
-                  Plan and budget
+                  {t('Plan and budget')}
                 </Button>
               ) : null
             }
           >
-            <CardTitle>Project summary</CardTitle>
+            <CardTitle>{t('Project summary')}</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            <p className="text-xs leading-relaxed text-muted-foreground">{project.description}</p>
+            <p dir="auto" className="text-xs leading-relaxed text-muted-foreground">{project.description}</p>
 
             <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
-                <dt className="epm-eyebrow">Owner</dt>
+                <dt className="epm-eyebrow">{t('Owner')}</dt>
                 <dd className="mt-1 flex items-center gap-2">
                   <UserAvatar user={owner} size="sm" />
                   {/* Editable, and EPM's own: an OpenProject project has no
@@ -142,9 +142,9 @@ export default function ProjectOverviewTab() {
                         setOwner.mutate(
                           { id: project.id, ownerId: value === NO_OWNER ? '' : value },
                           {
-                            onSuccess: () => toast.success('Owner updated'),
+                            onSuccess: () => toast.success(t('Owner updated')),
                             onError: (error) =>
-                              toast.error('That could not be saved', {
+                              toast.error(t('That could not be saved'), {
                                 description:
                                   error instanceof Error ? error.message : undefined,
                               }),
@@ -152,11 +152,11 @@ export default function ProjectOverviewTab() {
                         )
                       }
                     >
-                      <SelectTrigger className="h-7 w-full text-xs" aria-label="Project owner">
-                        <SelectValue placeholder="Unassigned" />
+                      <SelectTrigger className="h-7 w-full text-xs" aria-label={t('Project owner')}>
+                        <SelectValue placeholder={t('Unassigned')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NO_OWNER}>Unassigned</SelectItem>
+                        <SelectItem value={NO_OWNER}>{t('Unassigned')}</SelectItem>
                         {memberOptions.map((member) => (
                           <SelectItem key={member.id} value={member.id}>
                             {member.name}
@@ -165,24 +165,24 @@ export default function ProjectOverviewTab() {
                       </SelectContent>
                     </Select>
                   ) : (
-                    <span className="text-xs font-medium">{owner?.name ?? 'Unassigned'}</span>
+                    <span className="text-xs font-medium">{owner?.name ?? t('Unassigned')}</span>
                   )}
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Planned start</dt>
+                <dt className="epm-eyebrow">{t('Planned start')}</dt>
                 <dd className="mt-1 font-mono text-xs tabular-nums">
-                  {project.startDate ? formatLongDate(project.startDate) : 'Not set'}
+                  {project.startDate ? formatLongDate(project.startDate) : t('Not set')}
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Planned finish</dt>
+                <dt className="epm-eyebrow">{t('Planned finish')}</dt>
                 <dd className="mt-1 font-mono text-xs tabular-nums">
-                  {project.dueDate ? formatLongDate(project.dueDate) : 'Not set'}
+                  {project.dueDate ? formatLongDate(project.dueDate) : t('Not set')}
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Forecast finish</dt>
+                <dt className="epm-eyebrow">{t('Forecast finish')}</dt>
                 <dd className="mt-1 text-xs">
                   {/* From the open work's own dates: the latest due date, and
                       never before today while anything is overdue. */}
@@ -192,29 +192,31 @@ export default function ProjectOverviewTab() {
                   {slip !== null && slip !== 0 ? (
                     <span
                       className={cn(
-                        'ml-1.5 text-2xs font-medium',
+                        'ms-1.5 text-2xs font-medium',
                         slip > 0 ? 'text-danger' : 'text-success',
                       )}
                     >
-                      {slip > 0 ? `${slip} ${pluralize(slip, 'day')} late` : `${-slip} ${pluralize(-slip, 'day')} early`}
+                      {slip > 0
+                        ? t('{days, plural, one {# day late} other {# days late}}', { days: slip })
+                        : t('{days, plural, one {# day early} other {# days early}}', { days: -slip })}
                     </span>
                   ) : null}
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Status</dt>
+                <dt className="epm-eyebrow">{t('Status')}</dt>
                 <dd className="mt-1 text-xs font-medium">
                   {PROJECT_STATUS_META[project.status].label}
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Priority</dt>
+                <dt className="epm-eyebrow">{t('Priority')}</dt>
                 <dd className="mt-1">
                   <PriorityBadge priority={project.priority} />
                 </dd>
               </div>
               <div>
-                <dt className="epm-eyebrow">Open risks</dt>
+                <dt className="epm-eyebrow">{t('Open risks')}</dt>
                 <dd className="mt-1 flex items-center gap-1.5 text-xs font-medium">
                   {/* Work packages of a risk type. With no such type on the
                       instance there is nothing to count, which is said rather
@@ -235,7 +237,7 @@ export default function ProjectOverviewTab() {
                       {formatNumber(project.openRiskCount)}
                     </>
                   ) : (
-                    <span className="font-normal text-muted-foreground">Not tracked</span>
+                    <span className="font-normal text-muted-foreground">{t('Not tracked')}</span>
                   )}
                 </dd>
               </div>
@@ -246,22 +248,24 @@ export default function ProjectOverviewTab() {
         {/* Progress */}
         <Card>
           <CardHeader variant="compact">
-            <CardTitle>Delivery progress</CardTitle>
+            <CardTitle>{t('Delivery progress')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-4">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="epm-eyebrow">Completion</p>
+                <p className="epm-eyebrow">{t('Completion')}</p>
                 <p className="mt-0.5 font-mono text-2xl font-semibold tabular-nums">
                   {formatNumber(project.progress)}
                   <span className="text-lg text-muted-foreground">%</span>
                 </p>
               </div>
-              <div className="text-right">
-                <p className="epm-eyebrow">Work packages</p>
+              <div className="text-end">
+                <p className="epm-eyebrow">{t('Work packages')}</p>
                 <p className="mt-0.5 font-mono text-sm font-medium tabular-nums">
-                  {formatNumber(project.completedTaskCount)} / {formatNumber(project.taskCount)}
-                  {' '}complete
+                  {t('{done, number} / {total, number} complete', {
+                    done: project.completedTaskCount,
+                    total: project.taskCount,
+                  })}
                 </p>
               </div>
             </div>
@@ -270,35 +274,40 @@ export default function ProjectOverviewTab() {
               value={project.progress}
               size="lg"
               tone={PROJECT_STATUS_META[project.status].tone}
-              label={`${project.name} completion`}
+              label={t('{name} completion', { name: project.name })}
             />
 
             <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-3">
               <SummaryStat
                 icon={CalendarRange}
-                label="Planned finish"
-                value={project.dueDate ? formatShortDate(project.dueDate) : 'Not set'}
+                label={t('Planned finish')}
+                value={project.dueDate ? formatShortDate(project.dueDate) : t('Not set')}
               />
               <SummaryStat
                 icon={Users}
-                label="Team size"
-                value={`${formatNumber(project.memberIds.length)} ${pluralize(project.memberIds.length, 'member')}`}
+                label={t('Team size')}
+                value={t('{count, plural, one {# member} other {# members}}', { count: project.memberIds.length })}
               />
               <SummaryStat
                 icon={CircleDollarSign}
-                label="Spent to date"
+                label={t('Spent to date')}
                 value={
                   project.budgetTotal > 0
-                    ? `${formatCurrency(project.budgetUsed)} of ${formatCurrency(project.budgetTotal)}`
+                    ? t('{used} of {total}', {
+                        used: formatCurrency(project.budgetUsed),
+                        total: formatCurrency(project.budgetTotal),
+                      })
                     : formatCurrency(project.budgetUsed)
                 }
                 sub={
                   // Spend is logged hours at each person's rate; hours from
                   // someone with no rate are said, not priced at zero.
                   [
-                    budgetPct === null ? 'No budget set' : `${formatPercent(budgetPct)} of budget`,
+                    budgetPct === null ? t('No budget set') : t('{percent} of budget', { percent: formatPercent(budgetPct) }),
                     project.uncostedHours > 0
-                      ? `${formatNumber(project.uncostedHours)} ${pluralize(project.uncostedHours, 'hour')} not costed`
+                      ? t('{hours, plural, one {# hour not costed} other {# hours not costed}}', {
+                          hours: project.uncostedHours,
+                        })
                       : null,
                   ]
                     .filter(Boolean)
@@ -312,7 +321,7 @@ export default function ProjectOverviewTab() {
         {/* Milestones */}
         <Card>
           <CardHeader variant="compact">
-            <CardTitle>Milestones</CardTitle>
+            <CardTitle>{t('Milestones')}</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
             <QueryBoundary
@@ -320,25 +329,25 @@ export default function ProjectOverviewTab() {
               isError={milestonesQuery.isError}
               error={milestonesQuery.error}
               onRetry={() => milestonesQuery.refetch()}
-              errorTitle="Unable to load milestones"
+              errorTitle={t('Unable to load milestones')}
               skeleton={<Skeleton className="h-16 w-full" />}
               isEmpty={(milestonesQuery.data ?? []).length === 0}
               empty={
                 <EmptyState
                   size="inline"
                   icon={Flag}
-                  title="No milestones yet"
-                  description="Milestones appear here once the plan has dated checkpoints."
+                  title={t('No milestones yet')}
+                  description={t('Milestones appear here once the plan has dated checkpoints.')}
                 />
               }
             >
               <ol className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-0">
                 <span
-                  className="absolute left-[7px] top-2 hidden h-px w-full bg-border sm:block"
+                  className="absolute start-[7px] top-2 hidden h-px w-full bg-border sm:block"
                   aria-hidden
                 />
                 {milestonesPaged.items.map((milestone) => (
-                  <li key={milestone.id} className="relative flex-1 sm:pr-3">
+                  <li key={milestone.id} className="relative flex-1 sm:pe-3">
                     <div className="flex items-center gap-2 sm:block">
                       <span
                         className={cn(
@@ -352,7 +361,7 @@ export default function ProjectOverviewTab() {
                         aria-hidden
                       />
                       <div className="sm:mt-2">
-                        <p className="text-xs font-medium">{milestone.name}</p>
+                        <p dir="auto" className="text-xs font-medium">{milestone.name}</p>
                         <p className="font-mono text-2xs tabular-nums text-muted-foreground">
                           {formatShortDate(milestone.date)}
                         </p>
@@ -368,10 +377,10 @@ export default function ProjectOverviewTab() {
                           className="mt-1"
                         >
                           {milestone.status === 'completed'
-                            ? 'Completed'
+                            ? t('Completed')
                             : milestone.status === 'in_progress'
-                              ? 'In progress'
-                              : 'Upcoming'}
+                              ? t('In progress')
+                              : t('Upcoming')}
                         </Badge>
                       </div>
                     </div>
@@ -385,7 +394,8 @@ export default function ProjectOverviewTab() {
                   pageSize={milestonesPaged.pageSize}
                   total={milestonesPaged.total}
                   onPageChange={milestonesPaged.setPage}
-                  itemLabel="milestone"
+                  itemLabel={t('milestone')}
+                  itemLabelPlural={t('milestones')}
                   className="mt-3 border-t border-border px-0 pt-2"
                 />
               ) : null}
@@ -402,7 +412,7 @@ export default function ProjectOverviewTab() {
             actions={
               <Button asChild variant="ghost" size="sm">
                 <Link to="activity">
-                  All activity
+                  {t('All activity')}
                   <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </Button>
@@ -410,7 +420,7 @@ export default function ProjectOverviewTab() {
           >
             <CardTitle className="flex items-center gap-2">
               <Flag className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-              Recent activity
+              {t('Recent activity')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-4">
@@ -420,7 +430,7 @@ export default function ProjectOverviewTab() {
               isError={activityQuery.isError}
               error={activityQuery.error}
               onRetry={() => activityQuery.refetch()}
-              errorTitle="Unable to load activity"
+              errorTitle={t('Unable to load activity')}
               skeleton={<ActivityTimelineSkeleton rows={4} />}
             >
               <ActivityTimeline entries={activityPaged.items} users={users} />
@@ -431,7 +441,8 @@ export default function ProjectOverviewTab() {
                   pageSize={activityPaged.pageSize}
                   total={activityPaged.total}
                   onPageChange={activityPaged.setPage}
-                  itemLabel="entry"
+                  itemLabel={t('entry')}
+                  itemLabelPlural={t('entries')}
                   className="mt-3 border-t border-border px-0 pt-2"
                 />
               ) : null}

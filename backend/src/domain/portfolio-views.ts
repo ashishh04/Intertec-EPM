@@ -13,6 +13,7 @@ import { modelFacts, type ModelFacts } from './measure-facts.js';
 import type { Period, Viewer } from './measures.js';
 import { DEFAULT_COLUMNS, OVERVIEW_COLUMNS, portfolioOverview, type PortfolioOverview } from './portfolio-overview.js';
 import { PERIOD_PRESETS, periodFor, type PeriodPreset } from './report-schedule.js';
+import { listOf, message } from '../lib/i18n.js';
 
 /**
  * Saved portfolio views (BR-203).
@@ -270,12 +271,12 @@ export async function viewOverview(
 async function checkReferences(input: ViewInput): Promise<void> {
   const facts = await modelFacts();
   const unknownPortfolios = input.definition.portfolioIds.filter((id) => !facts.portfolios.has(id));
-  if (unknownPortfolios.length > 0) throw EpmError.badRequest(`Not portfolios EPM knows: ${unknownPortfolios.join(', ')}.`);
+  if (unknownPortfolios.length > 0) throw EpmError.badRequest(message('Not portfolios EPM knows: {ids}.', { ids: listOf(unknownPortfolios) }));
   if (input.visibility === 'roles') {
     const shareable = await shareableRoles();
     const unknownRoles = input.roleIds.filter((id) => !shareable.has(id));
     if (unknownRoles.length > 0) {
-      throw EpmError.badRequest(`Not roles a project member can hold: ${unknownRoles.join(', ')}.`);
+      throw EpmError.badRequest(message('Not roles a project member can hold: {ids}.', { ids: listOf(unknownRoles) }));
     }
   }
 }

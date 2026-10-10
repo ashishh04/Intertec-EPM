@@ -5,6 +5,8 @@
  * OpenProject URL, API token or credential — those live server-side.
  */
 
+import { msg } from '@/lib/i18n';
+
 export type AppEnvironment = 'development' | 'staging' | 'production';
 
 const raw = import.meta.env;
@@ -71,5 +73,6 @@ export const featureFlags = {
 } as const;
 
 export const APP_NAME = 'EPM';
-export const APP_DESCRIPTOR = 'Unified Project & Delivery Platform';
+/** Marked for translation; shown with `t(APP_DESCRIPTOR)`. */
+export const APP_DESCRIPTOR = msg('Unified Project & Delivery Platform');
 export const ORG_NAME = 'Intertec Systems';

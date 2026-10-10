@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import { env } from '@/config/env';
+import { currentLanguage, t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -42,12 +43,14 @@ export class ApiAttachmentRepository {
     const response = await fetch(`${env.apiBaseUrl}/work-packages/${workPackageId}/attachments`, {
       method: 'POST',
       credentials: 'include',
+      // The backend answers in the language this page is showing (BR-605).
+      headers: { 'Accept-Language': currentLanguage() },
       body,
     });
 
     if (!response.ok) {
       const failure = (await response.json().catch(() => ({}))) as { message?: string };
-      throw new Error(failure.message ?? 'The upload failed.');
+      throw new Error(failure.message ?? t('The upload failed.'));
     }
 
     return (await response.json()) as EpmAttachment;

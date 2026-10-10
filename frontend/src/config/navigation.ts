@@ -28,6 +28,7 @@ import {
   Briefcase,
   type LucideIcon,
 } from 'lucide-react';
+import { t } from '@/lib/i18n';
 import type { Permission } from '@/types';
 
 export interface NavItem {
@@ -63,71 +64,71 @@ export interface NavSection {
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
-    items: [{ label: 'Overview', to: '/dashboard', icon: LayoutDashboard }],
+    items: [{ get label() { return t('Overview'); }, to: '/dashboard', icon: LayoutDashboard }],
   },
   {
-    title: 'Work',
+    get title() { return t('Work'); },
     items: [
-      { label: 'My Work', to: '/my-work', icon: ListTodo },
-      { label: 'My Time', to: '/my-time', icon: Timer },
-      { label: 'Approvals', to: '/approvals', icon: ClipboardCheck, matchNested: true, badge: 'approvals' },
-      { label: 'Projects', to: '/projects', icon: FolderKanban, matchNested: true },
-      { label: 'Tasks', to: '/tasks', icon: SquareKanban },
-      { label: 'Calendar', to: '/calendar', icon: CalendarDays },
+      { get label() { return t('My Work'); }, to: '/my-work', icon: ListTodo },
+      { get label() { return t('My Time'); }, to: '/my-time', icon: Timer },
+      { get label() { return t('Approvals'); }, to: '/approvals', icon: ClipboardCheck, matchNested: true, badge: 'approvals' },
+      { get label() { return t('Projects'); }, to: '/projects', icon: FolderKanban, matchNested: true },
+      { get label() { return t('Tasks'); }, to: '/tasks', icon: SquareKanban },
+      { get label() { return t('Calendar'); }, to: '/calendar', icon: CalendarDays },
     ],
   },
   {
-    title: 'Delivery',
+    get title() { return t('Delivery'); },
     items: [
-      { label: 'Agile', to: '/agile', icon: Timer },
-      { label: 'Boards', to: '/boards', icon: SquareKanban },
-      { label: 'Sprints', to: '/sprints', icon: Gauge },
-      { label: 'Gantt', to: '/gantt', icon: GanttChartSquare },
+      { get label() { return t('Agile'); }, to: '/agile', icon: Timer },
+      { get label() { return t('Boards'); }, to: '/boards', icon: SquareKanban },
+      { get label() { return t('Sprints'); }, to: '/sprints', icon: Gauge },
+      { get label() { return t('Gantt'); }, to: '/gantt', icon: GanttChartSquare },
     ],
   },
   {
-    title: 'Insights',
+    get title() { return t('Insights'); },
     items: [
-      { label: 'Dashboards', to: '/insights', icon: PieChart, matchNested: true },
-      { label: 'Portfolio views', to: '/portfolio-views', icon: Layers, matchNested: true },
-      { label: 'Reports', to: '/reports', icon: FileText },
-      { label: 'Scheduled reports', to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
-      { label: 'Time & Costs', to: '/time-and-costs', icon: Coins },
+      { get label() { return t('Dashboards'); }, to: '/insights', icon: PieChart, matchNested: true },
+      { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true },
+      { get label() { return t('Reports'); }, to: '/reports', icon: FileText },
+      { get label() { return t('Scheduled reports'); }, to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
+      { get label() { return t('Time & Costs'); }, to: '/time-and-costs', icon: Coins },
     ],
   },
   {
-    title: 'Collaboration',
+    get title() { return t('Collaboration'); },
     items: [
-      { label: 'Teams', to: '/teams', icon: Users, matchNested: true },
-      { label: 'Meetings', to: '/meetings', icon: CalendarClock, matchNested: true },
-      { label: 'News', to: '/news', icon: Megaphone },
-      { label: 'Wiki', to: '/wiki', icon: BookOpen, matchNested: true },
-      { label: 'Documents', to: '/documents', icon: FileText },
+      { get label() { return t('Teams'); }, to: '/teams', icon: Users, matchNested: true },
+      { get label() { return t('Meetings'); }, to: '/meetings', icon: CalendarClock, matchNested: true },
+      { get label() { return t('News'); }, to: '/news', icon: Megaphone },
+      { get label() { return t('Wiki'); }, to: '/wiki', icon: BookOpen, matchNested: true },
+      { get label() { return t('Documents'); }, to: '/documents', icon: FileText },
     ],
   },
   {
-    title: 'Administration',
+    get title() { return t('Administration'); },
     items: [
       {
-        label: 'Administration',
+        get label() { return t('Administration'); },
         to: '/admin',
         icon: ShieldCheck,
         permission: 'users:manage',
         matchNested: true,
       },
-      { label: 'Portfolios', to: '/portfolios', icon: Briefcase, permission: 'portfolios:manage' },
-      { label: 'Analytics', to: '/analytics', icon: BarChart3, permission: 'analytics:manage' },
-      { label: 'Departments', to: '/departments', icon: Building2, permission: 'departments:manage' },
-      { label: 'Employees', to: '/employees', icon: UserRound, permission: 'employees:manage' },
-      { label: 'Integration', to: '/settings/integration', icon: Plug, permission: 'users:manage' },
-      { label: 'Audit journal', to: '/journal', icon: ScrollText, permission: 'audit:view' },
+      { get label() { return t('Portfolios'); }, to: '/portfolios', icon: Briefcase, permission: 'portfolios:manage' },
+      { get label() { return t('Analytics'); }, to: '/analytics', icon: BarChart3, permission: 'analytics:manage' },
+      { get label() { return t('Departments'); }, to: '/departments', icon: Building2, permission: 'departments:manage' },
+      { get label() { return t('Employees'); }, to: '/employees', icon: UserRound, permission: 'employees:manage' },
+      { get label() { return t('Integration'); }, to: '/settings/integration', icon: Plug, permission: 'users:manage' },
+      { get label() { return t('Audit journal'); }, to: '/journal', icon: ScrollText, permission: 'audit:view' },
     ],
   },
   {
-    title: 'System',
+    get title() { return t('System'); },
     items: [
-      { label: 'Notifications', to: '/notifications', icon: Bell, badge: 'notifications' },
-      { label: 'Settings', to: '/settings', icon: Settings },
+      { get label() { return t('Notifications'); }, to: '/notifications', icon: Bell, badge: 'notifications' },
+      { get label() { return t('Settings'); }, to: '/settings', icon: Settings },
     ],
   },
 ];
@@ -145,7 +146,8 @@ export function visibleNavSections(can: (permission: Permission) => boolean): Na
 
 /** The Administration section, filtered to what this person may open. */
 export function adminNavItems(can: (permission: Permission) => boolean): NavItem[] {
-  const section = NAV_SECTIONS.find((candidate) => candidate.title === 'Administration');
+  // The title is translated, so it is compared in the language it is read in.
+  const section = NAV_SECTIONS.find((candidate) => candidate.title === t('Administration'));
   return (section?.items ?? []).filter((item) => !item.permission || can(item.permission));
 }
 
@@ -161,26 +163,26 @@ export function isAdministrator(can: (permission: Permission) => boolean): boole
 
 /** Condensed navigation for the mobile bottom bar. */
 export const MOBILE_NAV_ITEMS: NavItem[] = [
-  { label: 'Home', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'My Work', to: '/my-work', icon: ListTodo },
-  { label: 'Projects', to: '/projects', icon: FolderKanban, matchNested: true },
-  { label: 'Alerts', to: '/notifications', icon: Bell, badge: 'notifications' },
+  { get label() { return t('Home'); }, to: '/dashboard', icon: LayoutDashboard },
+  { get label() { return t('My Work'); }, to: '/my-work', icon: ListTodo },
+  { get label() { return t('Projects'); }, to: '/projects', icon: FolderKanban, matchNested: true },
+  { get label() { return t('Alerts'); }, to: '/notifications', icon: Bell, badge: 'notifications' },
 ];
 
 /** Sub-navigation shown inside a project. */
 export const PROJECT_TABS = [
-  { label: 'Overview', segment: '' },
-  { label: 'Tasks', segment: 'tasks' },
-  { label: 'Board', segment: 'board' },
-  { label: 'Sprint', segment: 'sprint' },
-  { label: 'Gantt', segment: 'gantt' },
-  { label: 'Team', segment: 'team' },
-  { label: 'Documents', segment: 'documents' },
-  { label: 'Meetings', segment: 'meetings' },
-  { label: 'News', segment: 'news' },
-  { label: 'Wiki', segment: 'wiki' },
-  { label: 'Activity', segment: 'activity' },
-  { label: 'Reports', segment: 'reports' },
+  { get label() { return t('Overview'); }, segment: '' },
+  { get label() { return t('Tasks'); }, segment: 'tasks' },
+  { get label() { return t('Board'); }, segment: 'board' },
+  { get label() { return t('Sprint'); }, segment: 'sprint' },
+  { get label() { return t('Gantt'); }, segment: 'gantt' },
+  { get label() { return t('Team'); }, segment: 'team' },
+  { get label() { return t('Documents'); }, segment: 'documents' },
+  { get label() { return t('Meetings'); }, segment: 'meetings' },
+  { get label() { return t('News'); }, segment: 'news' },
+  { get label() { return t('Wiki'); }, segment: 'wiki' },
+  { get label() { return t('Activity'); }, segment: 'activity' },
+  { get label() { return t('Reports'); }, segment: 'reports' },
 ] as const;
 
 /**
@@ -194,16 +196,16 @@ export const PROJECT_TABS = [
  * so most of the workforce could not reach either.
  */
 export const SETTINGS_SECTIONS = [
-  { id: 'profile', label: 'Profile', group: 'account' },
-  { id: 'locale', label: 'Language & region', group: 'account' },
-  { id: 'schedule', label: 'Schedule', group: 'account' },
-  { id: 'appearance', label: 'Appearance', group: 'account' },
-  { id: 'notifications', label: 'Notifications', group: 'account' },
-  { id: 'security', label: 'Security', group: 'account' },
-  { id: 'workspace', label: 'Workspace', group: 'administration' },
-  { id: 'projects', label: 'Projects', group: 'administration' },
-  { id: 'teams', label: 'Teams', group: 'administration' },
-  { id: 'integrations', label: 'Integrations', group: 'administration' },
+  { id: 'profile', get label() { return t('Profile'); }, group: 'account' },
+  { id: 'locale', get label() { return t('Language & region'); }, group: 'account' },
+  { id: 'schedule', get label() { return t('Schedule'); }, group: 'account' },
+  { id: 'appearance', get label() { return t('Appearance'); }, group: 'account' },
+  { id: 'notifications', get label() { return t('Notifications'); }, group: 'account' },
+  { id: 'security', get label() { return t('Security'); }, group: 'account' },
+  { id: 'workspace', get label() { return t('Workspace'); }, group: 'administration' },
+  { id: 'projects', get label() { return t('Projects'); }, group: 'administration' },
+  { id: 'teams', get label() { return t('Teams'); }, group: 'administration' },
+  { id: 'integrations', get label() { return t('Integrations'); }, group: 'administration' },
   { id: 'api', label: 'API', group: 'administration' },
 ] as const;
 

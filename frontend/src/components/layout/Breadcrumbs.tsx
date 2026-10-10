@@ -9,46 +9,47 @@ import { useDepartment } from '@/hooks/useDepartments';
 import { usePortfolioView } from '@/hooks/usePortfolioViews';
 import { cn } from '@/lib/utils';
 import { findAdminArea, findAdminPage } from '@/config/administration';
+import { t } from '@/lib/i18n';
 
 /** Human labels for static route segments. */
 const SEGMENT_LABEL: Record<string, string> = {
-  admin: 'Administration',
-  dashboard: 'Overview',
-  employees: 'Employees',
-  departments: 'Departments',
-  portfolios: 'Portfolios',
-  'portfolio-views': 'Portfolio views',
-  'my-work': 'My Work',
-  projects: 'Projects',
-  tasks: 'Tasks',
-  teams: 'Teams',
-  calendar: 'Calendar',
-  agile: 'Agile',
-  sprints: 'Sprints',
-  boards: 'Boards',
-  gantt: 'Gantt',
-  reports: 'Reports',
-  scheduled: 'Scheduled reports',
-  analytics: 'Analytics',
-  insights: 'Dashboards',
-  'portfolio-health': 'Portfolio health',
-  delivery: 'Delivery',
-  utilisation: 'Utilisation',
-  budget: 'Budget',
-  risk: 'Risk exposure',
-  documents: 'Documents',
-  notifications: 'Notifications',
-  approvals: 'Approvals',
-  journal: 'Audit journal',
-  'time-and-costs': 'Time & Costs',
-  decide: 'Decision',
-  profile: 'Profile',
-  settings: 'Settings',
-  integration: 'Integration',
-  board: 'Board',
-  sprint: 'Sprint',
-  team: 'Team',
-  activity: 'Activity',
+  get admin() { return t('Administration'); },
+  get dashboard() { return t('Overview'); },
+  get employees() { return t('Employees'); },
+  get departments() { return t('Departments'); },
+  get portfolios() { return t('Portfolios'); },
+  get 'portfolio-views'() { return t('Portfolio views'); },
+  get 'my-work'() { return t('My Work'); },
+  get projects() { return t('Projects'); },
+  get tasks() { return t('Tasks'); },
+  get teams() { return t('Teams'); },
+  get calendar() { return t('Calendar'); },
+  get agile() { return t('Agile'); },
+  get sprints() { return t('Sprints'); },
+  get boards() { return t('Boards'); },
+  get gantt() { return t('Gantt'); },
+  get reports() { return t('Reports'); },
+  get scheduled() { return t('Scheduled reports'); },
+  get analytics() { return t('Analytics'); },
+  get insights() { return t('Dashboards'); },
+  get 'portfolio-health'() { return t('Portfolio health'); },
+  get delivery() { return t('Delivery'); },
+  get utilisation() { return t('Utilisation'); },
+  get budget() { return t('Budget'); },
+  get risk() { return t('Risk exposure'); },
+  get documents() { return t('Documents'); },
+  get notifications() { return t('Notifications'); },
+  get approvals() { return t('Approvals'); },
+  get journal() { return t('Audit journal'); },
+  get 'time-and-costs'() { return t('Time & Costs'); },
+  get decide() { return t('Decision'); },
+  get profile() { return t('Profile'); },
+  get settings() { return t('Settings'); },
+  get integration() { return t('Integration'); },
+  get board() { return t('Board'); },
+  get sprint() { return t('Sprint'); },
+  get team() { return t('Team'); },
+  get activity() { return t('Activity'); },
 };
 
 interface Crumb {
@@ -80,27 +81,27 @@ export function Breadcrumbs({ className }: { className?: string }) {
     path += `/${segment}`;
 
     if (segment === params.projectId) {
-      crumbs.push({ label: project?.name ?? 'Project', to: path });
+      crumbs.push({ label: project?.name ?? t('Project'), to: path });
       continue;
     }
     if (segment === params.taskId) {
-      crumbs.push({ label: task?.key ?? 'Task', to: path });
+      crumbs.push({ label: task?.key ?? t('Task'), to: path });
       continue;
     }
     if (segment === params.teamId) {
-      crumbs.push({ label: team?.name ?? 'Team', to: path });
+      crumbs.push({ label: team?.name ?? t('Team'), to: path });
       continue;
     }
     if (segment === params.portfolioId) {
-      crumbs.push({ label: portfolio?.name ?? 'Portfolio', to: path });
+      crumbs.push({ label: portfolio?.name ?? t('Portfolio'), to: path });
       continue;
     }
     if (segment === params.departmentId) {
-      crumbs.push({ label: department?.name ?? 'Department', to: path });
+      crumbs.push({ label: department?.name ?? t('Department'), to: path });
       continue;
     }
     if (segment === params.viewId) {
-      crumbs.push({ label: view?.name ?? 'View', to: path });
+      crumbs.push({ label: view?.name ?? t('View'), to: path });
       continue;
     }
 
@@ -128,7 +129,7 @@ export function Breadcrumbs({ className }: { className?: string }) {
   if (crumbs.length === 0) return null;
 
   return (
-    <nav aria-label="Breadcrumb" className={cn('min-w-0', className)}>
+    <nav aria-label={t('Breadcrumb')} className={cn('min-w-0', className)}>
       <ol className="flex items-center gap-1 text-xs">
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1;
@@ -138,6 +139,7 @@ export function Breadcrumbs({ className }: { className?: string }) {
                 {isLast || !crumb.to ? (
                   <span
                     aria-current="page"
+                    dir="auto"
                     className="block truncate font-medium text-foreground"
                   >
                     {crumb.label}
@@ -145,6 +147,7 @@ export function Breadcrumbs({ className }: { className?: string }) {
                 ) : (
                   <Link
                     to={crumb.to}
+                    dir="auto"
                     className="block truncate text-muted-foreground transition-colors hover:text-foreground"
                   >
                     {crumb.label}

@@ -1,4 +1,14 @@
-import { button, escape, layout, muted, paragraph, paragraphHtml, textBody, type RenderedEmail } from './layout.js';
+import {
+  button,
+  escape,
+  layout,
+  muted,
+  paragraph,
+  paragraphHtml,
+  textBody,
+  type EmailLocale,
+  type RenderedEmail,
+} from './layout.js';
 
 /** Sent the moment a work package is assigned to someone. */
 export interface TaskAssignedPayload {
@@ -10,30 +20,36 @@ export interface TaskAssignedPayload {
   url: string;
 }
 
-export function render(payload: TaskAssignedPayload): RenderedEmail {
-  const subject = `[${payload.taskKey}] Assigned to you: ${payload.subject}`;
+export function render(payload: TaskAssignedPayload, locale: EmailLocale): RenderedEmail {
+  const { tr } = locale;
+  const subject = tr('[{key}] Assigned to you: {subject}', { key: payload.taskKey, subject: payload.subject });
+  const greeting = payload.firstName ? tr('Hi {name},', { name: payload.firstName }) : tr('Hello,');
 
   const html = layout(
     subject,
-    paragraph(`Hi ${payload.firstName},`) +
-      paragraph('A work package has been assigned to you.') +
+    paragraph(greeting) +
+      paragraph(tr('A work package has been assigned to you.')) +
       paragraphHtml(
         `<strong>${escape(payload.taskKey)}</strong> &middot; ${escape(payload.subject)}`,
       ) +
       muted(`${payload.projectName} · ${payload.status}`) +
-      button('Open the task', payload.url),
+      button(tr('Open the task'), payload.url),
+    locale,
   );
 
-  const text = textBody([
-    `Hi ${payload.firstName},`,
-    '',
-    'A work package has been assigned to you.',
-    '',
-    `${payload.taskKey} · ${payload.subject}`,
-    `${payload.projectName} · ${payload.status}`,
-    '',
-    payload.url,
-  ]);
+  const text = textBody(
+    [
+      greeting,
+      '',
+      tr('A work package has been assigned to you.'),
+      '',
+      `${payload.taskKey} · ${payload.subject}`,
+      `${payload.projectName} · ${payload.status}`,
+      '',
+      payload.url,
+    ],
+    locale,
+  );
 
   return { subject, html, text };
 }

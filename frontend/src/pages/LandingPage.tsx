@@ -21,6 +21,7 @@ import { ScrollProgress } from '@/components/landing/ScrollProgress';
 import { BackToTop } from '@/components/landing/BackToTop';
 import { useLandingMotion } from '@/components/landing/useLandingMotion';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
+import { msg, t } from '@/lib/i18n';
 
 /**
  * What the hero strip names. It used to show counts beside these — figures
@@ -28,7 +29,7 @@ import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
  * number on this page as a fact. This page is signed out, so real counts
  * would be a disclosure; the strip names what EPM covers instead.
  */
-const COVERAGE = ['Portfolios', 'Projects', 'Sprints', 'Teams'];
+const COVERAGE = [msg('Portfolios'), msg('Projects'), msg('Sprints'), msg('Teams')];
 
 /*
  * The three steps walk the brand gradient — crimson, its magenta midpoint,
@@ -43,8 +44,8 @@ const COVERAGE = ['Portfolios', 'Projects', 'Sprints', 'Teams'];
 const STEPS = [
   {
     number: '01',
-    title: 'Sign in with your Intertec account',
-    body: 'Access is provisioned by IT; there is no self-registration.',
+    get title() { return t('Sign in with your Intertec account'); },
+    get body() { return t('Access is provisioned by IT; there is no self-registration.'); },
     numeral: 'text-brand-from',
     dot: 'bg-brand-from',
     ring: 'border-brand-from',
@@ -52,8 +53,8 @@ const STEPS = [
   },
   {
     number: '02',
-    title: 'Your projects, teams and work queue are already there',
-    body: 'Your project memberships and roles come with your account.',
+    get title() { return t('Your projects, teams and work queue are already there'); },
+    get body() { return t('Your project memberships and roles come with your account.'); },
     numeral: 'text-highlight',
     dot: 'bg-highlight',
     ring: 'border-highlight',
@@ -61,8 +62,8 @@ const STEPS = [
   },
   {
     number: '03',
-    title: 'Plan, track and report from one place',
-    body: 'Boards, schedules and reporting share the same delivery record.',
+    get title() { return t('Plan, track and report from one place'); },
+    get body() { return t('Boards, schedules and reporting share the same delivery record.'); },
     numeral: 'text-brand-to',
     dot: 'bg-brand-to',
     ring: 'border-brand-to',
@@ -77,10 +78,10 @@ const STEPS = [
  * page is read by the people whose data it describes.
  */
 const TRUST_POINTS = [
-  { icon: Lock, text: 'No password or token is ever stored in your browser' },
-  { icon: Server, text: `Hosted on ${ORG_NAME}'s own infrastructure` },
-  { icon: UserCheck, text: 'Permissions follow your role, checked on every request' },
-  { icon: ScrollText, text: 'Every change is recorded against the person who made it' },
+  { icon: Lock, get text() { return t('No password or token is ever stored in your browser'); } },
+  { icon: Server, get text() { return t('Hosted on {org}\'s own infrastructure', { org: ORG_NAME }); } },
+  { icon: UserCheck, get text() { return t('Permissions follow your role, checked on every request'); } },
+  { icon: ScrollText, get text() { return t('Every change is recorded against the person who made it'); } },
 ];
 
 /**
@@ -150,16 +151,16 @@ export default function LandingPage() {
               // six lines on a phone and pushes the sign-in pill off the fold.
               className="max-w-4xl text-balance text-4xl leading-[1.08] tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl lg:leading-[1.05]"
             >
-              The connection point between projects, people and{' '}
-              <em className="font-serif italic text-white/70">delivery</em>.
+              {t('The connection point between projects, people and delivery.')}
             </motion.h1>
 
             <motion.p
               {...rise(0.18, 0.7, { y: 20 })}
               className="mt-6 max-w-xl text-sm leading-relaxed text-white/60"
             >
-              Every project, sprint, dependency and delivery signal in a single operating picture —
-              connected to the systems teams already work in.
+              {t(
+                'Every project, sprint, dependency and delivery signal in a single operating picture — connected to the systems teams already work in.',
+              )}
             </motion.p>
 
             {/* Shaped like the site's subscribe field, but it is a single
@@ -168,14 +169,14 @@ export default function LandingPage() {
             <motion.div {...rise(0.24, 0.7, { y: 20 })} className="mt-10 w-full max-w-xl">
               <Link
                 to="/login"
-                className="liquid-glass group flex items-center justify-between gap-3 rounded-full py-2 pl-6 pr-2 text-left transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                className="liquid-glass group flex items-center justify-between gap-3 rounded-full py-2 ps-6 pe-2 text-start transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
               >
                 <span className="font-display text-sm font-medium text-white">
-                  Sign in to {APP_NAME} with your Intertec account
+                  {t('Sign in to {app} with your Intertec account', { app: APP_NAME })}
                 </span>
                 <span
                   aria-hidden
-                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand text-white transition-transform group-hover:translate-x-0.5"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-brand text-white transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5"
                 >
                   <ArrowRight className="h-5 w-5" />
                 </span>
@@ -187,7 +188,7 @@ export default function LandingPage() {
               href="#capabilities"
               className="liquid-glass mt-6 rounded-full px-8 py-3 text-sm font-medium text-white transition-colors hover:bg-white/5"
             >
-              See what&apos;s inside
+              {t('See what\'s inside')}
             </motion.a>
           </div>
 
@@ -199,7 +200,7 @@ export default function LandingPage() {
             className="relative z-10 flex flex-col items-center gap-4 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-6 pb-12 pt-10"
           >
             <p className="text-2xs text-white/40">
-              One place for delivery, PMO and engineering work at {ORG_NAME}.
+              {t('One place for delivery, PMO and engineering work at {org}.', { org: ORG_NAME })}
             </p>
             <ul className="flex flex-wrap items-center justify-center gap-3">
               {COVERAGE.map((area) => (
@@ -207,7 +208,7 @@ export default function LandingPage() {
                   key={area}
                   className="liquid-glass rounded-full px-5 py-2.5 text-xs font-medium text-white/70"
                 >
-                  {area}
+                  {t(area)}
                 </li>
               ))}
             </ul>
@@ -225,9 +226,9 @@ export default function LandingPage() {
         <section className="overflow-hidden px-6 pb-28 md:pb-40">
           <div className="mx-auto max-w-5xl">
             <motion.div {...reveal(0, 0.7, { y: 30 })}>
-              <p className="text-xs uppercase tracking-widest text-white/40">Inside the platform</p>
+              <p className="text-xs uppercase tracking-widest text-white/40">{t('Inside the platform')}</p>
               <h2 className="mt-4 text-3xl tracking-tight text-white md:text-5xl">
-                The picture you sign in to
+                {t('The picture you sign in to')}
               </h2>
             </motion.div>
 
@@ -252,9 +253,9 @@ export default function LandingPage() {
         >
           <div className="mx-auto max-w-6xl">
             <motion.div {...reveal(0, 0.7, { y: 30 })}>
-              <p className="text-xs uppercase tracking-widest text-white/40">How it works</p>
+              <p className="text-xs uppercase tracking-widest text-white/40">{t('How it works')}</p>
               <h2 className="mt-4 text-3xl tracking-tight text-white md:text-5xl">
-                Three steps, <em className="font-serif italic text-white/50">no setup</em>
+                {t('Three steps,')} <em className="font-serif italic text-white/50">{t('no setup')}</em>
               </h2>
             </motion.div>
 
@@ -270,17 +271,17 @@ export default function LandingPage() {
                     >
                       <motion.span
                         {...drawRule(index * 0.12)}
-                        className="absolute inset-0 origin-left bg-white/25"
+                        className="absolute inset-0 origin-left bg-white/25 rtl:origin-right"
                       />
                       {/* One shared 6s clock; each step enters it 1.4s later
                           than the one before, so the pulse reads as 01 → 03. */}
                       <span
-                        className={`epm-step-sweep absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent to-transparent ${step.sweep}`}
+                        className={`epm-step-sweep absolute inset-y-0 start-0 w-1/3 bg-gradient-to-r from-transparent to-transparent ${step.sweep}`}
                         style={{ animationDelay: `${index * 1.4}s` }}
                       />
                     </span>
 
-                    <span aria-hidden className="absolute -top-[3px] left-0 h-1.5 w-1.5">
+                    <span aria-hidden className="absolute -top-[3px] start-0 h-1.5 w-1.5">
                       <span className={`absolute inset-0 rounded-full ${step.dot}`} />
                       <span
                         className={`epm-step-ping absolute inset-0 rounded-full border ${step.ring}`}
@@ -318,9 +319,9 @@ export default function LandingPage() {
             {...reveal(0, 0.8, { y: 40 })}
             className="liquid-glass liquid-glass-brand mx-auto max-w-6xl rounded-3xl p-8 md:p-14"
           >
-            <p className="text-xs uppercase tracking-widest text-white/60">Security &amp; trust</p>
+            <p className="text-xs uppercase tracking-widest text-white/60">{t('Security & trust')}</p>
             <h2 className="mt-4 text-3xl tracking-tight text-white md:text-5xl">
-              Built for <em className="font-serif italic text-white/70">internal use</em>
+              {t('Built for internal use')}
             </h2>
 
             <ul className="mt-10 grid gap-5 sm:grid-cols-2 sm:gap-x-10">
@@ -336,7 +337,7 @@ export default function LandingPage() {
 
             <motion.div {...press} className="mt-12 inline-block">
               <Button asChild size="lg" className="ring-offset-black" arrow>
-                <Link to="/login">Sign in to {APP_NAME}</Link>
+                <Link to="/login">{t('Sign in to {app}', { app: APP_NAME })}</Link>
               </Button>
             </motion.div>
           </motion.div>
@@ -348,8 +349,8 @@ export default function LandingPage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-10 lg:flex-row lg:justify-between">
           <EpmLogo className="text-white [&_span[aria-hidden]]:bg-white/20" />
           <p className="order-last text-center text-2xs text-white/40 lg:order-none">
-            © {new Date().getFullYear()} {ORG_NAME}. {APP_DESCRIPTOR}. Internal platform —
-            authorised users only.
+            © {new Date().getFullYear()} {ORG_NAME}. {t(APP_DESCRIPTOR)}.{' '}
+            {t('Internal platform — authorised users only.')}
           </p>
           <ul className="flex items-center gap-6">
             <li>
@@ -357,7 +358,7 @@ export default function LandingPage() {
                 to="/login"
                 className="rounded text-xs text-white/50 transition-colors hover:text-white"
               >
-                Sign in
+                {t('Sign in')}
               </Link>
             </li>
             {/* TODO: point these at the real support desk and status page once they exist. */}
@@ -366,7 +367,7 @@ export default function LandingPage() {
                 href="#"
                 className="rounded text-xs text-white/50 transition-colors hover:text-white"
               >
-                Support
+                {t('Support')}
               </a>
             </li>
             <li>
@@ -374,7 +375,7 @@ export default function LandingPage() {
                 href="#"
                 className="rounded text-xs text-white/50 transition-colors hover:text-white"
               >
-                Status
+                {t('Status')}
               </a>
             </li>
           </ul>

@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from "@/config/env";
+import { t } from "@/lib/i18n";
 
 /*
  * The Intertec Systems logo, taken from the artwork the marketing site serves
@@ -28,7 +29,7 @@ function EpmMark({ className, monochrome = false, ...props }: LogoSvgProps) {
     <svg
       viewBox="30.35 0 49.2 49.2"
       role="img"
-      aria-label={`${ORG_NAME} mark`}
+      aria-label={t("{org} mark", { org: ORG_NAME })}
       className={cn("h-8 w-8", className)}
       {...props}
     >
@@ -94,7 +95,7 @@ function EpmLogo({ variant = "full", className, showDescriptor = false }: EpmLog
         {/* No org line here — the wordmark to the left already says Intertec. */}
         {showDescriptor ? (
           <div className="truncate text-2xs leading-tight text-muted-foreground">
-            {APP_DESCRIPTOR}
+            {t(APP_DESCRIPTOR)}
           </div>
         ) : null}
       </div>

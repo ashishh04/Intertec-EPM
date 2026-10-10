@@ -1,3 +1,6 @@
+import { createElement } from 'react';
+
+import { t } from '@/lib/i18n';
 import type {
   AutomationOptions,
   EscalationTrigger,
@@ -25,30 +28,30 @@ export interface FieldDef {
 }
 
 const WORK_PACKAGE_FIELDS: FieldDef[] = [
-  { id: 'type', label: 'Type', kind: 'ids', options: 'types' },
-  { id: 'priority', label: 'Priority', kind: 'ids', options: 'priorities' },
-  { id: 'status', label: 'Status', kind: 'ids', options: 'statuses' },
-  { id: 'status_category', label: 'Open or closed', kind: 'status_category' },
-  { id: 'assignee', label: 'Assignee', kind: 'ids', options: 'users' },
-  { id: 'responsible', label: 'Accountable', kind: 'ids', options: 'users' },
-  { id: 'author', label: 'Author', kind: 'ids', options: 'users' },
-  { id: 'project', label: 'Project', kind: 'ids', options: 'projects' },
-  { id: 'portfolio', label: 'Portfolio', kind: 'ids', options: 'portfolios' },
-  { id: 'subject', label: 'Subject', kind: 'text' },
-  { id: 'startDate', label: 'Start date', kind: 'date' },
-  { id: 'dueDate', label: 'Due date', kind: 'date' },
-  { id: 'createdAt', label: 'Created', kind: 'date' },
-  { id: 'updatedAt', label: 'Last changed', kind: 'date' },
-  { id: 'estimatedHours', label: 'Estimate (hours)', kind: 'number' },
-  { id: 'percentageDone', label: '% complete', kind: 'number' },
+  { id: 'type', get label() { return t('Type'); }, kind: 'ids', options: 'types' },
+  { id: 'priority', get label() { return t('Priority'); }, kind: 'ids', options: 'priorities' },
+  { id: 'status', get label() { return t('Status'); }, kind: 'ids', options: 'statuses' },
+  { id: 'status_category', get label() { return t('Open or closed'); }, kind: 'status_category' },
+  { id: 'assignee', get label() { return t('Assignee'); }, kind: 'ids', options: 'users' },
+  { id: 'responsible', get label() { return t('Accountable'); }, kind: 'ids', options: 'users' },
+  { id: 'author', get label() { return t('Author'); }, kind: 'ids', options: 'users' },
+  { id: 'project', get label() { return t('Project'); }, kind: 'ids', options: 'projects' },
+  { id: 'portfolio', get label() { return t('Portfolio'); }, kind: 'ids', options: 'portfolios' },
+  { id: 'subject', get label() { return t('Subject'); }, kind: 'text' },
+  { id: 'startDate', get label() { return t('Start date'); }, kind: 'date' },
+  { id: 'dueDate', get label() { return t('Due date'); }, kind: 'date' },
+  { id: 'createdAt', get label() { return t('Created'); }, kind: 'date' },
+  { id: 'updatedAt', get label() { return t('Last changed'); }, kind: 'date' },
+  { id: 'estimatedHours', get label() { return t('Estimate (hours)'); }, kind: 'number' },
+  { id: 'percentageDone', get label() { return t('% complete'); }, kind: 'number' },
 ];
 
 const PROJECT_FIELDS: FieldDef[] = [
-  { id: 'health', label: 'Health', kind: 'health', options: 'health' },
-  { id: 'project', label: 'Project', kind: 'ids', options: 'projects' },
-  { id: 'portfolio', label: 'Portfolio', kind: 'ids', options: 'portfolios' },
-  { id: 'name', label: 'Name', kind: 'text' },
-  { id: 'active', label: 'Active', kind: 'boolean' },
+  { id: 'health', get label() { return t('Health'); }, kind: 'health', options: 'health' },
+  { id: 'project', get label() { return t('Project'); }, kind: 'ids', options: 'projects' },
+  { id: 'portfolio', get label() { return t('Portfolio'); }, kind: 'ids', options: 'portfolios' },
+  { id: 'name', get label() { return t('Name'); }, kind: 'text' },
+  { id: 'active', get label() { return t('Active'); }, kind: 'boolean' },
 ];
 
 /** The fields a rule on this subject can test, custom fields included for work packages. */
@@ -89,25 +92,25 @@ export const OPERATORS_BY_KIND: Record<FieldKind, RuleConditionOperator[]> = {
 };
 
 export const OPERATOR_WORDS: Record<RuleConditionOperator, string> = {
-  in: 'is one of',
-  not_in: 'is none of',
-  is_empty: 'is empty',
-  is_set: 'is set',
-  eq: 'is',
-  neq: 'is not',
-  contains: 'contains',
-  not_contains: 'does not contain',
-  gt: 'is above',
-  gte: 'is at least',
-  lt: 'is below',
-  lte: 'is at most',
-  before_today: 'is in the past',
-  today_or_later: 'is today or later',
-  within_next_days: 'is within the next … days',
-  more_than_days_ago: 'is more than … days ago',
-  less_than_days_ago: 'is less than … days ago',
-  on_or_before: 'is on or before',
-  on_or_after: 'is on or after',
+  get in() { return t('is one of'); },
+  get not_in() { return t('is none of'); },
+  get is_empty() { return t('is empty'); },
+  get is_set() { return t('is set'); },
+  get eq() { return t('is'); },
+  get neq() { return t('is not'); },
+  get contains() { return t('contains'); },
+  get not_contains() { return t('does not contain'); },
+  get gt() { return t('is above'); },
+  get gte() { return t('is at least'); },
+  get lt() { return t('is below'); },
+  get lte() { return t('is at most'); },
+  get before_today() { return t('is in the past'); },
+  get today_or_later() { return t('is today or later'); },
+  get within_next_days() { return t('is within the next … days'); },
+  get more_than_days_ago() { return t('is more than … days ago'); },
+  get less_than_days_ago() { return t('is less than … days ago'); },
+  get on_or_before() { return t('is on or before'); },
+  get on_or_after() { return t('is on or after'); },
 };
 
 /** Operators that take no value. */
@@ -115,11 +118,11 @@ export const VALUELESS = new Set<RuleConditionOperator>(['is_empty', 'is_set', '
 export const DAY_COUNT = new Set<RuleConditionOperator>(['within_next_days', 'more_than_days_ago', 'less_than_days_ago']);
 
 export const EVENT_WORDS: Record<RuleEventKind, string> = {
-  'work_package.created': 'A work package is created',
-  'work_package.updated': 'A work package is changed',
-  'project.created': 'A project is created',
-  'project.updated': 'A project is changed',
-  'project.health_changed': "A project's health changes",
+  get 'work_package.created'() { return t('A work package is created'); },
+  get 'work_package.updated'() { return t('A work package is changed'); },
+  get 'project.created'() { return t('A project is created'); },
+  get 'project.updated'() { return t('A project is changed'); },
+  get 'project.health_changed'() { return t('A project\'s health changes'); },
 };
 
 export const EVENTS_BY_SUBJECT: Record<RuleSubjectType, RuleEventKind[]> = {
@@ -128,12 +131,12 @@ export const EVENTS_BY_SUBJECT: Record<RuleSubjectType, RuleEventKind[]> = {
 };
 
 export const ACTION_WORDS: Record<RuleAction['type'], string> = {
-  assign: 'Assign',
-  notify: 'Notify',
-  set_status: 'Change the status',
-  set_field: 'Set a field',
-  create_work_package: 'Create a linked work package',
-  call_endpoint: 'Call an outside endpoint',
+  get assign() { return t('Assign'); },
+  get notify() { return t('Notify'); },
+  get set_status() { return t('Change the status'); },
+  get set_field() { return t('Set a field'); },
+  get create_work_package() { return t('Create a linked work package'); },
+  get call_endpoint() { return t('Call an outside endpoint'); },
 };
 
 export const ACTIONS_BY_SUBJECT: Record<RuleSubjectType, RuleAction['type'][]> = {
@@ -142,55 +145,71 @@ export const ACTIONS_BY_SUBJECT: Record<RuleSubjectType, RuleAction['type'][]> =
 };
 
 export const RELATION_WORDS: Record<RuleRelation, string> = {
-  relates: 'Relates to it',
-  blocks: 'It blocks the new one',
-  blocked: 'It is blocked by the new one',
-  follows: 'The new one follows it',
-  precedes: 'The new one precedes it',
-  child: 'As a child of it',
-  none: 'Not linked',
+  get relates() { return t('Relates to it'); },
+  get blocks() { return t('It blocks the new one'); },
+  get blocked() { return t('It is blocked by the new one'); },
+  get follows() { return t('The new one follows it'); },
+  get precedes() { return t('The new one precedes it'); },
+  get child() { return t('As a child of it'); },
+  get none() { return t('Not linked'); },
 };
 
-export const HEALTH_WORDS: Record<string, string> = { healthy: 'Healthy', warning: 'At risk', critical: 'Critical' };
+export const HEALTH_WORDS: Record<string, string> = {
+  get healthy() { return t('Healthy'); },
+  get warning() { return t('At risk'); },
+  get critical() { return t('Critical'); },
+};
 
 export const PERSON_WORDS: Record<PersonSpec['kind'], string> = {
-  user: 'A named person',
-  assignee: 'The assignee',
-  responsible: 'The accountable person',
-  author: 'The author',
-  project_owner: 'The project owner',
-  team_lead: "The assignee's team lead",
-  department_manager: "The assignee's department manager",
-  project_role: 'Everyone in a project role',
-  approvers: 'The approvers',
+  get user() { return t('A named person'); },
+  get assignee() { return t('The assignee'); },
+  get responsible() { return t('The accountable person'); },
+  get author() { return t('The author'); },
+  get project_owner() { return t('The project owner'); },
+  get team_lead() { return t('The assignee\'s team lead'); },
+  get department_manager() { return t('The assignee\'s department manager'); },
+  get project_role() { return t('Everyone in a project role'); },
+  get approvers() { return t('The approvers'); },
 };
 
 export const TRIGGER_WORDS: Record<EscalationTrigger, { label: string; unit: 'days' | 'hours'; explain: string }> = {
   untouched: {
-    label: 'Untouched work',
+    get label() { return t('Untouched work'); },
     unit: 'days',
-    explain: 'Open work nobody has changed for this many days.',
+    get explain() { return t('Open work nobody has changed for this many days.'); },
   },
   overdue: {
-    label: 'Overdue work',
+    get label() { return t('Overdue work'); },
     unit: 'days',
-    explain: 'Open work this many days past its due date.',
+    get explain() { return t('Open work this many days past its due date.'); },
   },
   approval_sla: {
-    label: 'Approvals past their SLA',
+    get label() { return t('Approvals past their SLA'); },
     unit: 'hours',
-    explain: "An approval step this many hours past its own SLA, after the step's escalation contact was told.",
+    get explain() { return t('An approval step this many hours past its own SLA, after the step\'s escalation contact was told.'); },
   },
 };
 
 export const SETTABLE_FIELDS: { id: string; label: string }[] = [
-  { id: 'priority', label: 'Priority' },
-  { id: 'dueDate', label: 'Due date' },
-  { id: 'startDate', label: 'Start date' },
-  { id: 'responsible', label: 'Accountable' },
-  { id: 'percentageDone', label: '% complete' },
-  { id: 'estimatedHours', label: 'Estimate (hours)' },
+  { id: 'priority', get label() { return t('Priority'); } },
+  { id: 'dueDate', get label() { return t('Due date'); } },
+  { id: 'startDate', get label() { return t('Start date'); } },
+  { id: 'responsible', get label() { return t('Accountable'); } },
+  { id: 'percentageDone', get label() { return t('% complete'); } },
+  { id: 'estimatedHours', get label() { return t('Estimate (hours)'); } },
 ];
 
-export const PLACEHOLDER_HINT =
-  'Placeholders: {{key}} {{subject}} {{project}} {{status}} {{priority}} {{type}} {{assignee}} {{dueDate}} {{health}} {{url}} {{rule}}';
+const PLACEHOLDERS =
+  '{{key}} {{subject}} {{project}} {{status}} {{priority}} {{type}} {{assignee}} {{dueDate}} {{health}} {{url}} {{rule}}';
+
+/**
+ * The placeholders a message template may use. An element rather than a
+ * string, so that the word in front of them is translated when the hint is
+ * shown rather than once at import; the tokens themselves are code and are
+ * passed in whole, since a message cannot hold literal braces.
+ */
+function PlaceholderHint() {
+  return t('Placeholders: {list}', { list: PLACEHOLDERS });
+}
+
+export const PLACEHOLDER_HINT = createElement(PlaceholderHint);

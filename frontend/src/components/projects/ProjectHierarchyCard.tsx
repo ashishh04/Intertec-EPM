@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select';
 import { useProjectChildren, useProjects, useSetProjectParent } from '@/hooks/useProjects';
 import { useAuth } from '@/providers/AuthProvider';
-import { pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmProject } from '@/types';
 
 /**
@@ -71,11 +71,11 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
       { id: project.id, parentId: choice === NONE ? '' : choice },
       {
         onSuccess: () => {
-          toast.success(choice === NONE ? 'Moved to the top level' : 'Parent project updated');
+          toast.success(choice === NONE ? t('Moved to the top level') : t('Parent project updated'));
           setOpen(false);
         },
         onError: (error) =>
-          setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+          setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -112,48 +112,49 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <FolderTree className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Hierarchy
+          {t('Hierarchy')}
         </CardTitle>
         {mayEdit ? (
           <Button size="sm" variant="ghost" className="h-8" onClick={openDialog}>
             <Pencil className="h-3.5 w-3.5" />
-            Change
+            {t('Change')}
           </Button>
         ) : null}
       </CardHeader>
 
       <CardContent className="space-y-4 pt-4">
         <div>
-          <p className="epm-eyebrow">Parent project</p>
+          <p className="epm-eyebrow">{t('Parent project')}</p>
           {project.parentId ? (
             <Link
               to={`/projects/${project.parentId}`}
+              dir="auto"
               className="mt-1 inline-flex text-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {project.parentName ?? project.parentId}
             </Link>
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
-              This is a top-level project.
+              {t('This is a top-level project.')}
             </p>
           )}
         </div>
 
         <div>
           <p className="epm-eyebrow">
-            Subprojects
+            {t('Subprojects')}
             {childItems.length > 0 ? (
-              <span className="ml-1.5 font-mono normal-case tracking-normal text-muted-foreground">
-                {childItems.length} {pluralize(childItems.length, 'project')}
+              <span className="ms-1.5 font-mono normal-case tracking-normal text-muted-foreground">
+                {t('{count, plural, one {# project} other {# projects}}', { count: childItems.length })}
               </span>
             ) : null}
           </p>
 
           {children.isLoading ? (
-            <p className="mt-1 text-xs text-muted-foreground">Loading…</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('Loading…')}</p>
           ) : childItems.length === 0 ? (
             <p className="mt-1 text-xs text-muted-foreground">
-              No projects sit beneath this one.
+              {t('No projects sit beneath this one.')}
             </p>
           ) : (
             <ul className="mt-1.5 space-y-1">
@@ -167,7 +168,7 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
                       className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                       aria-hidden
                     />
-                    <span className="truncate">{child.name}</span>
+                    <span className="truncate" dir="auto">{child.name}</span>
                   </Link>
                 </li>
               ))}
@@ -179,16 +180,18 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Change parent project</DialogTitle>
+            <DialogTitle>{t('Change parent project')}</DialogTitle>
             <DialogDescription>
-              Which project {project.name} sits under. This moves it in the delivery hierarchy;
-              its subprojects move with it.
+              {t(
+                'Which project {name} sits under. This moves it in the delivery hierarchy; its subprojects move with it.',
+                { name: project.name },
+              )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="project-parent">Parent project</Label>
+              <Label htmlFor="project-parent">{t('Parent project')}</Label>
               {/* An empty value while loading shows the placeholder instead of
                   the "No parent" option, which would read as a settled answer. */}
               <Select
@@ -196,13 +199,13 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
                 onValueChange={setChoice}
                 disabled={projects.isLoading}
               >
-                <SelectTrigger id="project-parent" aria-label="Select a parent project">
+                <SelectTrigger id="project-parent" aria-label={t('Select a parent project')}>
                   <SelectValue
-                    placeholder={projects.isLoading ? 'Loading…' : 'No parent (top level)'}
+                    placeholder={projects.isLoading ? t('Loading…') : t('No parent (top level)')}
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>No parent (top level)</SelectItem>
+                  <SelectItem value={NONE}>{t('No parent (top level)')}</SelectItem>
                   {options.map((candidate) => (
                     <SelectItem key={candidate.id} value={candidate.id}>
                       {candidate.name}
@@ -212,11 +215,11 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
               </Select>
               {!projects.isLoading && options.length === 0 ? (
                 <FieldHint>
-                  There is no other project this one could sit under.
+                  {t('There is no other project this one could sit under.')}
                 </FieldHint>
               ) : (
                 <FieldHint>
-                  This project and anything already beneath it are not offered.
+                  {t('This project and anything already beneath it are not offered.')}
                 </FieldHint>
               )}
             </div>
@@ -226,10 +229,10 @@ export function ProjectHierarchyCard({ project }: ProjectHierarchyCardProps) {
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="button" loading={setParent.isPending} onClick={save}>
-              Save
+              {t('Save')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1285,14 +1285,23 @@ export interface UserPreferences {
   /**
    * Language and regional formatting.
    *
-   * `language` is the instance's own code (`en`, `de`, …) and is written through
-   * to OpenProject, which owns what it will accept. `dateFormat` is EPM's: it
-   * decides how every date in the interface is written, and `system` means the
-   * browser's locale rather than a format chosen here.
+   * `language` is the instance's own code (`en`, `ar`, …) and is written through
+   * to OpenProject, which owns what it will accept; EPM's own screens, messages
+   * and email follow it too, in English or Arabic (BR-605). `dateFormat` is
+   * EPM's: it decides how every date in the interface is written, and `system`
+   * means the browser's locale rather than a format chosen here.
    */
   locale: {
     language: string;
     dateFormat: 'system' | 'iso' | 'dmy' | 'mdy';
+    /**
+     * The calendar dates are written in (BR-607): Gregorian, or the Umm al-Qura
+     * Hijri calendar. Display only — every date is stored and sent as an ISO
+     * Gregorian date whichever is chosen.
+     */
+    calendar: 'gregory' | 'islamic-umalqura';
+    /** Western digits (0-9) or Arabic-Indic ones (٠-٩), in figures and dates. */
+    numerals: 'latn' | 'arab';
   };
   /**
    * When this person works, and when they are away.

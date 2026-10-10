@@ -12,6 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState } from '@/components/common/EmptyState';
 import { WIDGETS, type DashboardWidget } from './widgets';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { DashboardWidgetWidth } from '@/types';
 
 /**
@@ -59,7 +60,7 @@ export function WidgetFrame({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Move ${widget.title} up`}
+          aria-label={t('Move {title} up', { title: widget.title })}
           disabled={first}
           onClick={() => onMove(-1)}
         >
@@ -68,7 +69,7 @@ export function WidgetFrame({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Move ${widget.title} down`}
+          aria-label={t('Move {title} down', { title: widget.title })}
           disabled={last}
           onClick={() => onMove(1)}
         >
@@ -80,8 +81,8 @@ export function WidgetFrame({
             size="icon-sm"
             aria-label={
               width === 'full'
-                ? `Make ${widget.title} half width`
-                : `Make ${widget.title} full width`
+                ? t('Make {title} half width', { title: widget.title })
+                : t('Make {title} full width', { title: widget.title })
             }
             onClick={onWidth}
           >
@@ -95,7 +96,7 @@ export function WidgetFrame({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Remove ${widget.title}`}
+          aria-label={t('Remove {title}', { title: widget.title })}
           onClick={onRemove}
         >
           <X className="h-3.5 w-3.5" />
@@ -134,10 +135,9 @@ export function AddWidgetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add a widget</DialogTitle>
+          <DialogTitle>{t('Add a widget')}</DialogTitle>
           <DialogDescription>
-            Everything not already on your Overview. It is added at the bottom, and you can move it
-            from there.
+            {t('Everything not already on your Overview. It is added at the bottom, and you can move it from there.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -145,12 +145,12 @@ export function AddWidgetDialog({
           <EmptyState
             size="inline"
             icon={Plus}
-            title="Every widget is already on your Overview"
-            description="Remove one to make room, or reorder what is there."
+            title={t('Every widget is already on your Overview')}
+            description={t('Remove one to make room, or reorder what is there.')}
           />
         ) : (
           <ScrollArea className="max-h-96">
-            <ul className="space-y-1.5 pr-3">
+            <ul className="space-y-1.5 pe-3">
               {available.map((widget) => (
                 <li key={widget.id}>
                   <button
@@ -159,7 +159,7 @@ export function AddWidgetDialog({
                       onAdd(widget.id);
                       onOpenChange(false);
                     }}
-                    className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary-soft/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex w-full items-start gap-3 rounded-lg border border-border p-3 text-start transition-colors hover:border-primary/40 hover:bg-primary-soft/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
                       <widget.icon className="h-3.5 w-3.5" aria-hidden />

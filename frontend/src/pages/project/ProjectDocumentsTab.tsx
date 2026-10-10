@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/card';
 import { documentDownloadUrl, useDocuments, useUploadDocument } from '@/hooks/useDocuments';
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import type { ID, EpmProject } from '@/types';
 
 /** Files attached to a project. */
@@ -33,22 +34,22 @@ export default function ProjectDocumentsTab() {
 
   return (
     <div className="space-y-4">
-      <SectionHeader title="Documents" description="Specifications, plans and evidence for this project" />
+      <SectionHeader title={t('Documents')} description={t('Specifications, plans and evidence for this project')} />
 
       <QueryBoundary
         isLoading={documentsQuery.isLoading}
         isError={documentsQuery.isError}
         error={documentsQuery.error}
         onRetry={() => documentsQuery.refetch()}
-        errorTitle="Unable to load documents"
+        errorTitle={t('Unable to load documents')}
         skeleton={<DocumentGridSkeleton cards={3} />}
         isEmpty={documents.length === 0}
         empty={
           <Card>
             <EmptyState
               icon={FileText}
-              title="No documents yet"
-              description="Upload the first specification or plan for this project."
+              title={t('No documents yet')}
+              description={t('Upload the first specification or plan for this project.')}
             />
           </Card>
         }
@@ -73,9 +74,9 @@ export default function ProjectDocumentsTab() {
             { file, projectId },
             {
               onSuccess: (created) =>
-                toast.success('Document uploaded', { description: created.name }),
+                toast.success(t('Document uploaded'), { description: created.name }),
               onError: (error) =>
-                toast.error('Unable to upload the document', {
+                toast.error(t('Unable to upload the document'), {
                   description: error instanceof Error ? error.message : undefined,
                 }),
             },

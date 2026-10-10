@@ -40,6 +40,7 @@ import {
   useWikiRevisions,
   useWikiTree,
 } from '@/hooks/useCollaborationModules';
+import { t } from '@/lib/i18n';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import type { ID, WikiTreeNode } from '@/types';
 
@@ -112,20 +113,20 @@ export function WikiWorkspace({
   const save = () => {
     if (!page.data) return;
     setProblem(undefined);
-    if (!draftTitle.trim()) return setProblem('A page needs a title.');
+    if (!draftTitle.trim()) return setProblem(t('A page needs a title.'));
 
     update.mutate(
       { id: page.data.id, input: { title: draftTitle.trim(), body: draftBody } },
       {
         onSuccess: (saved) => {
-          toast.success('Page saved');
+          toast.success(t('Page saved'));
           setMode('read');
           // The slug does not change on a title edit — links to it exist — so
           // navigation here is only for the case where the server re-slugged.
           if (saved.slug !== page.data?.slug) onNavigate(saved.slug);
         },
         onError: (error) =>
-          setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+          setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -140,14 +141,14 @@ export function WikiWorkspace({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="New page"
+              aria-label={t('New page')}
               onClick={() => setCreating({})}
             >
               <Plus className="h-3.5 w-3.5" />
             </Button>
           }
         >
-          <CardTitle>Pages</CardTitle>
+          <CardTitle>{t('Pages')}</CardTitle>
         </CardHeader>
         <CardContent className="p-2">
           {tree.isLoading ? (
@@ -157,7 +158,7 @@ export function WikiWorkspace({
               ))}
             </div>
           ) : emptyWiki ? (
-            <p className="p-2 text-2xs text-muted-foreground">No pages yet.</p>
+            <p className="p-2 text-2xs text-muted-foreground">{t('No pages yet.')}</p>
           ) : (
             <WikiTree
               nodes={tree.data ?? []}
@@ -175,18 +176,18 @@ export function WikiWorkspace({
           <Card>
             <EmptyState
               icon={BookOpen}
-              title="This wiki is empty"
-              description="Write the first page. Anything a team keeps re-explaining belongs here."
-              action={{ label: 'Write the first page', onClick: () => setCreating({}) }}
+              title={t('This wiki is empty')}
+              description={t('Write the first page. Anything a team keeps re-explaining belongs here.')}
+              action={{ label: t('Write the first page'), onClick: () => setCreating({}) }}
             />
           </Card>
         ) : missing ? (
           <Card>
             <EmptyState
               icon={BookOpen}
-              title={`There is no page called "${effectiveSlug}"`}
-              description="Following a link to a page nobody has written yet is how a wiki grows. Create it at this address and the link starts working."
-              action={{ label: 'Create this page', onClick: () => setCreating({}) }}
+              title={t('There is no page called "{slug}"', { slug: effectiveSlug })}
+              description={t('Following a link to a page nobody has written yet is how a wiki grows. Create it at this address and the link starts working.')}
+              action={{ label: t('Create this page'), onClick: () => setCreating({}) }}
             />
           </Card>
         ) : (
@@ -213,11 +214,11 @@ export function WikiWorkspace({
                             }}
                           >
                             <X className="h-3.5 w-3.5" />
-                            Cancel
+                            {t('Cancel')}
                           </Button>
                           <Button size="sm" loading={update.isPending} disabled={!dirty} onClick={save}>
                             <Save className="h-3.5 w-3.5" />
-                            Save
+                            {t('Save')}
                           </Button>
                         </>
                       ) : (
@@ -235,14 +236,14 @@ export function WikiWorkspace({
                           {page.data.can.update ? (
                             <Button variant="secondary" size="sm" onClick={() => setMode('edit')}>
                               <Pencil className="h-3.5 w-3.5" />
-                              Edit
+                              {t('Edit')}
                             </Button>
                           ) : null}
                           {page.data.can.delete ? (
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              aria-label="Delete page"
+                              aria-label={t('Delete page')}
                               onClick={() => setDeleting(true)}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -253,11 +254,13 @@ export function WikiWorkspace({
                     </div>
                   }
                 >
-                  <CardTitle>{mode === 'edit' ? 'Editing' : page.data.title}</CardTitle>
+                  <CardTitle dir="auto">{mode === 'edit' ? t('Editing') : page.data.title}</CardTitle>
                   <CardDescription className="text-2xs">
-                    <span className="font-mono">/{page.data.slug}</span> &middot; last edited by{' '}
-                    {page.data.updatedByName ?? 'someone who has since left'}{' '}
-                    {formatRelative(page.data.updatedAt)}
+                    <span className="font-mono">/{page.data.slug}</span> &middot;{' '}
+                    {t('last edited by {name} {when}', {
+                      name: page.data.updatedByName ?? t('someone who has since left'),
+                      when: formatRelative(page.data.updatedAt),
+                    })}
                   </CardDescription>
                 </CardHeader>
 
@@ -266,7 +269,7 @@ export function WikiWorkspace({
                     <>
                       <div className="space-y-1.5">
                         <Label htmlFor="wiki-title" required>
-                          Title
+                          {t('Title')}
                         </Label>
                         <Input
                           id="wiki-title"
@@ -274,31 +277,30 @@ export function WikiWorkspace({
                           onChange={(event) => setDraftTitle(event.target.value)}
                         />
                         <FieldHint>
-                          The address stays <span className="font-mono">/{page.data.slug}</span>, so
-                          existing links keep working.
+                          {t('The address stays {address}, so existing links keep working.', { address: `/${page.data.slug}` })}
                         </FieldHint>
                       </div>
 
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
-                          <Label htmlFor="wiki-body">Page</Label>
+                          <Label htmlFor="wiki-body">{t('Page')}</Label>
                           <Tabs
                             value={preview ? 'preview' : 'write'}
                             onValueChange={(value) => setPreview(value === 'preview')}
                           >
                             <TabsList>
-                              <TabsTrigger value="write">Write</TabsTrigger>
-                              <TabsTrigger value="preview">Preview</TabsTrigger>
+                              <TabsTrigger value="write">{t('Write')}</TabsTrigger>
+                              <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
                             </TabsList>
                           </Tabs>
                         </div>
 
                         {preview ? (
-                          <div className="min-h-80 rounded-lg border border-border bg-surface p-4">
+                          <div dir="auto" className="min-h-80 rounded-lg border border-border bg-surface p-4">
                             <Markdown
                               empty={
                                 <p className="text-2xs text-muted-foreground">
-                                  Nothing to preview yet.
+                                  {t('Nothing to preview yet.')}
                                 </p>
                               }
                             >
@@ -315,7 +317,7 @@ export function WikiWorkspace({
                           />
                         )}
                         <FieldHint>
-                          Markdown. Link another page with{' '}
+                          {t('Markdown. Link another page with')}{' '}
                           <span className="font-mono">[label](/wiki/slug)</span>.
                         </FieldHint>
                       </div>
@@ -333,11 +335,11 @@ export function WikiWorkspace({
                           { id: page.data!.id, revisionId },
                           {
                             onSuccess: () => {
-                              toast.success('Version restored');
+                              toast.success(t('Version restored'));
                               setMode('read');
                             },
                             onError: (error) =>
-                              toast.error('That version could not be restored', {
+                              toast.error(t('That version could not be restored'), {
                                 description: error instanceof Error ? error.message : undefined,
                               }),
                           },
@@ -345,15 +347,17 @@ export function WikiWorkspace({
                       }
                     />
                   ) : (
-                    <Markdown
-                      empty={
-                        <p className="text-2xs text-muted-foreground">
-                          This page is empty. {page.data.can.update ? 'Press Edit to write it.' : ''}
-                        </p>
-                      }
-                    >
-                      {page.data.body}
-                    </Markdown>
+                    <div dir="auto">
+                      <Markdown
+                        empty={
+                          <p className="text-2xs text-muted-foreground">
+                            {t('This page is empty.')} {page.data.can.update ? t('Press Edit to write it.') : ''}
+                          </p>
+                        }
+                      >
+                        {page.data.body}
+                      </Markdown>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -373,12 +377,12 @@ export function WikiWorkspace({
               { ...input, projectId, parentId: creating.parentId },
               {
                 onSuccess: (created) => {
-                  toast.success('Page created');
+                  toast.success(t('Page created'));
                   setCreating(null);
                   onNavigate(created.slug);
                 },
                 onError: (error) =>
-                  toast.error('That page could not be created', {
+                  toast.error(t('That page could not be created'), {
                     description: error instanceof Error ? error.message : undefined,
                   }),
               },
@@ -393,25 +397,25 @@ export function WikiWorkspace({
       <ConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}
-        title="Delete this page?"
+        title={t('Delete this page?')}
         description={
           page.data
-            ? `"${page.data.title}" and its history will be removed. Any subpages move to the top level rather than being deleted with it.`
+            ? t('"{title}" and its history will be removed. Any subpages move to the top level rather than being deleted with it.', { title: page.data.title })
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() => {
           if (!page.data) return;
           remove.mutate(page.data.id, {
             onSuccess: () => {
-              toast.success('Page deleted');
+              toast.success(t('Page deleted'));
               setDeleting(false);
               onNavigate(undefined);
             },
             onError: (error) =>
-              toast.error('That page could not be deleted', {
+              toast.error(t('That page could not be deleted'), {
                 description: error instanceof Error ? error.message : undefined,
               }),
           });
@@ -439,7 +443,7 @@ function WikiTree({
   depth?: number;
 }) {
   return (
-    <ul className={cn('space-y-0.5', depth > 0 && 'ml-3 border-l border-border pl-2')}>
+    <ul className={cn('space-y-0.5', depth > 0 && 'ms-3 border-s border-border ps-2')}>
       {nodes.map((node) => (
         <li key={node.id}>
           <div className="group flex items-center gap-0.5">
@@ -448,7 +452,7 @@ function WikiTree({
               onClick={() => onSelect(node.slug)}
               aria-current={node.slug === activeSlug ? 'page' : undefined}
               className={cn(
-                'flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-2xs transition-colors',
+                'flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-start text-2xs transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 node.slug === activeSlug
                   ? 'bg-primary-soft font-medium text-primary'
@@ -460,12 +464,12 @@ function WikiTree({
               ) : (
                 <span className="w-3 shrink-0" />
               )}
-              <span className="truncate">{node.title}</span>
+              <span dir="auto" className="truncate">{node.title}</span>
             </button>
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label={`Add a page under ${node.title}`}
+              aria-label={t('Add a page under {title}', { title: node.title })}
               className="h-6 w-6 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => onAddChild(node.id)}
             >
@@ -511,14 +515,14 @@ function WikiHistory({
 
   if (loading) return <Skeleton className="h-40 w-full" />;
   if (revisions.length === 0) {
-    return <p className="text-2xs text-muted-foreground">This page has never been edited.</p>;
+    return <p className="text-2xs text-muted-foreground">{t('This page has never been edited.')}</p>;
   }
 
   return (
     <div className="space-y-2">
       <Alert tone="neutral" icon={History}>
-        Each entry is what the page said <em>before</em> that edit. Restoring one saves the current
-        text as a new version first, so a restore can itself be undone.
+        {t('Each entry is what the page said before that edit.')}{' '}
+        {t('Restoring one saves the current text as a new version first, so a restore can itself be undone.')}
       </Alert>
 
       <ul className="divide-y divide-border">
@@ -526,9 +530,9 @@ function WikiHistory({
           <li key={revision.id} className="space-y-2 py-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-2xs font-medium">{revision.title}</p>
+                <p dir="auto" className="truncate text-2xs font-medium">{revision.title}</p>
                 <p className="text-2xs text-muted-foreground">
-                  {revision.authorName ?? 'Unknown'} &middot; {formatDateTime(revision.createdAt)}
+                  {revision.authorName ?? t('Unknown')} &middot; {formatDateTime(revision.createdAt)}
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">
@@ -538,7 +542,7 @@ function WikiHistory({
                   className="text-2xs"
                   onClick={() => setOpen(open === revision.id ? null : revision.id)}
                 >
-                  {open === revision.id ? 'Hide' : 'View'}
+                  {open === revision.id ? t('Hide') : t('View')}
                 </Button>
                 {canRestore ? (
                   <Button
@@ -549,14 +553,14 @@ function WikiHistory({
                     onClick={() => onRestore(revision.id)}
                   >
                     <RotateCcw className="h-3 w-3" />
-                    Restore
+                    {t('Restore')}
                   </Button>
                 ) : null}
               </div>
             </div>
 
             {open === revision.id ? (
-              <div className="rounded-lg border border-border bg-muted/40 p-3">
+              <div dir="auto" className="rounded-lg border border-border bg-muted/40 p-3">
                 <Markdown>{revision.body}</Markdown>
               </div>
             ) : null}
@@ -605,7 +609,7 @@ function NewPageDialog({
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     setProblem(undefined);
-    if (!title.trim()) return setProblem('Give the page a title.');
+    if (!title.trim()) return setProblem(t('Give the page a title.'));
     onCreate({ title: title.trim(), body, slug: slug.trim() || undefined });
   };
 
@@ -614,18 +618,18 @@ function NewPageDialog({
       <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-lg">
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{parentId ? 'New subpage' : 'New page'}</DialogTitle>
+            <DialogTitle>{parentId ? t('New subpage') : t('New page')}</DialogTitle>
             <DialogDescription>
               {parentId
-                ? 'It appears under the page you added it from.'
-                : 'It appears at the top level of this wiki.'}
+                ? t('It appears under the page you added it from.')
+                : t('It appears at the top level of this wiki.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="epm-dialog-body space-y-4 pb-4">
           <div className="space-y-1.5">
             <Label htmlFor="new-wiki-title" required>
-              Title
+              {t('Title')}
             </Label>
             <Input
               id="new-wiki-title"
@@ -636,26 +640,26 @@ function NewPageDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="new-wiki-slug">Address</Label>
+            <Label htmlFor="new-wiki-slug">{t('Address')}</Label>
             <Input
               id="new-wiki-slug"
               value={slug}
-              placeholder="Derived from the title"
+              placeholder={t('Derived from the title')}
               onChange={(event) => setSlug(event.target.value)}
             />
             <FieldHint>
-              What the page is linked as. Left empty it comes from the title, and a clash gets a number.
+              {t('What the page is linked as. Left empty it comes from the title, and a clash gets a number.')}
             </FieldHint>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="new-wiki-body">Page</Label>
+            <Label htmlFor="new-wiki-body">{t('Page')}</Label>
             <Textarea
               id="new-wiki-body"
               rows={8}
               value={body}
               className="font-mono text-2xs"
-              placeholder={'## What this covers\n\nMarkdown.'}
+              placeholder={t('## What this covers\n\nMarkdown.')}
               onChange={(event) => setBody(event.target.value)}
             />
           </div>
@@ -665,10 +669,10 @@ function NewPageDialog({
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={pending}>
-              Create
+              {t('Create')}
             </Button>
           </DialogFooter>
         </form>

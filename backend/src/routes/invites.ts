@@ -11,6 +11,7 @@ import { checkPassword } from '../domain/password-policy.js';
 import { recordAuditQuietly } from '../domain/audit.js';
 import type { OpPrincipal } from '../openproject/types.js';
 import type { InviteInfo } from '../types/epm.js';
+import { listOf, message } from '../lib/i18n.js';
 
 /**
  * Invitations.
@@ -93,7 +94,7 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
       // password can be set — this one is reachable without a session.
       const failures = await checkPassword(password, requestSignal(request));
       if (failures.length > 0) {
-        throw EpmError.badRequest(`That password needs: ${failures.join(', ')}.`);
+        throw EpmError.badRequest(message('That password needs: {failures}.', { failures: listOf(failures) }));
       }
 
       // Claimed before the password is written, and atomically: two requests

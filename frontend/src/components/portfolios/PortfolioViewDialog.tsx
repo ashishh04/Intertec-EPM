@@ -13,6 +13,7 @@ import { useMeasureCatalogue } from '@/hooks/useInsights';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { usePortfolioViewOptions } from '@/hooks/usePortfolioViews';
 import { useProjects } from '@/hooks/useProjects';
+import { t } from '@/lib/i18n';
 import { PERIODS } from '@/lib/report-periods';
 import { cn } from '@/lib/utils';
 import type { HealthLevel, ID, PortfolioViewInput, PortfolioViewVisibility, ReportPeriodPreset } from '@/types';
@@ -40,15 +41,15 @@ export function blankView(prefill?: { name?: string; portfolioIds?: ID[] }): Por
 }
 
 const HEALTH: { id: HealthLevel; label: string }[] = [
-  { id: 'healthy', label: 'Green' },
-  { id: 'warning', label: 'Amber' },
-  { id: 'critical', label: 'Red' },
+  { id: 'healthy', get label() { return t('Green'); } },
+  { id: 'warning', get label() { return t('Amber'); } },
+  { id: 'critical', get label() { return t('Red'); } },
 ];
 
 const SHARING: { id: PortfolioViewVisibility; label: string; hint: string }[] = [
-  { id: 'private', label: 'Only me', hint: 'Nobody else sees it.' },
-  { id: 'roles', label: 'People in roles', hint: 'Anyone holding one of the roles on a project in the view.' },
-  { id: 'public', label: 'Everyone', hint: 'Anyone who can sign in to EPM.' },
+  { id: 'private', get label() { return t('Only me'); }, get hint() { return t('Nobody else sees it.'); } },
+  { id: 'roles', get label() { return t('People in roles'); }, get hint() { return t('Anyone holding one of the roles on a project in the view.'); } },
+  { id: 'public', get label() { return t('Everyone'); }, get hint() { return t('Anyone who can sign in to EPM.'); } },
 ];
 
 export function PortfolioViewDialog({
@@ -81,13 +82,13 @@ export function PortfolioViewDialog({
   );
   const roleOptions = options.data?.roles ?? [];
   const columnLabel = (column: string) =>
-    column === 'health' ? 'Health' : (catalogue.data?.find((measure) => measure.id === column)?.label ?? column);
+    column === 'health' ? t('Health') : (catalogue.data?.find((measure) => measure.id === column)?.label ?? column);
   const allColumns = options.data?.columns ?? DEFAULT_COLUMNS;
 
   const problems = [
-    ...(draft.name.trim() ? [] : ['Give the view a name.']),
-    ...(draft.definition.columns.length > 0 ? [] : ['Show at least one column.']),
-    ...(draft.visibility === 'roles' && draft.roleIds.length === 0 ? ['Choose the roles it is shared with.'] : []),
+    ...(draft.name.trim() ? [] : [t('Give the view a name.')]),
+    ...(draft.definition.columns.length > 0 ? [] : [t('Show at least one column.')]),
+    ...(draft.visibility === 'roles' && draft.roleIds.length === 0 ? [t('Choose the roles it is shared with.')] : []),
   ];
 
   const toggleColumn = (column: string, on: boolean) =>
@@ -100,28 +101,28 @@ export function PortfolioViewDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{id ? 'Edit portfolio view' : 'Save a portfolio view'}</DialogTitle>
+          <DialogTitle>{id ? t('Edit portfolio view') : t('Save a portfolio view')}</DialogTitle>
           <DialogDescription>
-            A view keeps a selection of projects and how to show them. Sharing it never shares a project: everyone sees it with their own access.
+            {t('A view keeps a selection of projects and how to show them. Sharing it never shares a project: everyone sees it with their own access.')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[68vh] space-y-5 overflow-y-auto pr-1">
+        <div className="max-h-[68vh] space-y-5 overflow-y-auto pe-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="view-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="view-name"
                 value={draft.name}
                 maxLength={120}
                 onChange={(event) => set({ name: event.target.value })}
-                placeholder="e.g. Board pack — delivery portfolios"
+                placeholder={t('e.g. Board pack — delivery portfolios')}
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Period</Label>
+              <Label>{t('Period')}</Label>
               <Select value={draft.definition.periodPreset} onValueChange={(value) => define({ periodPreset: value as ReportPeriodPreset })}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue />
@@ -134,11 +135,11 @@ export function PortfolioViewDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <FieldHint>For the figures that count a period: milestones due, work delivered.</FieldHint>
+              <FieldHint>{t('For the figures that count a period: milestones due, work delivered.')}</FieldHint>
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="view-description">Description</Label>
+            <Label htmlFor="view-description">{t('Description')}</Label>
             <Textarea
               id="view-description"
               rows={2}
@@ -149,35 +150,36 @@ export function PortfolioViewDialog({
           </div>
 
           <section className="space-y-2">
-            <p className="text-xs font-semibold">Projects</p>
+            <p className="text-xs font-semibold">{t('Projects')}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Portfolios</Label>
+                <Label>{t('Portfolios')}</Label>
                 <MultiSelect
-                  label="Portfolios"
+                  label={t('Portfolios')}
                   options={portfolioOptions}
                   selected={portfolioOptions.filter((item) => draft.definition.portfolioIds.includes(item.id))}
                   onChange={(selected) => define({ portfolioIds: selected.map((item) => item.id) })}
-                  placeholder="None"
+                  placeholder={t('None')}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Projects</Label>
+                <Label>{t('Projects')}</Label>
                 <MultiSelect
-                  label="Projects"
+                  label={t('Projects')}
                   options={projectOptions}
                   selected={projectOptions.filter((item) => draft.definition.projectIds.includes(item.id))}
                   onChange={(selected) => define({ projectIds: selected.map((item) => item.id) })}
-                  placeholder="None"
+                  placeholder={t('None')}
                 />
               </div>
             </div>
             <FieldHint>
-              The projects in those portfolios and those named — or every active project, if you choose none. A project
-              someone cannot see is left out of their view, and they are told how many were.
+              {t(
+                'The projects in those portfolios and those named — or every active project, if you choose none. A project someone cannot see is left out of their view, and they are told how many were.',
+              )}
             </FieldHint>
             <div className="flex flex-wrap items-center gap-4 pt-1">
-              <span className="text-xs text-muted-foreground">Only at health</span>
+              <span className="text-xs text-muted-foreground">{t('Only at health')}</span>
               {HEALTH.map((level) => (
                 <label key={level.id} className="flex items-center gap-2 text-xs">
                   <Checkbox
@@ -191,12 +193,12 @@ export function PortfolioViewDialog({
                   {level.label}
                 </label>
               ))}
-              <FieldHint className="m-0">None ticked: any health.</FieldHint>
+              <FieldHint className="m-0">{t('None ticked: any health.')}</FieldHint>
             </div>
           </section>
 
           <section className="space-y-2">
-            <p className="text-xs font-semibold">Columns</p>
+            <p className="text-xs font-semibold">{t('Columns')}</p>
             <div className="grid gap-x-4 gap-y-2 sm:grid-cols-3">
               {allColumns.map((column) => (
                 <label key={column} className="flex items-center gap-2 text-xs">
@@ -208,7 +210,7 @@ export function PortfolioViewDialog({
           </section>
 
           <section className="space-y-2">
-            <p className="text-xs font-semibold">Shared with</p>
+            <p className="text-xs font-semibold">{t('Shared with')}</p>
             <div className="grid gap-2 sm:grid-cols-3">
               {SHARING.map((option) => (
                 <button
@@ -216,7 +218,7 @@ export function PortfolioViewDialog({
                   type="button"
                   onClick={() => set({ visibility: option.id })}
                   className={cn(
-                    'rounded-lg border p-3 text-left transition-colors',
+                    'rounded-lg border p-3 text-start transition-colors',
                     draft.visibility === option.id ? 'border-primary bg-primary-soft' : 'border-border hover:bg-muted',
                   )}
                   aria-pressed={draft.visibility === option.id}
@@ -228,21 +230,21 @@ export function PortfolioViewDialog({
             </div>
             {draft.visibility === 'roles' ? (
               <div className="space-y-1.5">
-                <Label>Roles</Label>
+                <Label>{t('Roles')}</Label>
                 <MultiSelect
-                  label="Roles"
+                  label={t('Roles')}
                   options={roleOptions}
                   selected={roleOptions.filter((role) => draft.roleIds.includes(role.id))}
                   onChange={(selected) => set({ roleIds: selected.map((role) => role.id) })}
-                  placeholder="Choose roles"
+                  placeholder={t('Choose roles')}
                 />
               </div>
             ) : null}
           </section>
 
           {problems.length > 0 ? (
-            <Alert tone="warning" title="Before it can be saved">
-              <ul className="list-disc pl-4">
+            <Alert tone="warning" title={t('Before it can be saved')}>
+              <ul className="list-disc ps-4">
                 {problems.map((problem) => (
                   <li key={problem}>{problem}</li>
                 ))}
@@ -253,7 +255,7 @@ export function PortfolioViewDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             loading={saving}
@@ -267,7 +269,7 @@ export function PortfolioViewDialog({
               })
             }
           >
-            {id ? 'Save changes' : 'Save view'}
+            {id ? t('Save changes') : t('Save view')}
           </Button>
         </DialogFooter>
       </DialogContent>

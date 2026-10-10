@@ -5,6 +5,7 @@ import { openProject } from '../openproject/client.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { allows, loadPermissions, type EffectivePermissions } from './capabilities.js';
 import type { Permission } from './permissions.js';
+import { message, type Message } from '../lib/i18n.js';
 
 /**
  * Authorisation enforcement.
@@ -52,7 +53,7 @@ export async function require(
   if (!allows(permissions, permission, projectId)) {
     // The message names the permission but not the project's existence: a user
     // without access should not learn whether project 7 is real.
-    throw EpmError.forbidden(`You do not have permission to ${describe(permission)}.`);
+    throw EpmError.forbidden(message('You do not have permission to {action}.', { action: describe(permission) }));
   }
 }
 
@@ -92,13 +93,14 @@ const SUBJECTS: Record<string, string> = {
   health: 'project health',
 };
 
-function describe(permission: Permission): string {
+function describe(permission: Permission): Message {
   const [group = '', action = ''] = permission.split(':');
 
   // Several groups are already plural — `departments`, `users`, `teams` — and
-  // appending another `s` produced "manage departmentss".
+  // appending another `s` produced "manage departmentss". Both words are
+  // catalogue entries, so the phrase reads in the reader's language.
   const subject = SUBJECTS[group] ?? (group.endsWith('s') ? group : `${group}s`);
-  return `${action.replace('_', ' ')} ${subject}`;
+  return message('{action} {subject}', { action: action.replace('_', ' '), subject });
 }
 
 /**
@@ -122,7 +124,7 @@ export async function projectOfWorkPackage(
 
   // A work package the caller cannot read is reported as absent rather than
   // forbidden, so the API does not confirm ids the user may not see.
-  if (!projectId) throw EpmError.notFound(`Work package ${workPackageId}`);
+  if (!projectId) throw EpmError.notFound(message('Work package {id}', { id: workPackageId }));
 
   return projectId;
 }
@@ -147,6 +149,6 @@ export async function requireLink(
   if (!resource) throw EpmError.notFound('That resource');
 
   if (!resource._links || !Object.hasOwn(resource._links, rel)) {
-    throw EpmError.forbidden(`You do not have permission to ${description}.`);
+    throw EpmError.forbidden(message('You do not have permission to {action}.', { action: description }));
   }
 }

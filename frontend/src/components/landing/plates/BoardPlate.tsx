@@ -1,4 +1,5 @@
 import { PlateFrame } from './PlateFrame';
+import { t } from '@/lib/i18n';
 
 /**
  * A board with one card actually crossing it.
@@ -16,27 +17,27 @@ const COLUMN_WIDTH = `calc((100% - ${GAP * 2}%) / 3)`;
 
 const COLUMNS = [
   {
-    name: 'Backlog',
+    get name() { return t('Backlog'); },
     count: 12,
     cards: [
-      { title: 'Dependency audit', tag: 'Data', who: 'LH', tone: 'bg-white/25' },
-      { title: 'Capacity plan · Q4', tag: 'PMO', who: 'AR', tone: 'bg-white/25' },
+      { get title() { return t('Dependency audit'); }, get tag() { return t('Data'); }, who: 'LH', tone: 'bg-white/25' },
+      { get title() { return t('Capacity plan · Q4'); }, get tag() { return t('PMO'); }, who: 'AR', tone: 'bg-white/25' },
     ],
   },
   {
-    name: 'In progress',
+    get name() { return t('In progress'); },
     count: 5,
     cards: [
-      { title: 'API contract v2', tag: 'Platform', who: 'DO', tone: 'bg-accent' },
-      { title: 'Migration dry run', tag: 'Core', who: 'KF', tone: 'bg-accent' },
+      { get title() { return t('API contract v2'); }, get tag() { return t('Platform'); }, who: 'DO', tone: 'bg-accent' },
+      { get title() { return t('Migration dry run'); }, get tag() { return t('Core'); }, who: 'KF', tone: 'bg-accent' },
     ],
   },
   {
-    name: 'Done',
+    get name() { return t('Done'); },
     count: 28,
     cards: [
-      { title: 'Env provisioning', tag: 'Infra', who: 'DO', tone: 'bg-white/20' },
-      { title: 'Schema freeze', tag: 'Data', who: 'LH', tone: 'bg-white/20' },
+      { get title() { return t('Env provisioning'); }, get tag() { return t('Infra'); }, who: 'DO', tone: 'bg-white/20' },
+      { get title() { return t('Schema freeze'); }, get tag() { return t('Data'); }, who: 'LH', tone: 'bg-white/20' },
     ],
   },
 ] as const;
@@ -67,7 +68,7 @@ function Card({
         <span className={`h-[0.5em] w-[2.2em] rounded-full ${tone}`} />
         <span className={`truncate uppercase tracking-[0.12em] text-white/30 ${LABEL}`}>{tag}</span>
         <span
-          className={`ml-auto flex aspect-square h-[1.7em] shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/50 ring-1 ring-inset ring-white/10 ${LABEL}`}
+          className={`ms-auto flex aspect-square h-[1.7em] shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/50 ring-1 ring-inset ring-white/10 ${LABEL}`}
         >
           {who}
         </span>
@@ -82,9 +83,9 @@ export function BoardPlate() {
       <div className="absolute inset-[7%] flex flex-col">
         <div className={`flex items-baseline justify-between gap-3 ${LABEL}`}>
           <span className="font-display font-semibold uppercase tracking-[0.2em] text-white/70">
-            Sprint 24
+            {t('Sprint 24')}
           </span>
-          <span className="font-mono tabular-nums text-white/30">4 days left</span>
+          <span className="font-mono tabular-nums text-white/30">{t('4 days left')}</span>
         </div>
 
         <div className="relative mt-[4%] flex-1">
@@ -116,15 +117,15 @@ export function BoardPlate() {
               rides in the lane below the settled cards, so it never comes to
               rest on top of one. */}
           <div
-            className="absolute left-0 top-[70%] h-[22%]"
+            className="absolute start-0 top-[70%] h-[22%]"
             style={{
               width: COLUMN_WIDTH,
               animation: `epm-card-travel ${CYCLE_SECONDS}s cubic-bezier(0.65,0,0.35,1) infinite`,
             }}
           >
             <Card
-              title="Sprint 24 · UAT sign-off"
-              tag="Retail"
+              title={t('Sprint 24 · UAT sign-off')}
+              tag={t('Retail')}
               who="MI"
               tone="bg-brand-diagonal"
               className="h-full bg-white/[0.11] shadow-[0_10px_30px_-8px_hsl(var(--brand-to))] !ring-white/25"

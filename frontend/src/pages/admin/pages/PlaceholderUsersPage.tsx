@@ -37,6 +37,7 @@ import {
 import { useTeams } from '@/hooks/useTeams';
 import { useUsers } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 import { formatLongDate } from '@/lib/utils';
 import type { EpmPlaceholderPerson } from '@/types';
 import { describeError } from './shared-format';
@@ -82,10 +83,10 @@ export default function PlaceholderUsersPage() {
     if (!removing) return;
     remove.mutate(removing.id, {
       onSuccess: () => {
-        toast.success('Placeholder removed', { description: removing.name });
+        toast.success(t('Placeholder removed'), { description: removing.name });
         setRemoving(undefined);
       },
-      onError: (error) => toast.error('Could not remove it', { description: describeError(error) }),
+      onError: (error) => toast.error(t('Could not remove it'), { description: describeError(error) }),
     });
   };
 
@@ -95,11 +96,11 @@ export default function PlaceholderUsersPage() {
         trailing={
           <Button size="sm" onClick={() => setAdding(true)}>
             <Plus className="h-3.5 w-3.5" />
-            New placeholder
+            {t('New placeholder')}
           </Button>
         }
       >
-        <ResultCount count={items.length} label="placeholder" />
+        <ResultCount count={items.length} label={t('placeholder')} plural={t('placeholders')} />
       </ListToolbar>
 
       {/*
@@ -108,11 +109,8 @@ export default function PlaceholderUsersPage() {
         * and cannot be assigned work, and someone should know that before they
         * build a plan on it.
         */}
-      <Alert tone="neutral" title="Placeholders hold capacity, not assignments">
-        A placeholder counts toward its team's workload and its portfolio's capacity, so planned
-        headcount is visible before anyone is hired. Work packages can only be assigned to a real
-        account — convert the placeholder when that person joins and their team and capacity carry
-        across.
+      <Alert tone="neutral" title={t('Placeholders hold capacity, not assignments')}>
+        {t('A placeholder counts toward its team\'s workload and its portfolio\'s capacity, so planned headcount is visible before anyone is hired. Work packages can only be assigned to a real account — convert the placeholder when that person joins and their team and capacity carry across.')}
       </Alert>
 
       <QueryBoundary
@@ -125,22 +123,22 @@ export default function PlaceholderUsersPage() {
         empty={
           <EmptyState
             icon={UserRoundX}
-            title="No placeholders yet"
-            description="Add one for a role you are planning but have not filled, so its capacity shows in team and portfolio planning."
-            action={{ label: 'New placeholder', onClick: () => setAdding(true) }}
+            title={t('No placeholders yet')}
+            description={t('Add one for a role you are planning but have not filled, so its capacity shows in team and portfolio planning.')}
+            action={{ label: t('New placeholder'), onClick: () => setAdding(true) }}
           />
         }
-        errorTitle="Placeholders could not be loaded"
+        errorTitle={t('Placeholders could not be loaded')}
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="placeholder" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('placeholder')} itemLabelPlural={t('placeholders')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Team</TableHead>
-              <TableHead numeric>Weekly hours</TableHead>
-              <TableHead>Added</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Team')}</TableHead>
+              <TableHead numeric>{t('Weekly hours')}</TableHead>
+              <TableHead>{t('Added')}</TableHead>
               <TableHead className="w-24">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -149,14 +147,14 @@ export default function PlaceholderUsersPage() {
               <TableRow key={person.id}>
                 <TableCell className="font-medium">
                   <span className="flex flex-col">
-                    <span>{person.name}</span>
+                    <span dir="auto">{person.name}</span>
                     {person.note ? (
-                      <span className="text-2xs text-muted-foreground">{person.note}</span>
+                      <span className="text-2xs text-muted-foreground" dir="auto">{person.note}</span>
                     ) : null}
                   </span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {person.team?.name ?? <span className="text-2xs">Unassigned</span>}
+                  {person.team?.name ?? <span className="text-2xs">{t('Unassigned')}</span>}
                 </TableCell>
                 <TableCell numeric className="font-mono text-2xs">
                   {person.hoursCapacity}
@@ -164,12 +162,12 @@ export default function PlaceholderUsersPage() {
                 <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                   {formatLongDate(person.createdAt)}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-end">
                   <span className="flex justify-end gap-1">
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Convert ${person.name} to a real person`}
+                      aria-label={t('Convert {name} to a real person', { name: person.name })}
                       className="text-muted-foreground hover:text-primary"
                       onClick={() => setConverting(person)}
                     >
@@ -178,7 +176,7 @@ export default function PlaceholderUsersPage() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Delete ${person.name}`}
+                      aria-label={t('Delete {name}', { name: person.name })}
                       className="text-muted-foreground hover:text-danger"
                       onClick={() => setRemoving(person)}
                     >
@@ -197,28 +195,27 @@ export default function PlaceholderUsersPage() {
       {upstreamItems.length > 0 ? (
         <section className="space-y-2">
           <h3 className="epm-eyebrow">
-            OpenProject placeholder users
-            <Badge size="sm" tone="neutral" className="ml-2">
+            {t('OpenProject placeholder users')}
+            <Badge size="sm" tone="neutral" className="ms-2">
               {upstreamItems.length}
             </Badge>
           </h3>
           <p className="text-2xs text-muted-foreground">
-            Created in OpenProject under an Enterprise licence
             {enterprise.data?.allows.placeholderUsers === false
-              ? ', which this instance no longer has. They are shown so they are not lost, and can still be assigned work upstream.'
-              : '. These can be assigned work; the placeholders above cannot.'}
+              ? t('Created in OpenProject under an Enterprise licence, which this instance no longer has. They are shown so they are not lost, and can still be assigned work upstream.')
+              : t('Created in OpenProject under an Enterprise licence. These can be assigned work; the placeholders above cannot.')}
           </p>
           <AdminTable>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Created on</TableHead>
+                <TableHead>{t('Name')}</TableHead>
+                <TableHead>{t('Created on')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {upstreamItems.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
+                  <TableCell className="font-medium" dir="auto">{user.name}</TableCell>
                   <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                     {formatLongDate(user.createdAt)}
                   </TableCell>
@@ -235,18 +232,19 @@ export default function PlaceholderUsersPage() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              Its capacity stops counting toward {removing?.team?.name ?? 'its team'} and its
-              portfolio. This cannot be undone.
+              {removing?.team?.name
+                ? t('Its capacity stops counting toward {team} and its portfolio. This cannot be undone.', { team: removing.team.name })
+                : t('Its capacity stops counting toward its team and its portfolio. This cannot be undone.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoving(undefined)} disabled={remove.isPending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} loading={remove.isPending}>
-              Delete
+              {t('Delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -288,13 +286,13 @@ function NewPlaceholderDialog({
 
     const trimmed = name.trim();
     if (!trimmed) {
-      setError('Give the placeholder a name, e.g. "Backend engineer (Q2 start)".');
+      setError(t('Give the placeholder a name, e.g. "Backend engineer (Q2 start)".'));
       return;
     }
 
     const capacity = Number(hours);
     if (!Number.isFinite(capacity) || capacity < 0 || capacity > 168) {
-      setError('Weekly hours must be between 0 and 168.');
+      setError(t('Weekly hours must be between {min, number} and {max, number}.', { min: 0, max: 168 }));
       return;
     }
 
@@ -307,7 +305,7 @@ function NewPlaceholderDialog({
       },
       {
         onSuccess: (person) => {
-          toast.success('Placeholder added', { description: person.name });
+          toast.success(t('Placeholder added'), { description: person.name });
           reset();
           onOpenChange(false);
         },
@@ -328,37 +326,37 @@ function NewPlaceholderDialog({
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit}>
           <DialogHeader>
-            <DialogTitle>New placeholder</DialogTitle>
+            <DialogTitle>{t('New placeholder')}</DialogTitle>
             <DialogDescription>
-              A role you are planning but have not filled. Its capacity counts toward the team.
+              {t('A role you are planning but have not filled. Its capacity counts toward the team.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-1.5">
               <Label htmlFor="placeholder-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="placeholder-name"
                 autoFocus
-                placeholder="Backend engineer (Q2 start)"
+                placeholder={t('Backend engineer (Q2 start)')}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 invalid={Boolean(error)}
               />
-              <FieldHint>Shown wherever the role would be, without an account.</FieldHint>
+              <FieldHint>{t('Shown wherever the role would be, without an account.')}</FieldHint>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="placeholder-team">Team</Label>
+                <Label htmlFor="placeholder-team">{t('Team')}</Label>
                 <Select value={teamId} onValueChange={setTeamId}>
                   <SelectTrigger id="placeholder-team">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={NONE}>Unassigned</SelectItem>
+                    <SelectItem value={NONE}>{t('Unassigned')}</SelectItem>
                     {(teams.data ?? []).map((team) => (
                       <SelectItem key={team.id} value={team.id}>
                         {team.name}
@@ -366,27 +364,27 @@ function NewPlaceholderDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <FieldHint>The department follows the team.</FieldHint>
+                <FieldHint>{t('The department follows the team.')}</FieldHint>
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="placeholder-hours">Weekly hours</Label>
+                <Label htmlFor="placeholder-hours">{t('Weekly hours')}</Label>
                 <Input
                   id="placeholder-hours"
                   inputMode="decimal"
                   value={hours}
                   onChange={(event) => setHours(event.target.value)}
                 />
-                <FieldHint>Planned capacity.</FieldHint>
+                <FieldHint>{t('Planned capacity.')}</FieldHint>
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="placeholder-note">Note</Label>
+              <Label htmlFor="placeholder-note">{t('Note')}</Label>
               <Textarea
                 id="placeholder-note"
                 rows={2}
-                placeholder="What this role is for."
+                placeholder={t('What this role is for.')}
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
               />
@@ -402,10 +400,10 @@ function NewPlaceholderDialog({
               onClick={() => onOpenChange(false)}
               disabled={create.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={create.isPending}>
-              Create
+              {t('Create')}
             </Button>
           </DialogFooter>
         </form>
@@ -442,7 +440,7 @@ function ConvertDialog({
   const submit = () => {
     if (!person) return;
     if (!userId) {
-      setError('Choose the person who filled this role.');
+      setError(t('Choose the person who filled this role.'));
       return;
     }
 
@@ -450,8 +448,11 @@ function ConvertDialog({
       { id: person.id, userId },
       {
         onSuccess: () => {
-          toast.success('Placeholder converted', {
-            description: `${person.name} is now ${users?.find((u) => u.id === userId)?.name ?? 'a real person'}.`,
+          const filledBy = users?.find((u) => u.id === userId)?.name;
+          toast.success(t('Placeholder converted'), {
+            description: filledBy
+              ? t('{name} is now {person}.', { name: person.name, person: filledBy })
+              : t('{name} is now a real person.', { name: person.name }),
           });
           setUserId(undefined);
           setError(undefined);
@@ -475,20 +476,19 @@ function ConvertDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Convert {person?.name}</DialogTitle>
+          <DialogTitle>{t('Convert {name}', { name: person?.name })}</DialogTitle>
           <DialogDescription>
-            Name the person who filled this role. Its team and {person?.hoursCapacity} weekly hours
-            move onto them, and the placeholder stops counting separately.
+            {t('Name the person who filled this role. Its team and {hours, number} weekly hours move onto them, and the placeholder stops counting separately.', { hours: person?.hoursCapacity })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-1.5 py-2">
           <Label htmlFor="convert-user" required>
-            Person
+            {t('Person')}
           </Label>
           <Select value={userId} onValueChange={setUserId}>
             <SelectTrigger id="convert-user">
-              <SelectValue placeholder="Select a person" />
+              <SelectValue placeholder={t('Select a person')} />
             </SelectTrigger>
             <SelectContent className="max-h-64">
               {(users ?? []).map((user) => (
@@ -498,16 +498,16 @@ function ConvertDialog({
               ))}
             </SelectContent>
           </Select>
-          <FieldHint>Create the account on the Users page first if they are not listed.</FieldHint>
+          <FieldHint>{t('Create the account on the Users page first if they are not listed.')}</FieldHint>
           {error ? <FieldError>{error}</FieldError> : null}
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={convert.isPending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} loading={convert.isPending}>
-            Convert
+            {t('Convert')}
           </Button>
         </DialogFooter>
       </DialogContent>

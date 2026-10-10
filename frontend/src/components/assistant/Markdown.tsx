@@ -156,7 +156,7 @@ export function Markdown({ content, trailing, className }: MarkdownProps) {
             <List
               key={key}
               className={cn(
-                'space-y-1 pl-5 marker:text-muted-foreground',
+                'space-y-1 ps-5 marker:text-muted-foreground',
                 block.ordered ? 'list-decimal' : 'list-disc',
               )}
             >

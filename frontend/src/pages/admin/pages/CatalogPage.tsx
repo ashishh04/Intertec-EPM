@@ -41,6 +41,7 @@ import {
   useUpdateCatalogRow,
 } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { msg, t } from '@/lib/i18n';
 import { cn, formatNumber, truncate } from '@/lib/utils';
 import type { CatalogRowInput } from '@/services/api/admin';
 import type { AdminCatalog, AdminCatalogField, AdminCatalogRow } from '@/types';
@@ -70,8 +71,9 @@ const PAGE_SIZE = 25;
 const EMPTY_CHOICE = '__none__';
 
 /** What a write-only field says in place of the value it will not show. */
-const WRITE_ONLY_HINT =
-  'Stored by the instance but never read back, so it is not shown here. Leave blank to keep the current value.';
+const WRITE_ONLY_HINT = msg(
+  'Stored by the instance but never read back, so it is not shown here. Leave blank to keep the current value.',
+);
 
 export interface CatalogPageProps {
   /** The resource the backend knows the catalogue by, e.g. `statuses`. */
@@ -118,19 +120,19 @@ export function CatalogPage({ resource }: CatalogPageProps) {
     remove.mutate(target.id, {
       onSuccess: () => {
         setRemoving(undefined);
-        toast.success(`${sentenceCase(catalog.singular)} deleted`, { description: name });
+        toast.success(t('{noun} deleted', { noun: sentenceCase(catalog.singular) }), { description: name });
       },
       // The instance refuses with its own reason — "still used by 3 work
       // packages" — which is the only thing that explains the refusal.
       onError: (error) =>
-        toast.error(`${sentenceCase(catalog.singular)} was not deleted`, {
+        toast.error(t('{noun} was not deleted', { noun: sentenceCase(catalog.singular) }), {
           description: describeError(error),
         }),
     });
   };
 
-  const singular = catalog?.singular ?? 'entry';
-  const plural = catalog ? pluralOf(catalog.singular) : 'entries';
+  const singular = catalog?.singular ?? t('entry');
+  const plural = catalog ? pluralOf(catalog.singular) : t('entries');
 
   return (
     <div className="space-y-4">
@@ -145,7 +147,7 @@ export function CatalogPage({ resource }: CatalogPageProps) {
             />
             <Button size="sm" onClick={openCreate} disabled={!catalog}>
               <Plus className="h-3.5 w-3.5" />
-              New {singular}
+              {t('New {noun}', { noun: singular })}
             </Button>
           </>
         }
@@ -153,8 +155,8 @@ export function CatalogPage({ resource }: CatalogPageProps) {
         <SearchInput
           value={search}
           onValueChange={setSearch}
-          placeholder={`Search ${plural}`}
-          aria-label={`Search ${plural}`}
+          placeholder={t('Search {nouns}', { nouns: plural })}
+          aria-label={t('Search {nouns}', { nouns: plural })}
         />
       </ListToolbar>
 
@@ -163,7 +165,7 @@ export function CatalogPage({ resource }: CatalogPageProps) {
         isError={query.isError}
         error={query.error}
         onRetry={() => void query.refetch()}
-        errorTitle="Unable to load this catalogue"
+        errorTitle={t('Unable to load this catalogue')}
         // The column count is the descriptor's, once it has arrived; on a cold
         // load there is nothing yet to be faithful to, so it guesses.
         skeleton={<TableSkeleton columns={columns.length > 0 ? columns.length + 1 : 5} />}
@@ -172,9 +174,9 @@ export function CatalogPage({ resource }: CatalogPageProps) {
           catalog ? (
             <EmptyState
               icon={Layers}
-              title={`No ${plural}`}
+              title={t('No {nouns}', { nouns: plural })}
               description={catalog.description}
-              action={{ label: `New ${singular}`, onClick: openCreate }}
+              action={{ label: t('New {noun}', { noun: singular }), onClick: openCreate }}
             />
           ) : null
         }
@@ -193,7 +195,7 @@ export function CatalogPage({ resource }: CatalogPageProps) {
                   </TableHead>
                 ))}
                 <TableHead className="w-12">
-                  <span className="sr-only">Actions</span>
+                  <span className="sr-only">{t('Actions')}</span>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -203,7 +205,7 @@ export function CatalogPage({ resource }: CatalogPageProps) {
                   {columns.map((field, index) => (
                     <CatalogCell key={field.key} field={field} row={row} lead={index === 0} />
                   ))}
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <RowActions
                       row={row}
                       name={rowTitle(row, catalog.fields)}
@@ -221,7 +223,7 @@ export function CatalogPage({ resource }: CatalogPageProps) {
                     colSpan={columns.length + 1}
                     className="text-center text-xs text-muted-foreground"
                   >
-                    No {plural} match “{search.trim()}”.
+                    {t('No {nouns} match “{search}”.', { nouns: plural, search: search.trim() })}
                   </TableCell>
                 </TableRow>
               ) : null}
@@ -242,9 +244,16 @@ export function CatalogPage({ resource }: CatalogPageProps) {
       <ConfirmDialog
         open={Boolean(removing)}
         onOpenChange={(open) => !open && setRemoving(undefined)}
-        title={`Delete ${removing && catalog ? rowTitle(removing, catalog.fields) : 'this entry'}?`}
-        description={`This ${singular} is removed from the delivery system for everyone who uses it. This cannot be undone.`}
-        confirmLabel="Delete"
+        title={
+          removing && catalog
+            ? t('Delete {name}?', { name: rowTitle(removing, catalog.fields) })
+            : t('Delete this entry?')
+        }
+        description={t(
+          'This {noun} is removed from the delivery system for everyone who uses it. This cannot be undone.',
+          { noun: singular },
+        )}
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={confirmRemove}
@@ -291,7 +300,7 @@ function CatalogCell({
     if (field.key === 'colorId') {
       return (
         <TableCell>
-          <ColorSwatch color={choice?.hex ?? null} name={choice?.label ?? 'None'} />
+          <ColorSwatch color={choice?.hex ?? null} name={choice?.label ?? t('None')} />
         </TableCell>
       );
     }
@@ -311,7 +320,7 @@ function CatalogCell({
     <TableCell className={cn(lead && 'font-medium')}>
       {/* Titled rather than wrapped: a webhook URL is long, and a row that
           grows to three lines loses the shape of the table. */}
-      <span className="block max-w-80 truncate" title={text}>
+      <span className="block max-w-80 truncate" title={text} dir="auto">
         {truncate(text, 160)}
       </span>
     </TableCell>
@@ -341,18 +350,18 @@ function RowActions({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="icon-sm" variant="ghost" aria-label={`Actions for ${name}`}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('Actions for {name}', { name })}>
           <Ellipsis className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-w-64">
         <DropdownMenuItem onSelect={onEdit}>
           <Pencil />
-          Edit
+          {t('Edit')}
         </DropdownMenuItem>
         <DropdownMenuItem destructive={row.deletable} disabled={!row.deletable} onSelect={onDelete}>
           <Trash2 />
-          Delete
+          {t('Delete')}
         </DropdownMenuItem>
         {!row.deletable && row.undeletableReason ? (
           <p className="px-2 pb-1 pt-0.5 text-2xs leading-relaxed text-muted-foreground">
@@ -407,7 +416,7 @@ function CatalogDialog({ open, onOpenChange, catalog, row }: CatalogDialogProps)
   const set = (key: string, value: string | boolean) =>
     setValues((current) => ({ ...current, [key]: value }));
 
-  const fail = (error: unknown) => setProblem(describeError(error, 'That could not be saved.'));
+  const fail = (error: unknown) => setProblem(describeError(error, t('That could not be saved.')));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -418,7 +427,7 @@ function CatalogDialog({ open, onOpenChange, catalog, row }: CatalogDialogProps)
     const noun = sentenceCase(catalog.singular);
 
     const done = (saved: AdminCatalogRow) => {
-      toast.success(`${noun} ${isEdit ? 'updated' : 'created'}`, {
+      toast.success(isEdit ? t('{noun} updated', { noun }) : t('{noun} created', { noun }), {
         description: rowTitle(saved, catalog.fields),
       });
       onOpenChange(false);
@@ -437,7 +446,9 @@ function CatalogDialog({ open, onOpenChange, catalog, row }: CatalogDialogProps)
         <form onSubmit={submit} className="flex min-h-0 flex-col gap-4" noValidate>
           <DialogHeader>
             <DialogTitle>
-              {isEdit ? `Edit ${catalog.singular}` : `New ${catalog.singular}`}
+              {isEdit
+                ? t('Edit {noun}', { noun: catalog.singular })
+                : t('New {noun}', { noun: catalog.singular })}
             </DialogTitle>
             <DialogDescription>{catalog.description}</DialogDescription>
           </DialogHeader>
@@ -466,10 +477,10 @@ function CatalogDialog({ open, onOpenChange, catalog, row }: CatalogDialogProps)
               onClick={() => onOpenChange(false)}
               disabled={pending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" disabled={incomplete} loading={pending}>
-              {isEdit ? 'Save' : `Create ${catalog.singular}`}
+              {isEdit ? t('Save') : t('Create {noun}', { noun: catalog.singular })}
             </Button>
           </DialogFooter>
         </form>
@@ -495,7 +506,7 @@ function CatalogField({
   const id = `catalog-${resource}-${field.key}`;
   const hintId = `${id}-hint`;
   const hint = field.writeOnly
-    ? [field.help, WRITE_ONLY_HINT].filter(Boolean).join(' ')
+    ? [field.help, t(WRITE_ONLY_HINT)].filter(Boolean).join(' ')
     : field.help;
   const text = typeof value === 'string' ? value : '';
 
@@ -534,6 +545,7 @@ function CatalogField({
           disabled={disabled}
           aria-describedby={hint ? hintId : undefined}
           onChange={(event) => onChange(event.target.value)}
+          dir="auto"
         />
       ) : null}
 
@@ -566,7 +578,7 @@ function CatalogField({
           onValueChange={(choice) => onChange(fromChoice(choice))}
         >
           <SelectTrigger id={id} aria-describedby={hint ? hintId : undefined}>
-            <SelectValue placeholder="Not set" />
+            <SelectValue placeholder={t('Not set')} />
           </SelectTrigger>
           <SelectContent>
             {(field.options ?? []).map((option) => (

@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { useLandingMotion } from './useLandingMotion';
+import { t } from '@/lib/i18n';
 
 /**
  * The first thing below the fold: one editorial sentence saying what the
@@ -24,16 +25,20 @@ export function AboutSection() {
           {...reveal(0, 0.6, { y: 20 })}
           className="text-sm uppercase tracking-widest text-white/40"
         >
-          About EPM
+          {t('About EPM')}
         </motion.p>
 
+        {/* Two whole clauses, each translated on its own: an accent inside a
+            clause would split it into fragments another language cannot order. */}
         <motion.h2
           {...reveal(0.1)}
           className="mt-8 text-4xl leading-[1.1] tracking-tight text-white md:text-6xl lg:text-7xl"
         >
-          One record for <em className="font-serif italic text-white/60">every project</em>, and for
-          <br className="hidden md:block" /> every team that{' '}
-          <em className="font-serif italic text-white/60">plans, builds and reports on it.</em>
+          {t('One record for every project,')}
+          <br className="hidden md:block" />{' '}
+          <em className="font-serif italic text-white/60">
+            {t('and for every team that plans, builds and reports on it.')}
+          </em>
         </motion.h2>
       </div>
     </section>

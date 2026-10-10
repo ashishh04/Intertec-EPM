@@ -212,7 +212,7 @@ await check('a send that keeps failing is retried, and when retries run out oper
 
     const alerts = await prisma.notification.findMany({ where: { dedupeKey: `ops-alert:email:${row.id}` } });
     assert.ok(alerts.length > 0, 'operations were told in-app');
-    assert.ok(alerts.every((alert) => alert.severity === 'critical' && alert.title.includes('scheduled report')));
+    assert.ok(alerts.every((alert) => alert.severity === 'critical' && alert.link === '/reports/scheduled'));
     const journal = await prisma.auditEvent.findFirst({
       where: { action: 'operations.alert', metadata: { path: ['dedupeKey'], equals: `email:${row.id}` } },
     });

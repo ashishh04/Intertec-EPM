@@ -7,6 +7,7 @@ import { ProjectJournalPaged } from '@/components/projects/ProjectJournal';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 
 /**
  * Full change history for a project: the work itself, and the project journal
@@ -26,7 +27,7 @@ export default function ProjectActivityTab() {
     <div className="grid gap-5 lg:grid-cols-2">
       <Card className="flex flex-col">
         <CardHeader variant="compact">
-          <CardTitle>Activity</CardTitle>
+          <CardTitle>{t('Activity')}</CardTitle>
         </CardHeader>
         {/* The timeline draws its own empty state, so the boundary only has to
             cover loading and failure. */}
@@ -36,7 +37,7 @@ export default function ProjectActivityTab() {
             isError={activityQuery.isError}
             error={activityQuery.error}
             onRetry={() => activityQuery.refetch()}
-            errorTitle="Unable to load activity"
+            errorTitle={t('Unable to load activity')}
             skeleton={<ActivityTimelineSkeleton rows={8} />}
           >
             <ActivityTimeline entries={paged.items} users={users} />
@@ -49,7 +50,8 @@ export default function ProjectActivityTab() {
           onPageChange={paged.setPage}
           onPageSizeChange={paged.setPageSize}
           pageSizeOptions={[10, 15, 25, 50]}
-          itemLabel="event"
+          itemLabel={t('event')}
+          itemLabelPlural={t('events')}
           className="border-t border-border"
         />
       </Card>
@@ -58,8 +60,8 @@ export default function ProjectActivityTab() {
           the database, so it reads as evidence rather than as a feed. */}
       <Card className="flex flex-col">
         <CardHeader variant="compact">
-          <CardTitle>Project journal</CardTitle>
-          <CardDescription>Health, overrides, plan and ownership, as recorded.</CardDescription>
+          <CardTitle>{t('Project journal')}</CardTitle>
+          <CardDescription>{t('Health, overrides, plan and ownership, as recorded.')}</CardDescription>
         </CardHeader>
         {projectId ? <ProjectJournalPaged projectId={projectId} /> : null}
       </Card>

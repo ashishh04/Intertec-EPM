@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePortfolio, useSetPortfolioActive } from '@/hooks/usePortfolios';
 import { usePortfolioOverview, useSavePortfolioView } from '@/hooks/usePortfolioViews';
 import { useAuth } from '@/providers/AuthProvider';
+import { t } from '@/lib/i18n';
 import { formatDateTime, formatRelative } from '@/lib/utils';
 
 /**
@@ -49,9 +50,9 @@ export default function PortfolioDetailPage() {
     setActive.mutate(
       { id: portfolio.data.id, active },
       {
-        onSuccess: () => toast.success(active ? 'Portfolio restored' : 'Portfolio archived'),
+        onSuccess: () => toast.success(active ? t('Portfolio restored') : t('Portfolio archived')),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -63,7 +64,7 @@ export default function PortfolioDetailPage() {
       isLoading={portfolio.isLoading}
       isError={portfolio.isError}
       onRetry={() => portfolio.refetch()}
-      errorTitle="Unable to load this portfolio"
+      errorTitle={t('Unable to load this portfolio')}
       skeleton={
         <div className="space-y-5">
           <Skeleton className="h-16 w-full" />
@@ -78,7 +79,7 @@ export default function PortfolioDetailPage() {
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" aria-hidden />
-            All portfolios
+            {t('All portfolios')}
           </Link>
 
           <PageHeader
@@ -89,13 +90,15 @@ export default function PortfolioDetailPage() {
               <span className="flex flex-wrap items-center gap-2">
                 {portfolio.data.active ? null : (
                   <Badge tone="warning" size="sm">
-                    Archived
+                    {t('Archived')}
                   </Badge>
                 )}
                 {overview.data?.asOf ? (
                   <Badge tone="neutral" size="sm">
                     <Clock3 className="h-3 w-3" aria-hidden />
-                    <span title={formatDateTime(overview.data.asOf)}>Data {formatRelative(overview.data.asOf)}</span>
+                    <span title={formatDateTime(overview.data.asOf)}>
+                      {t('Data {when}', { when: formatRelative(overview.data.asOf) })}
+                    </span>
                   </Badge>
                 ) : null}
               </span>
@@ -105,17 +108,17 @@ export default function PortfolioDetailPage() {
                 <OverviewPeriodSelect value={period} onChange={setPeriod} />
                 <Button size="sm" variant="secondary" onClick={() => setSaving(true)}>
                   <BookmarkPlus className="h-3.5 w-3.5" />
-                  Save as view
+                  {t('Save as view')}
                 </Button>
                 {mayManage ? (
                   <>
                     <Button size="sm" variant="secondary" onClick={() => setDialogOpen(true)}>
                       <Pencil className="h-3.5 w-3.5" />
-                      Edit
+                      {t('Edit')}
                     </Button>
                     <Button size="sm" variant="ghost" loading={setActive.isPending} onClick={toggleActive}>
                       {portfolio.data.active ? <Archive className="h-3.5 w-3.5" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                      {portfolio.data.active ? 'Archive' : 'Restore'}
+                      {portfolio.data.active ? t('Archive') : t('Restore')}
                     </Button>
                   </>
                 ) : null}
@@ -128,7 +131,7 @@ export default function PortfolioDetailPage() {
             isError={overview.isError}
             error={overview.error}
             onRetry={() => overview.refetch()}
-            errorTitle="Unable to build this portfolio's figures"
+            errorTitle={t('Unable to build this portfolio\'s figures')}
             skeleton={<Skeleton className="h-96 w-full" />}
           >
             {overview.data ? <PortfolioOverviewPanel overview={overview.data} stale={overview.isPlaceholderData} /> : null}
@@ -140,7 +143,7 @@ export default function PortfolioDetailPage() {
             <Card className="flex flex-wrap items-center gap-2 p-4">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Users className="h-3.5 w-3.5" aria-hidden />
-                Teams involved
+                {t('Teams involved')}
               </span>
               {portfolio.data.teams.map((team) => (
                 <Link key={team.id} to={`/teams/${team.id}`}>
@@ -164,12 +167,12 @@ export default function PortfolioDetailPage() {
                   { input },
                   {
                     onSuccess: (saved) => {
-                      toast.success('View saved');
+                      toast.success(t('View saved'));
                       setSaving(false);
                       navigate(`/portfolio-views/${saved.id}`);
                     },
                     onError: (error) =>
-                      toast.error('The view was not saved', { description: error instanceof Error ? error.message : undefined }),
+                      toast.error(t('The view was not saved'), { description: error instanceof Error ? error.message : undefined }),
                   },
                 )
               }

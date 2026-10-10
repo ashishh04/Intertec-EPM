@@ -11,6 +11,7 @@ import { UserAvatar } from '@/components/common/UserAvatar';
 import { useTaskHierarchy } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmTask, EpmUser, ID } from '@/types';
 
 /**
@@ -38,8 +39,8 @@ export function HierarchyTrail({ taskId }: TaskHierarchyProps) {
   if (ancestors.length === 0) return null;
 
   return (
-    <nav aria-label="Work package hierarchy" className="flex flex-wrap items-center gap-1">
-      <span className="text-muted-foreground">Hierarchy:</span>
+    <nav aria-label={t('Work package hierarchy')} className="flex flex-wrap items-center gap-1">
+      <span className="text-muted-foreground">{t('Hierarchy:')}</span>
       {ancestors.map((ancestor, index) => (
         <Fragment key={ancestor.id}>
           {index > 0 ? (
@@ -47,6 +48,7 @@ export function HierarchyTrail({ taskId }: TaskHierarchyProps) {
           ) : null}
           <Link
             to={`/tasks/${ancestor.id}`}
+            dir="auto"
             className="max-w-[16rem] truncate rounded hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title={ancestor.subject}
           >
@@ -71,7 +73,7 @@ export function TaskSubItems({ taskId }: TaskHierarchyProps) {
       <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <ListTree className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-          Sub-items
+          {t('Sub-items')}
           {children.length > 0 ? (
             <span className="font-mono text-2xs text-muted-foreground">{children.length}</span>
           ) : null}
@@ -88,14 +90,14 @@ export function TaskSubItems({ taskId }: TaskHierarchyProps) {
         ) : isError ? (
           <EmptyState
             size="inline"
-            title="Unable to load sub-items"
-            description="The delivery system did not answer for this work package's children."
+            title={t('Unable to load sub-items')}
+            description={t('The delivery system did not answer for this work package\'s children.')}
           />
         ) : children.length === 0 ? (
           <EmptyState
             size="inline"
-            title="No sub-items"
-            description="Work broken out under this one appears here."
+            title={t('No sub-items')}
+            description={t('Work broken out under this one appears here.')}
           />
         ) : (
           <ul className="divide-y divide-border">
@@ -120,7 +122,7 @@ function SubItemRow({ task, users }: { task: EpmTask; users: Map<ID, EpmUser> })
       >
         <span className="w-20 shrink-0 font-mono text-2xs text-muted-foreground">{task.key}</span>
 
-        <span className="min-w-0 flex-1 truncate text-xs text-foreground" title={task.subject}>
+        <span dir="auto" className="min-w-0 flex-1 truncate text-xs text-foreground" title={task.subject}>
           {task.subject}
         </span>
 

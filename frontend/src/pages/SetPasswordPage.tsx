@@ -12,6 +12,7 @@ import { usePasswordPolicy } from '@/hooks/useUsers';
 import { passwordRuleRows, passwordSatisfies } from '@/lib/password';
 import { cn } from '@/lib/utils';
 import { APP_NAME } from '@/config/env';
+import { t } from '@/lib/i18n';
 
 /**
  * Shown instead of the application when someone still holds the password an
@@ -59,17 +60,17 @@ export default function SetPasswordPage() {
     setProblem(undefined);
 
     if (!password) {
-      setProblem('Choose a password.');
+      setProblem(t('Choose a password.'));
       return;
     }
 
     if (!allMet) {
-      setProblem('That password does not meet all of the requirements below.');
+      setProblem(t('That password does not meet all of the requirements below.'));
       return;
     }
 
     if (password !== confirmation) {
-      setProblem('The two passwords do not match.');
+      setProblem(t('The two passwords do not match.'));
       return;
     }
 
@@ -79,7 +80,7 @@ export default function SetPasswordPage() {
       // Nothing to do on success: the gate clears and the application renders.
     } catch (error) {
       // The instance owns the rules, so its message is the useful one.
-      setProblem(error instanceof Error ? error.message : 'That password was not accepted.');
+      setProblem(error instanceof Error ? error.message : t('That password was not accepted.'));
     } finally {
       setSaving(false);
     }
@@ -95,12 +96,18 @@ export default function SetPasswordPage() {
           <div className="space-y-1.5">
             <CardTitle className="flex items-center gap-2">
               <KeyRound className="h-4 w-4 text-primary" aria-hidden />
-              Choose your password
+              {t('Choose your password')}
             </CardTitle>
             <CardDescription>
-              {user?.name ? `${user.name}, your ` : 'Your '}
-              {APP_NAME} account was set up with a password somebody else chose. Replace it before
-              you continue.
+              {user?.name
+                ? t(
+                    '{name}, your {app} account was set up with a password somebody else chose. Replace it before you continue.',
+                    { name: user.name, app: APP_NAME },
+                  )
+                : t(
+                    'Your {app} account was set up with a password somebody else chose. Replace it before you continue.',
+                    { app: APP_NAME },
+                  )}
             </CardDescription>
           </div>
         </CardHeader>
@@ -109,7 +116,7 @@ export default function SetPasswordPage() {
           <form className="space-y-4" onSubmit={submit}>
             <div className="space-y-1.5">
               <Label htmlFor="new-password" required>
-                New password
+                {t('New password')}
               </Label>
               <div className="relative">
                 <Input
@@ -120,15 +127,15 @@ export default function SetPasswordPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   aria-describedby="password-rules"
-                  className="pr-10"
+                  className="pe-10"
                   {...noPaste}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((shown) => !shown)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('Hide password') : t('Show password')}
                   aria-pressed={showPassword}
-                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-lg text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" aria-hidden />
@@ -152,14 +159,14 @@ export default function SetPasswordPage() {
                   <span className={cn(rule.ok ? 'text-foreground' : 'text-muted-foreground')}>
                     {rule.label}
                   </span>
-                  <span className="sr-only">{rule.ok ? ' — met' : ' — not yet met'}</span>
+                  <span className="sr-only">{rule.ok ? t(' — met') : t(' — not yet met')}</span>
                 </li>
               ))}
             </ul>
 
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password" required>
-                Confirm password
+                {t('Confirm password')}
               </Label>
               <div className="relative">
                 <Input
@@ -169,15 +176,15 @@ export default function SetPasswordPage() {
                   value={confirmation}
                   onChange={(event) => setConfirmation(event.target.value)}
                   invalid={confirmation.length > 0 && !matches}
-                  className="pr-10"
+                  className="pe-10"
                   {...noPaste}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmation((shown) => !shown)}
-                  aria-label={showConfirmation ? 'Hide password' : 'Show password'}
+                  aria-label={showConfirmation ? t('Hide password') : t('Show password')}
                   aria-pressed={showConfirmation}
-                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-lg text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showConfirmation ? (
                     <EyeOff className="h-4 w-4" aria-hidden />
@@ -187,21 +194,21 @@ export default function SetPasswordPage() {
                 </button>
               </div>
               {confirmation.length > 0 && !matches ? (
-                <FieldError>The two passwords do not match.</FieldError>
+                <FieldError>{t('The two passwords do not match.')}</FieldError>
               ) : (
-                <FieldHint>Type it again — pasting is turned off on both fields.</FieldHint>
+                <FieldHint>{t('Type it again — pasting is turned off on both fields.')}</FieldHint>
               )}
             </div>
 
             {problem ? <FieldError>{problem}</FieldError> : null}
 
             <Button type="submit" className="w-full" disabled={saving || !allMet || !matches}>
-              {saving ? 'Saving…' : 'Save and continue'}
+              {saving ? t('Saving…') : t('Save and continue')}
             </Button>
 
             <Button type="button" variant="ghost" className="w-full" onClick={() => signOut()}>
               <LogOut className="h-3.5 w-3.5" />
-              Sign out instead
+              {t('Sign out instead')}
             </Button>
           </form>
         </CardContent>

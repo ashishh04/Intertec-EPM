@@ -1,6 +1,7 @@
 import { Label, FieldHint } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { Weekday } from '@/types';
 
 /**
@@ -65,13 +66,13 @@ export function FieldRow({
 }
 
 const WEEKDAY_LABELS: Record<Weekday, string> = {
-  mon: 'Mon',
-  tue: 'Tue',
-  wed: 'Wed',
-  thu: 'Thu',
-  fri: 'Fri',
-  sat: 'Sat',
-  sun: 'Sun',
+  get mon() { return t('Mon'); },
+  get tue() { return t('Tue'); },
+  get wed() { return t('Wed'); },
+  get thu() { return t('Thu'); },
+  get fri() { return t('Fri'); },
+  get sat() { return t('Sat'); },
+  get sun() { return t('Sun'); },
 };
 
 const ORDER: Weekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -140,6 +141,8 @@ export function hourOptions(timeFormat: '24h' | '12h'): { value: string; label: 
     label:
       timeFormat === '24h'
         ? `${String(hour).padStart(2, '0')}:00`
-        : `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? 'am' : 'pm'}`,
+        : hour < 12
+          ? t('{time} am', { time: `${hour % 12 === 0 ? 12 : hour % 12}:00` })
+          : t('{time} pm', { time: `${hour % 12 === 0 ? 12 : hour % 12}:00` }),
   }));
 }

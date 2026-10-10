@@ -30,6 +30,7 @@ import {
   useSetMemberRoles,
 } from '@/hooks/useMembers';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import type { EpmProjectMember, ID } from '@/types';
 import { Users } from 'lucide-react';
 
@@ -86,13 +87,13 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
   const person = users.get(userId);
 
   const fail = (error: unknown) =>
-    setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+    setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
   const submit = () => {
     setProblem(undefined);
 
     if (!roleId) {
-      setProblem('Choose a role.');
+      setProblem(t('Choose a role.'));
       return;
     }
 
@@ -101,7 +102,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
         { membershipId: member.membershipId, roleIds: [roleId] },
         {
           onSuccess: () => {
-            toast.success('Role updated');
+            toast.success(t('Role updated'));
             onOpenChange(false);
           },
           onError: fail,
@@ -111,7 +112,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
     }
 
     if (!userId) {
-      setProblem('Choose someone to add.');
+      setProblem(t('Choose someone to add.'));
       return;
     }
 
@@ -119,7 +120,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
       { userId, roleIds: [roleId] },
       {
         onSuccess: () => {
-          toast.success('Member added');
+          toast.success(t('Member added'));
           onOpenChange(false);
         },
         onError: fail,
@@ -131,11 +132,11 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Change role' : 'Add a member'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Change role') : t('Add a member')}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Their role on this project, and what they can do in it.'
-              : 'Gives this person access to the project.'}
+              ? t('Their role on this project, and what they can do in it.')
+              : t('Gives this person access to the project.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -143,24 +144,24 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
           {isEdit ? (
             <Card className="flex items-center gap-3 p-3">
               <UserAvatar user={person} size="sm" />
-              <p className="truncate text-xs font-medium">{person?.name ?? 'Unknown person'}</p>
+              <p className="truncate text-xs font-medium" dir="auto">{person?.name ?? t('Unknown person')}</p>
             </Card>
           ) : (
             <div className="space-y-1.5">
-              <Label htmlFor="member-person">Person</Label>
+              <Label htmlFor="member-person">{t('Person')}</Label>
               {candidates.isLoading ? (
                 <ListSkeleton rows={2} height="h-9" />
               ) : available.length === 0 ? (
                 <EmptyState
                   size="inline"
                   icon={Users}
-                  title="Nobody left to add"
-                  description="Everyone in the directory is already a member of this project."
+                  title={t('Nobody left to add')}
+                  description={t('Everyone in the directory is already a member of this project.')}
                 />
               ) : (
                 <Select value={userId} onValueChange={setUserId}>
-                  <SelectTrigger id="member-person" aria-label="Select a person">
-                    <SelectValue placeholder="Choose someone" />
+                  <SelectTrigger id="member-person" aria-label={t('Select a person')}>
+                    <SelectValue placeholder={t('Choose someone')} />
                   </SelectTrigger>
                   <SelectContent>
                     {available.map((candidate) => (
@@ -175,7 +176,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="member-role">Role</Label>
+            <Label htmlFor="member-role">{t('Role')}</Label>
             {/* An empty value while the roles load shows the placeholder rather
                 than a blank trigger for the role an existing member holds. */}
             <Select
@@ -183,8 +184,8 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
               onValueChange={setRoleId}
               disabled={roles.isLoading}
             >
-              <SelectTrigger id="member-role" aria-label="Select a role">
-                <SelectValue placeholder={roles.isLoading ? 'Loading…' : 'Choose a role'} />
+              <SelectTrigger id="member-role" aria-label={t('Select a role')}>
+                <SelectValue placeholder={roles.isLoading ? t('Loading…') : t('Choose a role')} />
               </SelectTrigger>
               <SelectContent>
                 {roleOptions.map((role) => (
@@ -196,8 +197,8 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
             </Select>
             <FieldHint>
               {!roles.isLoading && roleOptions.length === 0
-                ? 'No roles are defined for projects. An administrator must add one first.'
-                : 'The role decides what this person can do in this project.'}
+                ? t('No roles are defined for projects. An administrator must add one first.')
+                : t('The role decides what this person can do in this project.')}
             </FieldHint>
           </div>
 
@@ -206,13 +207,13 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             onClick={submit}
             disabled={pending || (!isEdit && available.length === 0)}
           >
-            {isEdit ? 'Save' : 'Add member'}
+            {isEdit ? t('Save') : t('Add member')}
           </Button>
         </DialogFooter>
       </DialogContent>

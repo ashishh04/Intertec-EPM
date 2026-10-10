@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { useProjects } from '@/hooks/useProjects';
 import { useCreateSprint } from '@/hooks/useSprints';
+import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -62,17 +63,17 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
     setProblem(undefined);
 
     if (!name.trim()) {
-      setProblem('Give the sprint a name.');
+      setProblem(t('Give the sprint a name.'));
       return;
     }
     if (!projectId) {
-      setProblem('Choose the project it belongs to.');
+      setProblem(t('Choose the project it belongs to.'));
       return;
     }
     // Caught here because upstream accepts the pair and the result is a sprint
     // that can never contain anything sensible.
     if (startDate && endDate && endDate < startDate) {
-      setProblem('The end date is before the start date.');
+      setProblem(t('The end date is before the start date.'));
       return;
     }
 
@@ -85,12 +86,12 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
       },
       {
         onSuccess: (created) => {
-          toast.success(`${created.name} created`);
+          toast.success(t('{name} created', { name: created.name }));
           onOpenChange(false);
           onCreated?.(created);
         },
         onError: (error) =>
-          setProblem(error instanceof Error ? error.message : 'That could not be created.'),
+          setProblem(error instanceof Error ? error.message : t('That could not be created.')),
       },
     );
   };
@@ -101,21 +102,21 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>New sprint</DialogTitle>
+          <DialogTitle>{t('New sprint')}</DialogTitle>
           <DialogDescription>
-            A sprint belongs to a project and can be shared from it.
+            {t('A sprint belongs to a project and can be shared from it.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="sprint-name" required>
-              Name
+              {t('Name')}
             </Label>
             <Input
               id="sprint-name"
               autoFocus
-              placeholder="Sprint 12"
+              placeholder={t('Sprint 12')}
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
@@ -123,11 +124,11 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
 
           <div className="space-y-1.5">
             <Label htmlFor="sprint-project" required>
-              Project
+              {t('Project')}
             </Label>
             <Select value={projectId} onValueChange={setProjectId} disabled={projects.isLoading}>
-              <SelectTrigger id="sprint-project" aria-label="Select a project">
-                <SelectValue placeholder={projects.isLoading ? 'Loading…' : 'Choose a project'} />
+              <SelectTrigger id="sprint-project" aria-label={t('Select a project')}>
+                <SelectValue placeholder={projects.isLoading ? t('Loading…') : t('Choose a project')} />
               </SelectTrigger>
               <SelectContent>
                 {available.map((project) => (
@@ -138,13 +139,13 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
               </SelectContent>
             </Select>
             {!projects.isLoading && available.length === 0 ? (
-              <FieldHint>No projects to put a sprint in. Create one first.</FieldHint>
+              <FieldHint>{t('No projects to put a sprint in. Create one first.')}</FieldHint>
             ) : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="sprint-start">Start date</Label>
+              <Label htmlFor="sprint-start">{t('Start date')}</Label>
               <Input
                 id="sprint-start"
                 type="date"
@@ -153,7 +154,7 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sprint-end">End date</Label>
+              <Label htmlFor="sprint-end">{t('End date')}</Label>
               <Input
                 id="sprint-end"
                 type="date"
@@ -162,17 +163,17 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
               />
             </div>
           </div>
-          <FieldHint>Leave both empty for a backlog rather than a timeboxed sprint.</FieldHint>
+          <FieldHint>{t('Leave both empty for a backlog rather than a timeboxed sprint.')}</FieldHint>
 
           {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={create.isPending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} loading={create.isPending}>
-            Create sprint
+            {t('Create sprint')}
           </Button>
         </DialogFooter>
       </DialogContent>

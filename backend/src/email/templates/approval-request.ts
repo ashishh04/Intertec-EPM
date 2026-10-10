@@ -1,4 +1,15 @@
-import { button, escape, layout, link, muted, paragraph, paragraphHtml, textBody, type RenderedEmail } from './layout.js';
+import {
+  button,
+  escape,
+  layout,
+  link,
+  muted,
+  paragraph,
+  paragraphHtml,
+  textBody,
+  type EmailLocale,
+  type RenderedEmail,
+} from './layout.js';
 
 /**
  * Sent when an approval step reaches someone (BR-215).
@@ -16,46 +27,92 @@ export interface ApprovalRequestPayload {
   projectName: string;
   stepName: string;
   requesterName: string;
-  /** "Change value: 75,000", when the chain has a value. */
+  /** The value the chain is decided on, when it has one. */
+  value?: number;
+  /** The chain's name for that value ("Change value"); "Value" when it has none. */
+  valueLabel?: string;
+  /** "Change value: 75,000", in English: rows queued before `value` carry this instead. */
   valueText?: string;
   /** Set when this person decides as a delegate: whose approval it is. */
   onBehalfOfName?: string;
-  /** "Due by 8 Oct 2026, 14:00 UTC", when the step has an SLA. */
+  /** When the step's SLA runs out, ISO, when the step has one. */
+  dueAt?: string;
+  /** "Due by 2026-10-08 14:00 UTC", in English: rows queued before `dueAt` carry this instead. */
   dueText?: string;
   approveUrl: string;
   rejectUrl: string;
   openUrl: string;
 }
 
-export function render(payload: ApprovalRequestPayload): RenderedEmail {
-  const subject = `[${payload.key}] Approval needed: ${payload.title}`;
-  const whose = payload.onBehalfOfName ? ` on behalf of ${payload.onBehalfOfName}` : '';
+/**
+ * Stand in for the two links while the sentence around them is translated and
+ * escaped, so each can then be put wherever the language puts it. Private-use
+ * characters: no translation contains them.
+ */
+const REJECT = '\u{E000}';
+const OPEN = '\u{E001}';
+
+export function render(payload: ApprovalRequestPayload, locale: EmailLocale): RenderedEmail {
+  const { tr } = locale;
+  const subject = tr('[{key}] Approval needed: {title}', { key: payload.key, title: payload.title });
+  const greeting = payload.firstName ? tr('Hi {name},', { name: payload.firstName }) : tr('Hello,');
+  const asked = payload.onBehalfOfName
+    ? tr('{requester} needs your approval on behalf of {approver} at the "{step}" step.', {
+        requester: payload.requesterName,
+        approver: payload.onBehalfOfName,
+        step: payload.stepName,
+      })
+    : tr('{requester} needs your approval at the "{step}" step.', {
+        requester: payload.requesterName,
+        step: payload.stepName,
+      });
+  const value =
+    typeof payload.value === 'number'
+      ? payload.valueLabel
+        ? tr('{label}: {value, number}', { label: payload.valueLabel, value: payload.value })
+        : tr('Value: {value, number}', { value: payload.value })
+      : payload.valueText;
+  const due = payload.dueAt
+    ? tr('Due by {date} at {time} UTC', { date: locale.date(payload.dueAt), time: payload.dueAt.slice(11, 16) })
+    : payload.dueText;
+  const facts = [payload.projectName, value, due].filter(Boolean).join(' · ');
+  const once = tr('Each link works once, and only when you are signed in as yourself. Nothing is decided until you confirm.');
 
   const html = layout(
     subject,
-    paragraph(`Hi ${payload.firstName},`) +
-      paragraph(`${payload.requesterName} needs your approval${whose} at the "${payload.stepName}" step.`) +
+    paragraph(greeting) +
+      paragraph(asked) +
       paragraphHtml(`<strong>${escape(payload.key)}</strong> &middot; ${escape(payload.title)}`) +
-      muted([payload.projectName, payload.valueText, payload.dueText].filter(Boolean).join(' · ')) +
-      button('Review and approve', payload.approveUrl) +
-      paragraphHtml(`Or ${link(payload.rejectUrl, 'review and reject')}, or ${link(payload.openUrl, 'open the work package')}.`) +
-      muted('Each link works once, and only when you are signed in as yourself. Nothing is decided until you confirm.'),
+      muted(facts) +
+      button(tr('Review and approve'), payload.approveUrl) +
+      paragraphHtml(
+        escape(tr('Or {reject}, or {open}.', { reject: REJECT, open: OPEN }))
+          .replace(REJECT, () => link(payload.rejectUrl, tr('review and reject')))
+          .replace(OPEN, () => link(payload.openUrl, tr('open the work package'))),
+      ) +
+      muted(once),
+    locale,
   );
 
-  const text = textBody([
-    `Hi ${payload.firstName},`,
-    '',
-    `${payload.requesterName} needs your approval${whose} at the "${payload.stepName}" step.`,
-    '',
-    `${payload.key} · ${payload.title}`,
-    [payload.projectName, payload.valueText, payload.dueText].filter(Boolean).join(' · '),
-    '',
-    `Approve: ${payload.approveUrl}`,
-    `Reject: ${payload.rejectUrl}`,
-    `Open: ${payload.openUrl}`,
-    '',
-    'Each link works once, and only when you are signed in as yourself. Nothing is decided until you confirm.',
-  ]);
+  // The addresses stay out of the translated text: a link that a mail client
+  // reads with a direction mark stuck to its end no longer works.
+  const text = textBody(
+    [
+      greeting,
+      '',
+      asked,
+      '',
+      `${payload.key} · ${payload.title}`,
+      facts,
+      '',
+      `${tr('Approve:')} ${payload.approveUrl}`,
+      `${tr('Reject:')} ${payload.rejectUrl}`,
+      `${tr('Open:')} ${payload.openUrl}`,
+      '',
+      once,
+    ],
+    locale,
+  );
 
   return { subject, html, text };
 }

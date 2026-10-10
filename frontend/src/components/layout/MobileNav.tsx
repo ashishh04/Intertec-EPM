@@ -15,6 +15,7 @@ import { useUI } from '@/providers/UIProvider';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUnreadCount } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
+import { isRightToLeft, t } from '@/lib/i18n';
 
 /** Slide-out full navigation, opened from the header menu button on small screens. */
 export function MobileNavSheet() {
@@ -22,7 +23,7 @@ export function MobileNavSheet() {
 
   return (
     <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-      <SheetContent side="left" className="w-[17rem] p-0 sm:max-w-[17rem]" hideClose>
+      <SheetContent side={isRightToLeft() ? 'right' : 'left'} className="w-[17rem] p-0 sm:max-w-[17rem]" hideClose>
         <Sidebar variant="sheet" onNavigate={() => setMobileNavOpen(false)} />
       </SheetContent>
     </Sheet>
@@ -66,7 +67,7 @@ export function MobileBottomNav() {
           <item.icon className="h-5 w-5" aria-hidden />
           {badgeCount > 0 ? (
             <span
-              className="absolute -right-1 -top-0.5 h-2 w-2 rounded-full bg-danger ring-2 ring-surface"
+              className="absolute -end-1 -top-0.5 h-2 w-2 rounded-full bg-danger ring-2 ring-surface"
               aria-hidden
             />
           ) : null}
@@ -78,7 +79,7 @@ export function MobileBottomNav() {
 
   return (
     <nav
-      aria-label="Primary mobile"
+      aria-label={t('Primary mobile')}
       className="fixed inset-x-0 bottom-0 z-30 flex items-stretch gap-1 border-t border-border bg-surface/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 backdrop-blur-md md:hidden"
     >
       {renderItem(first)}
@@ -87,7 +88,7 @@ export function MobileBottomNav() {
       <button
         type="button"
         onClick={() => openTaskDrawer()}
-        aria-label="Create task"
+        aria-label={t('Create task')}
         className="mx-1 my-1 flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-full bg-brand-diagonal text-white shadow-elevated transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <Plus className="h-5 w-5" />
@@ -99,14 +100,14 @@ export function MobileBottomNav() {
       <DropdownMenu>
         <DropdownMenuTrigger
           className="flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-2xs font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="More navigation"
+          aria-label={t('More navigation')}
         >
           <MoreHorizontal className="h-5 w-5" aria-hidden />
-          More
+          {t('More')}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" side="top" className="mb-1 max-h-80 w-52 overflow-y-auto">
           <DropdownMenuItem onSelect={() => setMobileNavOpen(true)}>
-            Browse all sections
+            {t('Browse all sections')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {moreSections.map((section) => (

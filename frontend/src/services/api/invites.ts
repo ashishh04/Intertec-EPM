@@ -1,6 +1,7 @@
 import { ApiError } from './client';
 import type { InviteRepository } from '../repositories';
 import { env } from '@/config/env';
+import { currentLanguage, t } from '@/lib/i18n';
 import type { InviteInfo } from '@/types';
 
 /**
@@ -26,20 +27,22 @@ async function publicRequest<T>(
       credentials: 'include',
       headers: {
         Accept: 'application/json',
+        // The backend answers in the language this page is showing (BR-605).
+        'Accept-Language': currentLanguage(),
         ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
   } catch {
     throw new ApiError(
-      'Unable to reach the EPM backend. Check your connection and try again.',
+      t('Unable to reach the EPM backend. Check your connection and try again.'),
       0,
       'NETWORK',
     );
   }
 
   if (!response.ok) {
-    let message = `Request failed with status ${response.status}`;
+    let message = t('Request failed with status {status}', { status: response.status });
     let code: string | undefined;
     try {
       const payload = (await response.json()) as { message?: string; code?: string };

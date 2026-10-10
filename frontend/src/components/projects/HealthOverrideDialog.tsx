@@ -24,6 +24,7 @@ import {
 import { useSetHealthOverride } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { HEALTH_CRITERIA_META, HEALTH_META } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { formatDateTime } from '@/lib/utils';
 import type { EpmProject, HealthDimension, HealthLevel, HealthOverride } from '@/types';
 
@@ -43,8 +44,9 @@ const CALCULATED = '__calculated__';
 const MIN_REASON = 10;
 
 const ROWS: { key: HealthDimension; label: string }[] = [
-  { key: 'overall', label: 'Overall' },
-  ...HEALTH_CRITERIA_META.map(({ key, label }) => ({ key, label })),
+  { key: 'overall', get label() { return t('Overall'); } },
+  // Read through, not copied: a label copied here at import would stay in the language of the moment.
+  ...HEALTH_CRITERIA_META.map((criterion) => ({ key: criterion.key, get label() { return criterion.label; } })),
 ];
 
 const LEVELS: HealthLevel[] = ['healthy', 'warning', 'critical'];
@@ -96,10 +98,10 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
       { id: project.id, levels: clear ? {} : levels, reason: reason.trim() || undefined },
       {
         onSuccess: () => {
-          toast.success(clear || !pinsSomething ? 'Override cleared' : 'Override saved');
+          toast.success(clear || !pinsSomething ? t('Override cleared') : t('Override saved'));
           onOpenChange(false);
         },
-        onError: (error) => setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+        onError: (error) => setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -110,31 +112,33 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Override health</DialogTitle>
+          <DialogTitle>{t('Override health')}</DialogTitle>
           <DialogDescription>
-            Pin a level where the calculated value is wrong. Anything left on
-            &ldquo;calculated&rdquo; keeps following the data, and the calculated value stays
-            visible beside every override.
+            {t(
+              'Pin a level where the calculated value is wrong. Anything left on “calculated” keeps following the data, and the calculated value stays visible beside every override.',
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {current ? (
-            <Alert tone="primary" title="An override is in force">
-              {current.reason}
+            <Alert tone="primary" title={t('An override is in force')}>
+              <span dir="auto">{current.reason}</span>
               <span className="mt-1 block text-2xs text-muted-foreground">
                 {current.setBy === 'unknown'
-                  ? 'Carried over from before overrides needed a reason.'
-                  : `Set by ${setBy?.name ?? 'someone no longer listed'}, ${formatDateTime(current.setAt)}.`}
+                  ? t('Carried over from before overrides needed a reason.')
+                  : setBy?.name
+                    ? t('Set by {name}, {date}.', { name: setBy.name, date: formatDateTime(current.setAt) })
+                    : t('Set by someone no longer listed, {date}.', { date: formatDateTime(current.setAt) })}
               </span>
             </Alert>
           ) : null}
 
           <div className="space-y-2.5">
             <div className="grid grid-cols-[minmax(0,1fr)_7rem_9rem] items-center gap-3 text-2xs font-medium text-muted-foreground">
-              <span>Criterion</span>
-              <span>Calculated</span>
-              <span>Override</span>
+              <span>{t('Criterion')}</span>
+              <span>{t('Calculated')}</span>
+              <span>{t('Override')}</span>
             </div>
             {ROWS.map((row) => (
               <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_7rem_9rem] items-center gap-3">
@@ -146,11 +150,11 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
                   value={draft[row.key] ?? CALCULATED}
                   onValueChange={(value) => setDraft((was) => ({ ...was, [row.key]: value }))}
                 >
-                  <SelectTrigger id={`health-${row.key}`} aria-label={`Override ${row.label}`} className="h-8 text-xs">
+                  <SelectTrigger id={`health-${row.key}`} aria-label={t('Override {criterion}', { criterion: row.label })} className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={CALCULATED}>Calculated</SelectItem>
+                    <SelectItem value={CALCULATED}>{t('Calculated')}</SelectItem>
                     {LEVELS.map((level) => (
                       <SelectItem key={level} value={level}>
                         {HEALTH_META[level].label}
@@ -164,23 +168,28 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
 
           <div className="space-y-1.5">
             <Label htmlFor="health-reason" required={pinsSomething}>
-              Reason
+              {t('Reason')}
             </Label>
             <Textarea
               id="health-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="What do you know that the data does not? e.g. the change request adding budget was approved on 1 October and has not been loaded yet."
+              placeholder={t(
+                'What do you know that the data does not? e.g. the change request adding budget was approved on 1 October and has not been loaded yet.',
+              )}
               rows={3}
               maxLength={2000}
               invalid={touched && pinsSomething && reasonShort}
             />
             {touched && pinsSomething && reasonShort ? (
-              <FieldError>Say why the calculated health is wrong, in at least {MIN_REASON} characters.</FieldError>
+              <FieldError>
+                {t('Say why the calculated health is wrong, in at least {min, number} characters.', { min: MIN_REASON })}
+              </FieldError>
             ) : (
               <FieldHint>
-                Kept with the override, shown wherever the overridden value is, and recorded in the
-                project journal with your name.
+                {t(
+                  'Kept with the override, shown wherever the overridden value is, and recorded in the project journal with your name.',
+                )}
               </FieldHint>
             )}
           </div>
@@ -192,20 +201,20 @@ export function HealthOverrideDialog({ open, onOpenChange, project }: HealthOver
           <div>
             {current ? (
               <Button variant="secondary" onClick={() => submit(true)} disabled={setOverride.isPending}>
-                Clear override
+                {t('Clear override')}
               </Button>
             ) : null}
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={setOverride.isPending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button
               onClick={() => submit(false)}
               disabled={!pinsSomething && !current}
               loading={setOverride.isPending}
             >
-              {pinsSomething || !current ? 'Save override' : 'Clear override'}
+              {pinsSomething || !current ? t('Save override') : t('Clear override')}
             </Button>
           </div>
         </DialogFooter>

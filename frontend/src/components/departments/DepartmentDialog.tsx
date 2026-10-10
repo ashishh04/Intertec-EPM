@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select';
 import { useCreateDepartment, useUpdateDepartment } from '@/hooks/useDepartments';
 import { useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import type { EpmDepartment } from '@/services/api/departments';
 
 /**
@@ -81,16 +82,16 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
       managerId: managerId === NO_MANAGER ? '' : managerId,
     };
 
-    if (!input.name) return setProblem('A name is required.');
-    if (!input.code) return setProblem('A code is required.');
-    if (!CODE_PATTERN.test(input.code)) return setProblem(CODE_PROBLEM);
+    if (!input.name) return setProblem(t('A name is required.'));
+    if (!input.code) return setProblem(t('A code is required.'));
+    if (!CODE_PATTERN.test(input.code)) return setProblem(t(CODE_PROBLEM));
 
     const onSuccess = () => {
-      toast.success(isEdit ? 'Department updated' : 'Department created');
+      toast.success(isEdit ? t('Department updated') : t('Department created'));
       onOpenChange(false);
     };
     const onError = (error: unknown) =>
-      setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+      setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
     if (isEdit) {
       update.mutate({ id: department!.id, input }, { onSuccess, onError });
@@ -108,16 +109,16 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
             column layout for the body to scroll under a pinned footer. */}
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit department' : 'New department'}</DialogTitle>
+            <DialogTitle>{isEdit ? t('Edit department') : t('New department')}</DialogTitle>
             <DialogDescription>
-              Departments exist only in EPM. Nothing about them leaves it.
+              {t('Departments exist only in EPM. Nothing about them leaves it.')}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
+          <div className="epm-dialog-body epm-scroll -me-1 space-y-4 py-1 pe-2">
             <div className="space-y-1.5">
               <Label htmlFor="department-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="department-name"
@@ -125,14 +126,14 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
                 maxLength={120}
                 autoFocus
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Engineering"
+                placeholder={t('Engineering')}
               />
             </div>
 
             <CodeField id="department-code" value={code} onChange={setCode} placeholder="ENG" />
 
             <div className="space-y-1.5">
-              <Label htmlFor="department-manager">Manager</Label>
+              <Label htmlFor="department-manager">{t('Manager')}</Label>
               {/* An empty value while loading shows the placeholder instead of
                   the "No manager" option, which would read as a settled answer. */}
               <Select
@@ -140,11 +141,11 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
                 onValueChange={setManagerId}
                 disabled={users.isLoading}
               >
-                <SelectTrigger id="department-manager" aria-label="Select a manager">
-                  <SelectValue placeholder={users.isLoading ? 'Loading…' : 'No manager'} />
+                <SelectTrigger id="department-manager" aria-label={t('Select a manager')}>
+                  <SelectValue placeholder={users.isLoading ? t('Loading…') : t('No manager')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NO_MANAGER}>No manager</SelectItem>
+                  <SelectItem value={NO_MANAGER}>{t('No manager')}</SelectItem>
                   {people.map((user) => (
                     <SelectItem key={user.id} value={String(user.id)}>
                       {user.name}
@@ -153,19 +154,19 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
                 </SelectContent>
               </Select>
               {!users.isLoading && people.length === 0 ? (
-                <FieldHint>Nobody in the directory to choose from.</FieldHint>
+                <FieldHint>{t('Nobody in the directory to choose from.')}</FieldHint>
               ) : null}
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="department-description">Description</Label>
+              <Label htmlFor="department-description">{t('Description')}</Label>
               <Textarea
                 id="department-description"
                 rows={3}
                 value={description}
                 maxLength={2000}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="What this department is responsible for."
+                placeholder={t('What this department is responsible for.')}
               />
             </div>
 
@@ -174,10 +175,10 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={create.isPending || update.isPending}>
-              {isEdit ? 'Save changes' : 'Create department'}
+              {isEdit ? t('Save changes') : t('Create department')}
             </Button>
           </DialogFooter>
         </form>

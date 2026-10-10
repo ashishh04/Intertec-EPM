@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { durationToNumber, durationUnitFor, numberToDuration } from '@/lib/duration';
 import {
@@ -137,13 +138,13 @@ function DurationField({
           onChange={(event) => handle(event.target.value)}
         />
         <span id={`${id}-unit`} className="shrink-0 text-xs text-muted-foreground">
-          {unit === 'days' ? 'working days' : 'hours'}
+          {unit === 'days' ? t('working days') : t('hours')}
         </span>
       </div>
       <FieldHint>
         {unit === 'days'
-          ? 'Whole working days on the schedule.'
-          : 'Hours of effort. Quarters are fine, e.g. 7.5.'}
+          ? t('Whole working days on the schedule.')
+          : t('Hours of effort. Quarters are fine, e.g. 7.5.')}
       </FieldHint>
     </>
   );
@@ -184,14 +185,14 @@ function FetchedSelect({
         <SelectTrigger id={`schema-${name}`} aria-invalid={Boolean(error)}>
           <SelectValue
             placeholder={
-              options.isLoading ? 'Loading…' : `Select ${field.name.toLowerCase()}`
+              options.isLoading ? t('Loading…') : t('Select {field}', { field: field.name.toLowerCase() })
             }
           />
         </SelectTrigger>
         <SelectContent>
           {/* Clearing has to be possible: these fields are optional, and a
               picker with no empty choice cannot be undone. */}
-          {field.required ? null : <SelectItem value={NONE}>None</SelectItem>}
+          {field.required ? null : <SelectItem value={NONE}>{t('None')}</SelectItem>}
           {list.map((option) => (
             <SelectItem key={option.href} value={option.href}>
               {option.name}
@@ -200,7 +201,7 @@ function FetchedSelect({
         </SelectContent>
       </Select>
       {!options.isLoading && list.length === 0 ? (
-        <FieldHint>Nothing to choose from.</FieldHint>
+        <FieldHint>{t('Nothing to choose from.')}</FieldHint>
       ) : null}
     </FieldRow>
   );
@@ -308,7 +309,7 @@ export function SchemaForm({
             }}
           >
             <SelectTrigger id={`schema-${name}`} aria-invalid={Boolean(error)}>
-              <SelectValue placeholder={`Select ${field.name.toLowerCase()}`} />
+              <SelectValue placeholder={t('Select {field}', { field: field.name.toLowerCase() })} />
             </SelectTrigger>
             <SelectContent>
               {options.map((option) => (
@@ -428,10 +429,10 @@ export function SchemaForm({
               <Input
                 id={`schema-${name}`}
                 readOnly
-                value={titleOf(raw) ?? 'Set elsewhere'}
+                value={titleOf(raw) ?? t('Set elsewhere')}
                 className="text-muted-foreground"
               />
-              <FieldHint>Not editable here.</FieldHint>
+              <FieldHint>{t('Not editable here.')}</FieldHint>
             </FieldRow>
           );
         }
@@ -465,7 +466,7 @@ export function SchemaForm({
    */
   const groups: { label: string; fields: [string, SchemaField][] }[] = [];
   for (const entry of fields) {
-    const label = entry[1].attributeGroup?.trim() || 'Other';
+    const label = entry[1].attributeGroup?.trim() || t('Other');
     const existing = groups.find((group) => group.label === label);
     if (existing) existing.fields.push(entry);
     else groups.push({ label, fields: [entry] });

@@ -1,4 +1,5 @@
 import { PlateFrame } from './PlateFrame';
+import { t } from '@/lib/i18n';
 
 /**
  * Capacity and allocation: a delivery squad down the side, ten weeks across.
@@ -24,12 +25,12 @@ import { PlateFrame } from './PlateFrame';
  * evenly hot grid reads as a team in crisis and, at this size, as noise.
  */
 const PEOPLE = [
-  { name: 'A. Rahman', role: 'Delivery lead', initials: 'AR', load: '1222331211' },
-  { name: 'S. Menon', role: 'Engineering', initials: 'SM', load: '1122232110' },
-  { name: 'K. Fernandes', role: 'Engineering', initials: 'KF', load: '1223432211' },
-  { name: 'L. Haddad', role: 'Data', initials: 'LH', load: '1122333421' },
-  { name: 'M. Iyer', role: 'QA', initials: 'MI', load: '0112222211' },
-  { name: 'D. Okoye', role: 'Platform', initials: 'DO', load: '1122321011' },
+  { name: 'A. Rahman', get role() { return t('Delivery lead'); }, initials: 'AR', load: '1222331211' },
+  { name: 'S. Menon', get role() { return t('Engineering'); }, initials: 'SM', load: '1122232110' },
+  { name: 'K. Fernandes', get role() { return t('Engineering'); }, initials: 'KF', load: '1223432211' },
+  { name: 'L. Haddad', get role() { return t('Data'); }, initials: 'LH', load: '1122333421' },
+  { name: 'M. Iyer', get role() { return t('QA'); }, initials: 'MI', load: '0112222211' },
+  { name: 'D. Okoye', get role() { return t('Platform'); }, initials: 'DO', load: '1122321011' },
 ] as const;
 
 const WEEKS = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45'];
@@ -86,10 +87,13 @@ export function CapacityPlate() {
             <p
               className={`font-display font-semibold uppercase tracking-[0.2em] text-white/70 ${LABEL}`}
             >
-              Capacity
+              {t('Capacity')}
             </p>
             <p className={`mt-[0.5em] font-mono text-white/30 ${MICRO}`}>
-              Delivery squad · weeks {WEEKS[0]}–{WEEKS[WEEKS.length - 1]}
+              {t('Delivery squad · weeks {first}–{last}', {
+                first: WEEKS[0],
+                last: WEEKS[WEEKS.length - 1],
+              })}
             </p>
           </div>
 
@@ -97,7 +101,7 @@ export function CapacityPlate() {
             className={`flex items-center gap-[0.5em] rounded-full bg-[hsl(var(--brand-from)/0.14)] px-[0.8em] py-[0.45em] font-mono text-[hsl(var(--brand-from))] ring-1 ring-inset ring-[hsl(var(--brand-from)/0.35)] ${MICRO}`}
           >
             <span className="h-[0.45em] w-[0.45em] rounded-full bg-[hsl(var(--brand-from))]" />
-            {overCount} over capacity
+            {t('{count, number} over capacity', { count: overCount })}
           </span>
         </div>
 
@@ -156,7 +160,7 @@ export function CapacityPlate() {
               <span
                 className="pointer-events-none absolute inset-y-[-3%] rounded-md bg-white/[0.06] ring-1 ring-inset ring-white/[0.14]"
                 style={{
-                  left: `${THIS_WEEK * (COLUMN_WIDTH + COLUMN_GAP) - COLUMN_GAP / 2}%`,
+                  insetInlineStart: `${THIS_WEEK * (COLUMN_WIDTH + COLUMN_GAP) - COLUMN_GAP / 2}%`,
                   width: `${COLUMN_WIDTH + COLUMN_GAP}%`,
                 }}
               />
@@ -183,13 +187,16 @@ export function CapacityPlate() {
 
         {/* ---- Legend -------------------------------------------------- */}
         <div className={`mt-[3.5%] flex items-center gap-[3%] ${MICRO}`}>
-          <span className="text-white/35">Free</span>
+          <span className="text-white/35">{t('Free')}</span>
           {/* One continuous ramp rather than three swatches: the scale is
               continuous, and saying so takes less room than a key. */}
           <span className="h-[0.5em] flex-1 rounded-full bg-gradient-to-r from-white/[0.08] via-[hsl(var(--brand-to))] to-[hsl(var(--brand-from))]" />
-          <span className="text-white/35">Over</span>
-          <span className="ml-[2%] font-mono tabular-nums text-white/30">
-            {WEEKS.length} weeks · {PEOPLE.length} people
+          <span className="text-white/35">{t('Over')}</span>
+          <span className="ms-[2%] font-mono tabular-nums text-white/30">
+            {t('{weeks, plural, one {# week} other {# weeks}} · {people, plural, one {# person} other {# people}}', {
+              weeks: WEEKS.length,
+              people: PEOPLE.length,
+            })}
           </span>
         </div>
       </div>

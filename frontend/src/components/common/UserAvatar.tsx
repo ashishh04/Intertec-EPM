@@ -2,6 +2,7 @@ import { Avatar, AvatarFallback, AvatarImage, type AvatarSize } from '@/componen
 import { env } from '@/config/env';
 import { usePreferences } from '@/hooks/usePreferences';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { EpmUser, UserStatus } from '@/types';
 
@@ -12,9 +13,15 @@ const STATUS_RING: Record<UserStatus, string> = {
 };
 
 const STATUS_LABEL: Record<UserStatus, string> = {
-  online: 'Online',
-  away: 'Away',
-  offline: 'Offline',
+  get online() {
+    return t('Online');
+  },
+  get away() {
+    return t('Away');
+  },
+  get offline() {
+    return t('Offline');
+  },
 };
 
 /**
@@ -44,7 +51,7 @@ interface UserAvatarProps {
  */
 function UserAvatar({ user, size = 'default', showStatus = false, className }: UserAvatarProps) {
   const { preferences } = usePreferences();
-  const label = user ? user.name : 'Unassigned';
+  const label = user ? user.name : t('Unassigned');
   const showPhoto = preferences.appearance.showAvatars;
 
   return (
@@ -59,7 +66,7 @@ function UserAvatar({ user, size = 'default', showStatus = false, className }: U
       {showStatus && user ? (
         <span
           className={cn(
-            'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface',
+            'absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface',
             STATUS_RING[user.status],
           )}
         >
@@ -80,7 +87,7 @@ function UserAvatarWithTooltip({ user, ...props }: UserAvatarProps) {
         </span>
       </TooltipTrigger>
       <TooltipContent>
-        {user ? `${user.name}` : 'Unassigned'}
+        {user ? `${user.name}` : t('Unassigned')}
       </TooltipContent>
     </Tooltip>
   );
@@ -116,7 +123,7 @@ function AvatarGroup({ users, max = 4, size = 'sm', className }: AvatarGroupProp
   const overflow = known.length - visible.length;
 
   return (
-    <div className={cn('flex items-center -space-x-0.5', className)}>
+    <div className={cn('flex items-center -space-x-0.5 rtl:space-x-reverse', className)}>
       {visible.map((user) => (
         <UserAvatarWithTooltip
           key={user.id}

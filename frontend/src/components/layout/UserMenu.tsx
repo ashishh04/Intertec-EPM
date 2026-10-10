@@ -10,6 +10,7 @@ import {
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { useAuth } from '@/providers/AuthProvider';
 import { isAdministrator } from '@/config/navigation';
+import { t } from '@/lib/i18n';
 
 /** Avatar button in the header: identity and sign-out. */
 export function UserMenu() {
@@ -21,7 +22,7 @@ export function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger
         className="rounded-full transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        aria-label="Open account menu"
+        aria-label={t('Open account menu')}
       >
         <UserAvatar user={user} size="default" showStatus />
       </DropdownMenuTrigger>
@@ -30,7 +31,7 @@ export function UserMenu() {
         <div className="flex items-center gap-2.5 px-2 py-2">
           <UserAvatar user={user} size="lg" />
           <div className="min-w-0">
-            <p className="truncate text-xs font-medium">{user?.name ?? 'Signed in'}</p>
+            <p className="truncate text-xs font-medium">{user?.name ?? t('Signed in')}</p>
             <p className="truncate text-2xs text-muted-foreground">{user?.role}</p>
             <p className="truncate font-mono text-2xs text-muted-foreground/80">{user?.email}</p>
           </div>
@@ -40,16 +41,16 @@ export function UserMenu() {
 
         <DropdownMenuItem onSelect={() => navigate('/profile')}>
           <User />
-          Profile
+          {t('Profile')}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => navigate('/settings')}>
           <Settings />
-          Settings
+          {t('Settings')}
         </DropdownMenuItem>
         {administrator ? (
           <DropdownMenuItem onSelect={() => navigate('/admin')}>
             <ShieldCheck />
-            Administration
+            {t('Administration')}
           </DropdownMenuItem>
         ) : null}
 
@@ -62,7 +63,7 @@ export function UserMenu() {
           onSelect={() => signOut()}
         >
           <LogOut />
-          Sign out
+          {t('Sign out')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

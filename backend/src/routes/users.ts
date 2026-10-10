@@ -13,6 +13,7 @@ import {
   getPasswordPolicy,
   type PasswordPolicy,
 } from '../domain/password-policy.js';
+import { listOf, message } from '../lib/i18n.js';
 
 export const userRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -180,7 +181,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
 
     const failures = await checkPassword(password, requestSignal(request));
     if (failures.length > 0) {
-      throw EpmError.badRequest(`That password needs: ${failures.join(', ')}.`);
+      throw EpmError.badRequest(message('That password needs: {failures}.', { failures: listOf(failures) }));
     }
 
     await openProject.request<unknown>(`/users/${userId}`, {

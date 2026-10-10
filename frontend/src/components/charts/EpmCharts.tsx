@@ -18,6 +18,8 @@ import {
 import { BarChart3, PieChart as PieChartIcon, TrendingUp, type LucideIcon } from 'lucide-react';
 import { EmptyState } from '@/components/common/EmptyState';
 import { TASK_STATUS_META, TONE_VAR, type Tone } from '@/lib/domain';
+import { currentLanguage, isRightToLeft, t } from '@/lib/i18n';
+import { formatShortDate } from '@/lib/utils';
 import type { BurndownPoint, DeliveryTrendPoint, StatusDistribution } from '@/types';
 
 /**
@@ -38,6 +40,16 @@ const GRID = {
   strokeDasharray: '3 3',
   vertical: false,
 } as const;
+
+/*
+ * Right-to-left charts (BR-603): time runs from the right, the value axis sits
+ * on the right edge, and the margins swap with it. Read at render; the app
+ * remounts when the language changes, so a chart never mixes directions.
+ */
+const timeAxis = () => ({ reversed: isRightToLeft() });
+const valueAxis = () => ({ orientation: isRightToLeft() ? ('right' as const) : ('left' as const) });
+const sideMargins = (margin: { top: number; right: number; bottom: number; left: number }) =>
+  isRightToLeft() ? { ...margin, left: margin.right, right: margin.left } : margin;
 
 const TOOLTIP_STYLE = {
   contentStyle: {
@@ -79,18 +91,18 @@ export function BurndownChart({ data }: { data: BurndownPoint[] }) {
     return (
       <ChartEmpty
         icon={TrendingUp}
-        title="No burndown yet"
-        description="The line starts once the sprint records its first day."
+        title={t('No burndown yet')}
+        description={t('The line starts once the sprint records its first day.')}
       />
     );
   }
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+      <LineChart data={data} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: -18 })}>
         <CartesianGrid {...GRID} />
-        <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
-        <YAxis {...AXIS} width={44} />
+        <XAxis dataKey="label" {...AXIS} {...timeAxis()} interval="preserveStartEnd" />
+        <YAxis {...AXIS} {...valueAxis()} width={44} />
         <Tooltip {...TOOLTIP_STYLE} cursor={{ stroke: 'hsl(var(--border))' }} />
         <Legend
           verticalAlign="top"
@@ -101,7 +113,7 @@ export function BurndownChart({ data }: { data: BurndownPoint[] }) {
         <Line
           type="monotone"
           dataKey="ideal"
-          name="Ideal"
+          name={t('Ideal')}
           stroke="hsl(var(--muted-foreground))"
           strokeDasharray="4 4"
           strokeWidth={1.5}
@@ -110,7 +122,7 @@ export function BurndownChart({ data }: { data: BurndownPoint[] }) {
         <Line
           type="monotone"
           dataKey="remaining"
-          name="Remaining"
+          name={t('Remaining')}
           stroke={TONE_VAR.primary}
           strokeWidth={2}
           dot={{ r: 2.5, strokeWidth: 0, fill: TONE_VAR.primary }}
@@ -131,15 +143,15 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
     return (
       <ChartEmpty
         icon={TrendingUp}
-        title="No delivery history"
-        description="Created and completed counts appear once work has moved."
+        title={t('No delivery history')}
+        description={t('Created and completed counts appear once work has moved.')}
       />
     );
   }
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+      <AreaChart data={data} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: -18 })}>
         <defs>
           <linearGradient id="epm-completed" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={TONE_VAR.primary} stopOpacity={0.28} />
@@ -151,8 +163,8 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
           </linearGradient>
         </defs>
         <CartesianGrid {...GRID} />
-        <XAxis dataKey="period" {...AXIS} />
-        <YAxis {...AXIS} width={44} />
+        <XAxis dataKey="period" {...AXIS} {...timeAxis()} />
+        <YAxis {...AXIS} {...valueAxis()} width={44} />
         <Tooltip {...TOOLTIP_STYLE} cursor={{ stroke: 'hsl(var(--border))' }} />
         <Legend
           verticalAlign="top"
@@ -163,7 +175,7 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
         <Area
           type="monotone"
           dataKey="completed"
-          name="Completed"
+          name={t('Completed')}
           stroke={TONE_VAR.primary}
           strokeWidth={2}
           fill="url(#epm-completed)"
@@ -171,7 +183,7 @@ export function DeliveryTrendChart({ data }: { data: DeliveryTrendPoint[] }) {
         <Area
           type="monotone"
           dataKey="created"
-          name="Created"
+          name={t('Created')}
           stroke={TONE_VAR.accent}
           strokeWidth={2}
           fill="url(#epm-created)"
@@ -189,20 +201,20 @@ export function VelocityChart({ data }: { data: DeliveryTrendPoint[] }) {
   if (data.length === 0) {
     return (
       <ChartEmpty
-        title="No velocity yet"
-        description="Story points show once a sprint has been completed."
+        title={t('No velocity yet')}
+        description={t('Story points show once a sprint has been completed.')}
       />
     );
   }
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+      <BarChart data={data} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: -18 })}>
         <CartesianGrid {...GRID} />
-        <XAxis dataKey="period" {...AXIS} />
-        <YAxis {...AXIS} width={44} />
+        <XAxis dataKey="period" {...AXIS} {...timeAxis()} />
+        <YAxis {...AXIS} {...valueAxis()} width={44} />
         <Tooltip {...TOOLTIP_STYLE} />
-        <Bar dataKey="velocity" name="Story points" radius={[4, 4, 0, 0]} maxBarSize={34}>
+        <Bar dataKey="velocity" name={t('Story points')} radius={[4, 4, 0, 0]} maxBarSize={34}>
           {data.map((entry, index) => (
             <Cell
               key={entry.period}
@@ -224,8 +236,8 @@ export function StatusDistributionChart({ data }: { data: StatusDistribution[] }
     return (
       <ChartEmpty
         icon={PieChartIcon}
-        title="No work to break down"
-        description="The distribution fills in as tasks are created."
+        title={t('No work to break down')}
+        description={t('The distribution fills in as tasks are created.')}
       />
     );
   }
@@ -236,7 +248,7 @@ export function StatusDistributionChart({ data }: { data: StatusDistribution[] }
         <Tooltip {...TOOLTIP_STYLE} cursor={false} />
         <Legend
           verticalAlign="middle"
-          align="right"
+          align={isRightToLeft() ? 'left' : 'right'}
           layout="vertical"
           iconType="circle"
           wrapperStyle={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', lineHeight: '20px' }}
@@ -277,16 +289,16 @@ export function HorizontalBarChart({
 }) {
   if (data.length === 0) {
     return (
-      <ChartEmpty title="Nothing to compare" description="There are no values to chart yet." />
+      <ChartEmpty title={t('Nothing to compare')} description={t('There are no values to chart yet.')} />
     );
   }
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
+      <BarChart data={data} layout="vertical" margin={sideMargins({ top: 4, right: 16, bottom: 4, left: 8 })}>
         <CartesianGrid {...GRID} horizontal={false} vertical />
-        <XAxis type="number" {...AXIS} />
-        <YAxis type="category" dataKey={labelKey} {...AXIS} width={120} />
+        <XAxis type="number" {...AXIS} {...timeAxis()} />
+        <YAxis type="category" dataKey={labelKey} {...AXIS} {...valueAxis()} width={120} />
         <Tooltip {...TOOLTIP_STYLE} />
         <Bar dataKey={valueKey} fill={TONE_VAR[tone]} radius={[0, 4, 4, 0]} maxBarSize={18} />
       </BarChart>
@@ -327,8 +339,8 @@ export function TrendChart({
       <EmptyState
         icon={TrendingUp}
         size="inline"
-        title="No history yet"
-        description="Trends begin at the first snapshot."
+        title={t('No history yet')}
+        description={t('Trends begin at the first snapshot.')}
       />
     );
   }
@@ -338,8 +350,8 @@ export function TrendChart({
       <EmptyState
         icon={TrendingUp}
         size="inline"
-        title="Only one snapshot so far"
-        description="A trend needs at least two days. The next capture starts the line."
+        title={t('Only one snapshot so far')}
+        description={t('A trend needs at least two days. The next capture starts the line.')}
       />
     );
   }
@@ -358,10 +370,16 @@ export function TrendChart({
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -18 }}>
+      <LineChart data={rows} margin={sideMargins({ top: 8, right: 8, bottom: 0, left: -18 })}>
         <CartesianGrid {...GRID} />
-        <XAxis dataKey="date" {...AXIS} tickFormatter={(value: string) => value.slice(5)} />
-        <YAxis {...AXIS} allowDecimals={false} />
+        <XAxis
+          dataKey="date"
+          {...AXIS}
+          {...timeAxis()}
+          // MM-DD in English, as before; elsewhere the reader's own short date.
+          tickFormatter={(value: string) => (currentLanguage() === 'en' ? value.slice(5) : formatShortDate(value))}
+        />
+        <YAxis {...AXIS} {...valueAxis()} allowDecimals={false} />
         <Tooltip
           {...TOOLTIP_STYLE}
           formatter={(value: number, name: string) => [`${value} ${unit}`, name]}

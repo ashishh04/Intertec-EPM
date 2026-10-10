@@ -12,6 +12,8 @@
  * is undiscoverable, so listing it is part of adding it.
  */
 
+import { t } from '@/lib/i18n';
+
 export interface Shortcut {
   /** The keys, written for a PC. `formatKeys` swaps in the Mac equivalents. */
   keys: string[];
@@ -29,46 +31,50 @@ export interface ShortcutGroup {
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   {
-    title: 'Getting around',
+    get title() { return t('Getting around'); },
     shortcuts: [
       {
         keys: ['Ctrl', 'K'],
-        label: 'Open search and the command palette',
-        detail: 'Suggests actions, projects, tasks and pages before you finish typing.',
+        get label() { return t('Open search and the command palette'); },
+        get detail() { return t('Suggests actions, projects, tasks and pages before you finish typing.'); },
       },
       {
         keys: ['Ctrl', '/'],
-        label: 'Open or close Pragnya',
-        detail: 'Works from anywhere, including while you are typing in a field.',
+        get label() { return t('Open or close Pragnya'); },
+        get detail() { return t('Works from anywhere, including while you are typing in a field.'); },
         flag: 'pragnya',
       },
-      { keys: ['Esc'], label: 'Close whatever is open', detail: 'Dialogs, drawers and the palette.' },
+      {
+        keys: ['Esc'],
+        get label() { return t('Close whatever is open'); },
+        get detail() { return t('Dialogs, drawers and the palette.'); },
+      },
     ],
   },
   {
-    title: 'Creating',
+    get title() { return t('Creating'); },
     shortcuts: [
       {
         keys: ['C'],
-        label: 'Create a task',
-        detail: 'Only when the cursor is not in a field, so typing a "c" never opens it.',
+        get label() { return t('Create a task'); },
+        get detail() { return t('Only when the cursor is not in a field, so typing a "c" never opens it.'); },
       },
     ],
   },
   {
-    title: 'In the command palette',
+    get title() { return t('In the command palette'); },
     shortcuts: [
-      { keys: ['↑', '↓'], label: 'Move through the results' },
-      { keys: ['Enter'], label: 'Open the highlighted result' },
-      { keys: ['Ctrl', 'K'], label: 'Close it again' },
+      { keys: ['↑', '↓'], get label() { return t('Move through the results'); } },
+      { keys: ['Enter'], get label() { return t('Open the highlighted result'); } },
+      { keys: ['Ctrl', 'K'], get label() { return t('Close it again'); } },
     ],
   },
   {
-    title: 'In a list or table',
+    get title() { return t('In a list or table'); },
     shortcuts: [
-      { keys: ['Tab'], label: 'Move to the next control' },
-      { keys: ['Space'], label: 'Tick the focused checkbox' },
-      { keys: ['Enter'], label: 'Open the focused row' },
+      { keys: ['Tab'], get label() { return t('Move to the next control'); } },
+      { keys: ['Space'], get label() { return t('Tick the focused checkbox'); } },
+      { keys: ['Enter'], get label() { return t('Open the focused row'); } },
     ],
   },
 ];

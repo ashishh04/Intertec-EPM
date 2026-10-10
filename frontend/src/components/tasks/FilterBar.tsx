@@ -24,6 +24,7 @@ import {
   TASK_STATUS_META,
 } from '@/lib/domain';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type {
   ID,
   EpmProject,
@@ -62,7 +63,7 @@ export function FilterBar({
   users = [],
   sprints = [],
   hide = [],
-  searchPlaceholder = 'Search tasks...',
+  searchPlaceholder = t('Search tasks...'),
   className,
   trailing,
 }: FilterBarProps) {
@@ -115,7 +116,7 @@ export function FilterBar({
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-48 flex-1 sm:max-w-xs">
           <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
             aria-hidden
           />
           <Input
@@ -123,7 +124,7 @@ export function FilterBar({
             onChange={(event) => set({ search: event.target.value })}
             placeholder={searchPlaceholder}
             aria-label={searchPlaceholder}
-            className="h-8 pl-8 text-xs"
+            className="h-8 ps-8 text-xs"
           />
         </div>
 
@@ -131,12 +132,12 @@ export function FilterBar({
           <DropdownMenuTrigger asChild>
             <Button size="sm" variant="secondary">
               <Filter className="h-3.5 w-3.5" />
-              Filter
-              <CountBadge count={activeCount} tone="primary" className="ml-0.5" />
+              {t('Filter')}
+              <CountBadge count={activeCount} tone="primary" className="ms-0.5" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-52">
-            <DropdownMenuLabel>Status</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Status')}</DropdownMenuLabel>
             {ALL_TASK_STATUSES.map((status) => (
               <DropdownMenuCheckboxItem
                 key={status}
@@ -148,7 +149,7 @@ export function FilterBar({
               </DropdownMenuCheckboxItem>
             ))}
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Priority</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Priority')}</DropdownMenuLabel>
             {ALL_TASK_PRIORITIES.map((priority) => (
               <DropdownMenuCheckboxItem
                 key={priority}
@@ -167,11 +168,11 @@ export function FilterBar({
             value={filters.projectId ?? ALL}
             onValueChange={(value) => set({ projectId: value === ALL ? undefined : (value as ID) })}
           >
-            <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label="Filter by project">
-              <SelectValue placeholder="All projects" />
+            <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label={t('Filter by project')}>
+              <SelectValue placeholder={t('All projects')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All projects</SelectItem>
+              <SelectItem value={ALL}>{t('All projects')}</SelectItem>
               {projects.map((project) => (
                 <SelectItem key={project.id} value={project.id}>
                   {project.name}
@@ -186,11 +187,11 @@ export function FilterBar({
             value={filters.assigneeId ?? ALL}
             onValueChange={(value) => set({ assigneeId: value === ALL ? undefined : (value as ID) })}
           >
-            <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label="Filter by assignee">
-              <SelectValue placeholder="Anyone" />
+            <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label={t('Filter by assignee')}>
+              <SelectValue placeholder={t('Anyone')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>Anyone</SelectItem>
+              <SelectItem value={ALL}>{t('Anyone')}</SelectItem>
               {users.map((user) => (
                 <SelectItem key={user.id} value={user.id}>
                   {user.name}
@@ -205,11 +206,11 @@ export function FilterBar({
             value={filters.sprintId ?? ALL}
             onValueChange={(value) => set({ sprintId: value === ALL ? undefined : (value as ID) })}
           >
-            <SelectTrigger className="h-8 w-auto min-w-32 text-xs" aria-label="Filter by sprint">
-              <SelectValue placeholder="All sprints" />
+            <SelectTrigger className="h-8 w-auto min-w-32 text-xs" aria-label={t('Filter by sprint')}>
+              <SelectValue placeholder={t('All sprints')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All sprints</SelectItem>
+              <SelectItem value={ALL}>{t('All sprints')}</SelectItem>
               {sprints.map((sprint) => (
                 <SelectItem key={sprint.id} value={sprint.id}>
                   {sprint.name}
@@ -219,7 +220,7 @@ export function FilterBar({
           </Select>
         ) : null}
 
-        {trailing ? <div className="ml-auto flex items-center gap-2">{trailing}</div> : null}
+        {trailing ? <div className="ms-auto flex items-center gap-2">{trailing}</div> : null}
       </div>
 
       {activeCount > 0 ? (
@@ -251,7 +252,7 @@ export function FilterBar({
             <FilterChip label={selectedSprint.name} onRemove={() => set({ sprintId: undefined })} />
           ) : null}
           <Button size="sm" variant="ghost" className="h-6 px-2 text-2xs" onClick={clearAll}>
-            Clear all
+            {t('Clear all')}
           </Button>
         </div>
       ) : null}
@@ -262,12 +263,12 @@ export function FilterBar({
 /** One active filter, removable in place. */
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <Badge tone="neutral" size="sm" className="gap-1 pr-1">
+    <Badge tone="neutral" size="sm" className="gap-1 pe-1">
       {label}
       <button
         type="button"
         onClick={onRemove}
-        aria-label={`Remove ${label} filter`}
+        aria-label={t('Remove {label} filter', { label })}
         className="rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <X className="h-3 w-3" />

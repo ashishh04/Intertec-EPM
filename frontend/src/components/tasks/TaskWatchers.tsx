@@ -15,6 +15,7 @@ import {
 } from '@/hooks/useCollaboration';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
+import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -50,8 +51,8 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
   const watchers = state.data?.watchers ?? [];
   const can = state.data?.can;
 
-  const fail = (action: string) => (error: unknown) =>
-    toast.error(`Could not ${action}`, {
+  const fail = (title: string) => (error: unknown) =>
+    toast.error(title, {
       description: error instanceof Error ? error.message : undefined,
     });
 
@@ -60,13 +61,13 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
 
     if (state.data?.isWatching) {
       remove.mutate(user.id, {
-        onSuccess: () => toast.success('You are no longer watching this task'),
-        onError: fail('stop watching'),
+        onSuccess: () => toast.success(t('You are no longer watching this task')),
+        onError: fail(t('Could not stop watching')),
       });
     } else {
       add.mutate(user.id, {
-        onSuccess: () => toast.success('You are now watching this task'),
-        onError: fail('start watching'),
+        onSuccess: () => toast.success(t('You are now watching this task')),
+        onError: fail(t('Could not start watching')),
       });
     }
   };
@@ -76,7 +77,7 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <Eye className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Watchers
+          {t('Watchers')}
           {watchers.length > 0 ? (
             <span className="text-2xs font-normal text-muted-foreground">{watchers.length}</span>
           ) : null}
@@ -96,14 +97,14 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
               ) : (
                 <Eye className="h-3.5 w-3.5" />
               )}
-              {state.data?.isWatching ? 'Unwatch' : 'Watch'}
+              {state.data?.isWatching ? t('Unwatch') : t('Watch')}
             </Button>
           ) : null}
 
           {can?.add ? (
             <Popover open={picking} onOpenChange={setPicking}>
               <PopoverTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-8 px-2" aria-label="Add a watcher">
+                <Button size="sm" variant="ghost" className="h-8 px-2" aria-label={t('Add a watcher')}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               </PopoverTrigger>
@@ -116,7 +117,7 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
                   </div>
                 ) : (available.data?.length ?? 0) === 0 ? (
                   <p className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    Everyone who can see this task is already watching it.
+                    {t('Everyone who can see this task is already watching it.')}
                   </p>
                 ) : (
                   <ul className="relative max-h-64 overflow-y-auto">
@@ -124,12 +125,12 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
                       <li key={candidate.id}>
                         <button
                           type="button"
-                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => {
                             setPicking(false);
                             add.mutate(candidate.id, {
-                              onSuccess: () => toast.success(`${candidate.name} is now watching`),
-                              onError: fail('add that watcher'),
+                              onSuccess: () => toast.success(t('{name} is now watching', { name: candidate.name })),
+                              onError: fail(t('Could not add that watcher')),
                             });
                           }}
                         >
@@ -154,14 +155,14 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
           </div>
         ) : watchers.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            Nobody is watching this task. Watchers are notified when it changes.
+            {t('Nobody is watching this task. Watchers are notified when it changes.')}
           </p>
         ) : (
           <ul className="flex flex-wrap gap-1.5">
             {watchers.map((watcher) => (
               <li
                 key={watcher.id}
-                className="flex items-center gap-1.5 rounded-full border border-border py-1 pl-1 pr-2 text-xs"
+                className="flex items-center gap-1.5 rounded-full border border-border py-1 ps-1 pe-2 text-xs"
               >
                 <UserAvatarWithTooltip user={users.get(watcher.id)} size="xs" />
                 <span className="max-w-40 truncate">{watcher.name}</span>
@@ -169,12 +170,12 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
                 {can?.remove ? (
                   <button
                     type="button"
-                    aria-label={`Remove ${watcher.name} as a watcher`}
+                    aria-label={t('Remove {name} as a watcher', { name: watcher.name })}
                     className="rounded-full p-0.5 text-muted-foreground hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() =>
                       remove.mutate(watcher.id, {
-                        onSuccess: () => toast.success(`${watcher.name} is no longer watching`),
-                        onError: fail('remove that watcher'),
+                        onSuccess: () => toast.success(t('{name} is no longer watching', { name: watcher.name })),
+                        onError: fail(t('Could not remove that watcher')),
                       })
                     }
                   >

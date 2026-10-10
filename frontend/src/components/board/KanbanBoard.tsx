@@ -15,7 +15,8 @@ import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { CalendarClock, Plus } from 'lucide-react';
 import { TASK_STATUS_META, TASK_STATUS_ORDER, TONE_FILL } from '@/lib/domain';
-import { cn, describeDueDate, formatNumber, pluralize } from '@/lib/utils';
+import { cn, describeDueDate, formatNumber } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -149,7 +150,10 @@ function KanbanColumn({
     <Card
       role="region"
       className="flex w-72 shrink-0 flex-col bg-surface-sunken/60 shadow-none"
-      aria-label={`${meta.label} column, ${formatNumber(tasks.length)} ${pluralize(tasks.length, 'task')}`}
+      aria-label={t('{status} column, {count, plural, one {# task} other {# tasks}}', {
+        status: meta.label,
+        count: tasks.length,
+      })}
     >
       <header className="flex items-center justify-between gap-2 px-3 py-2.5">
         <div className="flex items-center gap-2">
@@ -166,7 +170,7 @@ function KanbanColumn({
             variant="ghost"
             size="icon-sm"
             onClick={() => onCreate(status)}
-            aria-label={`Add a task to ${meta.label}`}
+            aria-label={t('Add a task to {status}', { status: meta.label })}
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>
@@ -183,7 +187,7 @@ function KanbanColumn({
         {tasks.length === 0 ? (
           <EmptyState
             size="inline"
-            title={isOver ? 'Drop here' : 'Nothing here'}
+            title={isOver ? t('Drop here') : t('Nothing here')}
             className="py-6"
           />
         ) : (
@@ -203,9 +207,9 @@ function KanbanColumn({
                 className="w-full text-2xs"
                 onClick={() => setVisibleCount((count) => count + COLUMN_PAGE_SIZE)}
               >
-                Show {formatNumber(Math.min(remaining, COLUMN_PAGE_SIZE))} more
+                {t('Show {count, number} more', { count: Math.min(remaining, COLUMN_PAGE_SIZE) })}
                 <span className="font-mono text-muted-foreground">
-                  ({formatNumber(remaining)} left)
+                  {t('({count, number} left)', { count: remaining })}
                 </span>
               </Button>
             ) : null}
@@ -261,7 +265,7 @@ function KanbanCard({
         <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
       </div>
 
-      <p className="mt-1.5 line-clamp-3 text-xs font-medium leading-snug text-foreground">
+      <p dir="auto" className="mt-1.5 line-clamp-3 text-xs font-medium leading-snug text-foreground">
         {task.subject}
       </p>
 
@@ -280,7 +284,7 @@ function KanbanCard({
           <UserAvatarWithTooltip user={assignee} size="xs" />
           {task.storyPoints ? (
             <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-2xs font-medium leading-none text-muted-foreground">
-              {formatNumber(task.storyPoints)} pt
+              {t('{points, number} pt', { points: task.storyPoints })}
             </span>
           ) : null}
         </div>

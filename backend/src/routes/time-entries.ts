@@ -16,6 +16,7 @@ import type { HalLink } from '../openproject/types.js';
 import type { EpmTimeEntry, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
 import { automationUserId } from '../domain/automation-account.js';
 import { mayViewRates } from '../auth/guard.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * The report with every figure that prices one person's time taken out
@@ -105,7 +106,7 @@ function principal(value: string | undefined, what: string): string | undefined 
 /** Ids that reach an upstream path must be digits, and are checked before they do. */
 function numeric(value: string | undefined, what: string): string | undefined {
   if (value === undefined || value === '') return undefined;
-  if (!/^\d+$/.test(value)) throw EpmError.badRequest(`That ${what} is not valid.`);
+  if (!/^\d+$/.test(value)) throw EpmError.badRequest(message('That {field} is not valid.', { field: what }));
   return value;
 }
 
@@ -418,7 +419,7 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     if (query.to < query.from) throw EpmError.badRequest('The range ends before it starts.');
     const span = daysBetween(query.from, query.to);
     if (span > REPORT_MAX_DAYS) {
-      throw EpmError.badRequest(`A report covers at most ${REPORT_MAX_DAYS} days.`);
+      throw EpmError.badRequest(message('A report covers at most {count, plural, one {# day} other {# days}}.', { count: REPORT_MAX_DAYS }));
     }
 
     const filters: OpFilter[] = [

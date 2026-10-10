@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Sparkles, X } from 'lucide-react';
 import { useUI } from '@/providers/UIProvider';
 import { usePrefersReducedMotion } from '@/hooks/useMediaQuery';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ID } from '@/types';
 import { PragnyaPanel } from './PragnyaPanel';
@@ -16,12 +17,12 @@ const DESCRIPTION_ID = 'pragnya-panel-description';
  * from `md` up the bar is gone and the button drops into the corner.
  */
 const LAUNCHER_POSITION =
-  'bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 md:bottom-6 md:right-6';
+  'bottom-[calc(4.75rem+env(safe-area-inset-bottom))] end-4 md:bottom-6 md:end-6';
 
 /** The popup sits just above the launcher, so it follows the same two offsets. */
 const PANEL_POSITION = cn(
-  'sm:bottom-[calc(8.75rem+env(safe-area-inset-bottom))] sm:right-4 sm:max-h-[calc(100dvh-12rem)]',
-  'md:bottom-[5.5rem] md:right-6 md:max-h-[calc(100dvh-8rem)]',
+  'sm:bottom-[calc(8.75rem+env(safe-area-inset-bottom))] sm:end-4 sm:max-h-[calc(100dvh-12rem)]',
+  'md:bottom-[5.5rem] md:end-6 md:max-h-[calc(100dvh-8rem)]',
 );
 
 /**
@@ -64,7 +65,7 @@ export function PragnyaWidget() {
         ref={launcherRef}
         type="button"
         onClick={() => (pragnyaOpen ? closePragnya() : openPragnya())}
-        aria-label={pragnyaOpen ? 'Close Pragnya' : 'Open Pragnya'}
+        aria-label={pragnyaOpen ? t('Close Pragnya') : t('Open Pragnya')}
         aria-expanded={pragnyaOpen}
         aria-controls={PANEL_ID}
         className={cn(
@@ -107,7 +108,7 @@ export function PragnyaWidget() {
             )}
           >
             <p id={DESCRIPTION_ID} className="sr-only">
-              Ask questions about projects, tasks, sprints and people. Answers come from EPM data.
+              {t('Ask questions about projects, tasks, sprints and people. Answers come from EPM data.')}
             </p>
             <PragnyaPanel
               conversationId={conversationId}

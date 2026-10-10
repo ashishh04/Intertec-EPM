@@ -13,6 +13,7 @@ import { describeSelection, SharingBadge } from '@/components/portfolios/Portfol
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDeletePortfolioView, usePortfolioViews, useSavePortfolioView } from '@/hooks/usePortfolioViews';
+import { t } from '@/lib/i18n';
 import { formatRelative } from '@/lib/utils';
 import type { ID, PortfolioView, PortfolioViewInput } from '@/types';
 
@@ -34,13 +35,15 @@ export default function PortfolioViewsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Insights"
-        title="Portfolio views"
-        description="Saved selections of projects with their status, schedule, budget, risks and milestones in one view. Each person sees a view with their own access."
+        eyebrow={t('Insights')}
+        title={t('Portfolio views')}
+        description={t(
+          'Saved selections of projects with their status, schedule, budget, risks and milestones in one view. Each person sees a view with their own access.',
+        )}
         actions={
           <Button size="sm" onClick={() => setEditing({ input: blankView() })}>
             <Plus className="h-3.5 w-3.5" />
-            New view
+            {t('New view')}
           </Button>
         }
       />
@@ -50,21 +53,21 @@ export default function PortfolioViewsPage() {
         isError={views.isError}
         error={views.error}
         onRetry={() => views.refetch()}
-        errorTitle="Unable to load the views"
+        errorTitle={t('Unable to load the views')}
         skeleton={<ListSkeleton rows={3} />}
       >
         <div className="grid gap-4 lg:grid-cols-2">
           <ViewList
-            title="Yours"
-            description="Views you made, shared or not."
+            title={t('Yours')}
+            description={t('Views you made, shared or not.')}
             views={mine}
-            empty="You have not saved a view yet. Open a portfolio and save it as a view, or start a new one."
+            empty={t('You have not saved a view yet. Open a portfolio and save it as a view, or start a new one.')}
           />
           <ViewList
-            title="Shared with you"
-            description="Views others share with everyone, or with a role you hold on one of their projects."
+            title={t('Shared with you')}
+            description={t('Views others share with everyone, or with a role you hold on one of their projects.')}
             views={shared}
-            empty="Nobody has shared a view with you yet."
+            empty={t('Nobody has shared a view with you yet.')}
           />
         </div>
       </QueryBoundary>
@@ -80,11 +83,11 @@ export default function PortfolioViewsPage() {
               { id: editing.id, input },
               {
                 onSuccess: (saved) => {
-                  toast.success(editing.id ? 'View saved' : 'View created');
+                  toast.success(editing.id ? t('View saved') : t('View created'));
                   setEditing(undefined);
                   if (!editing.id) navigate(`/portfolio-views/${saved.id}`);
                 },
-                onError: (error) => toast.error('The view was not saved', { description: error instanceof Error ? error.message : undefined }),
+                onError: (error) => toast.error(t('The view was not saved'), { description: error instanceof Error ? error.message : undefined }),
               },
             )
           }
@@ -103,7 +106,7 @@ function ViewList({ title, description, views, empty }: { title: string; descrip
       </CardHeader>
       <CardContent className="pt-2">
         {views.length === 0 ? (
-          <EmptyState size="inline" icon={Eye} title="No views here" description={empty} />
+          <EmptyState size="inline" icon={Eye} title={t('No views here')} description={empty} />
         ) : (
           <ul className="divide-y divide-border">
             {views.map((view) => (
@@ -124,22 +127,26 @@ function ViewRow({ view }: { view: PortfolioView }) {
     <li className="flex items-start justify-between gap-3 py-3">
       <div className="min-w-0 space-y-0.5">
         <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
-          <Link to={`/portfolio-views/${view.id}`} className="hover:text-primary hover:underline">
+          <Link to={`/portfolio-views/${view.id}`} dir="auto" className="hover:text-primary hover:underline">
             {view.name}
           </Link>
           <SharingBadge view={view} />
         </p>
         <p className="text-2xs text-muted-foreground">{describeSelection(view)}</p>
         <p className="text-2xs text-muted-foreground">
-          {view.mine ? 'Yours' : `By ${view.owner.name}`} · changed {formatRelative(view.updatedAt)}
+          {t('{owner, select, mine {Yours} other {By {name}}} · changed {when}', {
+            owner: view.mine ? 'mine' : 'other',
+            name: view.owner.name,
+            when: formatRelative(view.updatedAt),
+          })}
         </p>
       </div>
       <div className="flex shrink-0 gap-1">
         <Button size="sm" variant="secondary" asChild>
-          <Link to={`/portfolio-views/${view.id}`}>Open</Link>
+          <Link to={`/portfolio-views/${view.id}`}>{t('Open')}</Link>
         </Button>
         {view.canEdit ? (
-          <Button size="sm" variant="ghost" aria-label={`Delete ${view.name}`} onClick={() => setConfirming(true)}>
+          <Button size="sm" variant="ghost" aria-label={t('Delete {name}', { name: view.name })} onClick={() => setConfirming(true)}>
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         ) : null}
@@ -147,18 +154,18 @@ function ViewRow({ view }: { view: PortfolioView }) {
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={`Delete "${view.name}"?`}
-        description={view.visibility === 'private' ? 'Only you could see it.' : 'Everyone it is shared with loses it too.'}
-        confirmLabel="Delete"
+        title={t('Delete "{name}"?', { name: view.name })}
+        description={view.visibility === 'private' ? t('Only you could see it.') : t('Everyone it is shared with loses it too.')}
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() =>
           remove.mutate(view.id, {
             onSuccess: () => {
-              toast.success('View deleted');
+              toast.success(t('View deleted'));
               setConfirming(false);
             },
-            onError: (error) => toast.error('It could not be deleted', { description: error instanceof Error ? error.message : undefined }),
+            onError: (error) => toast.error(t('It could not be deleted'), { description: error instanceof Error ? error.message : undefined }),
           })
         }
       />

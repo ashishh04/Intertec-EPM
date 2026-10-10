@@ -22,7 +22,8 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
-import { daysFromToday, formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { daysFromToday } from '@/lib/utils';
 import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, TaskStatusCategory } from '@/types';
 import { toast } from 'sonner';
 
@@ -37,11 +38,31 @@ type ViewMode = 'list' | 'board';
  */
 const PAGE_SIZE = 200;
 
-const SECTIONS: { key: NonNullable<TaskFilters['bucket']>; title: string; hint: string }[] = [
-  { key: 'overdue', title: 'Overdue', hint: 'Past their committed date' },
-  { key: 'today', title: 'Today', hint: 'Due before end of day' },
-  { key: 'upcoming', title: 'Upcoming', hint: 'Scheduled ahead' },
-  { key: 'completed', title: 'Recently Completed', hint: 'Closed work' },
+const SECTIONS: { key: NonNullable<TaskFilters['bucket']>; title: string; hint: string; empty: string }[] = [
+  {
+    key: 'overdue',
+    get title() { return t('Overdue'); },
+    get hint() { return t('Past their committed date'); },
+    get empty() { return t('Nothing overdue'); },
+  },
+  {
+    key: 'today',
+    get title() { return t('Today'); },
+    get hint() { return t('Due before end of day'); },
+    get empty() { return t('Nothing today'); },
+  },
+  {
+    key: 'upcoming',
+    get title() { return t('Upcoming'); },
+    get hint() { return t('Scheduled ahead'); },
+    get empty() { return t('Nothing upcoming'); },
+  },
+  {
+    key: 'completed',
+    get title() { return t('Recently Completed'); },
+    get hint() { return t('Closed work'); },
+    get empty() { return t('Nothing recently completed'); },
+  },
 ];
 
 /**
@@ -120,8 +141,8 @@ export default function MyWorkPage() {
     updateTask.mutate(
       { id: taskId, status },
       {
-        onSuccess: (task) => toast.success('Task updated', { description: `${task.key} moved` }),
-        onError: () => toast.error('Unable to save changes'),
+        onSuccess: (task) => toast.success(t('Task updated'), { description: t('{key} moved', { key: task.key }) }),
+        onError: () => toast.error(t('Unable to save changes')),
       },
     );
   };
@@ -129,12 +150,12 @@ export default function MyWorkPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="My Work"
-        description="Everything assigned to you, ordered by what needs attention first."
+        title={t('My Work')}
+        description={t('Everything assigned to you, ordered by what needs attention first.')}
         meta={
           tasksQuery.data ? (
             <Badge tone="neutral" size="sm">
-              {formatNumber(tasksQuery.data.total)} {pluralize(tasksQuery.data.total, 'item')}
+              {t('{count, plural, one {# item} other {# items}}', { count: tasksQuery.data.total })}
             </Badge>
           ) : null
         }
@@ -144,7 +165,7 @@ export default function MyWorkPage() {
             disabled={!canAnywhere('task:create')}
           >
             <Plus className="h-4 w-4" />
-            New Task
+            {t('New Task')}
           </Button>
         }
       />
@@ -155,17 +176,17 @@ export default function MyWorkPage() {
         projects={projectsQuery.data ?? []}
         sprints={sprintsQuery.data ?? []}
         hide={['assignee']}
-        searchPlaceholder="Search my tasks..."
+        searchPlaceholder={t('Search my tasks...')}
         trailing={
           <Tabs value={view} onValueChange={(value) => setView(value as ViewMode)}>
-            <TabsList aria-label="View mode">
-              <TabsTrigger value="list" aria-label="List view">
+            <TabsList aria-label={t('View mode')}>
+              <TabsTrigger value="list" aria-label={t('List view')}>
                 <LayoutList className="h-3.5 w-3.5" />
-                List
+                {t('List')}
               </TabsTrigger>
-              <TabsTrigger value="board" aria-label="Board view">
+              <TabsTrigger value="board" aria-label={t('Board view')}>
                 <SquareKanban className="h-3.5 w-3.5" />
-                Board
+                {t('Board')}
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -177,7 +198,7 @@ export default function MyWorkPage() {
         isError={tasksQuery.isError}
         error={tasksQuery.error}
         onRetry={() => tasksQuery.refetch()}
-        errorTitle="Unable to load your work"
+        errorTitle={t('Unable to load your work')}
         skeleton={
           view === 'board' ? (
             <KanbanBoardSkeleton />
@@ -192,9 +213,9 @@ export default function MyWorkPage() {
           <Card>
             <EmptyState
               icon={CheckCircle2}
-              title="No tasks found"
-              description="Your work queue is clear. Adjust the filters or create something new."
-              action={{ label: 'Create a task', onClick: () => openTaskDrawer({ assigneeId: user?.id }) }}
+              title={t('No tasks found')}
+              description={t('Your work queue is clear. Adjust the filters or create something new.')}
+              action={{ label: t('Create a task'), onClick: () => openTaskDrawer({ assigneeId: user?.id }) }}
             />
           </Card>
         }
@@ -217,6 +238,7 @@ export default function MyWorkPage() {
                   key={section.key}
                   title={section.title}
                   hint={section.hint}
+                  empty={section.empty}
                   tasks={items}
                   projects={projectsById}
                   users={users}
@@ -231,8 +253,7 @@ export default function MyWorkPage() {
           <TruncationNotice
             shown={tasks.length}
             total={total}
-            itemLabel="task"
-            affected="The bucket counts"
+            affected={t('The bucket counts')}
             step={PAGE_SIZE}
             loading={tasksQuery.isFetching}
             onLoadMore={() =>
@@ -257,6 +278,7 @@ export default function MyWorkPage() {
 function WorkSection({
   title,
   hint,
+  empty,
   tasks,
   projects,
   users,
@@ -264,6 +286,8 @@ function WorkSection({
 }: {
   title: string;
   hint: string;
+  /** Shown when the bucket is empty, e.g. "Nothing overdue". */
+  empty: string;
   tasks: EpmTask[];
   projects: Map<ID, EpmProject>;
   users: Map<ID, EpmUser>;
@@ -275,7 +299,7 @@ function WorkSection({
     <section className="space-y-2">
       <SectionHeader
         title={title}
-        description={`${formatNumber(tasks.length)} ${pluralize(tasks.length, 'task')} · ${hint}`}
+        description={`${t('{count, plural, one {# task} other {# tasks}}', { count: tasks.length })} · ${hint}`}
       />
 
       <TableCard
@@ -288,13 +312,14 @@ function WorkSection({
               onPageChange={paged.setPage}
               onPageSizeChange={paged.setPageSize}
               pageSizeOptions={[8, 16, 32]}
-              itemLabel="task"
+              itemLabel={t('task')}
+              itemLabelPlural={t('tasks')}
             />
           ) : undefined
         }
       >
         {tasks.length === 0 ? (
-          <EmptyState size="inline" icon={Target} title={`Nothing ${title.toLowerCase()}`} />
+          <EmptyState size="inline" icon={Target} title={empty} />
         ) : (
           <div className="divide-y divide-border">
             {paged.items.map((task) => (

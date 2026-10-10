@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Users } from 'lucide-react';
-import { cn, formatNumber, formatPercent, formatShortDate, isOverdue, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { cn, formatNumber, formatPercent, formatShortDate, isOverdue } from '@/lib/utils';
 import { PROJECT_STATUS_META } from '@/lib/domain';
 import { ProgressBar } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,7 +34,7 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold tracking-tight text-foreground">
+          <h3 className="truncate text-sm font-semibold tracking-tight text-foreground" dir="auto">
             {project.name}
           </h3>
           <p className="mt-0.5 font-mono text-2xs uppercase tracking-wide text-muted-foreground">
@@ -45,19 +46,19 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
 
       <div className="space-y-1.5">
         <div className="flex items-baseline justify-between">
-          <span className="text-2xs text-muted-foreground">Progress</span>
+          <span className="text-2xs text-muted-foreground">{t('Progress')}</span>
           <span className="font-mono text-xs font-medium tabular-nums text-foreground">
             {formatPercent(project.progress)}
           </span>
         </div>
-        <ProgressBar value={project.progress} tone={tone} size="sm" label={`${project.name} progress`} />
+        <ProgressBar value={project.progress} tone={tone} size="sm" label={t('{name} progress', { name: project.name })} />
       </div>
 
       <dl className="mt-auto grid grid-cols-3 gap-2 border-t border-border pt-3 text-2xs">
         <div className="min-w-0">
           <dt className="flex items-center gap-1 text-muted-foreground">
             <CheckCircle2 className="h-3 w-3" aria-hidden />
-            Tasks
+            {t('Tasks')}
           </dt>
           <dd className="mt-0.5 truncate font-mono font-medium tabular-nums text-foreground">
             {formatNumber(project.completedTaskCount)}/{formatNumber(project.taskCount)}
@@ -66,7 +67,7 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
         <div className="min-w-0">
           <dt className="flex items-center gap-1 text-muted-foreground">
             <CalendarDays className="h-3 w-3" aria-hidden />
-            Due
+            {t('Due')}
           </dt>
           <dd
             className={cn(
@@ -80,7 +81,7 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
         <div className="min-w-0">
           <dt className="flex items-center gap-1 text-muted-foreground">
             <Users className="h-3 w-3" aria-hidden />
-            Team
+            {t('Team')}
           </dt>
           <dd className="mt-0.5">
             <AvatarGroup users={members} max={3} size="xs" />
@@ -105,9 +106,9 @@ function ProjectRow({ project, className }: { project: EpmProject; className?: s
         {project.identifier}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-foreground">{project.name}</span>
+        <span className="block truncate text-xs font-medium text-foreground" dir="auto">{project.name}</span>
         <span className="block text-2xs text-muted-foreground">
-          {formatNumber(project.taskCount)} {pluralize(project.taskCount, 'task')} ·{' '}
+          {t('{count, plural, one {# task} other {# tasks}}', { count: project.taskCount })} ·{' '}
           {formatPercent(project.progress)}
         </span>
       </span>

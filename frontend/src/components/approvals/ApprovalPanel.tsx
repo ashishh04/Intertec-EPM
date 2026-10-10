@@ -19,6 +19,7 @@ import {
 } from '@/hooks/useApprovals';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
+import { t } from '@/lib/i18n';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import type { ApprovalDecision } from '@/services/api/approvals';
 import type { ApprovalRequestView, ApprovalTaskView, ID } from '@/types';
@@ -33,10 +34,10 @@ import type { ApprovalRequestView, ApprovalTaskView, ID } from '@/types';
  */
 
 export const REQUEST_STATUS: Record<ApprovalRequestView['status'], { label: string; tone: 'primary' | 'success' | 'danger' | 'neutral' }> = {
-  pending: { label: 'Waiting for approval', tone: 'primary' },
-  approved: { label: 'Approved', tone: 'success' },
-  rejected: { label: 'Rejected', tone: 'danger' },
-  cancelled: { label: 'Withdrawn', tone: 'neutral' },
+  pending: { get label() { return t('Waiting for approval'); }, tone: 'primary' },
+  approved: { get label() { return t('Approved'); }, tone: 'success' },
+  rejected: { get label() { return t('Rejected'); }, tone: 'danger' },
+  cancelled: { get label() { return t('Withdrawn'); }, tone: 'neutral' },
 };
 
 export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
@@ -60,7 +61,7 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
   // No chain and no history: approvals do not concern this work package.
   if (!state || (!state.chain && !current)) return null;
 
-  const name = (id?: string) => (id ? users.get(id)?.name ?? 'Someone no longer listed' : '');
+  const name = (id?: string) => (id ? users.get(id)?.name ?? t('Someone no longer listed') : '');
   const pending = current?.status === 'pending';
 
   return (
@@ -75,7 +76,7 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
       >
         <CardTitle className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Approval
+          {t('Approval')}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 pt-4">
@@ -83,8 +84,8 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
           <>
             <p className="text-xs text-muted-foreground">
               {current.chainName}
-              {current.value !== undefined ? ` · ${current.valueLabel ?? 'Value'} ${current.value.toLocaleString('en-US')}` : ''}
-              {' · submitted by '}
+              {current.value !== undefined ? ` · ${current.valueLabel ?? t('Value')} ${current.value.toLocaleString('en-US')}` : ''}
+              {` · ${t('submitted by')} `}
               <span className="text-foreground">{name(current.requestedBy)}</span>{' '}
               <time dateTime={current.requestedAt} title={formatDateTime(current.requestedAt)}>
                 {formatRelative(current.requestedAt)}
@@ -92,7 +93,7 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
             </p>
 
             {current.outcomeError ? (
-              <Alert tone="warning" title="The decision stands, but the status could not be moved">
+              <Alert tone="warning" title={t('The decision stands, but the status could not be moved')}>
                 {current.outcomeError}
               </Alert>
             ) : null}
@@ -108,11 +109,11 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Button size="sm" variant="ghost" onClick={() => setShowRecord((was) => !was)}>
                 {showRecord ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                {showRecord ? 'Hide the record' : 'Show the record'}
+                {showRecord ? t('Hide the record') : t('Show the record')}
               </Button>
               {current.can.cancel ? (
                 <Button size="sm" variant="secondary" onClick={() => setWithdrawing(true)}>
-                  Withdraw request
+                  {t('Withdraw request')}
                 </Button>
               ) : null}
             </div>
@@ -122,9 +123,9 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
                 {(journal.data ?? []).map((entry) => (
                   <li key={entry.id} className="text-xs">
                     <p>{entry.summary}</p>
-                    {entry.reason ? <p className="mt-0.5 border-l-2 border-border pl-2 italic text-muted-foreground">{entry.reason}</p> : null}
+                    {entry.reason ? <p dir="auto" className="mt-0.5 border-s-2 border-border ps-2 italic text-muted-foreground">{entry.reason}</p> : null}
                     <p className="text-2xs text-muted-foreground">
-                      {entry.actorKind === 'system' ? 'EPM' : entry.actorKind === 'service' ? 'EPM Automation' : name(entry.actorId)} · {formatDateTime(entry.occurredAt)}
+                      {entry.actorKind === 'system' ? 'EPM' : entry.actorKind === 'service' ? t('EPM Automation') : name(entry.actorId)} · {formatDateTime(entry.occurredAt)}
                     </p>
                   </li>
                 ))}
@@ -138,15 +139,15 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
         {state.chain && !pending ? (
           <div className={cn('space-y-2', current && 'border-t border-border pt-4')}>
             <p className="text-xs">
-              {current ? 'Submitting again goes' : 'Changes of this kind go'} through <span className="font-medium">{state.chain.name}</span>:
+              {current ? t('Submitting again goes through') : t('Changes of this kind go through')} <span className="font-medium">{state.chain.name}</span>:
             </p>
             <ol className="space-y-1">
               {state.chain.steps.map((step, index) => (
                 <li key={`${step.name}-${index}`} className={cn('text-xs', !step.applies && 'text-muted-foreground')}>
-                  <span className="mr-1.5 font-mono text-2xs text-muted-foreground">{index + 1}</span>
+                  <span className="me-1.5 font-mono text-2xs text-muted-foreground">{index + 1}</span>
                   {/* Struck through alone: the reason it is skipped has to stay readable. */}
                   <span className={cn(!step.applies && 'line-through')}>{step.name}</span>
-                  {step.conditionText ? <span className="ml-1.5 text-2xs text-muted-foreground">— {step.conditionText}</span> : null}
+                  {step.conditionText ? <span className="ms-1.5 text-2xs text-muted-foreground">— {step.conditionText}</span> : null}
                 </li>
               ))}
             </ol>
@@ -156,13 +157,13 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
                 loading={submit.isPending}
                 onClick={() =>
                   submit.mutate(workPackageId, {
-                    onSuccess: () => toast.success('Submitted for approval', { description: 'The first approvers have been told.' }),
+                    onSuccess: () => toast.success(t('Submitted for approval'), { description: t('The first approvers have been told.') }),
                     onError: (error) =>
-                      toast.error('It could not be submitted', { description: error instanceof Error ? error.message : undefined }),
+                      toast.error(t('It could not be submitted'), { description: error instanceof Error ? error.message : undefined }),
                   })
                 }
               >
-                Submit for approval
+                {t('Submit for approval')}
               </Button>
             ) : state.submitBlocked ? (
               <p className="text-2xs text-muted-foreground">{state.submitBlocked}</p>
@@ -172,7 +173,7 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
 
         {state.history.length > 0 ? (
           <div className="border-t border-border pt-3">
-            <p className="epm-eyebrow">Earlier requests</p>
+            <p className="epm-eyebrow">{t('Earlier requests')}</p>
             <ul className="mt-1.5 space-y-1">
               {state.history.map((request) => (
                 <li key={request.id} className="flex items-center justify-between gap-2 text-xs">
@@ -205,14 +206,17 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
               {
                 onSuccess: (request) => {
                   setDeciding(undefined);
-                  toast.success(deciding.decision === 'approve' ? 'Approved' : 'Rejected', {
+                  toast.success(deciding.decision === 'approve' ? t('Approved') : t('Rejected'), {
                     description:
                       request.status === 'pending'
-                        ? 'The next step has been started.'
-                        : `The request is ${REQUEST_STATUS[request.status].label.toLowerCase()}.`,
+                        ? t('The next step has been started.')
+                        : t(
+                            '{status, select, approved {The request is approved.} rejected {The request is rejected.} cancelled {The request is withdrawn.} other {The request is waiting for approval.}}',
+                            { status: request.status },
+                          ),
                   });
                 },
-                onError: (error) => setDecideError(error instanceof Error ? error.message : 'That could not be recorded.'),
+                onError: (error) => setDecideError(error instanceof Error ? error.message : t('That could not be recorded.')),
               },
             )
           }
@@ -223,9 +227,9 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
         <ConfirmDialog
           open={withdrawing}
           onOpenChange={setWithdrawing}
-          title="Withdraw this request?"
-          description="Nobody else will be asked to decide it, and the work package goes back to the status it had before it was submitted. It can be submitted again."
-          confirmLabel="Withdraw"
+          title={t('Withdraw this request?')}
+          description={t('Nobody else will be asked to decide it, and the work package goes back to the status it had before it was submitted. It can be submitted again.')}
+          confirmLabel={t('Withdraw')}
           pending={cancel.isPending}
           onConfirm={() =>
             cancel.mutate(
@@ -233,10 +237,10 @@ export function ApprovalPanel({ workPackageId }: { workPackageId: ID }) {
               {
                 onSuccess: () => {
                   setWithdrawing(false);
-                  toast.success('Request withdrawn');
+                  toast.success(t('Request withdrawn'));
                 },
                 onError: (error) =>
-                  toast.error('It could not be withdrawn', { description: error instanceof Error ? error.message : undefined }),
+                  toast.error(t('It could not be withdrawn'), { description: error instanceof Error ? error.message : undefined }),
               },
             )
           }

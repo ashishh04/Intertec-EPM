@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRecalculateSchedule, useScheduleStatus } from '@/hooks/useSchedule';
-import { formatNumber, formatRelative, pluralize } from '@/lib/utils';
+import { formatRelative } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 
 /**
@@ -29,12 +30,15 @@ export function ScheduleStatusCard() {
   const run = () =>
     recalculate.mutate(undefined, {
       onSuccess: (next) =>
-        toast.success(next.pending ? 'Recalculating' : 'Recalculated', {
+        toast.success(next.pending ? t('Recalculating') : t('Recalculated'), {
           description: next.lastCompleted?.durationMs !== undefined && !next.pending
-            ? `${formatNumber(next.lastCompleted.workPackages)} work packages in ${formatNumber(next.lastCompleted.durationMs)} ms.`
-            : 'The figures update when the pass has run.',
+            ? t('{count, plural, other {# work packages in {ms, number} ms.}}', {
+                count: next.lastCompleted.workPackages,
+                ms: next.lastCompleted.durationMs,
+              })
+            : t('The figures update when the pass has run.'),
         }),
-      onError: (error) => toast.error('Could not recalculate', { description: error instanceof Error ? error.message : undefined }),
+      onError: (error) => toast.error(t('Could not recalculate'), { description: error instanceof Error ? error.message : undefined }),
     });
 
   return (
@@ -42,68 +46,81 @@ export function ScheduleStatusCard() {
       <CardHeader variant="compact">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <CardTitle>Critical path</CardTitle>
+            <CardTitle>{t('Critical path')}</CardTitle>
             <CardDescription>
-              Total and free float are counted in the working days above. EPM recalculates them after every change it makes,
-              and checks OpenProject every {checkSeconds} seconds for changes made there.
+              {t(
+                '{seconds, plural, other {Total and free float are counted in the working days above. EPM recalculates them after every change it makes, and checks OpenProject every # seconds for changes made there.}}',
+                { seconds: checkSeconds },
+              )}
             </CardDescription>
           </div>
           {enabled && can('users:manage') ? (
             <Button size="sm" variant="secondary" className="shrink-0" onClick={run} disabled={recalculate.isPending}>
               <RefreshCw className={recalculate.isPending || pending ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
-              Recalculate now
+              {t('Recalculate now')}
             </Button>
           ) : null}
         </div>
       </CardHeader>
       <CardContent className="space-y-3 pt-4">
         {!enabled ? (
-          <Alert tone="neutral" title="Switched off on this server">
-            Float is neither computed nor shown. Set <code className="text-2xs">EPM_SCHEDULE_ENABLED</code> to turn it on.
+          <Alert tone="neutral" title={t('Switched off on this server')}>
+            {t('Float is neither computed nor shown. It is turned on with:')}{' '}
+            <code className="text-2xs">EPM_SCHEDULE_ENABLED</code>
           </Alert>
         ) : null}
         {failed ? (
-          <Alert tone="danger" title={`The last pass failed ${formatRelative(failed.finishedAt ?? failed.startedAt)}`}>
-            {failed.error ?? 'No reason was recorded.'} The figures shown are the last good ones.
+          <Alert
+            tone="danger"
+            title={t('The last pass failed {when}', { when: formatRelative(failed.finishedAt ?? failed.startedAt) })}
+          >
+            {failed.error ?? t('No reason was recorded.')} {t('The figures shown are the last good ones.')}
           </Alert>
         ) : null}
         {lastCompleted?.mirrorError ? (
-          <Alert tone="warning" title="OpenProject's schedule fields are not being written">
+          <Alert tone="warning" title={t('OpenProject\'s schedule fields are not being written')}>
             {lastCompleted.mirrorError}
           </Alert>
         ) : null}
         <div className="grid gap-4 text-xs sm:grid-cols-2 lg:grid-cols-4">
-          <Fact icon={Clock} title="Last pass">
-            {lastCompleted ? formatRelative(lastCompleted.finishedAt ?? lastCompleted.startedAt) : 'None yet'}
+          <Fact icon={Clock} title={t('Last pass')}>
+            {lastCompleted ? formatRelative(lastCompleted.finishedAt ?? lastCompleted.startedAt) : t('None yet')}
             <span className="block text-2xs text-muted-foreground">
-              {pending ? 'Another is on its way' : lastCompleted ? `Started by ${describeTrigger(lastCompleted.trigger)}` : ''}
+              {pending ? t('Another is on its way') : lastCompleted ? describeTrigger(lastCompleted.trigger) : ''}
             </span>
           </Fact>
-          <Fact icon={Network} title="Network">
-            {lastCompleted ? `${formatNumber(lastCompleted.workPackages)} work packages` : '—'}
+          <Fact icon={Network} title={t('Network')}>
+            {lastCompleted ? t('{count, plural, other {# work packages}}', { count: lastCompleted.workPackages }) : '—'}
             <span className="block text-2xs text-muted-foreground">
               {lastCompleted
-                ? `${formatNumber(lastCompleted.scheduled)} scheduled · ${formatNumber(lastCompleted.relations)} ${pluralize(lastCompleted.relations, 'relation')}` +
-                  (lastCompleted.cycles.length ? ` · ${lastCompleted.cycles.length} ${pluralize(lastCompleted.cycles.length, 'loop')}` : '')
+                ? `${t('{count, number} scheduled', { count: lastCompleted.scheduled })} · ${t('{count, plural, one {# relation} other {# relations}}', { count: lastCompleted.relations })}` +
+                  (lastCompleted.cycles.length ? ` · ${t('{count, plural, one {# loop} other {# loops}}', { count: lastCompleted.cycles.length })}` : '')
                 : ''}
             </span>
           </Fact>
-          <Fact icon={Route} title="Took">
-            {lastCompleted?.durationMs !== undefined ? `${formatNumber(lastCompleted.durationMs)} ms` : '—'}
+          <Fact icon={Route} title={t('Took')}>
+            {lastCompleted?.durationMs !== undefined ? t('{ms, number} ms', { ms: lastCompleted.durationMs }) : '—'}
             <span className="block text-2xs text-muted-foreground">
               {lastCompleted
-                ? `read ${lastCompleted.readMs ?? '—'} · compute ${lastCompleted.computeMs ?? '—'} · store ${lastCompleted.storeMs ?? '—'} · fields ${lastCompleted.mirrorMs ?? '—'} ms`
+                ? t('read {read, number} · compute {compute, number} · store {store, number} · fields {fields, number} ms', {
+                    read: lastCompleted.readMs ?? '—',
+                    compute: lastCompleted.computeMs ?? '—',
+                    store: lastCompleted.storeMs ?? '—',
+                    fields: lastCompleted.mirrorMs ?? '—',
+                  })
                 : ''}
             </span>
           </Fact>
-          <Fact icon={Table2} title="OpenProject's fields">
-            {!mirrorEnabled ? 'Not written' : lastCompleted?.mirrorError ? 'Not written' : 'Written'}
+          <Fact icon={Table2} title={t('OpenProject\'s fields')}>
+            {!mirrorEnabled ? t('Not written') : lastCompleted?.mirrorError ? t('Not written') : t('Written')}
             <span className="block text-2xs text-muted-foreground">
               {!mirrorEnabled
-                ? 'EPM_SCHEDULE_MIRROR_ENABLED is off'
+                ? t('{variable} is off', { variable: 'EPM_SCHEDULE_MIRROR_ENABLED' })
                 : lastCompleted
-                  ? `${formatNumber(lastCompleted.mirrored)} rewritten in the last pass` +
-                    (lastCompleted.mirrorSkipped ? ` · ${formatNumber(lastCompleted.mirrorSkipped)} of a type without them` : '')
+                  ? t('{count, number} rewritten in the last pass', { count: lastCompleted.mirrored }) +
+                    (lastCompleted.mirrorSkipped
+                      ? ` · ${t('{count, number} of a type without them', { count: lastCompleted.mirrorSkipped })}`
+                      : '')
                   : ''}
             </span>
           </Fact>
@@ -116,15 +133,15 @@ export function ScheduleStatusCard() {
 function describeTrigger(trigger: string): string {
   switch (trigger) {
     case 'change':
-      return 'a change made in EPM';
+      return t('Started by a change made in EPM');
     case 'check':
-      return 'a change found in OpenProject';
+      return t('Started by a change found in OpenProject');
     case 'manual':
-      return 'someone asking';
+      return t('Started by someone asking');
     case 'startup':
-      return 'the server starting';
+      return t('Started by the server starting');
     default:
-      return trigger;
+      return t('Started by {trigger}', { trigger });
   }
 }
 

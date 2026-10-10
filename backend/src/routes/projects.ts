@@ -26,6 +26,7 @@ import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js
 import type { HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
 import { automationUserId } from '../domain/automation-account.js';
+import { message } from '../lib/i18n.js';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -441,10 +442,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         // Null and undefined clear that criterion rather than setting it.
         if (level === null || level === undefined) continue;
         if (!(DIMENSIONS as readonly string[]).includes(key)) {
-          throw EpmError.badRequest(`${key} is not a health criterion.`);
+          throw EpmError.badRequest(message('{key} is not a health criterion.', { key }));
         }
         if (typeof level !== 'string' || !LEVELS.includes(level as HealthLevel)) {
-          throw EpmError.badRequest(`${String(level)} is not a health level.`);
+          throw EpmError.badRequest(message('{level} is not a health level.', { level: String(level) }));
         }
         levels[key as keyof HealthOverride] = level as HealthLevel;
       }
@@ -453,7 +454,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       const clearing = Object.keys(levels).length === 0;
       if (!clearing && reason.length < MIN_REASON) {
         throw EpmError.validation(
-          `Say why the calculated health is wrong, in at least ${MIN_REASON} characters. The reason is kept with the override.`,
+          message('Say why the calculated health is wrong, in at least {min} characters. The reason is kept with the override.', { min: MIN_REASON }),
         );
       }
       if (reason.length > 2000) throw EpmError.validation('Keep the reason under 2,000 characters.');
@@ -526,7 +527,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           next: after.health.overall,
           overridden: Boolean(after.healthOverride),
           occurrence: new Date().toISOString().slice(0, 10),
-          detail: clearing ? 'The override was cleared.' : `Reason given: ${reason}`,
+          detail: clearing ? message('The override was cleared.') : message('Reason given: {reason}', { reason }),
         }).catch((error: unknown) => {
           // A notification that cannot be written must not fail the write the
           // user actually asked for.

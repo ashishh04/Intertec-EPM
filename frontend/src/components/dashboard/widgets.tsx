@@ -51,11 +51,10 @@ import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
 import {
   formatHours,
-  formatNumber,
   formatShortDate,
-  pluralize,
   toISODateOnly,
 } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { DashboardWidgetWidth, EpmProject, ID } from '@/types';
 
 /**
@@ -137,7 +136,7 @@ function TaskListWidget({
           isError={query.isError}
           error={query.error}
           onRetry={() => query.refetch()}
-          errorTitle={`Unable to load ${title.toLowerCase()}`}
+          errorTitle={t('Unable to load {title}', { title: title.toLowerCase() })}
           skeleton={<TaskListSkeleton rows={4} />}
           isEmpty={(query.data?.items.length ?? 0) === 0}
           empty={
@@ -196,21 +195,21 @@ function KpiWidget() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <MetricCard
-        label="My Tasks"
+        label={t('My Tasks')}
         value={metrics.myTasks}
-        support={`${formatNumber(metrics.myTasksDueThisWeek)} due this week`}
+        support={t('{count, number} due this week', { count: metrics.myTasksDueThisWeek })}
         icon={ListTodo}
         tone="primary"
         trend={metrics.trends.myTasks}
         onClick={() => navigate('/my-work')}
       />
       <MetricCard
-        label="In Progress"
+        label={t('In Progress')}
         value={metrics.inProgress}
         support={
           metrics.inProgressBlocked > 0
-            ? `${formatNumber(metrics.inProgressBlocked)} blocked`
-            : 'Nothing blocked'
+            ? t('{count, number} blocked', { count: metrics.inProgressBlocked })
+            : t('Nothing blocked')
         }
         icon={CircleDot}
         tone="accent"
@@ -218,12 +217,12 @@ function KpiWidget() {
         onClick={() => navigate('/tasks?status=in_progress')}
       />
       <MetricCard
-        label="Overdue"
+        label={t('Overdue')}
         value={metrics.overdue}
         support={
           metrics.overdueCritical > 0
-            ? `${formatNumber(metrics.overdueCritical)} critical`
-            : 'No critical items'
+            ? t('{count, number} critical', { count: metrics.overdueCritical })
+            : t('No critical items')
         }
         icon={AlertTriangle}
         tone="danger"
@@ -231,9 +230,9 @@ function KpiWidget() {
         onClick={() => navigate('/my-work?bucket=overdue')}
       />
       <MetricCard
-        label="Active Projects"
+        label={t('Active Projects')}
         value={metrics.activeProjects}
-        support={`${formatNumber(metrics.projectsAtRisk)} ${pluralize(metrics.projectsAtRisk, 'project')} at risk`}
+        support={t('{count, plural, one {# project at risk} other {# projects at risk}}', { count: metrics.projectsAtRisk })}
         icon={FolderKanban}
         tone="highlight"
         trend={metrics.trends.activeProjects}
@@ -247,13 +246,13 @@ function MyWorkWidget() {
   const { user } = useAuth();
   return (
     <TaskListWidget
-      title="My Work"
-      description="Assigned to you across every active project"
+      title={t('My Work')}
+      description={t('Assigned to you across every active project')}
       filters={{ assigneeId: user?.id, bucket: 'open', pageSize: 6, sortBy: 'dueDate', sortDir: 'asc' }}
       linkTo="/my-work"
-      linkLabel="View all my work"
-      emptyTitle="No tasks assigned"
-      emptyDescription="Your work queue is clear."
+      linkLabel={t('View all my work')}
+      emptyTitle={t('No tasks assigned')}
+      emptyDescription={t('Your work queue is clear.')}
     />
   );
 }
@@ -262,13 +261,13 @@ function CreatedByMeWidget() {
   const { user } = useAuth();
   return (
     <TaskListWidget
-      title="Created by me"
-      description="Work you raised, whoever is carrying it"
+      title={t('Created by me')}
+      description={t('Work you raised, whoever is carrying it')}
       filters={{ authorId: user?.id, bucket: 'open', pageSize: 6, sortBy: 'updatedAt', sortDir: 'desc' }}
       linkTo="/tasks"
-      linkLabel="Open the task list"
-      emptyTitle="Nothing raised by you is open"
-      emptyDescription="Work you create will appear here until it closes."
+      linkLabel={t('Open the task list')}
+      emptyTitle={t('Nothing raised by you is open')}
+      emptyDescription={t('Work you create will appear here until it closes.')}
       emptyIcon={PenLine}
     />
   );
@@ -278,13 +277,13 @@ function WatchingWidget() {
   const { user } = useAuth();
   return (
     <TaskListWidget
-      title="Watching"
-      description="Work you are following without owning"
+      title={t('Watching')}
+      description={t('Work you are following without owning')}
       filters={{ watcherId: user?.id, bucket: 'open', pageSize: 6, sortBy: 'updatedAt', sortDir: 'desc' }}
       linkTo="/tasks"
-      linkLabel="Open the task list"
-      emptyTitle="You are not watching anything"
-      emptyDescription="Watch a task from its page to follow it here."
+      linkLabel={t('Open the task list')}
+      emptyTitle={t('You are not watching anything')}
+      emptyDescription={t('Watch a task from its page to follow it here.')}
       emptyIcon={Eye}
     />
   );
@@ -294,13 +293,13 @@ function MyOverdueWidget() {
   const { user } = useAuth();
   return (
     <TaskListWidget
-      title="Overdue"
-      description="Yours, past its due date and still open"
+      title={t('Overdue')}
+      description={t('Yours, past its due date and still open')}
       filters={{ assigneeId: user?.id, bucket: 'overdue', pageSize: 6, sortBy: 'dueDate', sortDir: 'asc' }}
       linkTo="/my-work?bucket=overdue"
-      linkLabel="Review everything overdue"
-      emptyTitle="Nothing is overdue"
-      emptyDescription="Every open item of yours is still within its date."
+      linkLabel={t('Review everything overdue')}
+      emptyTitle={t('Nothing is overdue')}
+      emptyDescription={t('Every open item of yours is still within its date.')}
       emptyIcon={AlertTriangle}
     />
   );
@@ -331,12 +330,12 @@ function ProjectHealthWidget() {
   return (
     <div className="space-y-3">
       <SectionHeader
-        title="Project Health"
-        description="Delivery status across the active portfolio"
+        title={t('Project Health')}
+        description={t('Delivery status across the active portfolio')}
         actions={
           <Button asChild variant="ghost" size="sm" className="text-2xs">
             <Link to="/projects">
-              View all
+              {t('View all')}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </Button>
@@ -348,7 +347,7 @@ function ProjectHealthWidget() {
         isError={query.isError}
         error={query.error}
         onRetry={() => query.refetch()}
-        errorTitle="Unable to load projects"
+        errorTitle={t('Unable to load projects')}
         skeleton={
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((index) => (
@@ -361,8 +360,8 @@ function ProjectHealthWidget() {
           <Card>
             <EmptyState
               icon={FolderKanban}
-              title="No projects yet"
-              description="Projects sync from the delivery workspace once they are provisioned."
+              title={t('No projects yet')}
+              description={t('Projects sync from the delivery workspace once they are provisioned.')}
             />
           </Card>
         }
@@ -404,16 +403,16 @@ function DeliveryTrendsWidget() {
       isError={query.isError}
       error={query.error}
       onRetry={() => query.refetch()}
-      errorTitle="Unable to load delivery insights"
+      errorTitle={t('Unable to load delivery insights')}
       skeleton={<ChartCardSkeleton height={260} />}
     >
       <ChartCard
-        title="Delivery Insights"
-        description="Delivered and created work packages per month"
+        title={t('Delivery Insights')}
+        description={t('Delivered and created work packages per month')}
         height={260}
         actions={
           <Button asChild variant="ghost" size="sm" className="text-2xs">
-            <Link to="/analytics">Details</Link>
+            <Link to="/analytics">{t('Details')}</Link>
           </Button>
         }
       >
@@ -432,8 +431,8 @@ function ActivityWidget() {
   return (
     <Card>
       <CardHeader variant="compact">
-        <CardTitle>Recent Activity</CardTitle>
-        <CardDescription className="text-2xs">Latest changes across your projects</CardDescription>
+        <CardTitle>{t('Recent Activity')}</CardTitle>
+        <CardDescription className="text-2xs">{t('Latest changes across your projects')}</CardDescription>
       </CardHeader>
       <div className="p-4">
         <QueryBoundary
@@ -441,7 +440,7 @@ function ActivityWidget() {
           isError={query.isError}
           error={query.error}
           onRetry={() => query.refetch()}
-          errorTitle="Unable to load activity"
+          errorTitle={t('Unable to load activity')}
           skeleton={<ActivityTimelineSkeleton />}
         >
           <ActivityTimeline entries={query.data ?? []} users={users} limit={7} />
@@ -483,15 +482,15 @@ function TimeThisWeekWidget() {
         actions={
           <Button asChild variant="ghost" size="sm" className="text-2xs">
             <Link to="/my-time">
-              Timesheet
+              {t('Timesheet')}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </Button>
         }
       >
-        <CardTitle>This week</CardTitle>
+        <CardTitle>{t('This week')}</CardTitle>
         <CardDescription className="text-2xs">
-          {formatShortDate(weekStart)} to {formatShortDate(addDays(weekStart, 6))}
+          {t('{from} to {to}', { from: formatShortDate(weekStart), to: formatShortDate(addDays(weekStart, 6)) })}
         </CardDescription>
       </CardHeader>
 
@@ -505,7 +504,7 @@ function TimeThisWeekWidget() {
                 {formatHours(logged)}
               </span>
               {capacity > 0 ? (
-                <span className="text-2xs text-muted-foreground">of {formatHours(capacity)}</span>
+                <span className="text-2xs text-muted-foreground">{t('of {hours}', { hours: formatHours(capacity) })}</span>
               ) : null}
             </div>
 
@@ -513,18 +512,21 @@ function TimeThisWeekWidget() {
               <ProgressBar
                 value={Math.min(100, Math.round((logged / capacity) * 100))}
                 tone={logged > capacity ? 'warning' : logged >= capacity ? 'success' : 'primary'}
-                label="Hours logged this week"
+                label={t('Hours logged this week')}
               />
             ) : (
               <p className="text-2xs text-muted-foreground">
-                No weekly capacity is set for you, so there is nothing to measure against.
+                {t('No weekly capacity is set for you, so there is nothing to measure against.')}
               </p>
             )}
 
             <p className="text-2xs text-muted-foreground">
               {entries.length === 0
-                ? 'Nothing logged yet this week.'
-                : `${formatNumber(entries.length)} ${pluralize(entries.length, 'entry', 'entries')} across ${formatNumber(new Set(entries.map((entry) => entry.spentOn)).size)} ${pluralize(new Set(entries.map((entry) => entry.spentOn)).size, 'day')}.`}
+                ? t('Nothing logged yet this week.')
+                : t('{entries, plural, one {# entry} other {# entries}} across {days, plural, one {# day} other {# days}}.', {
+                    entries: entries.length,
+                    days: new Set(entries.map((entry) => entry.spentOn)).size,
+                  })}
             </p>
           </>
         )}
@@ -553,14 +555,14 @@ function UpcomingWidget() {
         actions={
           <Button asChild variant="ghost" size="sm" className="text-2xs">
             <Link to="/calendar">
-              Calendar
+              {t('Calendar')}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </Button>
         }
       >
-        <CardTitle>Coming up</CardTitle>
-        <CardDescription className="text-2xs">Dated work over the next fortnight</CardDescription>
+        <CardTitle>{t('Coming up')}</CardTitle>
+        <CardDescription className="text-2xs">{t('Dated work over the next fortnight')}</CardDescription>
       </CardHeader>
 
       <div className="flex-1">
@@ -569,15 +571,15 @@ function UpcomingWidget() {
           isError={query.isError}
           error={query.error}
           onRetry={() => query.refetch()}
-          errorTitle="Unable to load the calendar"
+          errorTitle={t('Unable to load the calendar')}
           skeleton={<TaskListSkeleton rows={4} />}
           isEmpty={events.length === 0}
           empty={
             <EmptyState
               size="inline"
               icon={CalendarClock}
-              title="Nothing dated in the next fortnight"
-              description="Milestones and due dates appear here as they approach."
+              title={t('Nothing dated in the next fortnight')}
+              description={t('Milestones and due dates appear here as they approach.')}
             />
           }
         >
@@ -592,16 +594,17 @@ function UpcomingWidget() {
                     <Link
                       to={`/tasks/${event.taskId}`}
                       className="block truncate text-xs hover:underline"
+                      dir="auto"
                     >
                       {event.title}
                     </Link>
                   ) : (
-                    <p className="truncate text-xs">{event.title}</p>
+                    <p className="truncate text-xs" dir="auto">{event.title}</p>
                   )}
                 </div>
                 {event.kind === 'milestone' ? (
                   <Badge tone="highlight" size="sm">
-                    Milestone
+                    {t('Milestone')}
                   </Badge>
                 ) : null}
               </li>
@@ -625,14 +628,14 @@ function NotificationsWidget() {
         actions={
           <Button asChild variant="ghost" size="sm" className="text-2xs">
             <Link to="/notifications">
-              All alerts
+              {t('All alerts')}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </Button>
         }
       >
-        <CardTitle>Alerts</CardTitle>
-        <CardDescription className="text-2xs">The most recent first</CardDescription>
+        <CardTitle>{t('Alerts')}</CardTitle>
+        <CardDescription className="text-2xs">{t('The most recent first')}</CardDescription>
       </CardHeader>
 
       <div className="flex-1">
@@ -641,15 +644,15 @@ function NotificationsWidget() {
           isError={query.isError}
           error={query.error}
           onRetry={() => query.refetch()}
-          errorTitle="Unable to load alerts"
+          errorTitle={t('Unable to load alerts')}
           skeleton={<TaskListSkeleton rows={4} />}
           isEmpty={latest.length === 0}
           empty={
             <EmptyState
               size="inline"
               icon={Bell}
-              title="Nothing to catch up on"
-              description="Mentions, assignments and reminders land here."
+              title={t('Nothing to catch up on')}
+              description={t('Mentions, assignments and reminders land here.')}
             />
           }
         >
@@ -676,16 +679,16 @@ function NotificationsWidget() {
 export const WIDGETS: DashboardWidget[] = [
   {
     id: 'kpis',
-    title: 'Key metrics',
-    description: 'My tasks, in progress, overdue and active projects, with their weekly trend.',
+    get title() { return t('Key metrics'); },
+    get description() { return t('My tasks, in progress, overdue and active projects, with their weekly trend.'); },
     icon: Gauge,
     defaultWidth: 'full',
     Component: KpiWidget,
   },
   {
     id: 'my-work',
-    title: 'My Work',
-    description: 'Open work assigned to you, soonest due first.',
+    get title() { return t('My Work'); },
+    get description() { return t('Open work assigned to you, soonest due first.'); },
     icon: ListTodo,
     defaultWidth: 'full',
     resizable: true,
@@ -693,8 +696,8 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'created-by-me',
-    title: 'Created by me',
-    description: 'Open work you raised, whoever is carrying it now.',
+    get title() { return t('Created by me'); },
+    get description() { return t('Open work you raised, whoever is carrying it now.'); },
     icon: PenLine,
     defaultWidth: 'half',
     resizable: true,
@@ -702,8 +705,8 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'watching',
-    title: 'Watching',
-    description: 'Open work you follow without owning.',
+    get title() { return t('Watching'); },
+    get description() { return t('Open work you follow without owning.'); },
     icon: Eye,
     defaultWidth: 'half',
     resizable: true,
@@ -711,8 +714,8 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'my-overdue',
-    title: 'Overdue',
-    description: 'Your open work that is past its due date.',
+    get title() { return t('Overdue'); },
+    get description() { return t('Your open work that is past its due date.'); },
     icon: AlertTriangle,
     defaultWidth: 'half',
     resizable: true,
@@ -720,16 +723,16 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'sprint',
-    title: 'Active sprint',
-    description: 'Burndown, scope and days remaining on the sprint in flight.',
+    get title() { return t('Active sprint'); },
+    get description() { return t('Burndown, scope and days remaining on the sprint in flight.'); },
     icon: Target,
     defaultWidth: 'half',
     Component: SprintWidget,
   },
   {
     id: 'time-this-week',
-    title: 'Time this week',
-    description: 'Hours you have logged this week against your contracted capacity.',
+    get title() { return t('Time this week'); },
+    get description() { return t('Hours you have logged this week against your contracted capacity.'); },
     icon: Clock,
     defaultWidth: 'half',
     resizable: true,
@@ -737,16 +740,16 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'project-health',
-    title: 'Project health',
-    description: 'Health cards for the projects that need attention first.',
+    get title() { return t('Project health'); },
+    get description() { return t('Health cards for the projects that need attention first.'); },
     icon: FolderKanban,
     defaultWidth: 'full',
     Component: ProjectHealthWidget,
   },
   {
     id: 'delivery-trends',
-    title: 'Delivery insights',
-    description: 'Completed against created work packages, sprint by sprint.',
+    get title() { return t('Delivery insights'); },
+    get description() { return t('Completed against created work packages, sprint by sprint.'); },
     icon: TrendingUp,
     defaultWidth: 'full',
     resizable: true,
@@ -754,8 +757,8 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'activity',
-    title: 'Recent activity',
-    description: 'The latest changes across the projects you can see.',
+    get title() { return t('Recent activity'); },
+    get description() { return t('The latest changes across the projects you can see.'); },
     icon: Activity,
     defaultWidth: 'half',
     resizable: true,
@@ -763,8 +766,8 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'upcoming',
-    title: 'Coming up',
-    description: 'Milestones and due dates over the next fortnight.',
+    get title() { return t('Coming up'); },
+    get description() { return t('Milestones and due dates over the next fortnight.'); },
     icon: CalendarClock,
     defaultWidth: 'half',
     resizable: true,
@@ -772,8 +775,8 @@ export const WIDGETS: DashboardWidget[] = [
   },
   {
     id: 'notifications',
-    title: 'Alerts',
-    description: 'Your most recent mentions, assignments and reminders.',
+    get title() { return t('Alerts'); },
+    get description() { return t('Your most recent mentions, assignments and reminders.'); },
     icon: Bell,
     defaultWidth: 'half',
     resizable: true,

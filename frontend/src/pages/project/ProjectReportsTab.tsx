@@ -14,7 +14,8 @@ import {
 import { useDeliveryTrends, useStatusDistribution } from '@/hooks/useReports';
 import { useTasks } from '@/hooks/useTasks';
 import { useUsers } from '@/hooks/useUsers';
-import { daysFromToday, formatHours, formatNumber } from '@/lib/utils';
+import { daysFromToday, formatHours } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /**
  * How many work packages the figures are computed from.
@@ -60,7 +61,7 @@ export default function ProjectReportsTab() {
     }
     return [...counts.entries()]
       .map(([userId, value]) => ({
-        label: users?.find((user) => user.id === userId)?.name.split(' ')[0] ?? 'Unknown',
+        label: users?.find((user) => user.id === userId)?.name.split(' ')[0] ?? t('Unknown'),
         value,
       }))
       .sort((a, b) => b.value - a.value)
@@ -71,7 +72,7 @@ export default function ProjectReportsTab() {
 
   return (
     <div className="space-y-5">
-      <SectionHeader title="Project reporting" description="Progress, distribution and effort" />
+      <SectionHeader title={t('Project reporting')} description={t('Progress, distribution and effort')} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {isLoading ? (
@@ -79,24 +80,24 @@ export default function ProjectReportsTab() {
         ) : (
           <>
             <MetricCard
-              label="Completed"
+              label={t('Completed')}
               value={stats.completed}
-              support={`of ${formatNumber(tasks.length)} work packages`}
+              support={t('{count, plural, other {of # work packages}}', { count: tasks.length })}
               icon={CheckCircle2}
               tone="success"
             />
-            <MetricCard label="Open" value={stats.open} support="Still in flight" icon={Gauge} tone="primary" />
+            <MetricCard label={t('Open')} value={stats.open} support={t('Still in flight')} icon={Gauge} tone="primary" />
             <MetricCard
-              label="Overdue"
+              label={t('Overdue')}
               value={stats.overdue}
-              support="Past the committed date"
+              support={t('Past the committed date')}
               icon={AlertTriangle}
               tone="danger"
             />
             <MetricCard
-              label="Effort logged"
+              label={t('Effort logged')}
               value={formatHours(stats.spent)}
-              support={`${formatHours(stats.estimated)} estimated`}
+              support={t('{hours} estimated', { hours: formatHours(stats.estimated) })}
               icon={Clock}
               tone="accent"
             />
@@ -112,10 +113,10 @@ export default function ProjectReportsTab() {
           isError={distributionQuery.isError}
           error={distributionQuery.error}
           onRetry={() => distributionQuery.refetch()}
-          errorTitle="Unable to load the status distribution"
+          errorTitle={t('Unable to load the status distribution')}
           skeleton={<ChartCardSkeleton />}
         >
-          <ChartCard title="Status distribution" description="Where work currently sits">
+          <ChartCard title={t('Status distribution')} description={t('Where work currently sits')}>
             <StatusDistributionChart data={distributionQuery.data ?? []} />
           </ChartCard>
         </QueryBoundary>
@@ -125,10 +126,10 @@ export default function ProjectReportsTab() {
           isError={tasksQuery.isError}
           error={tasksQuery.error}
           onRetry={() => tasksQuery.refetch()}
-          errorTitle="Unable to load open work"
+          errorTitle={t('Unable to load open work')}
           skeleton={<ChartCardSkeleton />}
         >
-          <ChartCard title="Open work by assignee" description="Active load across the project team">
+          <ChartCard title={t('Open work by assignee')} description={t('Active load across the project team')}>
             <HorizontalBarChart data={byAssignee} tone="accent" />
           </ChartCard>
         </QueryBoundary>
@@ -139,12 +140,12 @@ export default function ProjectReportsTab() {
         isError={trendsQuery.isError}
         error={trendsQuery.error}
         onRetry={() => trendsQuery.refetch()}
-        errorTitle="Unable to load the delivery trend"
+        errorTitle={t('Unable to load the delivery trend')}
         skeleton={<ChartCardSkeleton height={260} />}
       >
         <ChartCard
-          title="Delivery trend"
-          description="Delivered and created work packages per month"
+          title={t('Delivery trend')}
+          description={t('Delivered and created work packages per month')}
           height={260}
         >
           <DeliveryTrendChart data={trendsQuery.data ?? []} />
@@ -154,8 +155,7 @@ export default function ProjectReportsTab() {
       <TruncationNotice
         shown={tasks.length}
         total={total}
-        itemLabel="task"
-        affected="The figures above"
+        affected={t('The figures above')}
       />
     </div>
   );

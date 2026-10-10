@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useSettingsSection, useUpdateSettingsSection } from '@/hooks/useAdmin';
+import { msg, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { ApiError } from '@/services/api/client';
 import type { AdminSettingField, AdminSettingOption } from '@/types';
@@ -48,7 +49,7 @@ const SAVE_DEBOUNCE_MS = 600;
 const EMPTY_CHOICE = '__none__';
 
 /** What a `writable: false` field says instead of letting itself be edited. */
-const PINNED_HINT = "Set by this instance's configuration and cannot be changed here.";
+const PINNED_HINT = msg('Set by this instance\'s configuration and cannot be changed here.');
 
 export interface SettingsSectionPageProps {
   /** The section id the backend knows it by, e.g. `authentication`. */
@@ -72,9 +73,8 @@ export function SettingsSectionPage({ section }: SettingsSectionPageProps) {
   // older or differently configured instance simply has nothing to show.
   if (query.isError && query.error instanceof ApiError && query.error.isNotFound) {
     return (
-      <Alert tone="warning" title="This instance does not offer this section">
-        The delivery system behind EPM has no settings under this heading, so there is nothing
-        to change here.
+      <Alert tone="warning" title={t('This instance does not offer this section')}>
+        {t('The delivery system behind EPM has no settings under this heading, so there is nothing to change here.')}
       </Alert>
     );
   }
@@ -85,7 +85,7 @@ export function SettingsSectionPage({ section }: SettingsSectionPageProps) {
       {
         onSuccess: () => setJustSaved(true),
         onError: (error) =>
-          toast.error('That setting was not saved', { description: describeError(error) }),
+          toast.error(t('That setting was not saved'), { description: describeError(error) }),
       },
     );
 
@@ -95,7 +95,7 @@ export function SettingsSectionPage({ section }: SettingsSectionPageProps) {
       isError={query.isError}
       error={query.error}
       onRetry={() => void query.refetch()}
-      errorTitle="These settings could not be loaded"
+      errorTitle={t('These settings could not be loaded')}
       skeleton={<ListSkeleton rows={4} height="h-14" />}
     >
       {query.data ? (
@@ -130,7 +130,7 @@ function SaveState({ saving, saved }: { saving: boolean; saved: boolean }) {
   if (!saving && !saved) return null;
   return (
     <span className="text-2xs text-muted-foreground" aria-live="polite">
-      {saving ? 'Saving…' : 'Saved'}
+      {saving ? t('Saving…') : t('Saved')}
     </span>
   );
 }
@@ -167,7 +167,7 @@ function SettingRow({ section, field, onChange }: SettingRowProps) {
         {field.help ? <FieldHint id={hintId}>{field.help}</FieldHint> : null}
         {/* Shown rather than hidden: a setting that has quietly vanished is
             harder to explain than one that says why it will not move. */}
-        {field.writable ? null : <FieldHint>{PINNED_HINT}</FieldHint>}
+        {field.writable ? null : <FieldHint>{t(PINNED_HINT)}</FieldHint>}
       </div>
       <div className={stacked ? 'min-w-0' : 'shrink-0'}>
         <SettingControl
@@ -266,7 +266,7 @@ function SettingControl({ id, describedBy, field, onChange }: ControlProps) {
           onValueChange={(choice) => onChange(fromChoice(choice))}
         >
           <SelectTrigger id={id} size="sm" className="w-56" aria-describedby={describedBy}>
-            <SelectValue placeholder="Not set" />
+            <SelectValue placeholder={t('Not set')} />
           </SelectTrigger>
           <SelectContent>
             {(field.options ?? []).map((option) => (

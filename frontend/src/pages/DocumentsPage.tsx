@@ -24,6 +24,7 @@ import { documentDownloadUrl, useDocuments, useUploadDocument } from '@/hooks/us
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
+import { t } from '@/lib/i18n';
 import type { ID, EpmDocument, EpmProject } from '@/types';
 
 const ALL = '__all__';
@@ -79,7 +80,7 @@ export default function DocumentsPage() {
       isError={documentsQuery.isError}
       error={documentsQuery.error}
       onRetry={() => documentsQuery.refetch()}
-      errorTitle="Unable to load documents"
+      errorTitle={t('Unable to load documents')}
       skeleton={<DocumentGridSkeleton />}
       isEmpty={items.length === 0}
       empty={
@@ -87,7 +88,7 @@ export default function DocumentsPage() {
           <EmptyState
             icon={FileText}
             title={emptyTitle}
-            description="Upload a file or adjust the filters to see documents here."
+            description={t('Upload a file or adjust the filters to see documents here.')}
           />
         </Card>
       }
@@ -105,31 +106,31 @@ export default function DocumentsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Documents"
-        description="Specifications, plans, evidence and reporting packs across the workspace."
+        title={t('Documents')}
+        description={t('Specifications, plans, evidence and reporting packs across the workspace.')}
       />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-48 flex-1 sm:max-w-xs">
           <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
             aria-hidden
           />
           <Input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search documents..."
-            aria-label="Search documents"
-            className="h-8 pl-8 text-xs"
+            placeholder={t('Search documents...')}
+            aria-label={t('Search documents')}
+            className="h-8 ps-8 text-xs"
           />
         </div>
 
         <Select value={projectId} onValueChange={setProjectId}>
-          <SelectTrigger className="h-8 w-auto min-w-40 text-xs" aria-label="Filter by project">
-            <SelectValue placeholder="All projects" />
+          <SelectTrigger className="h-8 w-auto min-w-40 text-xs" aria-label={t('Filter by project')}>
+            <SelectValue placeholder={t('All projects')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All projects</SelectItem>
+            <SelectItem value={ALL}>{t('All projects')}</SelectItem>
             {(projectsQuery.data ?? []).map((project) => (
               <SelectItem key={project.id} value={project.id}>
                 {project.name}
@@ -141,28 +142,28 @@ export default function DocumentsPage() {
 
       <Tabs defaultValue="project">
         <TabsList>
-          <TabsTrigger value="project">Project Documents</TabsTrigger>
-          <TabsTrigger value="recent">Recent Files</TabsTrigger>
-          <TabsTrigger value="shared">Shared</TabsTrigger>
-          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="project">{t('Project Documents')}</TabsTrigger>
+          <TabsTrigger value="recent">{t('Recent Files')}</TabsTrigger>
+          <TabsTrigger value="shared">{t('Shared')}</TabsTrigger>
+          <TabsTrigger value="all">{t('All')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="project" className="mt-4">
-          {renderGrid(grouped.project, 'No project documents')}
+          {renderGrid(grouped.project, t('No project documents'))}
         </TabsContent>
         <TabsContent value="recent" className="mt-4">
-          {renderGrid(grouped.recent, 'Nothing recent')}
+          {renderGrid(grouped.recent, t('Nothing recent'))}
         </TabsContent>
         <TabsContent value="shared" className="mt-4">
-          {renderGrid(grouped.shared, 'Nothing shared with you')}
+          {renderGrid(grouped.shared, t('Nothing shared with you'))}
         </TabsContent>
         <TabsContent value="all" className="mt-4">
-          {renderGrid(grouped.all, 'No documents yet')}
+          {renderGrid(grouped.all, t('No documents yet'))}
         </TabsContent>
       </Tabs>
 
       <section className="space-y-3">
-        <SectionHeader title="Upload" description="Add a file to the workspace library" />
+        <SectionHeader title={t('Upload')} description={t('Add a file to the workspace library')} />
         <DocumentUpload
           pending={upload.isPending}
           onUpload={(file) =>
@@ -170,9 +171,9 @@ export default function DocumentsPage() {
               { file, projectId: projectId === ALL ? undefined : projectId },
               {
                 onSuccess: (created) =>
-                  toast.success('Document uploaded', { description: created.name }),
+                  toast.success(t('Document uploaded'), { description: created.name }),
                 onError: (error) =>
-                  toast.error('Unable to upload the document', {
+                  toast.error(t('Unable to upload the document'), {
                     description: error instanceof Error ? error.message : undefined,
                   }),
               },

@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { ComboSelect } from '@/components/common/ComboSelect';
 import { Badge } from '@/components/ui/badge';
 import { useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import type { AutomationOptions, PersonSpec } from '@/types';
 import { PERSON_WORDS } from './vocabulary';
 
@@ -19,8 +20,8 @@ export function PersonPicker({
   options,
   kinds,
   single = false,
-  emptyText = 'Nobody yet',
-  label = 'Add a person',
+  emptyText = t('Nobody yet'),
+  label = t('Add a person'),
 }: {
   value: PersonSpec[];
   onChange: (value: PersonSpec[]) => void;
@@ -36,9 +37,9 @@ export function PersonPicker({
   const key = (spec: PersonSpec) =>
     spec.kind === 'user' ? `user:${spec.userId}` : spec.kind === 'project_role' ? `role:${spec.roleId}` : spec.kind;
   const name = (spec: PersonSpec) => {
-    if (spec.kind === 'user') return users.data?.find((user) => user.id === spec.userId)?.name ?? `Person ${spec.userId}`;
+    if (spec.kind === 'user') return users.data?.find((user) => user.id === spec.userId)?.name ?? t('Person {id}', { id: spec.userId });
     if (spec.kind === 'project_role') {
-      return `Role: ${options?.roles.find((role) => role.id === spec.roleId)?.name ?? spec.roleId}`;
+      return t('Role: {role}', { role: options?.roles.find((role) => role.id === spec.roleId)?.name ?? spec.roleId });
     }
     return PERSON_WORDS[spec.kind];
   };
@@ -48,7 +49,7 @@ export function PersonPicker({
       .filter((kind) => kind !== 'user' && kind !== 'project_role')
       .map((kind) => ({ id: kind, name: PERSON_WORDS[kind] })),
     ...(kinds.includes('project_role')
-      ? (options?.roles ?? []).map((role) => ({ id: `role:${role.id}`, name: `Everyone in role: ${role.name}` }))
+      ? (options?.roles ?? []).map((role) => ({ id: `role:${role.id}`, name: t('Everyone in role: {role}', { role: role.name }) }))
       : []),
     ...(kinds.includes('user') ? (users.data ?? []).map((user) => ({ id: `user:${user.id}`, name: user.name })) : []),
   ].filter((choice) => !value.some((spec) => key(spec) === choice.id));
@@ -73,7 +74,7 @@ export function PersonPicker({
             {name(spec)}
             <button
               type="button"
-              aria-label={`Remove ${name(spec)}`}
+              aria-label={t('Remove {name}', { name: name(spec) })}
               onClick={() => onChange(value.filter((one) => key(one) !== key(spec)))}
             >
               <X className="h-3 w-3" />
@@ -82,7 +83,7 @@ export function PersonPicker({
         ))}
       </div>
       {!single || value.length === 0 ? (
-        <ComboSelect label={label} options={choices} value={adding} onChange={add} placeholder={single ? 'Choose…' : 'Add…'} />
+        <ComboSelect label={label} options={choices} value={adding} onChange={add} placeholder={single ? t('Choose…') : t('Add…')} />
       ) : null}
     </div>
   );

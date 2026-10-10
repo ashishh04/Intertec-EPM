@@ -14,15 +14,15 @@ export function LandingCanvas() {
       <div className="landing-canvas-grid absolute inset-0 [mask-image:radial-gradient(80%_70%_at_50%_40%,black_0%,transparent_100%)]" />
 
       <div
-        className="landing-bloom absolute -left-[15%] top-[-10%] h-[70vh] w-[70vw] rounded-full bg-[radial-gradient(circle,hsl(var(--brand-from)/0.16)_0%,transparent_65%)]"
+        className="landing-bloom absolute -start-[15%] top-[-10%] h-[70vh] w-[70vw] rounded-full bg-[radial-gradient(circle,hsl(var(--brand-from)/0.16)_0%,transparent_65%)]"
         style={{ animationDuration: '28s' }}
       />
       <div
-        className="landing-bloom absolute -right-[20%] top-[35%] h-[80vh] w-[75vw] rounded-full bg-[radial-gradient(circle,hsl(var(--brand-to)/0.2)_0%,transparent_65%)]"
+        className="landing-bloom absolute -end-[20%] top-[35%] h-[80vh] w-[75vw] rounded-full bg-[radial-gradient(circle,hsl(var(--brand-to)/0.2)_0%,transparent_65%)]"
         style={{ animationDuration: '36s', animationDelay: '-8s' }}
       />
       <div
-        className="landing-bloom absolute bottom-[-15%] left-[20%] h-[60vh] w-[60vw] rounded-full bg-[radial-gradient(circle,hsl(var(--accent)/0.14)_0%,transparent_65%)]"
+        className="landing-bloom absolute bottom-[-15%] start-[20%] h-[60vh] w-[60vw] rounded-full bg-[radial-gradient(circle,hsl(var(--accent)/0.14)_0%,transparent_65%)]"
         style={{ animationDuration: '32s', animationDelay: '-16s' }}
       />
 

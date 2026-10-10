@@ -8,6 +8,7 @@ import { InfoTooltip } from '@/components/ui/tooltip';
 import { EpmMark } from '@/components/common/EpmLogo';
 import { useUI } from '@/providers/UIProvider';
 import { useAssistantStatus, useChat } from '@/hooks/useAssistant';
+import { msg, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ID } from '@/types';
 import { AssistantComposer } from './AssistantComposer';
@@ -15,10 +16,10 @@ import { AssistantMessage } from './AssistantMessage';
 import { ConversationMenu } from './ConversationMenu';
 
 const SUGGESTIONS = [
-  'What is overdue on my work?',
-  'How healthy is each project?',
-  'Who has capacity this week?',
-  'Summarise the active sprint',
+  msg('What is overdue on my work?'),
+  msg('How healthy is each project?'),
+  msg('Who has capacity this week?'),
+  msg('Summarise the active sprint'),
 ];
 
 /** How close to the bottom the reader must be for new text to pull the view along. */
@@ -98,15 +99,15 @@ export function PragnyaPanel({ conversationId, onConversationChange, onClose }: 
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <h2 className="text-sm font-semibold tracking-tight">Pragnya</h2>
           <Badge size="sm" tone="highlight">
-            Beta
+            {t('Beta')}
           </Badge>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          <InfoTooltip label="New conversation">
+          <InfoTooltip label={t('New conversation')}>
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="New conversation"
+              aria-label={t('New conversation')}
               onClick={startNew}
               disabled={!available || (messages.length === 0 && conversationId === null)}
             >
@@ -119,7 +120,7 @@ export function PragnyaPanel({ conversationId, onConversationChange, onClose }: 
             onSelect={switchTo}
             onNew={startNew}
           />
-          <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>
+          <Button variant="ghost" size="icon-sm" aria-label={t('Close')} onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -141,11 +142,11 @@ export function PragnyaPanel({ conversationId, onConversationChange, onClose }: 
 
         {!checking && !available ? (
           <div className="p-3">
-            <Alert tone="warning" title="The assistant is not available">
+            <Alert tone="warning" title={t('The assistant is not available')}>
               {status.error
-                ? 'EPM could not check whether the assistant is configured. Try again in a moment.'
+                ? t('EPM could not check whether the assistant is configured. Try again in a moment.')
                 : (status.data?.reason ??
-                  'It has not been configured for this environment. Ask an administrator to connect it.')}
+                  t('It has not been configured for this environment. Ask an administrator to connect it.'))}
             </Alert>
           </div>
         ) : null}
@@ -195,11 +196,11 @@ export function PragnyaPanel({ conversationId, onConversationChange, onClose }: 
               failedPrompt ? (
                 <Button size="sm" variant="secondary" onClick={() => ask(failedPrompt)}>
                   <RotateCcw className="h-3.5 w-3.5" />
-                  Retry
+                  {t('Retry')}
                 </Button>
               ) : (
                 <Button size="sm" variant="ghost" onClick={clearError}>
-                  Dismiss
+                  {t('Dismiss')}
                 </Button>
               )
             }
@@ -231,25 +232,25 @@ function Intro({ onPick, disabled }: { onPick: (text: string) => void; disabled:
         <Sparkles className="h-5 w-5" />
       </span>
       <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">What would you like to know?</p>
+        <p className="text-sm font-medium text-foreground">{t('What would you like to know?')}</p>
         <p className="mx-auto max-w-[17rem] text-xs text-muted-foreground">
-          Ask about your projects, tasks, sprints and people. Answers come from EPM&apos;s own data.
+          {t('Ask about your projects, tasks, sprints and people. Answers come from EPM\'s own data.')}
         </p>
       </div>
-      <ul className="mt-1 flex w-full flex-col gap-2" aria-label="Suggested questions">
+      <ul className="mt-1 flex w-full flex-col gap-2" aria-label={t('Suggested questions')}>
         {SUGGESTIONS.map((suggestion) => (
           <li key={suggestion}>
             <button
               type="button"
               disabled={disabled}
-              onClick={() => onPick(suggestion)}
+              onClick={() => onPick(t(suggestion))}
               className={cn(
-                'w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-left text-xs text-foreground shadow-xs transition-colors',
+                'w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-start text-xs text-foreground shadow-xs transition-colors',
                 'hover:border-primary/30 hover:bg-primary-soft/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 'disabled:cursor-not-allowed disabled:opacity-50',
               )}
             >
-              {suggestion}
+              {t(suggestion)}
             </button>
           </li>
         ))}

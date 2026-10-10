@@ -14,6 +14,7 @@ import { usePortfolios } from '@/hooks/usePortfolios';
 import { useProjects } from '@/hooks/useProjects';
 import { useTeams } from '@/hooks/useTeams';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /**
  * Instance, a portfolio, a project, a department or a team; a person only as
@@ -40,21 +41,21 @@ export function ScopePicker({
 
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>Scope</Label>
+      <Label htmlFor={id}>{t('Scope')}</Label>
       <Select value={scope} onValueChange={onChange}>
         <SelectTrigger id={id} className={cn(triggerClassName)}>
-          <SelectValue placeholder="All projects" />
+          <SelectValue placeholder={t('All projects')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="instance">All projects</SelectItem>
+          <SelectItem value="instance">{t('All projects')}</SelectItem>
           {scope.startsWith('person:') ? (
-            <SelectItem value={scope}>{personName ?? 'This person'}</SelectItem>
+            <SelectItem value={scope}>{personName ?? t('This person')}</SelectItem>
           ) : null}
           {(portfolios.data ?? []).length > 0 ? (
             <>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Portfolios</SelectLabel>
+                <SelectLabel>{t('Portfolios')}</SelectLabel>
                 {(portfolios.data ?? []).map((portfolio) => (
                   <SelectItem key={portfolio.id} value={`portfolio:${portfolio.id}`}>
                     {portfolio.name}
@@ -67,7 +68,7 @@ export function ScopePicker({
             <>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Projects</SelectLabel>
+                <SelectLabel>{t('Projects')}</SelectLabel>
                 {(projects.data ?? []).map((project) => (
                   <SelectItem key={project.id} value={`project:${project.id}`}>
                     {project.name}
@@ -80,7 +81,7 @@ export function ScopePicker({
             <>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Departments</SelectLabel>
+                <SelectLabel>{t('Departments')}</SelectLabel>
                 {(departments.data ?? []).map((department) => (
                   <SelectItem key={department.id} value={`department:${department.id}`}>
                     {department.name}
@@ -93,7 +94,7 @@ export function ScopePicker({
             <>
               <SelectSeparator />
               <SelectGroup>
-                <SelectLabel>Teams</SelectLabel>
+                <SelectLabel>{t('Teams')}</SelectLabel>
                 {(teams.data ?? []).map((team) => (
                   <SelectItem key={team.id} value={`team:${team.id}`}>
                     {team.name}

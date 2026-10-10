@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/input';
 import { FieldError, FieldHint, Label } from '@/components/ui/label';
+import { t } from '@/lib/i18n';
 import type { ApprovalDecision } from '@/services/api/approvals';
 
 /**
@@ -62,16 +63,16 @@ export function DecideDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{reject ? 'Reject' : 'Approve'}</DialogTitle>
+          <DialogTitle>{reject ? t('Reject') : t('Approve')}</DialogTitle>
           <DialogDescription>
             {subject} · {stepName}
-            {onBehalfOfName ? ` · on behalf of ${onBehalfOfName}` : ''}
+            {onBehalfOfName ? ` · ${t('on behalf of {name}', { name: onBehalfOfName })}` : ''}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-1.5">
           <Label htmlFor="decision-comment" required={reject}>
-            {reject ? 'Reason' : 'Comment'}
+            {reject ? t('Reason') : t('Comment')}
           </Label>
           <Textarea
             id="decision-comment"
@@ -79,13 +80,13 @@ export function DecideDialog({
             onChange={(event) => setComment(event.target.value)}
             rows={3}
             maxLength={2000}
-            placeholder={reject ? 'What would have to change for this to be approved?' : 'Optional'}
+            placeholder={reject ? t('What would have to change for this to be approved?') : t('Optional')}
             invalid={touched && missing}
           />
           {touched && missing ? (
-            <FieldError>Say why you are rejecting it: the requester is shown your reason.</FieldError>
+            <FieldError>{t('Say why you are rejecting it: the requester is shown your reason.')}</FieldError>
           ) : (
-            <FieldHint>Recorded in the journal with your decision. It cannot be changed afterwards.</FieldHint>
+            <FieldHint>{t('Recorded in the journal with your decision. It cannot be changed afterwards.')}</FieldHint>
           )}
         </div>
 
@@ -93,7 +94,7 @@ export function DecideDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             variant={reject ? 'danger' : 'default'}
@@ -104,7 +105,7 @@ export function DecideDialog({
               onConfirm(comment.trim() || undefined);
             }}
           >
-            {reject ? 'Reject' : 'Approve'}
+            {reject ? t('Reject') : t('Approve')}
           </Button>
         </DialogFooter>
       </DialogContent>

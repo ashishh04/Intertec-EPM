@@ -43,6 +43,7 @@ import {
   useUpdateRole,
 } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 import { formatNumber } from '@/lib/utils';
 import type { AdminPermissionModule, AdminRole, AdminRoleKind } from '@/services/api/admin';
 import { describeError } from './shared-format';
@@ -90,11 +91,11 @@ function RolesList() {
     const label = removing.name;
     remove.mutate(removing.id, {
       onSuccess: () => {
-        toast.success(`${label} was deleted`);
+        toast.success(t('{name} was deleted', { name: label }));
         setRemoving(undefined);
       },
       onError: (error) =>
-        toast.error('That role could not be deleted', {
+        toast.error(t('That role could not be deleted'), {
           description: describeError(error),
         }),
     });
@@ -107,12 +108,12 @@ function RolesList() {
           <Button size="sm" asChild>
             <Link to={`${ROLES_PATH}/new`}>
               <Plus className="h-3.5 w-3.5" />
-              New role
+              {t('New role')}
             </Link>
           </Button>
         }
       >
-        <ResultCount count={items.length} label="role" />
+        <ResultCount count={items.length} label={t('role')} plural={t('roles')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -120,30 +121,30 @@ function RolesList() {
         isError={query.isError}
         error={query.error}
         onRetry={() => void query.refetch()}
-        errorTitle="Unable to load roles"
+        errorTitle={t('Unable to load roles')}
         skeleton={<TableSkeleton columns={5} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={ShieldCheck}
-            title="No roles"
-            description="Roles appear here once the delivery system reports them."
+            title={t('No roles')}
+            description={t('Roles appear here once the delivery system reports them.')}
             action={{
-              label: 'New role',
+              label: t('New role'),
               onClick: () => navigate(`${ROLES_PATH}/new`),
             }}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="role" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('role')} itemLabelPlural={t('roles')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Built-in</TableHead>
-              <TableHead numeric>Permissions</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Type')}</TableHead>
+              <TableHead>{t('Built-in')}</TableHead>
+              <TableHead numeric>{t('Permissions')}</TableHead>
               <TableHead className="w-12">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -152,7 +153,7 @@ function RolesList() {
               const editable = isEditableRole(role);
               return (
                 <TableRow key={role.id}>
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium" dir="auto">
                     {editable ? (
                       <Link
                         to={`${ROLES_PATH}/${role.id}`}
@@ -170,16 +171,16 @@ function RolesList() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <CheckCell value={role.builtin} label="Built-in" />
+                    <CheckCell value={role.builtin} label={t('Built-in')} />
                   </TableCell>
                   <TableCell numeric>{formatNumber(role.permissions.length)}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
                           size="icon-sm"
                           variant="ghost"
-                          aria-label={`Actions for ${role.name}`}
+                          aria-label={t('Actions for {name}', { name: role.name })}
                         >
                           <Ellipsis className="h-4 w-4" />
                         </Button>
@@ -188,7 +189,7 @@ function RolesList() {
                         {editable ? (
                           <DropdownMenuItem onSelect={() => navigate(`${ROLES_PATH}/${role.id}`)}>
                             <Pencil />
-                            Edit
+                            {t('Edit')}
                           </DropdownMenuItem>
                         ) : null}
                         <DropdownMenuItem
@@ -197,7 +198,7 @@ function RolesList() {
                           onSelect={() => setRemoving(role)}
                         >
                           <Trash2 />
-                          Delete
+                          {t('Delete')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -212,10 +213,11 @@ function RolesList() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              The role is removed from the delivery system. A role that is still assigned to a
-              member cannot be deleted until those memberships change.
+              {t(
+                'The role is removed from the delivery system. A role that is still assigned to a member cannot be deleted until those memberships change.',
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -224,10 +226,10 @@ function RolesList() {
               onClick={() => setRemoving(undefined)}
               disabled={remove.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} loading={remove.isPending}>
-              Delete
+              {t('Delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -256,7 +258,7 @@ function RoleEditor({ roleId }: { roleId?: string }) {
         void roles.refetch();
         void permissions.refetch();
       }}
-      errorTitle="Unable to load the role"
+      errorTitle={t('Unable to load the role')}
       skeleton={<ListSkeleton rows={2} height="h-48" />}
     >
       {roleId && !role ? (
@@ -280,9 +282,9 @@ function RoleNotFound() {
   return (
     <EmptyState
       icon={ShieldCheck}
-      title="Role not found"
-      description="No role has this address. It may have been deleted."
-      action={{ label: 'Back to roles', onClick: () => navigate(ROLES_PATH) }}
+      title={t('Role not found')}
+      description={t('No role has this address. It may have been deleted.')}
+      action={{ label: t('Back to roles'), onClick: () => navigate(ROLES_PATH) }}
     />
   );
 }
@@ -292,9 +294,11 @@ function RoleNotEditable({ role }: { role: AdminRole }) {
   return (
     <EmptyState
       icon={ShieldCheck}
-      title={`${role.name} cannot be edited`}
-      description={`${ROLE_KIND_LABEL[role.kind] ?? 'This kind of role'} is fixed by the delivery system.`}
-      action={{ label: 'Back to roles', onClick: () => navigate(ROLES_PATH) }}
+      title={t('{name} cannot be edited', { name: role.name })}
+      description={t('{kind} is fixed by the delivery system.', {
+        kind: ROLE_KIND_LABEL[role.kind] ?? t('This kind of role'),
+      })}
+      action={{ label: t('Back to roles'), onClick: () => navigate(ROLES_PATH) }}
     />
   );
 }
@@ -354,7 +358,7 @@ function RoleForm({
     [roles],
   );
 
-  const nameError = submitted && name.trim() === '' ? 'Enter a name for the role.' : undefined;
+  const nameError = submitted && name.trim() === '' ? t('Enter a name for the role.') : undefined;
   const dirty = creating
     ? true
     : name.trim() !== role.name || !sameStringSet(selected, role.permissions);
@@ -380,7 +384,7 @@ function RoleForm({
     if (trimmed === '') return;
 
     const onError = (error: unknown) =>
-      toast.error(creating ? 'The role was not created' : 'The role was not saved', {
+      toast.error(creating ? t('The role was not created') : t('The role was not saved'), {
         description: describeError(error),
       });
 
@@ -394,7 +398,7 @@ function RoleForm({
         },
         {
           onSuccess: (created) => {
-            toast.success(`${created.name} was created`);
+            toast.success(t('{name} was created', { name: created.name }));
             navigate(ROLES_PATH);
           },
           onError,
@@ -410,7 +414,7 @@ function RoleForm({
       },
       {
         onSuccess: (saved) => {
-          toast.success(`${saved.name} was saved`);
+          toast.success(t('{name} was saved', { name: saved.name }));
           navigate(ROLES_PATH);
         },
         onError,
@@ -422,12 +426,12 @@ function RoleForm({
     <form onSubmit={submit} noValidate className="space-y-4">
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>{creating ? 'New role' : role.name}</CardTitle>
+          <CardTitle dir="auto">{creating ? t('New role') : role.name}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 pt-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="role-name" required={!role?.builtin}>
-              Name
+              {t('Name')}
             </Label>
             <Input
               id="role-name"
@@ -446,7 +450,7 @@ function RoleForm({
               <FieldError id="role-name-error">{nameError}</FieldError>
             ) : role?.builtin ? (
               <FieldHint id="role-name-hint">
-                Built-in roles keep their name. Their permissions can still be changed.
+                {t('Built-in roles keep their name. Their permissions can still be changed.')}
               </FieldHint>
             ) : null}
           </div>
@@ -462,23 +466,23 @@ function RoleForm({
                 />
                 <div className="space-y-0.5">
                   <Label htmlFor="role-global" className="leading-4">
-                    Global role
+                    {t('Global role')}
                   </Label>
                   <FieldHint>
-                    Held by a person across the whole instance rather than inside a project.
+                    {t('Held by a person across the whole instance rather than inside a project.')}
                   </FieldHint>
                 </div>
               </div>
 
               {!global ? (
                 <div className="space-y-1.5">
-                  <Label htmlFor="role-copy-workflow">Copy workflow from</Label>
+                  <Label htmlFor="role-copy-workflow">{t('Copy workflow from')}</Label>
                   <Select value={copyFrom} onValueChange={setCopyFrom} disabled={pending}>
                     <SelectTrigger id="role-copy-workflow">
-                      <SelectValue placeholder="Do not copy" />
+                      <SelectValue placeholder={t('Do not copy')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_WORKFLOW}>Do not copy</SelectItem>
+                      <SelectItem value={NO_WORKFLOW}>{t('Do not copy')}</SelectItem>
                       {projectRoles.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
                           {item.name}
@@ -487,14 +491,14 @@ function RoleForm({
                     </SelectContent>
                   </Select>
                   <FieldHint>
-                    The status transitions the chosen role may make are copied to the new one.
+                    {t('The status transitions the chosen role may make are copied to the new one.')}
                   </FieldHint>
                 </div>
               ) : null}
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label id="role-kind-label">Type</Label>
+              <Label id="role-kind-label">{t('Type')}</Label>
               <p className="pt-1" aria-labelledby="role-kind-label">
                 <Badge tone="neutral" size="sm">
                   {ROLE_KIND_LABEL[role.kind]}
@@ -507,17 +511,20 @@ function RoleForm({
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Permissions</CardTitle>
+          <CardTitle>{t('Permissions')}</CardTitle>
           <CardDescription aria-live="polite">
-            {formatNumber(selected.length)} of {formatNumber(applicable.size)} granted
+            {t('{granted, number} of {total, number} granted', {
+              granted: selected.length,
+              total: applicable.size,
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
           {sections.length === 0 ? (
             <EmptyState
               size="inline"
-              title="No permissions to set"
-              description="The delivery system reported no permissions for this kind of role."
+              title={t('No permissions to set')}
+              description={t('The delivery system reported no permissions for this kind of role.')}
             />
           ) : (
             <div className="space-y-6">
@@ -581,15 +588,15 @@ function RoleForm({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="sm" loading={pending} disabled={!dirty}>
-          {creating ? 'Create' : 'Save'}
+          {creating ? t('Create') : t('Save')}
         </Button>
         <Button type="button" size="sm" variant="ghost" asChild>
-          <Link to={ROLES_PATH}>Cancel</Link>
+          <Link to={ROLES_PATH}>{t('Cancel')}</Link>
         </Button>
         {sections.length > 0 ? (
-          <span className="ml-auto">
+          <span className="ms-auto">
             <CheckAllLinks
-              scope="permissions"
+              scope={t('permissions')}
               onCheckAll={() => setMany([...applicable], true)}
               onUncheckAll={() => setMany([...applicable], false)}
               disabled={pending}

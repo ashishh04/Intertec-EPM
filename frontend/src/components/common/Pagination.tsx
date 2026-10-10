@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { t } from '@/lib/i18n';
 import { cn, formatNumber, pluralize } from '@/lib/utils';
 
 export interface PaginationProps {
@@ -72,7 +73,7 @@ export function Pagination({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = DEFAULT_PAGE_SIZES,
-  itemLabel = 'item',
+  itemLabel,
   itemLabelPlural,
   variant = 'default',
   className,
@@ -86,10 +87,14 @@ export function Pagination({
 
   const rangeStart = total === 0 ? 0 : (current - 1) * pageSize + 1;
   const rangeEnd = Math.min(current * pageSize, total);
+  // The caller's noun, already translated; "items" when there is none.
+  const noun = itemLabel
+    ? pluralize(total, itemLabel, itemLabelPlural)
+    : t('{count, plural, one {item} other {items}}', { count: total });
 
   return (
     <nav
-      aria-label="Pagination"
+      aria-label={t('Pagination')}
       className={cn(
         'flex flex-wrap items-center justify-between gap-x-4 gap-y-2',
         // One height whether or not there are page buttons, so two pagers side
@@ -100,18 +105,14 @@ export function Pagination({
     >
       {variant === 'default' ? (
         <p className="text-2xs text-muted-foreground">
-          {total === 0 ? (
-            'No results'
-          ) : (
-            <>
-              Showing{' '}
-              <span className="font-mono font-medium text-foreground">
-                {formatNumber(rangeStart)}–{formatNumber(rangeEnd)}
-              </span>{' '}
-              of <span className="font-mono font-medium text-foreground">{formatNumber(total)}</span>{' '}
-              {pluralize(total, itemLabel, itemLabelPlural)}
-            </>
-          )}
+          {total === 0
+            ? t('No results')
+            : t('Showing {start}–{end} of {total} {noun}', {
+                start: formatNumber(rangeStart),
+                end: formatNumber(rangeEnd),
+                total: formatNumber(total),
+                noun,
+              })}
         </p>
       ) : (
         <p className="font-mono text-2xs text-muted-foreground">
@@ -123,7 +124,7 @@ export function Pagination({
         {onPageSizeChange ? (
           <div className="hidden items-center gap-1.5 sm:flex">
             <label htmlFor={sizeId} className="text-2xs text-muted-foreground">
-              Per page
+              {t('Per page')}
             </label>
             <Select
               value={String(pageSize)}
@@ -148,7 +149,7 @@ export function Pagination({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Previous page"
+              aria-label={t('Previous page')}
               disabled={current <= 1}
               onClick={() => onPageChange(current - 1)}
             >
@@ -169,7 +170,7 @@ export function Pagination({
                   key={item}
                   variant={item === current ? 'default' : 'ghost'}
                   size="icon-sm"
-                  aria-label={`Page ${item}`}
+                  aria-label={t('Page {page}', { page: item })}
                   aria-current={item === current ? 'page' : undefined}
                   onClick={() => onPageChange(item)}
                   className="font-mono text-2xs"
@@ -182,7 +183,7 @@ export function Pagination({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Next page"
+              aria-label={t('Next page')}
               disabled={current >= totalPages}
               onClick={() => onPageChange(current + 1)}
             >

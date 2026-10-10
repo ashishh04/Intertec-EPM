@@ -8,6 +8,7 @@ import { withAudit } from './audit.js';
 import { invalidateAllProjectCosts } from './costs.js';
 import { requestHealthRecalc } from './health.js';
 import type { EpmUser } from '../types/epm.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Employee mapping — where a person sits in EPM's org structure.
@@ -75,7 +76,7 @@ type ProfileWithRefs = UserProfile & { departmentRef: Department | null; team: T
 /** `null`, `''` and an absent key all mean "clear it". Anything else must be text. */
 function asOptionalId(value: unknown, field: string): string | null {
   if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw EpmError.badRequest(`${field} must be text.`);
+  if (typeof value !== 'string') throw EpmError.badRequest(message('{field} must be text.', { field }));
   return value.trim() || null;
 }
 
@@ -292,7 +293,7 @@ function validateCapacity(value: unknown): number {
   }
   if (value < 0) throw EpmError.badRequest('Capacity cannot be negative.');
   if (value > CAPACITY_MAX) {
-    throw EpmError.badRequest(`Capacity cannot exceed ${CAPACITY_MAX} hours a week.`);
+    throw EpmError.badRequest(message('Capacity cannot exceed {max} hours a week.', { max: CAPACITY_MAX }));
   }
 
   // Quarter-hour resolution. Anything finer is noise in a weekly figure, and
@@ -375,7 +376,7 @@ function validateRate(value: unknown): number | null {
   }
   if (value < 0) throw EpmError.badRequest('An hourly rate cannot be negative.');
   if (value > RATE_MAX) {
-    throw EpmError.badRequest(`An hourly rate cannot exceed ${RATE_MAX}.`);
+    throw EpmError.badRequest(message('An hourly rate cannot exceed {max}.', { max: RATE_MAX }));
   }
 
   // Currency resolution. Rates are quoted per hour, so cents are meaningful

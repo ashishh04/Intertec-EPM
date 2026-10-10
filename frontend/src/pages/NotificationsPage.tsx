@@ -21,7 +21,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
 import { NOTIFICATION_REASON_META } from '@/lib/domain';
-import { cn, formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { cn, formatNumber } from '@/lib/utils';
 import type { EpmNotification, ID, NotificationReason } from '@/types';
 
 /**
@@ -132,12 +133,12 @@ export default function NotificationsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Notifications"
-        description="Everything addressed to you, and everything you are following."
+        title={t('Notifications')}
+        description={t('Everything addressed to you, and everything you are following.')}
         meta={
           unread.length > 0 ? (
             <Badge tone="danger" variant="solid" size="sm" className="rounded-full">
-              {formatNumber(unread.length)} unread
+              {t('{count} unread', { count: formatNumber(unread.length) })}
             </Badge>
           ) : null
         }
@@ -148,13 +149,13 @@ export default function NotificationsPage() {
             disabled={unread.length === 0}
             onClick={() =>
               markAllRead.mutate(undefined, {
-                onSuccess: () => toast.success('All notifications marked as read'),
-                onError: () => toast.error('Unable to update notifications'),
+                onSuccess: () => toast.success(t('All notifications marked as read')),
+                onError: () => toast.error(t('Unable to update notifications')),
               })
             }
           >
             <CheckCheck className="h-3.5 w-3.5" />
-            Mark all as read
+            {t('Mark all as read')}
           </Button>
         }
       />
@@ -163,12 +164,12 @@ export default function NotificationsPage() {
         {/* Project rail */}
         <Card className="lg:sticky lg:top-20 lg:self-start">
           <CardHeader variant="compact">
-            <CardTitle>By project</CardTitle>
+            <CardTitle>{t('By project')}</CardTitle>
           </CardHeader>
           <div className="p-2">
             <ul className="space-y-0.5">
               <ProjectRow
-                label="Everything"
+                label={t('Everything')}
                 count={unread.length}
                 active={project === ALL_PROJECTS}
                 onSelect={() => setProject(ALL_PROJECTS)}
@@ -177,7 +178,7 @@ export default function NotificationsPage() {
                 <ProjectRow
                   key={id || 'none'}
                   label={
-                    id ? (projectNames.get(id) ?? `Project ${id}`) : 'Not about a project'
+                    id ? (projectNames.get(id) ?? t('Project {id}', { id })) : t('Not about a project')
                   }
                   count={count}
                   active={project === id}
@@ -186,7 +187,7 @@ export default function NotificationsPage() {
               ))}
               {projectsWithUnread.length === 0 ? (
                 <li className="px-2 py-1.5 text-2xs text-muted-foreground">
-                  Nothing unread anywhere.
+                  {t('Nothing unread anywhere.')}
                 </li>
               ) : null}
             </ul>
@@ -198,10 +199,10 @@ export default function NotificationsPage() {
             <Tabs value={read} onValueChange={(value) => setRead(value as ReadFilter)}>
               <TabsList>
                 <TabsTrigger value="unread">
-                  Unread
+                  {t('Unread')}
                   <CountBadge count={unread.length} />
                 </TabsTrigger>
-                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="all">{t('All')}</TabsTrigger>
               </TabsList>
             </Tabs>
 
@@ -217,15 +218,18 @@ export default function NotificationsPage() {
                     {
                       onSuccess: () =>
                         toast.success(
-                          `Marked ${visible.length} ${pluralize(visible.length, 'notification')} as read`,
+                          t(
+                            '{count, plural, one {Marked # notification as read} other {Marked # notifications as read}}',
+                            { count: visible.length },
+                          ),
                         ),
-                      onError: () => toast.error('Unable to update notifications'),
+                      onError: () => toast.error(t('Unable to update notifications')),
                     },
                   )
                 }
               >
                 <CheckCheck className="h-3.5 w-3.5" />
-                Mark these read
+                {t('Mark these read')}
               </Button>
             ) : null}
           </div>
@@ -233,9 +237,9 @@ export default function NotificationsPage() {
           {/* Reason chips */}
           {presentReasons.length > 1 ? (
             <div className="epm-scroll -mx-1 overflow-x-auto px-1">
-              <div role="group" aria-label="Filter by reason" className="flex min-w-max gap-1.5">
+              <div role="group" aria-label={t('Filter by reason')} className="flex min-w-max gap-1.5">
                 <ReasonChip
-                  label="Any reason"
+                  label={t('Any reason')}
                   count={unreadByReason.get('all') ?? 0}
                   active={reason === 'all'}
                   onSelect={() => setReason('all')}
@@ -258,7 +262,7 @@ export default function NotificationsPage() {
             isError={notificationsQuery.isError}
             error={notificationsQuery.error}
             onRetry={() => notificationsQuery.refetch()}
-            errorTitle="Unable to load notifications"
+            errorTitle={t('Unable to load notifications')}
             skeleton={
               <Card className="divide-y divide-border">
                 {[0, 1, 2, 3, 4].map((index) => (
@@ -277,11 +281,11 @@ export default function NotificationsPage() {
               <Card>
                 <EmptyState
                   icon={Bell}
-                  title={read === 'unread' ? 'You are all caught up' : 'Nothing here'}
+                  title={read === 'unread' ? t('You are all caught up') : t('Nothing here')}
                   description={
                     reason === 'all' && project === ALL_PROJECTS
-                      ? 'Mentions, assignments and date alerts will appear here.'
-                      : 'Nothing matches these filters. Widen them to see the rest.'
+                      ? t('Mentions, assignments and date alerts will appear here.')
+                      : t('Nothing matches these filters. Widen them to see the rest.')
                   }
                 />
               </Card>
@@ -311,7 +315,8 @@ export default function NotificationsPage() {
                 onPageChange={paged.setPage}
                 onPageSizeChange={paged.setPageSize}
                 pageSizeOptions={[15, 30, 50]}
-                itemLabel="notification"
+                itemLabel={t('notification')}
+                itemLabelPlural={t('notifications')}
                 className="border-t border-border"
               />
             </Card>
@@ -340,7 +345,7 @@ function ProjectRow({
         onClick={onSelect}
         aria-current={active ? 'true' : undefined}
         className={cn(
-          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-2xs transition-colors',
+          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-2xs transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           active
             ? 'bg-primary-soft font-medium text-primary'
@@ -348,7 +353,7 @@ function ProjectRow({
         )}
       >
         <FolderKanban className="h-3 w-3 shrink-0" aria-hidden />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="min-w-0 flex-1 truncate" dir="auto">{label}</span>
         {count > 0 ? <CountBadge count={count} /> : null}
       </button>
     </li>
@@ -416,8 +421,9 @@ function FeedRow({
           <Link
             to={`/projects/${notification.projectId}`}
             className="text-2xs text-muted-foreground hover:underline"
+            dir="auto"
           >
-            {projectName ?? `Project ${notification.projectId}`}
+            {projectName ?? t('Project {id}', { id: notification.projectId })}
           </Link>
         ) : null}
       </div>

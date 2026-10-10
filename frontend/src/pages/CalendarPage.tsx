@@ -6,7 +6,6 @@ import {
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
-  format,
   isSameDay,
   isSameMonth,
   isToday,
@@ -26,12 +25,13 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvents } from '@/hooks/useDashboard';
 import { useUI } from '@/providers/UIProvider';
+import { t } from '@/lib/i18n';
 import {
   cn,
   formatLongDate,
+  formatMonthYear,
   formatNumber,
   formatWeekdayDate,
-  pluralize,
   toISODateOnly,
 } from '@/lib/utils';
 import type { CalendarEvent, CalendarEventKind } from '@/types';
@@ -49,10 +49,18 @@ const KIND_STYLE: Record<CalendarEventKind, string> = {
 };
 
 const KIND_LABEL: Record<CalendarEventKind, string> = {
-  task: 'Task deadline',
-  milestone: 'Milestone',
-  sprint: 'Sprint boundary',
-  meeting: 'Meeting',
+  get task() {
+    return t('Task deadline');
+  },
+  get milestone() {
+    return t('Milestone');
+  },
+  get sprint() {
+    return t('Sprint boundary');
+  },
+  get meeting() {
+    return t('Meeting');
+  },
 };
 
 /** Deadlines, milestones, sprint boundaries and meetings on one calendar. */
@@ -99,38 +107,37 @@ export default function CalendarPage() {
     else setAnchor((current) => addDays(current, direction));
   };
 
-  // The month title is the one date on this page with no shared formatter:
-  // "September 2026" is neither a short nor a long date, so it stays a direct
-  // date-fns pattern.
+  // "September 2026" is neither a short nor a long date, so the month title has
+  // a formatter of its own — Gregorian, like the grid below it.
   const title =
     view === 'day'
       ? formatWeekdayDate(anchor)
       : view === 'week'
         ? `${formatLongDate(range.start)} — ${formatLongDate(range.end)}`
-        : format(anchor, 'MMMM yyyy');
+        : formatMonthYear(anchor);
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Calendar"
-        description="Deadlines, milestones and delivery ceremonies across your projects."
+        title={t('Calendar')}
+        description={t('Deadlines, milestones and delivery ceremonies across your projects.')}
         actions={
           <Button onClick={() => openTaskDrawer()} disabled={!canAnywhere('task:create')}>
             <Plus className="h-4 w-4" />
-            New Task
+            {t('New Task')}
           </Button>
         }
       />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-1">
-          <Button variant="secondary" size="icon-sm" onClick={() => shift(-1)} aria-label="Previous period">
+          <Button variant="secondary" size="icon-sm" onClick={() => shift(-1)} aria-label={t('Previous period')}>
             <ChevronLeft className="h-3.5 w-3.5" />
           </Button>
           <Button variant="secondary" size="sm" onClick={() => setAnchor(new Date())}>
-            Today
+            {t('Today')}
           </Button>
-          <Button variant="secondary" size="icon-sm" onClick={() => shift(1)} aria-label="Next period">
+          <Button variant="secondary" size="icon-sm" onClick={() => shift(1)} aria-label={t('Next period')}>
             <ChevronRight className="h-3.5 w-3.5" />
           </Button>
         </div>
@@ -140,12 +147,12 @@ export default function CalendarPage() {
         <Tabs
           value={view}
           onValueChange={(value) => setView(value as ViewMode)}
-          className="ml-auto"
+          className="ms-auto"
         >
-          <TabsList aria-label="Calendar view">
-            <TabsTrigger value="month">Month</TabsTrigger>
-            <TabsTrigger value="week">Week</TabsTrigger>
-            <TabsTrigger value="day">Day</TabsTrigger>
+          <TabsList aria-label={t('Calendar view')}>
+            <TabsTrigger value="month">{t('Month')}</TabsTrigger>
+            <TabsTrigger value="week">{t('Week')}</TabsTrigger>
+            <TabsTrigger value="day">{t('Day')}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -165,7 +172,7 @@ export default function CalendarPage() {
         isError={eventsQuery.isError}
         error={eventsQuery.error}
         onRetry={() => eventsQuery.refetch()}
-        errorTitle="Unable to load the calendar"
+        errorTitle={t('Unable to load the calendar')}
         skeleton={<Skeleton className="h-[32rem] w-full rounded-xl" />}
       >
         {view === 'day' ? (
@@ -173,7 +180,7 @@ export default function CalendarPage() {
         ) : (
           <Card className="overflow-hidden">
             <div className="grid grid-cols-7 border-b border-border bg-surface-sunken/60">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label) => (
+              {[t('Mon'), t('Tue'), t('Wed'), t('Thu'), t('Fri'), t('Sat'), t('Sun')].map((label) => (
                 <div
                   key={label}
                   className="px-2 py-2 text-center text-2xs font-semibold uppercase tracking-wide text-muted-foreground"
@@ -193,7 +200,7 @@ export default function CalendarPage() {
                   <div
                     key={key}
                     className={cn(
-                      'min-h-24 border-b border-r border-border p-1.5 last:border-r-0 [&:nth-child(7n)]:border-r-0',
+                      'min-h-24 border-b border-e border-border p-1.5 last:border-e-0 [&:nth-child(7n)]:border-e-0',
                       view === 'week' && 'min-h-[24rem]',
                       outside && 'bg-surface-sunken/40',
                     )}
@@ -232,9 +239,9 @@ export default function CalendarPage() {
                               setAnchor(day);
                               setView('day');
                             }}
-                            className="w-full rounded px-1 text-left text-2xs text-muted-foreground hover:text-foreground"
+                            className="w-full rounded px-1 text-start text-2xs text-muted-foreground hover:text-foreground"
                           >
-                            +{dayEvents.length - 3} more
+                            {t('+{count} more', { count: dayEvents.length - 3 })}
                           </button>
                         </li>
                       ) : null}
@@ -258,6 +265,7 @@ function EventChip({ event }: { event: CalendarEvent }) {
         KIND_STYLE[event.kind],
       )}
       title={event.title}
+      dir="auto"
     >
       {event.title}
     </span>
@@ -284,14 +292,14 @@ function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
         <CardTitle>{formatWeekdayDate(date)}</CardTitle>
         <CardDescription className="text-2xs">
           {events.length === 0
-            ? 'Nothing scheduled'
-            : `${formatNumber(events.length)} scheduled ${pluralize(events.length, 'item')}`}
+            ? t('Nothing scheduled')
+            : t('{count, plural, one {# scheduled item} other {# scheduled items}}', { count: events.length })}
         </CardDescription>
       </CardHeader>
 
       {allDay.length > 0 ? (
         <div className="space-y-1 border-b border-border bg-surface-sunken/50 p-3">
-          <p className="epm-eyebrow mb-1.5">All day</p>
+          <p className="epm-eyebrow mb-1.5">{t('All day')}</p>
           {allDay.map((event) => (
             <EventChip key={event.id} event={event} />
           ))}
@@ -301,8 +309,8 @@ function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
       {events.length === 0 ? (
         <EmptyState
           icon={CalendarDays}
-          title="Nothing scheduled"
-          description="Deadlines and ceremonies for this day will appear here."
+          title={t('Nothing scheduled')}
+          description={t('Deadlines and ceremonies for this day will appear here.')}
         />
       ) : (
         <ul className="divide-y divide-border">

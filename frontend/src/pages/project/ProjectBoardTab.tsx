@@ -12,6 +12,7 @@ import { useSprints } from '@/hooks/useSprints';
 import { useUserMap, useUsers } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useUI } from '@/providers/UIProvider';
+import { t } from '@/lib/i18n';
 import type { ID, TaskFilters, TaskStatusCategory } from '@/types';
 
 /**
@@ -44,8 +45,13 @@ export default function ProjectBoardTab() {
       { id: taskId, status },
       {
         onSuccess: (task) =>
-          toast.success('Task moved', { description: `${task.key} is now ${status.replace('_', ' ')}` }),
-        onError: () => toast.error('Unable to move the task'),
+          toast.success(t('Task moved'), {
+            description: t(
+              '{status, select, backlog {{key} is now backlog} todo {{key} is now todo} in_progress {{key} is now in progress} review {{key} is now review} done {{key} is now done} blocked {{key} is now blocked} other {{key} is now {status}}}',
+              { key: task.key, status },
+            ),
+          }),
+        onError: () => toast.error(t('Unable to move the task')),
       },
     );
   };
@@ -58,7 +64,7 @@ export default function ProjectBoardTab() {
         users={userList ?? []}
         sprints={sprintsQuery.data ?? []}
         hide={['project']}
-        searchPlaceholder="Search this board..."
+        searchPlaceholder={t('Search this board...')}
       />
 
       <QueryBoundary
@@ -66,15 +72,15 @@ export default function ProjectBoardTab() {
         isError={query.isError}
         error={query.error}
         onRetry={() => query.refetch()}
-        errorTitle="Unable to load the board"
+        errorTitle={t('Unable to load the board')}
         skeleton={<KanbanBoardSkeleton />}
         isEmpty={tasks.length === 0}
         empty={
           <Card>
             <EmptyState
-              title="No tasks on this board"
-              description="Create the first work package to start planning delivery."
-              action={{ label: 'Create a task', onClick: () => openTaskDrawer({ projectId }) }}
+              title={t('No tasks on this board')}
+              description={t('Create the first work package to start planning delivery.')}
+              action={{ label: t('Create a task'), onClick: () => openTaskDrawer({ projectId }) }}
             />
           </Card>
         }
@@ -89,8 +95,7 @@ export default function ProjectBoardTab() {
           <TruncationNotice
             shown={tasks.length}
             total={total}
-            itemLabel="task"
-            affected="The column counts"
+            affected={t('The column counts')}
             step={BOARD_PAGE_SIZE}
             loading={query.isFetching}
             onLoadMore={() =>

@@ -10,6 +10,7 @@ import { notifyDocumentUploaded } from '../domain/collaboration-notifications.js
 import { optional, prisma } from '../db/prisma.js';
 import type { OpAttachment } from '../openproject/types.js';
 import type { DocumentKind, EpmDocument } from '../types/epm.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * The document library is backed by OpenProject attachments. Kind and share
@@ -161,7 +162,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     // partial file must not be stored as if it were whole.
     if (uploaded.file.truncated) {
       throw EpmError.badRequest(
-        `That file is larger than the ${Math.floor(limit / 1024 / 1024)} MB limit.`,
+        message('That file is larger than the {limit} MB limit.', { limit: Math.floor(limit / 1024 / 1024) }),
       );
     }
 

@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import { env } from '@/config/env';
+import { currentLanguage, t } from '@/lib/i18n';
 import type { DocumentRepository } from '../repositories';
 import type { ID, EpmDocument } from '@/types';
 
@@ -27,12 +28,14 @@ export class ApiDocumentRepository implements DocumentRepository {
     const response = await fetch(`${env.apiBaseUrl}/documents`, {
       method: 'POST',
       credentials: 'include',
+      // The backend answers in the language this page is showing (BR-605).
+      headers: { 'Accept-Language': currentLanguage() },
       body,
     });
 
     if (!response.ok) {
       const failure = (await response.json().catch(() => ({}))) as { message?: string };
-      throw new Error(failure.message ?? 'The upload failed.');
+      throw new Error(failure.message ?? t('The upload failed.'));
     }
 
     return (await response.json()) as EpmDocument;

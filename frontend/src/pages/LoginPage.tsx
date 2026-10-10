@@ -10,6 +10,7 @@ import { EpmMark } from '@/components/common/EpmLogo';
 import { safeDestination } from '@/lib/navigation';
 import { useAuth } from '@/providers/AuthProvider';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME } from '@/config/env';
+import { t } from '@/lib/i18n';
 
 /**
  * Sign-in. Credentials are verified by the EPM backend; none are kept here.
@@ -44,7 +45,7 @@ export default function LoginPage() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!username.trim() || !password) {
-      setFailure('Enter your username or email, and your password.');
+      setFailure(t('Enter your username or email, and your password.'));
       return;
     }
 
@@ -61,7 +62,7 @@ export default function LoginPage() {
       setFailure(
         error instanceof Error && error.message
           ? error.message
-          : 'Sign-in failed. Please try again.',
+          : t('Sign-in failed. Please try again.'),
       );
       setPassword('');
     } finally {
@@ -76,14 +77,14 @@ export default function LoginPage() {
           <Link
             to="/"
             className="flex flex-col items-center gap-3 rounded-lg text-white"
-            aria-label={`${APP_NAME} home`}
+            aria-label={t('{app} home', { app: APP_NAME })}
           >
             <EpmMark className="h-11 w-11" monochrome />
             <span className="text-center">
               <span className="block font-display text-base font-semibold tracking-tight">
                 {APP_NAME}
               </span>
-              <span className="block text-2xs text-white/80">{APP_DESCRIPTOR}</span>
+              <span className="block text-2xs text-white/80">{t(APP_DESCRIPTOR)}</span>
             </span>
           </Link>
         </motion.div>
@@ -93,8 +94,10 @@ export default function LoginPage() {
           className="w-full max-w-md space-y-6 rounded-2xl border border-white/60 bg-surface p-7 shadow-floating sm:p-8"
         >
           <div className="space-y-1.5">
-            <h1 className="text-xl font-semibold tracking-tight">Sign in to {APP_NAME}</h1>
-            <p className="text-xs text-muted-foreground">Use your {ORG_NAME} account to continue.</p>
+            <h1 className="text-xl font-semibold tracking-tight">{t('Sign in to {app}', { app: APP_NAME })}</h1>
+            <p className="text-xs text-muted-foreground">
+              {t('Use your {org} account to continue.', { org: ORG_NAME })}
+            </p>
           </div>
 
           {failure ? (
@@ -110,7 +113,7 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={submit} noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="login-username" required>
-                Username or email
+                {t('Username or email')}
               </Label>
               <Input
                 id="login-username"
@@ -118,7 +121,7 @@ export default function LoginPage() {
                 autoFocus
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="Your work username or email"
+                placeholder={t('Your work username or email')}
                 invalid={Boolean(failure)}
                 className="h-11"
               />
@@ -127,7 +130,7 @@ export default function LoginPage() {
             <div className="space-y-1.5">
               <div className="flex items-baseline justify-between gap-3">
                 <Label htmlFor="login-password" required>
-                  Password
+                  {t('Password')}
                 </Label>
                 {/* No reset flow exists yet: passwords are reset by IT, so this
                     says so rather than linking somewhere that cannot help.
@@ -138,7 +141,7 @@ export default function LoginPage() {
                   aria-expanded={resetHintOpen}
                   className="rounded text-2xs text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  Forgot password?
+                  {t('Forgot password?')}
                 </button>
               </div>
 
@@ -150,14 +153,14 @@ export default function LoginPage() {
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   invalid={Boolean(failure)}
-                  className="h-11 pr-10"
+                  className="h-11 pe-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((shown) => !shown)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? t('Hide password') : t('Show password')}
                   aria-pressed={showPassword}
-                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-lg text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {showPassword ? (
                     <EyeOff className="h-4 w-4" aria-hidden />
@@ -169,13 +172,13 @@ export default function LoginPage() {
 
               {resetHintOpen ? (
                 <FieldHint>
-                  Passwords are reset by IT support. Contact the service desk to regain access.
+                  {t('Passwords are reset by IT support. Contact the service desk to regain access.')}
                 </FieldHint>
               ) : null}
             </div>
 
             <Button type="submit" size="lg" className="h-11 w-full" loading={pending}>
-              Sign in
+              {t('Sign in')}
               <ArrowRight />
             </Button>
           </form>
@@ -184,13 +187,13 @@ export default function LoginPage() {
             to="/"
             className="inline-block rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
-            ← Back to overview
+            {t('← Back to overview')}
           </Link>
         </motion.div>
       </main>
 
       <p className="relative pb-8 text-center text-2xs text-white/80">
-        Internal platform · {ORG_NAME} · Authorised users only
+        {t('Internal platform · {org} · Authorised users only', { org: ORG_NAME })}
       </p>
     </AuthBackdrop>
   );

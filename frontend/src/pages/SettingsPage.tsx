@@ -35,6 +35,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { usePreferences, type Preferences } from '@/hooks/usePreferences';
 import { APP_NAME, ORG_NAME, env } from '@/config/env';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /**
  * Enterprise settings. Sections owned by OpenProject are marked and read-only
@@ -68,25 +69,25 @@ export default function SettingsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Settings"
-        description={`Configure how ${APP_NAME} works for you and your workspace.`}
+        title={t('Settings')}
+        description={t('Configure how {app} works for you and your workspace.', { app: APP_NAME })}
       />
 
       <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
         {/* Section navigation */}
-        <nav aria-label="Settings sections" className="lg:sticky lg:top-20 lg:self-start">
+        <nav aria-label={t('Settings sections')} className="lg:sticky lg:top-20 lg:self-start">
           <ul className="epm-scroll flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
             {visibleSections.map((item, index) => (
               <Fragment key={item.id}>
                 {administrator && index === 0 ? (
                   <li className="hidden shrink-0 lg:block">
-                    <p className="epm-eyebrow px-2.5 pb-1">Account</p>
+                    <p className="epm-eyebrow px-2.5 pb-1">{t('Account')}</p>
                   </li>
                 ) : null}
                 {item.group === 'administration' &&
                 visibleSections[index - 1]?.group !== 'administration' ? (
                   <li className="hidden shrink-0 lg:block">
-                    <p className="epm-eyebrow mt-3 px-2.5 pb-1">Administration</p>
+                    <p className="epm-eyebrow mt-3 px-2.5 pb-1">{t('Administration')}</p>
                   </li>
                 ) : null}
                 <li className="shrink-0">
@@ -95,7 +96,7 @@ export default function SettingsPage() {
                     onClick={() => setSection(item.id)}
                     aria-current={section === item.id ? 'page' : undefined}
                     className={cn(
-                      'flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors',
+                      'flex w-full items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-2 text-start text-xs font-medium transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       section === item.id
                         ? 'bg-primary-soft text-primary'
@@ -114,8 +115,8 @@ export default function SettingsPage() {
           {section === 'profile' ? (
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>Profile</CardTitle>
-                <CardDescription>Your identity across the platform.</CardDescription>
+                <CardTitle>{t('Profile')}</CardTitle>
+                <CardDescription>{t('Your identity across the platform.')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 p-4">
                 <div className="flex items-center gap-3">
@@ -129,14 +130,14 @@ export default function SettingsPage() {
                 <ProfileForm />
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="settings-department">Department</Label>
+                  <Label htmlFor="settings-department">{t('Department')}</Label>
                   <Input id="settings-department" defaultValue={user?.department} readOnly />
-                  <FieldHint>Set by an administrator on the Employees page.</FieldHint>
+                  <FieldHint>{t('Set by an administrator on the Employees page.')}</FieldHint>
                 </div>
 
                 <Button asChild variant="secondary" size="sm">
                   <Link to="/profile">
-                    Open profile
+                    {t('Open profile')}
                     <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 </Button>
@@ -147,8 +148,8 @@ export default function SettingsPage() {
           {section === 'appearance' ? (
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>Appearance</CardTitle>
-                <CardDescription>How EPM looks on this device.</CardDescription>
+                <CardTitle>{t('Appearance')}</CardTitle>
+                <CardDescription>{t('How EPM looks on this device.')}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 {/* No theme picker: EPM follows the Intertec brand, which is a
@@ -156,22 +157,22 @@ export default function SettingsPage() {
                 <div className="divide-y divide-border">
                   <ToggleRow
                     id="dense-tables"
-                    label="Compact tables"
-                    hint="Reduce row height in work package tables."
+                    label={t('Compact tables')}
+                    hint={t('Reduce row height in work package tables.')}
                     checked={preferences.appearance.compactTables}
                     onCheckedChange={(checked) => update('appearance', 'compactTables', checked)}
                   />
                   <ToggleRow
                     id="reduced-motion"
-                    label="Reduce motion"
-                    hint="Minimise transitions and animated chart entrances."
+                    label={t('Reduce motion')}
+                    hint={t('Minimise transitions and animated chart entrances.')}
                     checked={preferences.appearance.reduceMotion}
                     onCheckedChange={(checked) => update('appearance', 'reduceMotion', checked)}
                   />
                   <ToggleRow
                     id="show-avatars"
-                    label="Show avatars"
-                    hint="Faces beside names in lists and boards."
+                    label={t('Show avatars')}
+                    hint={t('Faces beside names in lists and boards.')}
                     checked={preferences.appearance.showAvatars}
                     onCheckedChange={(checked) => update('appearance', 'showAvatars', checked)}
                   />
@@ -189,16 +190,16 @@ export default function SettingsPage() {
           {section === 'workspace' ? (
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>Workspace</CardTitle>
-                <CardDescription>Defaults applied across {ORG_NAME}.</CardDescription>
+                <CardTitle>{t('Workspace')}</CardTitle>
+                <CardDescription>{t('Defaults applied across {org}.', { org: ORG_NAME })}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 p-4">
                 <FactList
                   facts={[
-                    { label: 'Organisation', value: ORG_NAME, mono: false },
-                    { label: 'Application', value: APP_NAME, mono: false },
+                    { label: t('Organisation'), value: ORG_NAME, mono: false },
+                    { label: t('Application'), value: APP_NAME, mono: false },
                     {
-                      label: 'Environment',
+                      label: t('Environment'),
                       value: (
                         <Badge tone="highlight" size="sm" className="capitalize">
                           {env.appEnv}
@@ -211,7 +212,7 @@ export default function SettingsPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="workspace-landing">Default landing page</Label>
+                    <Label htmlFor="workspace-landing">{t('Default landing page')}</Label>
                     <Select
                       value={preferences.workspace.landingPage}
                       onValueChange={(value) =>
@@ -226,15 +227,15 @@ export default function SettingsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="dashboard">Overview</SelectItem>
-                        <SelectItem value="my-work">My Work</SelectItem>
-                        <SelectItem value="projects">Projects</SelectItem>
+                        <SelectItem value="dashboard">{t('Overview')}</SelectItem>
+                        <SelectItem value="my-work">{t('My Work')}</SelectItem>
+                        <SelectItem value="projects">{t('Projects')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="workspace-week">Week starts on</Label>
+                    <Label htmlFor="workspace-week">{t('Week starts on')}</Label>
                     <Select
                       value={preferences.workweek.startOfWeek}
                       onValueChange={(value) =>
@@ -249,15 +250,15 @@ export default function SettingsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="monday">Monday</SelectItem>
-                        <SelectItem value="sunday">Sunday</SelectItem>
+                        <SelectItem value="monday">{t('Monday')}</SelectItem>
+                        <SelectItem value="sunday">{t('Sunday')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <FieldHint>{isSaving ? 'Saving…' : 'Changes are saved as you make them.'}</FieldHint>
+                  <FieldHint>{isSaving ? t('Saving…') : t('Changes are saved as you make them.')}</FieldHint>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -265,13 +266,13 @@ export default function SettingsPage() {
                       // The failure toast comes from the hook; only the
                       // success is worth saying here.
                       reset().then(
-                        () => toast.success('Preferences reset to defaults'),
+                        () => toast.success(t('Preferences reset to defaults')),
                         () => undefined,
                       )
                     }
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
-                    Reset to defaults
+                    {t('Reset to defaults')}
                   </Button>
                 </div>
               </CardContent>
@@ -284,29 +285,30 @@ export default function SettingsPage() {
                 <CardTitle>{active.label}</CardTitle>
                 <CardDescription>
                   {section === 'projects'
-                    ? 'Project types, statuses, custom fields and work package types.'
-                    : 'Groups, memberships and role assignments.'}
+                    ? t('Project types, statuses, custom fields and work package types.')
+                    : t('Groups, memberships and role assignments.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 p-4">
                 <FactList
                   facts={(section === 'projects'
-                    ? ['Work package types', 'Statuses and workflows', 'Custom fields', 'Versions']
-                    : ['Groups', 'Roles and permissions', 'Memberships', 'Directory sync']
+                    ? [t('Work package types'), t('Statuses and workflows'), t('Custom fields'), t('Versions')]
+                    : [t('Groups'), t('Roles and permissions'), t('Memberships'), t('Directory sync')]
                   ).map((item) => ({
                     label: item,
                     mono: false,
                     value: (
                       <Badge tone="neutral" size="sm">
                         <Lock className="h-2.5 w-2.5" aria-hidden />
-                        Managed
+                        {t('Managed')}
                       </Badge>
                     ),
                   }))}
                 />
                 <FieldHint>
-                  An administrator manages these in the upstream system. EPM reflects the values
-                  after the next synchronisation.
+                  {t(
+                    'An administrator manages these in the upstream system. EPM reflects the values after the next synchronisation.',
+                  )}
                 </FieldHint>
               </CardContent>
             </Card>
@@ -315,23 +317,23 @@ export default function SettingsPage() {
           {section === 'integrations' ? (
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>Integrations</CardTitle>
-                <CardDescription>Systems EPM reads from and writes to.</CardDescription>
+                <CardTitle>{t('Integrations')}</CardTitle>
+                <CardDescription>{t('Systems EPM reads from and writes to.')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 p-4">
                 <Alert
                   tone="success"
                   icon={Server}
-                  title="Delivery system"
+                  title={t('Delivery system')}
                   actions={
                     <>
                       <Badge tone="success" size="sm" dot>
-                        Connected
+                        {t('Connected')}
                       </Badge>
                       {can('users:manage') ? (
                         <Button asChild variant="secondary" size="sm">
                           <Link to="/settings/integration">
-                            Manage
+                            {t('Manage')}
                             <ArrowRight className="h-3.5 w-3.5" />
                           </Link>
                         </Button>
@@ -339,20 +341,20 @@ export default function SettingsPage() {
                     </>
                   }
                 >
-                  Projects, work packages, members and time entries
+                  {t('Projects, work packages, members and time entries')}
                 </Alert>
 
                 <Alert
                   tone="neutral"
                   icon={ExternalLink}
-                  title="Additional integrations"
+                  title={t('Additional integrations')}
                   actions={
                     <Badge tone="neutral" size="sm">
-                      Not configured
+                      {t('Not configured')}
                     </Badge>
                   }
                 >
-                  Identity, chat and CI connections are configured by the platform team.
+                  {t('Identity, chat and CI connections are configured by the platform team.')}
                 </Alert>
               </CardContent>
             </Card>
@@ -364,21 +366,22 @@ export default function SettingsPage() {
             <Card>
               <CardHeader variant="compact">
                 <CardTitle>API</CardTitle>
-                <CardDescription>How EPM talks to its backend.</CardDescription>
+                <CardDescription>{t('How EPM talks to its backend.')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 p-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="api-base">EPM API base URL</Label>
+                  <Label htmlFor="api-base">{t('EPM API base URL')}</Label>
                   <Input id="api-base" readOnly value={env.apiBaseUrl} className="font-mono text-2xs" />
                   <FieldHint>
-                    Configured per environment. The frontend never receives an upstream URL or token.
+                    {t('Configured per environment. The frontend never receives an upstream URL or token.')}
                   </FieldHint>
                 </div>
 
                 {/* No action here on purpose: there is nothing to rotate from the browser. */}
-                <Alert tone="danger" icon={Lock} title="Tokens stay server-side">
-                  API tokens are never exposed to the frontend and cannot be viewed or rotated from
-                  this interface.
+                <Alert tone="danger" icon={Lock} title={t('Tokens stay server-side')}>
+                  {t(
+                    'API tokens are never exposed to the frontend and cannot be viewed or rotated from this interface.',
+                  )}
                 </Alert>
               </CardContent>
             </Card>
@@ -440,11 +443,11 @@ function ProfileForm() {
     setProblem(undefined);
 
     if (!firstName.trim() || !lastName.trim()) {
-      setProblem('A first and last name are required.');
+      setProblem(t('A first and last name are required.'));
       return;
     }
     if (!email.trim()) {
-      setProblem('An email address is required.');
+      setProblem(t('An email address is required.'));
       return;
     }
 
@@ -456,11 +459,11 @@ function ProfileForm() {
         ...(timezone ? { timezone } : {}),
       },
       {
-        onSuccess: (updated) => toast.success(`Saved. You are ${updated.name}.`),
+        onSuccess: (updated) => toast.success(t('Saved. You are {name}.', { name: updated.name })),
         // The instance owns the rules — a duplicate address, a format it
         // rejects — so its sentence is the one worth showing.
         onError: (error) =>
-          setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+          setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -470,7 +473,7 @@ function ProfileForm() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="settings-first-name" required>
-            First name
+            {t('First name')}
           </Label>
           <Input
             id="settings-first-name"
@@ -481,7 +484,7 @@ function ProfileForm() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="settings-last-name" required>
-            Last name
+            {t('Last name')}
           </Label>
           <Input
             id="settings-last-name"
@@ -492,7 +495,7 @@ function ProfileForm() {
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="settings-email" required>
-            Work email
+            {t('Work email')}
           </Label>
           <Input
             id="settings-email"
@@ -502,14 +505,14 @@ function ProfileForm() {
             autoComplete="email"
           />
           <FieldHint>
-            Used for invitations and notifications. Changing it does not change how you sign in.
+            {t('Used for invitations and notifications. Changing it does not change how you sign in.')}
           </FieldHint>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="settings-timezone">Timezone</Label>
+          <Label htmlFor="settings-timezone">{t('Timezone')}</Label>
           <Select value={timezone} onValueChange={setTimezone}>
-            <SelectTrigger id="settings-timezone" aria-label="Timezone" disabled={zones.isLoading}>
-              <SelectValue placeholder="Choose a timezone" />
+            <SelectTrigger id="settings-timezone" aria-label={t('Timezone')} disabled={zones.isLoading}>
+              <SelectValue placeholder={t('Choose a timezone')} />
             </SelectTrigger>
             <SelectContent>
               {timezoneOptions.map((zone) => (
@@ -519,7 +522,7 @@ function ProfileForm() {
               ))}
             </SelectContent>
           </Select>
-          <FieldHint>Dates and times across EPM are shown in this zone.</FieldHint>
+          <FieldHint>{t('Dates and times across EPM are shown in this zone.')}</FieldHint>
         </div>
       </div>
 
@@ -527,10 +530,10 @@ function ProfileForm() {
 
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={!dirty} loading={update.isPending}>
-          Save changes
+          {t('Save changes')}
         </Button>
         {dirty && !update.isPending ? (
-          <span className="text-2xs text-muted-foreground">Unsaved changes</span>
+          <span className="text-2xs text-muted-foreground">{t('Unsaved changes')}</span>
         ) : null}
       </div>
     </form>

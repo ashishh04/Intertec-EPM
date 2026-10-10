@@ -1,5 +1,6 @@
-import { cn, formatHours, formatNumber, formatPercent, pluralize } from '@/lib/utils';
+import { cn, formatHours, formatPercent } from '@/lib/utils';
 import { TONE_TEXT } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { Pagination } from '@/components/common/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import { ProgressBar } from '@/components/ui/progress';
@@ -23,11 +24,11 @@ function toneFor(allocation: number | null) {
 }
 
 function labelFor(allocation: number | null) {
-  if (allocation === null) return 'No capacity set';
-  if (allocation >= OVER_ALLOCATED) return 'Over capacity';
-  if (allocation >= 75) return 'Near capacity';
-  if (allocation <= UNDER_ALLOCATED) return 'Available';
-  return 'Balanced';
+  if (allocation === null) return t('No capacity set');
+  if (allocation >= OVER_ALLOCATED) return t('Over capacity');
+  if (allocation >= 75) return t('Near capacity');
+  if (allocation <= UNDER_ALLOCATED) return t('Available');
+  return t('Balanced');
 }
 
 interface WorkloadListProps {
@@ -61,7 +62,7 @@ export function WorkloadList({ workloads, users, pageSize = 10, className }: Wor
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-xs font-medium">{user?.name ?? 'Unknown member'}</p>
+                  <p className="truncate text-xs font-medium" dir="auto">{user?.name ?? t('Unknown member')}</p>
                   {/* `formatPercent` renders the dash itself when there is no
                       capacity to divide by. */}
                   <span className="shrink-0 font-mono text-xs font-medium tabular-nums">
@@ -77,7 +78,7 @@ export function WorkloadList({ workloads, users, pageSize = 10, className }: Wor
                     value={Math.min(100, workload.allocation ?? 0)}
                     tone={tone}
                     size="sm"
-                    label={`${user?.name ?? 'Member'} allocation`}
+                    label={user?.name ? t('{name} allocation', { name: user.name }) : t('Member allocation')}
                     className="flex-1"
                   />
                   <span className={cn('shrink-0 text-2xs font-medium', TONE_TEXT[tone])}>
@@ -86,16 +87,15 @@ export function WorkloadList({ workloads, users, pageSize = 10, className }: Wor
                 </div>
               </div>
 
-              <dl className="hidden shrink-0 gap-4 text-right sm:flex">
+              <dl className="hidden shrink-0 gap-4 text-end sm:flex">
                 <div>
-                  <dt className="epm-eyebrow">Assigned</dt>
+                  <dt className="epm-eyebrow">{t('Assigned')}</dt>
                   <dd className="font-mono text-xs tabular-nums">
-                    {formatNumber(workload.assignedTasks)}{' '}
-                    {pluralize(workload.assignedTasks, 'task')}
+                    {t('{count, plural, one {# task} other {# tasks}}', { count: workload.assignedTasks })}
                   </dd>
                 </div>
                 <div>
-                  <dt className="epm-eyebrow">Logged</dt>
+                  <dt className="epm-eyebrow">{t('Logged')}</dt>
                   <dd className="font-mono text-xs tabular-nums">
                     {formatHours(workload.hoursLogged)} / {formatHours(workload.hoursCapacity)}
                   </dd>
@@ -112,7 +112,8 @@ export function WorkloadList({ workloads, users, pageSize = 10, className }: Wor
         onPageChange={paged.setPage}
         onPageSizeChange={paged.setPageSize}
         pageSizeOptions={[5, 10, 25]}
-        itemLabel="member"
+        itemLabel={t('member')}
+        itemLabelPlural={t('members')}
         className="border-t border-border"
       />
     </div>

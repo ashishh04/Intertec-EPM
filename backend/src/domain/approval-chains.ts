@@ -10,6 +10,7 @@ import type {
   ApprovalStep,
 } from '../types/epm.js';
 import { withAudit } from './audit.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Approval chains (BR-211): who must approve what, in which order.
@@ -334,7 +335,10 @@ export async function deleteChain(id: string, actorId: string): Promise<void> {
   const used = await prisma.approvalRequest.count({ where: { chainId: id } });
   if (used > 0) {
     throw EpmError.conflict(
-      `"${existing.name}" has been used by ${used} ${used === 1 ? 'request' : 'requests'}, so it can be switched off but not deleted.`,
+      message('"{name}" has been used by {count, plural, one {# request} other {# requests}}, so it can be switched off but not deleted.', {
+        name: existing.name,
+        count: used,
+      }),
     );
   }
   await withAudit((tx) => tx.approvalChain.delete({ where: { id } }), {

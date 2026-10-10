@@ -34,7 +34,7 @@ import { useDepartments } from '@/hooks/useDepartments';
 import { usePagination } from '@/hooks/usePagination';
 import { useDeleteTeam, useSetTeamActive, useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
-import { formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmTeam } from '@/services/api/teams';
 
@@ -90,12 +90,12 @@ export default function TeamsPage() {
 
     deleteTeam.mutate(removing.id, {
       onSuccess: () => {
-        toast.success(`${name} deleted`);
+        toast.success(t('{name} deleted', { name }));
         setRemoving(undefined);
       },
       // The refusal names who is still on the team, so it is shown as-is.
       onError: (error) =>
-        toast.error('That could not be deleted', {
+        toast.error(t('That could not be deleted'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -107,9 +107,9 @@ export default function TeamsPage() {
     setActive.mutate(
       { id: team.id, active },
       {
-        onSuccess: () => toast.success(active ? 'Team restored' : 'Team archived'),
+        onSuccess: () => toast.success(active ? t('Team restored') : t('Team archived')),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -128,29 +128,28 @@ export default function TeamsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Teams"
-        description="Delivery teams defined in EPM."
+        title={t('Teams')}
+        description={t('Delivery teams defined in EPM.')}
         actions={
           mayManage ? (
             <Button size="sm" onClick={openCreate}>
               <Plus className="h-3.5 w-3.5" />
-              New team
+              {t('New team')}
             </Button>
           ) : null
         }
       />
 
-      <ListToolbar trailing={<ResultCount count={items.length} label="team" />}>
+      <ListToolbar trailing={<ResultCount count={items.length} label={t('team')} plural={t('teams')} />}>
         <Select value={departmentId} onValueChange={setDepartmentId}>
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label="Filter by department">
-            <SelectValue placeholder="All departments" />
+          <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by department')}>
+            <SelectValue placeholder={t('All departments')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All departments</SelectItem>
+            <SelectItem value={ALL}>{t('All departments')}</SelectItem>
             {(departments.data ?? []).map((department) => (
               <SelectItem key={department.id} value={department.id}>
-                {department.name}
-                {department.active ? '' : ' (archived)'}
+                {department.active ? department.name : t('{name} (archived)', { name: department.name })}
               </SelectItem>
             ))}
           </SelectContent>
@@ -160,9 +159,9 @@ export default function TeamsPage() {
           <Switch
             checked={showArchived}
             onCheckedChange={setShowArchived}
-            aria-label="Show archived teams"
+            aria-label={t('Show archived teams')}
           />
-          Show archived
+          {t('Show archived')}
         </label>
       </ListToolbar>
 
@@ -170,17 +169,17 @@ export default function TeamsPage() {
         isLoading={teams.isLoading}
         isError={teams.isError}
         onRetry={() => teams.refetch()}
-        errorTitle="Unable to load teams"
+        errorTitle={t('Unable to load teams')}
         skeleton={<ListSkeleton rows={4} height="h-16" />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={Users}
-            title={departmentId === ALL ? 'No teams' : 'No teams in this department'}
+            title={departmentId === ALL ? t('No teams') : t('No teams in this department')}
             description={
               mayManage
-                ? 'Create a team to describe how delivery is organised.'
-                : 'No teams have been set up yet.'
+                ? t('Create a team to describe how delivery is organised.')
+                : t('No teams have been set up yet.')
             }
           />
         }
@@ -201,6 +200,7 @@ export default function TeamsPage() {
                           lifted above it rather than nested inside it. */}
                       <Link
                         to={`/teams/${team.id}`}
+                        dir="auto"
                         className="truncate rounded-sm text-sm font-medium transition-colors after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] group-hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {team.name}
@@ -210,12 +210,12 @@ export default function TeamsPage() {
                       </Badge>
                       {!team.active ? (
                         <Badge tone="warning" size="sm">
-                          Archived
+                          {t('Archived')}
                         </Badge>
                       ) : null}
                     </div>
                     {team.description ? (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground" dir="auto">
                         {team.description}
                       </p>
                     ) : null}
@@ -226,8 +226,8 @@ export default function TeamsPage() {
                     {/* Both counted from EPM's employee mapping, never from an
                         OpenProject group. */}
                     <span className="tabular-nums">
-                      {formatNumber(team.memberCount)} {pluralize(team.memberCount, 'member')} ·{' '}
-                      {formatNumber(team.capacityHours)} h/wk
+                      {t('{count, plural, one {# member} other {# members}}', { count: team.memberCount })} ·{' '}
+                      {t('{hours, number} h/wk', { hours: team.capacityHours })}
                     </span>
                   </div>
 
@@ -235,25 +235,26 @@ export default function TeamsPage() {
                     <Building2 className="h-3.5 w-3.5" aria-hidden />
                     {team.department ? (
                       <span>
-                        {team.department.name}
                         {/* A team outlives its department's archival, so say so
                             rather than showing a name that looks current. */}
-                        {team.department.active ? '' : ' (archived)'}
+                        {team.department.active
+                          ? team.department.name
+                          : t('{name} (archived)', { name: team.department.name })}
                       </span>
                     ) : (
-                      <span>No department</span>
+                      <span>{t('No department')}</span>
                     )}
                   </div>
 
                   {team.lead ? (
                     <div className="flex shrink-0 items-center gap-2">
                       <UserAvatarWithTooltip user={users.get(team.lead.id)} size="xs" />
-                      <span className="hidden text-xs text-muted-foreground sm:inline">
+                      <span className="hidden text-xs text-muted-foreground sm:inline" dir="auto">
                         {team.lead.name}
                       </span>
                     </div>
                   ) : (
-                    <span className="hidden text-xs text-muted-foreground sm:inline">No lead</span>
+                    <span className="hidden text-xs text-muted-foreground sm:inline">{t('No lead')}</span>
                   )}
 
                   {mayManage ? (
@@ -261,7 +262,7 @@ export default function TeamsPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Edit ${team.name}`}
+                        aria-label={t('Edit {name}', { name: team.name })}
                         onClick={() => openEdit(team)}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -270,7 +271,11 @@ export default function TeamsPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={team.active ? `Archive ${team.name}` : `Restore ${team.name}`}
+                        aria-label={
+                          team.active
+                            ? t('Archive {name}', { name: team.name })
+                            : t('Restore {name}', { name: team.name })
+                        }
                         onClick={() => toggleActive(team)}
                       >
                         {team.active ? (
@@ -285,7 +290,7 @@ export default function TeamsPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Delete ${team.name}`}
+                        aria-label={t('Delete {name}', { name: team.name })}
                         className="hover:bg-danger-soft hover:text-danger"
                         onClick={() => setRemoving(team)}
                       >
@@ -306,7 +311,8 @@ export default function TeamsPage() {
                 onPageChange={paged.setPage}
                 onPageSizeChange={paged.setPageSize}
                 pageSizeOptions={[12, 24, 48]}
-                itemLabel="team"
+                itemLabel={t('team')}
+                itemLabelPlural={t('teams')}
               />
             </Card>
         </div>
@@ -315,10 +321,11 @@ export default function TeamsPage() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              This removes the team from EPM permanently. Archiving keeps it and can be undone;
-              deleting cannot. It is refused if anyone is still on the team.
+              {t(
+                'This removes the team from EPM permanently. Archiving keeps it and can be undone; deleting cannot. It is refused if anyone is still on the team.',
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -327,10 +334,10 @@ export default function TeamsPage() {
               onClick={() => setRemoving(undefined)}
               disabled={deleteTeam.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} disabled={deleteTeam.isPending}>
-              Delete permanently
+              {t('Delete permanently')}
             </Button>
           </DialogFooter>
         </DialogContent>

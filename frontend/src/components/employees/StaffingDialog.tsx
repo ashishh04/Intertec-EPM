@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { FieldHint, Label } from '@/components/ui/label';
 import { useSetCapacity, useSetRate } from '@/hooks/useEmployees';
 import { env } from '@/config/env';
+import { t } from '@/lib/i18n';
 import type { EpmEmployee } from '@/services/api/employees';
 
 /**
@@ -69,18 +70,18 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
 
     const capacityValue = Number(hours);
     if (hours.trim() === '' || Number.isNaN(capacityValue)) {
-      return setProblem('Enter a number of hours.');
+      return setProblem(t('Enter a number of hours.'));
     }
-    if (capacityValue < 0) return setProblem('Capacity cannot be negative.');
+    if (capacityValue < 0) return setProblem(t('Capacity cannot be negative.'));
     if (capacityValue > MAX_HOURS) {
-      return setProblem(`Capacity cannot exceed ${MAX_HOURS} hours a week.`);
+      return setProblem(t('Capacity cannot exceed {max, number} hours a week.', { max: MAX_HOURS }));
     }
 
     const rateValue = rate.trim() === '' ? null : Number(rate);
     if (rateValue !== null) {
-      if (Number.isNaN(rateValue)) return setProblem('Enter an hourly rate, or leave it empty.');
-      if (rateValue < 0) return setProblem('An hourly rate cannot be negative.');
-      if (rateValue > MAX_RATE) return setProblem(`An hourly rate cannot exceed ${MAX_RATE}.`);
+      if (Number.isNaN(rateValue)) return setProblem(t('Enter an hourly rate, or leave it empty.'));
+      if (rateValue < 0) return setProblem(t('An hourly rate cannot be negative.'));
+      if (rateValue > MAX_RATE) return setProblem(t('An hourly rate cannot exceed {max, number}.', { max: MAX_RATE }));
     }
 
     const capacityChanged = capacityValue !== employee.hoursCapacity;
@@ -97,10 +98,10 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
       if (rateChanged) {
         await setRate.mutateAsync({ id: employee.id, hourlyRate: rateValue });
       }
-      toast.success(`Staffing saved for ${employee.name}`);
+      toast.success(t('Staffing saved for {name}', { name: employee.name }));
       onOpenChange(false);
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+      setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
     }
   };
 
@@ -109,16 +110,16 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
       <DialogContent className="sm:max-w-sm">
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>Staffing for {employee?.name}</DialogTitle>
+            <DialogTitle>{t('Staffing for {name}', { name: employee?.name })}</DialogTitle>
             <DialogDescription>
-              Weekly availability, and what an hour of this person&rsquo;s time costs.
+              {t('Weekly availability, and what an hour of this person’s time costs.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="staffing-hours" required>
-                Hours per week
+                {t('Hours per week')}
               </Label>
               <Input
                 id="staffing-hours"
@@ -131,26 +132,29 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
                 onChange={(event) => setHours(event.target.value)}
               />
               <FieldHint>
-                0 to {MAX_HOURS}, in quarter-hour steps. Zero means this person contributes no
-                capacity but stays on the team.
+                {t(
+                  '{min, number} to {max, number}, in quarter-hour steps. Zero means this person contributes no capacity but stays on the team.',
+                  { min: 0, max: MAX_HOURS },
+                )}
               </FieldHint>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="staffing-rate">Hourly rate ({env.currency})</Label>
+              <Label htmlFor="staffing-rate">{t('Hourly rate ({currency})', { currency: env.currency })}</Label>
               <Input
                 id="staffing-rate"
                 type="number"
                 min={0}
                 max={MAX_RATE}
                 step={0.01}
-                placeholder="Not costed"
+                placeholder={t('Not costed')}
                 value={rate}
                 onChange={(event) => setRate_(event.target.value)}
               />
               <FieldHint>
-                Used by Time &amp; Costs. Leave it empty and their hours are reported as uncosted
-                rather than as free.
+                {t(
+                  'Used by Time & Costs. Leave it empty and their hours are reported as uncosted rather than as free.',
+                )}
               </FieldHint>
             </div>
 
@@ -159,10 +163,10 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={pending}>
-              Save
+              {t('Save')}
             </Button>
           </DialogFooter>
         </form>

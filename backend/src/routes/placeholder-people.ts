@@ -29,6 +29,7 @@ function placeholderRecord(row: {
   };
 }
 import type { EpmPlaceholderPerson } from '../types/epm.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Placeholder people: named stand-ins for roles that are planned but not filled.
@@ -125,7 +126,7 @@ async function resolveMapping(input: {
 function rethrowWrite(name: string): (error: unknown) => never {
   return (error) => {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw EpmError.conflict(`${name} is already a placeholder.`);
+      throw EpmError.conflict(message('{name} is already a placeholder.', { name }));
     }
     throw error;
   };

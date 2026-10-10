@@ -10,6 +10,8 @@ import { UIProvider } from './providers/UIProvider';
 import { PreferenceEffects } from './providers/PreferenceEffects';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
+import { storedPreferences } from './hooks/usePreferences';
+import { direction, loadLanguage, toLanguage } from './lib/i18n';
 import './index.css';
 
 /**
@@ -33,28 +35,40 @@ const queryClient = new QueryClient({
   },
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    {/*
-      Restores the last known data before the first request goes out, then
-      revalidates. The skeletons only appear on a genuinely first visit.
-    */}
-    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
-      <AuthProvider>
-        <UIProvider>
-          <TooltipProvider delayDuration={300} skipDelayDuration={200}>
-            <BrowserRouter>
-              {/* Inside the router so a preference change repaints the routes,
-                  and inside AuthProvider because the preferences it reads are
-                  the signed-in person's. */}
-              <PreferenceEffects>
-                <App />
-              </PreferenceEffects>
-            </BrowserRouter>
-            <Toaster />
-          </TooltipProvider>
-        </UIProvider>
-      </AuthProvider>
-    </PersistQueryClientProvider>
-  </StrictMode>,
-);
+function render() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      {/*
+        Restores the last known data before the first request goes out, then
+        revalidates. The skeletons only appear on a genuinely first visit.
+      */}
+      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+        <AuthProvider>
+          <UIProvider>
+            <TooltipProvider delayDuration={300} skipDelayDuration={200}>
+              <BrowserRouter>
+                {/* Inside the router so a preference change repaints the routes,
+                    and inside AuthProvider because the preferences it reads are
+                    the signed-in person's. The toasts are inside too, so they
+                    take the page's language and side. */}
+                <PreferenceEffects>
+                  <App />
+                  <Toaster />
+                </PreferenceEffects>
+              </BrowserRouter>
+            </TooltipProvider>
+          </UIProvider>
+        </AuthProvider>
+      </PersistQueryClientProvider>
+    </StrictMode>,
+  );
+}
+
+// The language this browser last used is loaded before the first paint, and the
+// page direction set with it, so an Arabic reader never sees a frame of English
+// laid out left to right. English needs nothing loaded and renders at once; a
+// failed load renders in English rather than not at all.
+const storedLanguage = toLanguage(storedPreferences().locale.language);
+document.documentElement.lang = storedLanguage;
+document.documentElement.dir = direction(storedLanguage);
+void loadLanguage(storedLanguage).catch(() => undefined).finally(render);

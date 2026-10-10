@@ -25,6 +25,7 @@ import {
 import { useCreateMeeting, useUpdateMeeting } from '@/hooks/useCollaborationModules';
 import { useProjects } from '@/hooks/useProjects';
 import { useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmMeeting, ID, MeetingState } from '@/types';
 
@@ -45,9 +46,9 @@ import type { EpmMeeting, ID, MeetingState } from '@/types';
 const DURATIONS = [15, 30, 45, 60, 90, 120, 180, 240];
 
 const STATES: { value: MeetingState; label: string }[] = [
-  { value: 'planned', label: 'Planned' },
-  { value: 'held', label: 'Held' },
-  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'planned', get label() { return t('Planned'); } },
+  { value: 'held', get label() { return t('Held'); } },
+  { value: 'cancelled', get label() { return t('Cancelled'); } },
 ];
 
 interface MeetingDialogProps {
@@ -135,11 +136,11 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
     event.preventDefault();
     setProblem(undefined);
 
-    if (!title.trim()) return setProblem('Give the meeting a title.');
-    if (!date || !time) return setProblem('Choose a date and a start time.');
+    if (!title.trim()) return setProblem(t('Give the meeting a title.'));
+    if (!date || !time) return setProblem(t('Choose a date and a start time.'));
 
     const startsAt = new Date(`${date}T${time}`);
-    if (Number.isNaN(startsAt.getTime())) return setProblem('That date and time could not be read.');
+    if (Number.isNaN(startsAt.getTime())) return setProblem(t('That date and time could not be read.'));
 
     const input = {
       title: title.trim(),
@@ -155,14 +156,14 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
     };
 
     const failed = (error: unknown) =>
-      setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+      setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
     if (meeting) {
       update.mutate(
         { id: meeting.id, input },
         {
           onSuccess: () => {
-            toast.success('Meeting updated');
+            toast.success(t('Meeting updated'));
             onOpenChange(false);
           },
           onError: failed,
@@ -173,7 +174,7 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
 
     create.mutate(input, {
       onSuccess: () => {
-        toast.success('Meeting scheduled');
+        toast.success(t('Meeting scheduled'));
         onOpenChange(false);
       },
       onError: failed,
@@ -185,51 +186,50 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
       <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-lg">
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{meeting ? 'Edit meeting' : 'Schedule a meeting'}</DialogTitle>
+            <DialogTitle>{meeting ? t('Edit meeting') : t('Schedule a meeting')}</DialogTitle>
             <DialogDescription>
               {meeting
-                ? 'Changes are visible to everybody who can see the meeting.'
-                : 'Everyone you invite can see it, and anyone in the project can find it.'}
+                ? t('Changes are visible to everybody who can see the meeting.')
+                : t('Everyone you invite can see it, and anyone in the project can find it.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="epm-dialog-body space-y-4 pb-4">
             <div className="space-y-1.5">
               <Label htmlFor="meeting-title" required>
-                Title
+                {t('Title')}
               </Label>
               <Input
                 id="meeting-title"
                 value={title}
                 autoFocus
-                placeholder="Sprint review"
+                placeholder={t('Sprint review')}
                 onChange={(event) => setTitle(event.target.value)}
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="meeting-project">Project</Label>
+              <Label htmlFor="meeting-project">{t('Project')}</Label>
               <ComboSelect
                 id="meeting-project"
-                label="Project"
+                label={t('Project')}
                 options={projectOptions}
                 value={scope}
                 clearable
                 loading={projectsQuery.isLoading}
-                placeholder="Organisation-wide"
-                emptyLabel="No projects match"
+                placeholder={t('Organisation-wide')}
+                emptyLabel={t('No projects match')}
                 onChange={setScope}
               />
               <FieldHint>
-                Leave it empty for a meeting that belongs to the organisation rather than to one
-                project. Only an administrator can create those.
+                {t('Leave it empty for a meeting that belongs to the organisation rather than to one project. Only an administrator can create those.')}
               </FieldHint>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="meeting-date" required>
-                  Date
+                  {t('Date')}
                 </Label>
                 <Input
                   id="meeting-date"
@@ -240,7 +240,7 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="meeting-time" required>
-                  Starts
+                  {t('Starts')}
                 </Label>
                 <Input
                   id="meeting-time"
@@ -250,7 +250,7 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="meeting-duration">For</Label>
+                <Label htmlFor="meeting-duration">{t('For')}</Label>
                 <Select value={String(duration)} onValueChange={(value) => setDuration(Number(value))}>
                   <SelectTrigger id="meeting-duration">
                     <SelectValue />
@@ -259,8 +259,8 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
                     {DURATIONS.map((minutes) => (
                       <SelectItem key={minutes} value={String(minutes)}>
                         {minutes < 60
-                          ? `${minutes} min`
-                          : `${minutes / 60} ${minutes === 60 ? 'hour' : 'hours'}`}
+                          ? t('{minutes, number} min', { minutes })
+                          : t('{hours, plural, one {# hour} other {# hours}}', { hours: minutes / 60 })}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -270,16 +270,16 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="meeting-location">Where</Label>
+                <Label htmlFor="meeting-location">{t('Where')}</Label>
                 <Input
                   id="meeting-location"
                   value={location}
-                  placeholder="Meeting room 2, or a call link"
+                  placeholder={t('Meeting room 2, or a call link')}
                   onChange={(event) => setLocation(event.target.value)}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="meeting-state">Status</Label>
+                <Label htmlFor="meeting-state">{t('Status')}</Label>
                 <Select value={state} onValueChange={(value) => setState(value as MeetingState)}>
                   <SelectTrigger id="meeting-state">
                     <SelectValue />
@@ -296,29 +296,29 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
             </div>
 
             <div className="space-y-1.5">
-              <Label>Invite</Label>
+              <Label>{t('Invite')}</Label>
               <MultiSelect
-                label="Participants"
+                label={t('Participants')}
                 options={peopleOptions}
                 selected={participants}
                 onChange={setParticipants}
-                placeholder="Choose people"
+                placeholder={t('Choose people')}
                 disabled={usersQuery.isLoading}
                 maxVisible={3}
               />
-              <FieldHint>Attendance is recorded afterwards, on the meeting itself.</FieldHint>
+              <FieldHint>{t('Attendance is recorded afterwards, on the meeting itself.')}</FieldHint>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="meeting-agenda">Agenda</Label>
+              <Label htmlFor="meeting-agenda">{t('Agenda')}</Label>
               <Textarea
                 id="meeting-agenda"
                 rows={6}
                 value={agenda}
-                placeholder={'## Decisions needed\n- Release date\n- Scope of the next sprint'}
+                placeholder={t('## Decisions needed\n- Release date\n- Scope of the next sprint')}
                 onChange={(event) => setAgenda(event.target.value)}
               />
-              <FieldHint>Markdown. Headings, lists and links all work.</FieldHint>
+              <FieldHint>{t('Markdown. Headings, lists and links all work.')}</FieldHint>
             </div>
 
             {problem ? <Alert tone="danger">{problem}</Alert> : null}
@@ -326,10 +326,10 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={pending}>
-              {meeting ? 'Save changes' : 'Schedule'}
+              {meeting ? t('Save changes') : t('Schedule')}
             </Button>
           </DialogFooter>
         </form>

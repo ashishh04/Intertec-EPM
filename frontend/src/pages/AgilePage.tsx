@@ -33,7 +33,8 @@ import { useDeliveryTrends } from '@/hooks/useReports';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
 import { SPRINT_STATE_META } from '@/lib/domain';
-import { daysFromToday, formatNumber, formatPercent, formatShortDate, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { daysFromToday, formatPercent, formatShortDate } from '@/lib/utils';
 import type { EpmSprint, ID, SprintState, TaskStatusCategory } from '@/types';
 
 /** Agile workspace: the sprint, its burndown and its board in one place. */
@@ -104,12 +105,12 @@ export default function AgilePage() {
         onSuccess: (updated) => {
           setConfirming(null);
           toast.success(
-            state === 'completed' ? `${updated.name} completed` : `${updated.name} started`,
+            state === 'completed' ? t('{name} completed', { name: updated.name }) : t('{name} started', { name: updated.name }),
           );
         },
         onError: (error) =>
           toast.error(
-            state === 'completed' ? 'The sprint could not be completed' : 'The sprint could not be started',
+            state === 'completed' ? t('The sprint could not be completed') : t('The sprint could not be started'),
             { description: error instanceof Error ? error.message : undefined },
           ),
       },
@@ -128,8 +129,8 @@ export default function AgilePage() {
     updateTask.mutate(
       { id: taskId, status },
       {
-        onSuccess: (task) => toast.success('Task moved', { description: task.key }),
-        onError: () => toast.error('Unable to move the task'),
+        onSuccess: (task) => toast.success(t('Task moved'), { description: task.key }),
+        onError: () => toast.error(t('Unable to move the task')),
       },
     );
   };
@@ -138,22 +139,22 @@ export default function AgilePage() {
     return (
       <div className="space-y-5">
         <PageHeader
-          eyebrow="Delivery"
-          title="Agile"
-          description="Sprint delivery workspace."
+          eyebrow={t('Delivery')}
+          title={t('Agile')}
+          description={t('Sprint delivery workspace.')}
           actions={
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              New sprint
+              {t('New sprint')}
             </Button>
           }
         />
         <Card>
           <EmptyState
             icon={Timer}
-            title="No sprints yet"
-            description="Create the first sprint to plan work against it, then start it from here."
-            action={{ label: 'New sprint', onClick: () => setCreateOpen(true) }}
+            title={t('No sprints yet')}
+            description={t('Create the first sprint to plan work against it, then start it from here.')}
+            action={{ label: t('New sprint'), onClick: () => setCreateOpen(true) }}
           />
         </Card>
         <SprintDialog
@@ -168,7 +169,7 @@ export default function AgilePage() {
   if (sprintsQuery.isLoading || !sprint) {
     return (
       <div className="space-y-5">
-        <PageHeader title="Agile" description="Sprint delivery workspace." />
+        <PageHeader title={t('Agile')} description={t('Sprint delivery workspace.')} />
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <MetricCardSkeleton key={i} />
@@ -190,14 +191,14 @@ export default function AgilePage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Delivery"
+        eyebrow={t('Delivery')}
         title={sprint.name}
         description={`${formatShortDate(sprint.startDate)} — ${formatShortDate(sprint.endDate)}`}
         meta={<SprintStateBadge state={sprint.state} />}
         actions={
           <>
             <Select value={sprint.id} onValueChange={selectSprint}>
-              <SelectTrigger className="w-56" aria-label="Choose a sprint">
+              <SelectTrigger className="w-56" aria-label={t('Choose a sprint')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,18 +221,18 @@ export default function AgilePage() {
 
             <Button variant="secondary" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              New sprint
+              {t('New sprint')}
             </Button>
 
             {sprint.state === 'planned' ? (
               <Button onClick={() => setConfirming('active')}>
                 <CirclePlay className="h-4 w-4" />
-                Start sprint
+                {t('Start sprint')}
               </Button>
             ) : sprint.state === 'active' ? (
               <Button onClick={() => setConfirming('completed')}>
                 <CheckCircle2 className="h-4 w-4" />
-                Complete sprint
+                {t('Complete sprint')}
               </Button>
             ) : null}
           </>
@@ -247,22 +248,25 @@ export default function AgilePage() {
       <ConfirmDialog
         open={confirming === 'active'}
         onOpenChange={(open) => !open && setConfirming(null)}
-        title={`Start ${sprint.name}?`}
-        description="The sprint becomes the active one from today. Work already committed to it stays committed."
-        confirmLabel="Start sprint"
+        title={t('Start {name}?', { name: sprint.name })}
+        description={t('The sprint becomes the active one from today. Work already committed to it stays committed.')}
+        confirmLabel={t('Start sprint')}
         pending={setSprintState.isPending}
         onConfirm={() => changeState('active')}
       />
       <ConfirmDialog
         open={confirming === 'completed'}
         onOpenChange={(open) => !open && setConfirming(null)}
-        title={`Complete ${sprint.name}?`}
+        title={t('Complete {name}?', { name: sprint.name })}
         description={
           remaining > 0
-            ? `${formatNumber(remaining)} ${pluralize(remaining, 'point')} of committed work ${remaining === 1 ? 'is' : 'are'} not done. The sprint closes anyway; move unfinished work to the next sprint from the board.`
-            : 'Everything committed is done. The sprint closes and moves to history.'
+            ? t(
+                '{count, plural, one {# point of committed work is not done.} other {# points of committed work are not done.}} The sprint closes anyway; move unfinished work to the next sprint from the board.',
+                { count: remaining },
+              )
+            : t('Everything committed is done. The sprint closes and moves to history.')
         }
-        confirmLabel="Complete sprint"
+        confirmLabel={t('Complete sprint')}
         pending={setSprintState.isPending}
         onConfirm={() => changeState('completed')}
       />
@@ -276,25 +280,25 @@ export default function AgilePage() {
           <Flag className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="epm-eyebrow">Sprint goal</p>
-          <p className="mt-1 text-xs leading-relaxed text-foreground">
+          <p className="epm-eyebrow">{t('Sprint goal')}</p>
+          <p dir="auto" className="mt-1 text-xs leading-relaxed text-foreground">
             {sprint.goal || (
-              <span className="text-muted-foreground">No sprint goal has been set.</span>
+              <span className="text-muted-foreground">{t('No sprint goal has been set.')}</span>
             )}
           </p>
         </div>
         <div className="hidden w-40 shrink-0 space-y-1.5 sm:block">
           <div className="flex items-baseline justify-between">
-            <span className="text-2xs text-muted-foreground">Progress</span>
+            <span className="text-2xs text-muted-foreground">{t('Progress')}</span>
             <span className="font-mono text-xs font-semibold tabular-nums">
               {formatPercent(progress)}
             </span>
           </div>
-          <ProgressBar value={progress} label={`${sprint.name} progress`} />
+          <ProgressBar value={progress} label={t('{name} progress', { name: sprint.name })} />
           <p className="text-2xs text-muted-foreground">
             {daysLeft >= 0
-              ? `${formatNumber(daysLeft)} ${pluralize(daysLeft, 'day')} remaining`
-              : 'Sprint window closed'}
+              ? t('{days, plural, one {# day remaining} other {# days remaining}}', { days: daysLeft })
+              : t('Sprint window closed')}
           </p>
         </div>
       </Card>
@@ -302,41 +306,41 @@ export default function AgilePage() {
       {/* Sprint metrics */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="Committed"
+          label={t('Committed')}
           value={sprint.committedPoints}
-          suffix="pts"
-          support="Scope agreed at planning"
+          suffix={t('pts')}
+          support={t('Scope agreed at planning')}
           icon={Target}
           tone="primary"
         />
         <MetricCard
-          label="Completed"
+          label={t('Completed')}
           value={sprint.completedPoints}
-          suffix="pts"
-          support={`${formatPercent(progress)} of commitment`}
+          suffix={t('pts')}
+          support={t('{percent} of commitment', { percent: formatPercent(progress) })}
           icon={CheckCircle2}
           tone="success"
         />
         <MetricCard
-          label="Remaining"
+          label={t('Remaining')}
           value={remaining}
-          suffix="pts"
+          suffix={t('pts')}
           support={
             daysLeft >= 0
-              ? `${formatNumber(daysLeft)} ${pluralize(daysLeft, 'day')} left`
-              : 'Past the end date'
+              ? t('{days, plural, one {# day left} other {# days left}}', { days: daysLeft })
+              : t('Past the end date')
           }
           icon={Gauge}
           tone={remaining > 0 && daysLeft <= 2 ? 'warning' : 'accent'}
         />
         <MetricCard
-          label="Velocity"
+          label={t('Velocity')}
           value={averageVelocity ?? '—'}
-          suffix={averageVelocity === null ? undefined : 'pts'}
+          suffix={averageVelocity === null ? undefined : t('pts')}
           support={
             averageVelocity === null
-              ? 'No sprint of these projects ended in the last six months'
-              : 'Points delivered per sprint, last six months'
+              ? t('No sprint of these projects ended in the last six months')
+              : t('Points delivered per sprint, last six months')
           }
           icon={TrendingUp}
           tone="highlight"
@@ -345,7 +349,7 @@ export default function AgilePage() {
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Burndown" description="Remaining points vs. the ideal line" height={260}>
+        <ChartCard title={t('Burndown')} description={t('Remaining points vs. the ideal line')} height={260}>
           <BurndownChart data={sprint.burndown} />
         </ChartCard>
 
@@ -354,10 +358,10 @@ export default function AgilePage() {
           isError={trendsQuery.isError}
           error={trendsQuery.error}
           onRetry={() => trendsQuery.refetch()}
-          errorTitle="Unable to load velocity"
+          errorTitle={t('Unable to load velocity')}
           skeleton={<ChartCardSkeleton height={260} />}
         >
-          <ChartCard title="Points delivered" description="Story points of the work delivered each month" height={260}>
+          <ChartCard title={t('Points delivered')} description={t('Story points of the work delivered each month')} height={260}>
             <VelocityChart data={trendsQuery.data ?? []} />
           </ChartCard>
         </QueryBoundary>
@@ -366,8 +370,8 @@ export default function AgilePage() {
       {/* Sprint board */}
       <section className="space-y-3">
         <SectionHeader
-          title="Sprint board"
-          description={`Work committed to ${sprint.name} across every project`}
+          title={t('Sprint board')}
+          description={t('Work committed to {name} across every project', { name: sprint.name })}
         />
 
         <QueryBoundary
@@ -375,17 +379,17 @@ export default function AgilePage() {
           isError={tasksQuery.isError}
           error={tasksQuery.error}
           onRetry={() => tasksQuery.refetch()}
-          errorTitle="Unable to load sprint work"
+          errorTitle={t('Unable to load sprint work')}
           skeleton={<KanbanBoardSkeleton columns={4} />}
           isEmpty={tasks.length === 0}
           empty={
             <Card>
               <EmptyState
                 icon={Target}
-                title="No work in this sprint"
-                description="Commit work packages from the backlog to plan this sprint."
+                title={t('No work in this sprint')}
+                description={t('Commit work packages from the backlog to plan this sprint.')}
                 action={{
-                  label: 'Create a task',
+                  label: t('Create a task'),
                   onClick: () => openTaskDrawer({ sprintId: sprint.id }),
                 }}
               />
@@ -406,8 +410,7 @@ export default function AgilePage() {
             <TruncationNotice
               shown={tasks.length}
               total={total}
-              itemLabel="task"
-              affected="The column counts"
+              affected={t('The column counts')}
               step={SPRINT_PAGE_SIZE}
               loading={tasksQuery.isFetching}
               onLoadMore={() => setPageSize((size) => size + SPRINT_PAGE_SIZE)}

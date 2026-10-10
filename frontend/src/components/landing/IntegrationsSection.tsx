@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Bot, CalendarClock, KeyRound, Mail, RadioTower, Workflow } from 'lucide-react';
 import { useLandingMotion } from './useLandingMotion';
+import { t } from '@/lib/i18n';
 
 /*
  * The hero promises the platform is "connected to the systems teams already
@@ -17,39 +18,39 @@ import { useLandingMotion } from './useLandingMotion';
 const CONNECTIONS = [
   {
     icon: Workflow,
-    title: 'Your delivery system of record',
-    body: 'Projects, work packages, versions and time entries are read and written upstream, so EPM reports on the same records your delivery tooling already holds — not a copy of them.',
-    where: 'Server-side only',
+    get title() { return t('Your delivery system of record'); },
+    get body() { return t('Projects, work packages, versions and time entries are read and written upstream, so EPM reports on the same records your delivery tooling already holds — not a copy of them.'); },
+    get where() { return t('Server-side only'); },
   },
   {
     icon: KeyRound,
-    title: 'Invitation-only accounts',
-    body: 'Access is provisioned by IT and arrives as an invitation, with your project membership and roles already set. There is no self-registration to get around them.',
-    where: 'Invitation only',
+    get title() { return t('Invitation-only accounts'); },
+    get body() { return t('Access is provisioned by IT and arrives as an invitation, with your project membership and roles already set. There is no self-registration to get around them.'); },
+    get where() { return t('Invitation only'); },
   },
   {
     icon: Mail,
-    title: 'Email that waits its turn',
-    body: 'Invitations, mentions, due reminders and digests are queued rather than sent inline, so a mail outage delays notice instead of failing the work that triggered it.',
-    where: 'Queued outbox',
+    get title() { return t('Email that waits its turn'); },
+    get body() { return t('Invitations, mentions, due reminders and digests are queued rather than sent inline, so a mail outage delays notice instead of failing the work that triggered it.'); },
+    get where() { return t('Queued outbox'); },
   },
   {
     icon: RadioTower,
-    title: 'Changes made elsewhere',
-    body: 'Work updated outside EPM arrives as a signed delivery that clears what EPM has cached at once — so the next refresh shows the change, not a copy minutes old.',
-    where: 'Signed webhooks',
+    get title() { return t('Changes made elsewhere'); },
+    get body() { return t('Work updated outside EPM arrives as a signed delivery that clears what EPM has cached at once — so the next refresh shows the change, not a copy minutes old.'); },
+    get where() { return t('Signed webhooks'); },
   },
   {
     icon: Bot,
-    title: 'Pragnya, in-app',
-    body: 'Ask about your own portfolios, sprints and workload in plain language. Every answer is assembled from records you are already allowed to open, through the same permission checks the screens use.',
-    where: 'Your data only',
+    get title() { return t('Pragnya, in-app'); },
+    get body() { return t('Ask about your own portfolios, sprints and workload in plain language. Every answer is assembled from records you are already allowed to open, through the same permission checks the screens use.'); },
+    get where() { return t('Your data only'); },
   },
   {
     icon: CalendarClock,
-    title: 'Trend, captured nightly',
-    body: 'Velocity, health and capacity are snapshotted on a schedule, so a trend line is history rather than today recalculated and called a trend.',
-    where: 'Scheduled',
+    get title() { return t('Trend, captured nightly'); },
+    get body() { return t('Velocity, health and capacity are snapshotted on a schedule, so a trend line is history rather than today recalculated and called a trend.'); },
+    get where() { return t('Scheduled'); },
   },
 ];
 
@@ -76,14 +77,15 @@ export function IntegrationsSection() {
 
       <div className="relative mx-auto max-w-6xl">
         <motion.div {...reveal(0, 0.7, { y: 30 })}>
-          <p className="text-xs uppercase tracking-widest text-white/40">Connected</p>
+          <p className="text-xs uppercase tracking-widest text-white/40">{t('Connected')}</p>
           <h2 className="mt-4 max-w-3xl text-3xl tracking-tight text-white md:text-5xl">
-            EPM joins what you already run,{' '}
-            <em className="font-serif italic text-white/50">it does not replace it</em>
+            {t('EPM joins what you already run,')}{' '}
+            <em className="font-serif italic text-white/50">{t('it does not replace it')}</em>
           </h2>
           <p className="mt-6 max-w-2xl text-sm leading-relaxed text-white/50">
-            Every connection below is made by the EPM backend, never by your browser. Your browser
-            only ever talks to EPM — no upstream address, token or credential is ever sent to it.
+            {t(
+              'Every connection below is made by the EPM backend, never by your browser. Your browser only ever talks to EPM — no upstream address, token or credential is ever sent to it.',
+            )}
           </p>
         </motion.div>
 
@@ -96,7 +98,7 @@ export function IntegrationsSection() {
               <span aria-hidden className="block h-px overflow-hidden bg-white/[0.07]">
                 <motion.span
                   {...drawRule(Math.min(index, 4) * 0.08)}
-                  className="block h-px origin-left bg-white/20"
+                  className="block h-px origin-left rtl:origin-right bg-white/20"
                 />
               </span>
 

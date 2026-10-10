@@ -18,6 +18,7 @@ import {
 } from '../mapping/queries.js';
 import type { HalCollection, OpWorkPackage } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Work package queries, backed by OpenProject's Queries API.
@@ -447,7 +448,7 @@ const ATTRIBUTE = /^[A-Za-z0-9_-]+$/;
 
 function attribute(value: unknown, what: string): string {
   const text = typeof value === 'string' ? value.trim() : '';
-  if (!ATTRIBUTE.test(text)) throw EpmError.badRequest(`That ${what} is not valid.`);
+  if (!ATTRIBUTE.test(text)) throw EpmError.badRequest(message('That {field} is not valid.', { field: what }));
   return text;
 }
 
@@ -719,7 +720,7 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
     app.patch<{ Params: { id: string } }>(`/queries/:id/${action}`, async (request) => {
       const { id } = request.params;
 
-      await guard.requireLink(request, `/queries/${id}`, action, `${action} this view`);
+      await guard.requireLink(request, `/queries/${id}`, action, action === 'star' ? 'star this view' : 'unstar this view');
 
       try {
         const updated = await openProject.request<Parameters<typeof toEpmQuery>[0]>(

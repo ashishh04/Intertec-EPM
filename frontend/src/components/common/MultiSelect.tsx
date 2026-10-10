@@ -12,6 +12,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 /**
@@ -48,7 +49,7 @@ export function MultiSelect({
   options,
   selected,
   onChange,
-  placeholder = 'Select values',
+  placeholder = t('Select values'),
   label,
   className,
   disabled,
@@ -114,7 +115,7 @@ export function MultiSelect({
             <span
               role="button"
               tabIndex={0}
-              aria-label={`Clear ${label}`}
+              aria-label={t('Clear {label}', { label })}
               className="shrink-0 rounded p-0.5 hover:bg-muted"
               onClick={(event) => {
                 // Clearing must not also open the popover.
@@ -139,9 +140,9 @@ export function MultiSelect({
 
       <PopoverContent className="w-64 p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search…" />
+          <CommandInput placeholder={t('Search…')} />
           <CommandList>
-            <CommandEmpty>No matches.</CommandEmpty>
+            <CommandEmpty>{t('No matches.')}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
                 const isSelected = selectedIds.has(option.id);
@@ -153,7 +154,7 @@ export function MultiSelect({
                   >
                     <span
                       className={cn(
-                        'mr-2 flex h-3.5 w-3.5 items-center justify-center rounded border',
+                        'me-2 flex h-3.5 w-3.5 items-center justify-center rounded border',
                         isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
                       )}
                       aria-hidden

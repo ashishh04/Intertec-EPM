@@ -173,8 +173,13 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>
 </styleSheet>`;
 
-/** A workbook of one or more sheets, each with a bold, frozen header row. */
-export function buildWorkbook(sheets: Sheet[], properties: { title?: string } = {}): Uint8Array {
+/**
+ * A workbook of one or more sheets, each with a bold, frozen header row.
+ * `rightToLeft` opens every sheet with column A on the right, as an Arabic
+ * reader expects (BR-604); Excel then aligns and orders each cell's text by
+ * its own direction.
+ */
+export function buildWorkbook(sheets: Sheet[], properties: { title?: string; rightToLeft?: boolean } = {}): Uint8Array {
   if (sheets.length === 0) throw new Error('A workbook needs at least one sheet.');
   const encoder = new TextEncoder();
   const names = sheetNames(sheets);
@@ -191,7 +196,7 @@ export function buildWorkbook(sheets: Sheet[], properties: { title?: string } = 
       .join('');
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<sheetViews><sheetView workbookViewId="0"${properties.rightToLeft ? ' rightToLeft="1"' : ''}><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
 ${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${body}</sheetData>
 </worksheet>`;
   });

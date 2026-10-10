@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { render, type Message } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import { postJson } from '../lib/outbound.js';
 import { recordAuditQuietly } from './audit.js';
@@ -18,8 +19,12 @@ import { notifyPeople } from './notifications.js';
 export interface OperationsAlert {
   /** Stable kind for monitoring rules, e.g. `email.delivery_exhausted`. */
   kind: string;
-  title: string;
-  body: string;
+  /**
+   * Messages, so each person told reads them in their own language (BR-605).
+   * The log line, the journal and the webhook carry them in English.
+   */
+  title: string | Message;
+  body: string | Message;
   /** Once per thing that failed: a retry of the same failure is not a new alert. */
   dedupeKey: string;
   /** Where in EPM to look. */
@@ -32,8 +37,13 @@ export function operationsPeople(): string[] {
   return env.EPM_OPS_ALERT_USER_IDS.length > 0 ? env.EPM_OPS_ALERT_USER_IDS : env.EPM_ADMIN_USER_IDS;
 }
 
+/** A title or body in English, for monitoring, the journal and the webhook. Plain text is as given. */
+const english = (value: string | Message): string => (typeof value === 'string' ? value : render('en', value));
+
 export async function raiseOperationsAlert(alert: OperationsAlert): Promise<void> {
-  appLog.error({ alert: alert.kind, dedupeKey: alert.dedupeKey, ...alert.details }, alert.title);
+  const title = english(alert.title);
+  const body = english(alert.body);
+  appLog.error({ alert: alert.kind, dedupeKey: alert.dedupeKey, ...alert.details }, title);
 
   await Promise.all([
     notifyPeople({
@@ -52,8 +62,8 @@ export async function raiseOperationsAlert(alert: OperationsAlert): Promise<void
         entityType: 'operations',
         entityId: alert.kind,
         action: 'operations.alert',
-        summary: alert.title,
-        reason: alert.body,
+        summary: title,
+        reason: body,
         metadata: { kind: alert.kind, dedupeKey: alert.dedupeKey, ...alert.details },
       },
     ]),
@@ -61,8 +71,8 @@ export async function raiseOperationsAlert(alert: OperationsAlert): Promise<void
     env.EPM_OPS_ALERT_WEBHOOK_URL
       ? postJson(env.EPM_OPS_ALERT_WEBHOOK_URL, {
           kind: alert.kind,
-          title: alert.title,
-          body: alert.body,
+          title,
+          body,
           at: new Date().toISOString(),
           details: alert.details ?? {},
         }).then((result) => {

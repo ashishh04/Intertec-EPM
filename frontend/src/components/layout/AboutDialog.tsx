@@ -10,6 +10,7 @@ import {
 import { useIntegrationStatus } from '@/hooks/useIntegration';
 import { useAuth } from '@/providers/AuthProvider';
 import { APP_DESCRIPTOR, APP_NAME, ORG_NAME, env } from '@/config/env';
+import { t } from '@/lib/i18n';
 
 /**
  * What this is, and what it is talking to.
@@ -42,15 +43,15 @@ export function AboutDialog({
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>
-            {APP_NAME} &mdash; {APP_DESCRIPTOR}
+            {APP_NAME} &mdash; {t(APP_DESCRIPTOR)}
           </DialogTitle>
-          <DialogDescription>Built for {ORG_NAME}.</DialogDescription>
+          <DialogDescription>{t('Built for {org}.', { org: ORG_NAME })}</DialogDescription>
         </DialogHeader>
 
         <FactList
           facts={[
             {
-              label: 'Environment',
+              label: t('Environment'),
               mono: false,
               value: (
                 <Badge tone="highlight" size="sm" className="capitalize">
@@ -62,7 +63,7 @@ export function AboutDialog({
             ...(maySeeIntegration
               ? [
                   {
-                    label: 'Delivery system',
+                    label: t('Delivery system'),
                     mono: false,
                     value: integration.data ? (
                       <Badge
@@ -79,7 +80,7 @@ export function AboutDialog({
                         {integration.data.state}
                       </Badge>
                     ) : (
-                      'Checking…'
+                      t('Checking…')
                     ),
                   },
                 ]

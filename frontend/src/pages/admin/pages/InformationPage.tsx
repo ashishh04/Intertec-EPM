@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { APP_NAME, env } from '@/config/env';
 import { useAdminInformation } from '@/hooks/useAdmin';
+import { t } from '@/lib/i18n';
 import { formatNumber } from '@/lib/utils';
 import { valueOr } from './shared-format';
 
@@ -21,8 +22,8 @@ export default function InformationPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>Delivery system</CardTitle>
-          <CardDescription>The instance EPM reads projects, work packages and people from.</CardDescription>
+          <CardTitle>{t('Delivery system')}</CardTitle>
+          <CardDescription>{t('The instance EPM reads projects, work packages and people from.')}</CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
           <QueryBoundary
@@ -30,17 +31,17 @@ export default function InformationPage() {
             isError={information.isError}
             error={information.error}
             onRetry={() => void information.refetch()}
-            errorTitle="Instance information could not be loaded"
+            errorTitle={t('Instance information could not be loaded')}
             skeleton={<ListSkeleton rows={5} height="h-10" />}
           >
             <FactList
               facts={[
-                { label: 'Instance name', value: valueOr(data?.instanceName, 'Not set') },
-                { label: 'Core version', value: valueOr(data?.coreVersion, 'Unknown') },
-                { label: 'Host name', value: valueOr(data?.hostName, 'Not set') },
-                { label: 'API version', value: valueOr(data?.apiVersion, 'Unknown') },
+                { label: t('Instance name'), value: valueOr(data?.instanceName, t('Not set')) },
+                { label: t('Core version'), value: valueOr(data?.coreVersion, t('Unknown')) },
+                { label: t('Host name'), value: valueOr(data?.hostName, t('Not set')) },
+                { label: t('API version'), value: valueOr(data?.apiVersion, t('Unknown')) },
                 {
-                  label: 'Active feature flags',
+                  label: t('Active feature flags'),
                   value:
                     flags.length > 0 ? (
                       <span className="inline-flex items-center gap-1.5" title={flags.join(', ')}>
@@ -48,7 +49,7 @@ export default function InformationPage() {
                         <span className="sr-only">: {flags.join(', ')}</span>
                       </span>
                     ) : (
-                      'None'
+                      t('None')
                     ),
                 },
               ]}
@@ -67,15 +68,15 @@ export default function InformationPage() {
           }
         >
           <CardTitle>{APP_NAME}</CardTitle>
-          <CardDescription>This application and the backend it talks to.</CardDescription>
+          <CardDescription>{t('This application and the backend it talks to.')}</CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
           <FactList
             facts={[
-              { label: 'App name', value: APP_NAME, mono: false },
-              { label: 'Environment', value: env.appEnv },
+              { label: t('App name'), value: APP_NAME, mono: false },
+              { label: t('Environment'), value: env.appEnv },
               {
-                label: 'API base URL',
+                label: t('API base URL'),
                 value: (
                   <span className="block truncate" title={env.apiBaseUrl}>
                     {env.apiBaseUrl}

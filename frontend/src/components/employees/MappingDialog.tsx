@@ -25,6 +25,7 @@ import { useDepartments } from '@/hooks/useDepartments';
 import { useSetMapping } from '@/hooks/useEmployees';
 import { useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import type { EpmEmployee } from '@/services/api/employees';
 
 /**
@@ -105,11 +106,11 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
       },
       {
         onSuccess: () => {
-          toast.success(`${employee.name} updated`);
+          toast.success(t('{name} updated', { name: employee.name }));
           onOpenChange(false);
         },
         onError: (error) =>
-          setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+          setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -118,20 +119,20 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
   const teamHint = teams.isLoading
     ? null
     : allTeams.length === 0
-      ? 'No teams yet.'
+      ? t('No teams yet.')
       : departmentId !== NONE
         ? selectableTeams.length === 0
-          ? 'No teams in this department.'
-          : 'Only teams in this department are listed.'
+          ? t('No teams in this department.')
+          : t('Only teams in this department are listed.')
         : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Assign {employee?.name}</DialogTitle>
+          <DialogTitle>{t('Assign {name}', { name: employee?.name })}</DialogTitle>
           <DialogDescription>
-            Where this person sits in EPM. Their name and account are managed centrally.
+            {t('Where this person sits in EPM. Their name and account are managed centrally.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -140,7 +141,7 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
             <Card className="flex items-center gap-3 p-3">
               <UserAvatar user={users.get(employee.id)} size="sm" />
               <div className="min-w-0">
-                <p className="truncate text-xs font-medium">{employee.name}</p>
+                <p className="truncate text-xs font-medium" dir="auto">{employee.name}</p>
                 {employee.email ? (
                   <p className="truncate text-2xs text-muted-foreground">{employee.email}</p>
                 ) : null}
@@ -149,7 +150,7 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
           ) : null}
 
           <div className="space-y-1.5">
-            <Label htmlFor="mapping-department">Department</Label>
+            <Label htmlFor="mapping-department">{t('Department')}</Label>
             {/* An empty value while loading shows the placeholder instead of
                 the "No department" option, which would read as a settled answer. */}
             <Select
@@ -157,11 +158,11 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
               onValueChange={chooseDepartment}
               disabled={departments.isLoading}
             >
-              <SelectTrigger id="mapping-department" aria-label="Select a department">
-                <SelectValue placeholder={departments.isLoading ? 'Loading…' : 'No department'} />
+              <SelectTrigger id="mapping-department" aria-label={t('Select a department')}>
+                <SelectValue placeholder={departments.isLoading ? t('Loading…') : t('No department')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>No department</SelectItem>
+                <SelectItem value={NONE}>{t('No department')}</SelectItem>
                 {allDepartments.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
                     {department.name}
@@ -170,26 +171,25 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
               </SelectContent>
             </Select>
             {!departments.isLoading && allDepartments.length === 0 ? (
-              <FieldHint>No departments yet.</FieldHint>
+              <FieldHint>{t('No departments yet.')}</FieldHint>
             ) : null}
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="mapping-team">Team</Label>
+            <Label htmlFor="mapping-team">{t('Team')}</Label>
             <Select
               value={teams.isLoading ? '' : teamId}
               onValueChange={chooseTeam}
               disabled={teams.isLoading}
             >
-              <SelectTrigger id="mapping-team" aria-label="Select a team">
-                <SelectValue placeholder={teams.isLoading ? 'Loading…' : 'No team'} />
+              <SelectTrigger id="mapping-team" aria-label={t('Select a team')}>
+                <SelectValue placeholder={teams.isLoading ? t('Loading…') : t('No team')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>No team</SelectItem>
+                <SelectItem value={NONE}>{t('No team')}</SelectItem>
                 {selectableTeams.map((team) => (
                   <SelectItem key={team.id} value={team.id}>
-                    {team.name}
-                    {team.department ? '' : ' (no department)'}
+                    {team.department ? team.name : t('{name} (no department)', { name: team.name })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -202,10 +202,10 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
 
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button type="button" loading={setMapping.isPending} onClick={save}>
-            Save
+            {t('Save')}
           </Button>
         </DialogFooter>
       </DialogContent>

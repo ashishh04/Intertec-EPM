@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { AdminPermission, AdminRole, AdminRoleKind } from '@/services/api/admin';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 /**
@@ -12,10 +13,10 @@ import { cn } from '@/lib/utils';
 export const ROLES_PATH = '/admin/users/roles';
 
 export const ROLE_KIND_LABEL: Record<AdminRoleKind, string> = {
-  project: 'Project role',
-  global: 'Global role',
-  work_package: 'Work package role',
-  project_query: 'Project query role',
+  get project() { return t('Project role'); },
+  get global() { return t('Global role'); },
+  get work_package() { return t('Work package role'); },
+  get project_query() { return t('Project query role'); },
 };
 
 const KIND_ORDER: Record<AdminRoleKind, number> = {
@@ -87,13 +88,13 @@ export function CheckAllLinks({
   return (
     <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
       <button type="button" className={link} onClick={onCheckAll} disabled={disabled}>
-        Check all<span className="sr-only"> {scope}</span>
+        {t('Check all')}<span className="sr-only"> {scope}</span>
       </button>
       <span className="text-2xs text-muted-foreground" aria-hidden>
         |
       </span>
       <button type="button" className={link} onClick={onUncheckAll} disabled={disabled}>
-        Uncheck all<span className="sr-only"> {scope}</span>
+        {t('Uncheck all')}<span className="sr-only"> {scope}</span>
       </button>
     </span>
   );
@@ -134,7 +135,7 @@ export function PermissionSectionHeader({
         onClick={onToggle}
         aria-expanded={!collapsed}
         aria-controls={id}
-        className="flex min-w-0 items-center gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 items-center gap-1.5 rounded text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
         <span className="epm-eyebrow truncate text-foreground">{label}</span>
@@ -143,7 +144,7 @@ export function PermissionSectionHeader({
         </span>
       </button>
       <CheckAllLinks
-        scope={`${label} permissions`}
+        scope={t('{label} permissions', { label })}
         onCheckAll={onCheckAll}
         onUncheckAll={onUncheckAll}
         disabled={disabled}

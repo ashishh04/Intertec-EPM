@@ -24,6 +24,7 @@ import {
 import { useCreateTeam, useUpdateTeam } from '@/hooks/useTeams';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import type { EpmTeam } from '@/services/api/teams';
 
 /**
@@ -88,16 +89,16 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
       leadId: leadId === NONE ? '' : leadId,
     };
 
-    if (!input.name) return setProblem('A name is required.');
-    if (!input.code) return setProblem('A code is required.');
-    if (!CODE_PATTERN.test(input.code)) return setProblem(CODE_PROBLEM);
+    if (!input.name) return setProblem(t('A name is required.'));
+    if (!input.code) return setProblem(t('A code is required.'));
+    if (!CODE_PATTERN.test(input.code)) return setProblem(t(CODE_PROBLEM));
 
     const onSuccess = () => {
-      toast.success(isEdit ? 'Team updated' : 'Team created');
+      toast.success(isEdit ? t('Team updated') : t('Team created'));
       onOpenChange(false);
     };
     const onError = (error: unknown) =>
-      setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+      setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
     if (isEdit) {
       update.mutate({ id: team!.id, input }, { onSuccess, onError });
@@ -120,16 +121,16 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
             column layout for the body to scroll under a pinned footer. */}
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit team' : 'New team'}</DialogTitle>
+            <DialogTitle>{isEdit ? t('Edit team') : t('New team')}</DialogTitle>
             <DialogDescription>
-              Teams exist only in EPM. Nothing about them leaves it.
+              {t('Teams exist only in EPM. Nothing about them leaves it.')}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
+          <div className="epm-dialog-body epm-scroll -me-1 space-y-4 py-1 pe-2">
             <div className="space-y-1.5">
               <Label htmlFor="team-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="team-name"
@@ -137,14 +138,14 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
                 maxLength={120}
                 autoFocus
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Platform Delivery"
+                placeholder={t('Platform Delivery')}
               />
             </div>
 
             <CodeField id="team-code" value={code} onChange={setCode} placeholder="PLAT" />
 
             <div className="space-y-1.5">
-              <Label htmlFor="team-department">Department</Label>
+              <Label htmlFor="team-department">{t('Department')}</Label>
               {/* An empty value while loading shows the placeholder instead of
                   the "No department" option, which would read as a settled answer. */}
               <Select
@@ -152,40 +153,39 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
                 onValueChange={setDepartmentId}
                 disabled={departments.isLoading}
               >
-                <SelectTrigger id="team-department" aria-label="Select a department">
+                <SelectTrigger id="team-department" aria-label={t('Select a department')}>
                   <SelectValue
-                    placeholder={departments.isLoading ? 'Loading…' : 'No department'}
+                    placeholder={departments.isLoading ? t('Loading…') : t('No department')}
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>No department</SelectItem>
+                  <SelectItem value={NONE}>{t('No department')}</SelectItem>
                   {options.map((department) => (
                     <SelectItem key={department.id} value={department.id}>
-                      {department.name}
-                      {department.active ? '' : ' (archived)'}
+                      {department.active ? department.name : t('{name} (archived)', { name: department.name })}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <FieldHint>
                 {!departments.isLoading && options.length === 0
-                  ? 'No departments yet. A team may exist without one.'
-                  : 'A team may exist without one.'}
+                  ? t('No departments yet. A team may exist without one.')
+                  : t('A team may exist without one.')}
               </FieldHint>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="team-lead">Lead</Label>
+              <Label htmlFor="team-lead">{t('Lead')}</Label>
               <Select
                 value={users.isLoading ? '' : leadId}
                 onValueChange={setLeadId}
                 disabled={users.isLoading}
               >
-                <SelectTrigger id="team-lead" aria-label="Select a lead">
-                  <SelectValue placeholder={users.isLoading ? 'Loading…' : 'No lead'} />
+                <SelectTrigger id="team-lead" aria-label={t('Select a lead')}>
+                  <SelectValue placeholder={users.isLoading ? t('Loading…') : t('No lead')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>No lead</SelectItem>
+                  <SelectItem value={NONE}>{t('No lead')}</SelectItem>
                   {people.map((user) => (
                     <SelectItem key={user.id} value={String(user.id)}>
                       {user.name}
@@ -194,19 +194,19 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
                 </SelectContent>
               </Select>
               {!users.isLoading && people.length === 0 ? (
-                <FieldHint>Nobody in the directory to choose from.</FieldHint>
+                <FieldHint>{t('Nobody in the directory to choose from.')}</FieldHint>
               ) : null}
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="team-description">Description</Label>
+              <Label htmlFor="team-description">{t('Description')}</Label>
               <Textarea
                 id="team-description"
                 rows={3}
                 value={description}
                 maxLength={2000}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="What this team delivers."
+                placeholder={t('What this team delivers.')}
               />
             </div>
 
@@ -215,10 +215,10 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={create.isPending || update.isPending}>
-              {isEdit ? 'Save changes' : 'Create team'}
+              {isEdit ? t('Save changes') : t('Create team')}
             </Button>
           </DialogFooter>
         </form>

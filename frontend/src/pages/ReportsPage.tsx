@@ -80,19 +80,20 @@ import {
   toISODateOnly,
 } from '@/lib/utils';
 import { subDays } from 'date-fns';
+import { t } from '@/lib/i18n';
 import type { HealthLevel, ID, ReportFilters } from '@/types';
 
 const ALL = '__all__';
 
 
 const REPORTS = [
-  { value: 'status', label: 'Project Status' },
-  { value: 'completion', label: 'Task Completion' },
-  { value: 'velocity', label: 'Points Delivered' },
-  { value: 'team', label: 'Team Performance' },
-  { value: 'overdue', label: 'Overdue Work' },
-  { value: 'time', label: 'Time Tracking' },
-  { value: 'trends', label: 'Delivery Trends' },
+  { value: 'status', get label() { return t('Project Status'); } },
+  { value: 'completion', get label() { return t('Task Completion'); } },
+  { value: 'velocity', get label() { return t('Points Delivered'); } },
+  { value: 'team', get label() { return t('Team Performance'); } },
+  { value: 'overdue', get label() { return t('Overdue Work'); } },
+  { value: 'time', get label() { return t('Time Tracking'); } },
+  { value: 'trends', get label() { return t('Delivery Trends'); } },
 ] as const;
 
 /** Executive reporting workspace. */
@@ -153,7 +154,7 @@ export default function ReportsPage() {
     () =>
       (timeQuery.data ?? [])
         .map((entry) => ({
-          label: users?.find((user) => user.id === entry.userId)?.name.split(' ')[0] ?? 'Unknown',
+          label: users?.find((user) => user.id === entry.userId)?.name.split(' ')[0] ?? t('Unknown'),
           value: entry.hoursLogged,
         }))
         .sort((a, b) => b.value - a.value)
@@ -186,22 +187,22 @@ export default function ReportsPage() {
           // Both values travel with an override, and its reason: an export
           // that carried only the pinned value would report it as measured.
           headers: [
-            'Project',
-            'Code',
-            'Status',
-            'Health',
-            'Calculated health',
-            'Override reason',
-            'Overridden by',
-            'Overridden on',
-            'Schedule',
-            'Budget',
-            'Risks',
-            'Overdue',
-            'Progress %',
-            'Planned start',
-            'Planned finish',
-            'Forecast finish',
+            t('Project'),
+            t('Code'),
+            t('Status'),
+            t('Health'),
+            t('Calculated health'),
+            t('Override reason'),
+            t('Overridden by'),
+            t('Overridden on'),
+            t('Schedule'),
+            t('Budget'),
+            t('Risks'),
+            t('Overdue'),
+            t('Progress %'),
+            t('Planned start'),
+            t('Planned finish'),
+            t('Forecast finish'),
           ],
           rows: projects.map((project) => [
             project.name,
@@ -216,7 +217,7 @@ export default function ReportsPage() {
             project.healthOverride?.setAt.slice(0, 10) ?? null,
             ...(['schedule', 'budget', 'risks', 'overdue'] as const).map((criterion) => {
               const level = project.health[criterion];
-              return level ? HEALTH_META[level].label : 'Not assessed';
+              return level ? HEALTH_META[level].label : t('Not assessed');
             }),
             project.progress,
             project.startDate ?? null,
@@ -227,7 +228,7 @@ export default function ReportsPage() {
       case 'team':
         return {
           name: `team-performance-${range}`,
-          headers: ['Team', 'Code', 'Department', 'Lead', 'Members', 'Capacity (h/week)'],
+          headers: [t('Team'), t('Code'), t('Department'), t('Lead'), t('Members'), t('Capacity (h/week)')],
           rows: (teamsQuery.data ?? []).map((team) => [
             team.name,
             team.code,
@@ -240,7 +241,7 @@ export default function ReportsPage() {
       case 'overdue':
         return {
           name: `overdue-work-${range}`,
-          headers: ['Key', 'Subject', 'Project', 'Status', 'Priority', 'Due', 'Days late'],
+          headers: [t('Key'), t('Subject'), t('Project'), t('Status'), t('Priority'), t('Due'), t('Days late')],
           rows: overdue.map((task) => [
             `#${task.id}`,
             task.subject,
@@ -254,7 +255,7 @@ export default function ReportsPage() {
       case 'time':
         return {
           name: `time-tracking-${range}`,
-          headers: ['Person', 'Hours logged', 'Not costed'],
+          headers: [t('Person'), t('Hours logged'), t('Not costed')],
           rows: (timeQuery.data ?? []).map((entry) => [
             users?.find((user) => user.id === entry.userId)?.name ?? entry.userId,
             entry.hoursLogged,
@@ -264,14 +265,14 @@ export default function ReportsPage() {
       case 'completion':
         return {
           name: `task-completion-${range}`,
-          headers: ['Status', 'Tasks'],
+          headers: [t('Status'), t('Tasks')],
           rows: (distributionQuery.data ?? []).map((slice) => [slice.status, slice.count]),
         };
       case 'velocity':
       case 'trends':
         return {
           name: `${report === 'velocity' ? 'points-delivered' : 'delivery-trends'}-${range}`,
-          headers: ['Month', 'Delivered', 'Created', 'Points delivered'],
+          headers: [t('Month'), t('Delivered'), t('Created'), t('Points delivered')],
           rows: (trendsQuery.data ?? []).map((point) => [
             point.period,
             point.completed,
@@ -294,7 +295,7 @@ export default function ReportsPage() {
     }
 
     downloadXlsx(`${sheet.name}.xlsx`, {
-      sheetName: REPORTS.find((item) => item.value === report)?.label ?? 'Report',
+      sheetName: REPORTS.find((item) => item.value === report)?.label ?? t('Report'),
       headers: sheet.headers,
       rows: sheet.rows,
     });
@@ -303,8 +304,8 @@ export default function ReportsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Reports"
-        description="Delivery reporting across projects, teams and time."
+        title={t('Reports')}
+        description={t('Delivery reporting across projects, teams and time.')}
         actions={
           /*
            * Exported from the browser, not prepared on the backend.
@@ -318,21 +319,21 @@ export default function ReportsPage() {
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="sm">
                 <Download className="h-3.5 w-3.5" />
-                Export
+                {t('Export')}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => exportAs('xlsx')}>
                 <Sheet className="h-3.5 w-3.5" />
-                Excel workbook (.xlsx)
+                {t('Excel workbook (.xlsx)')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => exportAs('csv')}>
                 <Table2 className="h-3.5 w-3.5" />
-                Comma-separated (.csv)
+                {t('Comma-separated (.csv)')}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => window.print()}>
                 <Printer className="h-3.5 w-3.5" />
-                Print or save as PDF
+                {t('Print or save as PDF')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -345,14 +346,14 @@ export default function ReportsPage() {
           {REPORTS.find((item) => item.value === report)?.label}
         </h2>
         <p className="text-2xs text-muted-foreground">
-          {filters.from ?? 'the beginning'} to {filters.to ?? 'today'}
+          {t('{from} to {to}', { from: filters.from ?? t('the beginning'), to: filters.to ?? t('today') })}
         </p>
       </div>
 
       {/* Filters */}
       <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <div className="space-y-1.5">
-          <Label htmlFor="report-type">Report</Label>
+          <Label htmlFor="report-type">{t('Report')}</Label>
           <Select value={report} onValueChange={(value) => setReport(value as typeof report)}>
             <SelectTrigger id="report-type" className="h-8 text-xs">
               <SelectValue />
@@ -368,7 +369,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="report-from">From</Label>
+          <Label htmlFor="report-from">{t('From')}</Label>
           <Input
             id="report-from"
             type="date"
@@ -379,7 +380,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="report-to">To</Label>
+          <Label htmlFor="report-to">{t('To')}</Label>
           <Input
             id="report-to"
             type="date"
@@ -390,7 +391,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="report-project">Project</Label>
+          <Label htmlFor="report-project">{t('Project')}</Label>
           <Select
             value={filters.projectId ?? ALL}
             onValueChange={(value) =>
@@ -401,10 +402,10 @@ export default function ReportsPage() {
             }
           >
             <SelectTrigger id="report-project" className="h-8 text-xs">
-              <SelectValue placeholder="All projects" />
+              <SelectValue placeholder={t('All projects')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All projects</SelectItem>
+              <SelectItem value={ALL}>{t('All projects')}</SelectItem>
               {(projectsQuery.data ?? []).map((project) => (
                 <SelectItem key={project.id} value={project.id}>
                   {project.name}
@@ -415,7 +416,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="report-portfolio">Portfolio</Label>
+          <Label htmlFor="report-portfolio">{t('Portfolio')}</Label>
           <Select
             value={filters.portfolioId ?? ALL}
             onValueChange={(value) =>
@@ -426,10 +427,10 @@ export default function ReportsPage() {
             }
           >
             <SelectTrigger id="report-portfolio" className="h-8 text-xs">
-              <SelectValue placeholder="All portfolios" />
+              <SelectValue placeholder={t('All portfolios')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All portfolios</SelectItem>
+              <SelectItem value={ALL}>{t('All portfolios')}</SelectItem>
               {(portfoliosQuery.data ?? []).map((portfolio) => (
                 <SelectItem key={portfolio.id} value={portfolio.id}>
                   {portfolio.name}
@@ -440,7 +441,7 @@ export default function ReportsPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="report-team">Team</Label>
+          <Label htmlFor="report-team">{t('Team')}</Label>
           <Select
             value={filters.teamId ?? ALL}
             onValueChange={(value) =>
@@ -451,10 +452,10 @@ export default function ReportsPage() {
             }
           >
             <SelectTrigger id="report-team" className="h-8 text-xs">
-              <SelectValue placeholder="All teams" />
+              <SelectValue placeholder={t('All teams')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All teams</SelectItem>
+              <SelectItem value={ALL}>{t('All teams')}</SelectItem>
               {(teamsQuery.data ?? []).map((team) => (
                 <SelectItem key={team.id} value={team.id}>
                   {team.name}
@@ -500,15 +501,15 @@ export default function ReportsPage() {
             isError={projectsQuery.isError}
             error={projectsQuery.error}
             onRetry={() => projectsQuery.refetch()}
-            errorTitle="Unable to load project status"
+            errorTitle={t('Unable to load project status')}
             skeleton={<TableSkeleton columns={7} rows={6} />}
             isEmpty={projects.length === 0}
             empty={
               <Card>
                 <EmptyState
                   icon={FolderKanban}
-                  title="No projects to report on"
-                  description="Projects appear here once they exist in the portfolio."
+                  title={t('No projects to report on')}
+                  description={t('Projects appear here once they exist in the portfolio.')}
                 />
               </Card>
             }
@@ -537,7 +538,7 @@ export default function ReportsPage() {
                     </div>
                   }
                 >
-                  <CardTitle>Project status</CardTitle>
+                  <CardTitle>{t('Project status')}</CardTitle>
                 </CardHeader>
               }
               footer={
@@ -547,20 +548,21 @@ export default function ReportsPage() {
                   total={projectsPaged.total}
                   onPageChange={projectsPaged.setPage}
                   onPageSizeChange={projectsPaged.setPageSize}
-                  itemLabel="project"
+                  itemLabel={t('project')}
+                  itemLabelPlural={t('projects')}
                 />
               }
             >
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Project</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Health</TableHead>
-                    <TableHead className="min-w-36">Progress</TableHead>
-                    <TableHead numeric>Tasks</TableHead>
-                    <TableHead numeric>Risks</TableHead>
-                    <TableHead>Planned finish</TableHead>
+                    <TableHead>{t('Project')}</TableHead>
+                    <TableHead>{t('Status')}</TableHead>
+                    <TableHead>{t('Health')}</TableHead>
+                    <TableHead className="min-w-36">{t('Progress')}</TableHead>
+                    <TableHead numeric>{t('Tasks')}</TableHead>
+                    <TableHead numeric>{t('Risks')}</TableHead>
+                    <TableHead>{t('Planned finish')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -577,10 +579,13 @@ export default function ReportsPage() {
                               calculated, so a reader is not misled by it. */}
                           {project.healthOverride ? (
                             <InfoTooltip
-                              label={`Calculated ${HEALTH_META[project.healthCalculated.overall].label}. ${project.healthOverride.reason}`}
+                              label={t('Calculated {level}. {reason}', {
+                                level: HEALTH_META[project.healthCalculated.overall].label,
+                                reason: project.healthOverride.reason,
+                              })}
                             >
                               <Badge tone="accent" className="text-2xs" tabIndex={0}>
-                                Overridden
+                                {t('Overridden')}
                               </Badge>
                             </InfoTooltip>
                           ) : null}
@@ -592,7 +597,7 @@ export default function ReportsPage() {
                             value={project.progress}
                             size="xs"
                             tone={PROJECT_STATUS_META[project.status].tone}
-                            label={`${project.name} progress`}
+                            label={t('{name} progress', { name: project.name })}
                             className="w-20"
                           />
                           <span className="font-mono text-2xs tabular-nums">
@@ -622,7 +627,7 @@ export default function ReportsPage() {
             isError={distributionQuery.isError}
             error={distributionQuery.error}
             onRetry={() => distributionQuery.refetch()}
-            errorTitle="Unable to load the report"
+            errorTitle={t('Unable to load the report')}
             skeleton={
               <div className="grid gap-4 lg:grid-cols-2">
                 <ChartCardSkeleton />
@@ -633,10 +638,10 @@ export default function ReportsPage() {
             {/* An empty distribution is drawn by the charts themselves, inside
                 their cards, so the layout holds its shape. */}
             <div className="grid gap-4 lg:grid-cols-2">
-              <ChartCard title="Status distribution" description="Where work currently sits">
+              <ChartCard title={t('Status distribution')} description={t('Where work currently sits')}>
                 <StatusDistributionChart data={distributionQuery.data ?? []} />
               </ChartCard>
-              <ChartCard title="Completion by status" description="Work package counts">
+              <ChartCard title={t('Completion by status')} description={t('Work package counts')}>
                 <HorizontalBarChart
                   data={(distributionQuery.data ?? []).map((entry) => ({
                     label: entry.label,
@@ -655,12 +660,12 @@ export default function ReportsPage() {
             isError={trendsQuery.isError}
             error={trendsQuery.error}
             onRetry={() => trendsQuery.refetch()}
-            errorTitle="Unable to load points delivered"
+            errorTitle={t('Unable to load points delivered')}
             skeleton={<ChartCardSkeleton height={280} />}
           >
             <ChartCard
-              title="Points delivered"
-              description="Story points of the work delivered each month, counted on the day it was closed"
+              title={t('Points delivered')}
+              description={t('Story points of the work delivered each month, counted on the day it was closed')}
               height={280}
             >
               <VelocityChart data={trendsQuery.data ?? []} />
@@ -675,15 +680,15 @@ export default function ReportsPage() {
             isError={teamsQuery.isError}
             error={teamsQuery.error}
             onRetry={() => teamsQuery.refetch()}
-            errorTitle="Unable to load teams"
+            errorTitle={t('Unable to load teams')}
             skeleton={<TableSkeleton columns={6} rows={6} />}
             isEmpty={teamsPaged.total === 0}
             empty={
               <Card>
                 <EmptyState
                   icon={Users}
-                  title="No teams yet"
-                  description="Team performance fills in once teams are set up in administration."
+                  title={t('No teams yet')}
+                  description={t('Team performance fills in once teams are set up in administration.')}
                 />
               </Card>
             }
@@ -691,7 +696,7 @@ export default function ReportsPage() {
             <TableCard
               toolbar={
                 <CardHeader variant="compact" className="border-b-0">
-                  <CardTitle>Teams</CardTitle>
+                  <CardTitle>{t('Teams')}</CardTitle>
                 </CardHeader>
               }
               footer={
@@ -701,19 +706,20 @@ export default function ReportsPage() {
                   total={teamsPaged.total}
                   onPageChange={teamsPaged.setPage}
                   onPageSizeChange={teamsPaged.setPageSize}
-                  itemLabel="team"
+                  itemLabel={t('team')}
+                  itemLabelPlural={t('teams')}
                 />
               }
             >
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Team</TableHead>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Lead</TableHead>
-                    <TableHead numeric>Members</TableHead>
-                    <TableHead numeric>Capacity</TableHead>
+                    <TableHead>{t('Team')}</TableHead>
+                    <TableHead>{t('Code')}</TableHead>
+                    <TableHead>{t('Department')}</TableHead>
+                    <TableHead>{t('Lead')}</TableHead>
+                    <TableHead numeric>{t('Members')}</TableHead>
+                    <TableHead numeric>{t('Capacity')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -728,7 +734,7 @@ export default function ReportsPage() {
                       <TableCell className="text-2xs">{team.department?.name ?? '—'}</TableCell>
                       <TableCell className="text-2xs">{team.lead?.name ?? '—'}</TableCell>
                       <TableCell numeric>{formatNumber(team.memberCount)}</TableCell>
-                      <TableCell numeric>{formatNumber(team.capacityHours)} h/wk</TableCell>
+                      <TableCell numeric>{t('{hours, number} h/wk', { hours: team.capacityHours })}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -744,15 +750,15 @@ export default function ReportsPage() {
             isError={overdueQuery.isError}
             error={overdueQuery.error}
             onRetry={() => overdueQuery.refetch()}
-            errorTitle="Unable to load overdue work"
+            errorTitle={t('Unable to load overdue work')}
             skeleton={<TableSkeleton columns={5} rows={6} />}
             isEmpty={overdue.length === 0}
             empty={
               <Card>
                 <EmptyState
                   icon={CheckCircle2}
-                  title="Nothing is overdue"
-                  description="Every open work package is still inside its committed date."
+                  title={t('Nothing is overdue')}
+                  description={t('Every open work package is still inside its committed date.')}
                 />
               </Card>
             }
@@ -760,7 +766,7 @@ export default function ReportsPage() {
             <TableCard
               toolbar={
                 <CardHeader variant="compact" className="border-b-0">
-                  <CardTitle>Overdue work packages</CardTitle>
+                  <CardTitle>{t('Overdue work packages')}</CardTitle>
                   <CardDescription className="text-2xs">
                     {overdueQuery.data?.measure.definition}
                   </CardDescription>
@@ -773,18 +779,19 @@ export default function ReportsPage() {
                   total={overduePaged.total}
                   onPageChange={overduePaged.setPage}
                   onPageSizeChange={overduePaged.setPageSize}
-                  itemLabel="work package"
+                  itemLabel={t('work package')}
+                  itemLabelPlural={t('work packages')}
                 />
               }
             >
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Work package</TableHead>
-                    <TableHead>Assignee</TableHead>
-                    <TableHead>Due</TableHead>
-                    <TableHead numeric>Days late</TableHead>
+                    <TableHead>{t('ID')}</TableHead>
+                    <TableHead>{t('Work package')}</TableHead>
+                    <TableHead>{t('Assignee')}</TableHead>
+                    <TableHead>{t('Due')}</TableHead>
+                    <TableHead numeric>{t('Days late')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -794,7 +801,7 @@ export default function ReportsPage() {
                       <TableRow key={task.id}>
                         <TableCell className="font-mono text-2xs text-muted-foreground">#{task.id}</TableCell>
                         <TableCell className="font-medium">
-                          <Link to={`/tasks/${task.id}`} className="hover:text-primary hover:underline">
+                          <Link to={`/tasks/${task.id}`} className="hover:text-primary hover:underline" dir="auto">
                             {task.subject}
                           </Link>
                           <span className="block text-2xs font-normal text-muted-foreground">{task.projectName}</span>
@@ -802,7 +809,7 @@ export default function ReportsPage() {
                         <TableCell>
                           <span className="flex items-center gap-1.5">
                             <UserAvatar user={assignee} size="xs" />
-                            {task.assigneeName ?? 'Unassigned'}
+                            {task.assigneeName ?? t('Unassigned')}
                           </span>
                         </TableCell>
                         <TableCell className="font-mono text-2xs tabular-nums">
@@ -826,7 +833,7 @@ export default function ReportsPage() {
             isError={timeQuery.isError}
             error={timeQuery.error}
             onRetry={() => timeQuery.refetch()}
-            errorTitle="Unable to load time tracking"
+            errorTitle={t('Unable to load time tracking')}
             skeleton={
               <div className="grid gap-4 lg:grid-cols-2">
                 <ChartCardSkeleton />
@@ -838,21 +845,21 @@ export default function ReportsPage() {
               <Card>
                 <EmptyState
                   icon={Clock}
-                  title="No time logged"
-                  description="Hours appear here once people record time against work in this window."
+                  title={t('No time logged')}
+                  description={t('Hours appear here once people record time against work in this window.')}
                 />
               </Card>
             }
           >
             <div className="grid gap-4 lg:grid-cols-2">
-              <ChartCard title="Hours logged" description="Effort recorded per person">
+              <ChartCard title={t('Hours logged')} description={t('Effort recorded per person')}>
                 <HorizontalBarChart data={timeByUser} tone="highlight" />
               </ChartCard>
 
               <TableCard
                 toolbar={
                   <CardHeader variant="compact" className="border-b-0">
-                    <CardTitle>Hours by person</CardTitle>
+                    <CardTitle>{t('Hours by person')}</CardTitle>
                   </CardHeader>
                 }
                 footer={
@@ -862,17 +869,18 @@ export default function ReportsPage() {
                     total={timePaged.total}
                     onPageChange={timePaged.setPage}
                   onPageSizeChange={timePaged.setPageSize}
-                    itemLabel="contributor"
+                    itemLabel={t('contributor')}
+                    itemLabelPlural={t('contributors')}
                   />
                 }
               >
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Person</TableHead>
-                      <TableHead numeric>Logged</TableHead>
-                      <TableHead numeric>Not costed</TableHead>
-                      <TableHead numeric>Projects</TableHead>
+                      <TableHead>{t('Person')}</TableHead>
+                      <TableHead numeric>{t('Logged')}</TableHead>
+                      <TableHead numeric>{t('Not costed')}</TableHead>
+                      <TableHead numeric>{t('Projects')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -880,7 +888,7 @@ export default function ReportsPage() {
                       const user = users?.find((item) => item.id === entry.userId);
                       return (
                         <TableRow key={entry.userId}>
-                          <TableCell className="font-medium">{user?.name ?? 'Unknown'}</TableCell>
+                          <TableCell className="font-medium">{user?.name ?? t('Unknown')}</TableCell>
                           <TableCell numeric>{formatHours(entry.hoursLogged)}</TableCell>
                           <TableCell numeric>{formatHours(entry.hoursUncosted)}</TableCell>
                           <TableCell numeric>{formatNumber(entry.projectBreakdown.length)}</TableCell>
@@ -901,13 +909,13 @@ export default function ReportsPage() {
             isError={trendsQuery.isError}
             error={trendsQuery.error}
             onRetry={() => trendsQuery.refetch()}
-            errorTitle="Unable to load delivery trends"
+            errorTitle={t('Unable to load delivery trends')}
             skeleton={<ChartCardSkeleton height={280} />}
           >
             <div className="space-y-4">
               <ChartCard
-                title="Delivery trend"
-                description="Delivered and created work packages per month"
+                title={t('Delivery trend')}
+                description={t('Delivered and created work packages per month')}
                 height={280}
               >
                 <DeliveryTrendChart data={trendsQuery.data ?? []} />
@@ -915,19 +923,19 @@ export default function ReportsPage() {
 
               <div className="grid gap-4 sm:grid-cols-3">
                 <MetricCard
-                  label="Projects reported"
+                  label={t('Projects reported')}
                   value={projects.length}
                   icon={FolderKanban}
                   tone="primary"
                 />
                 <MetricCard
-                  label="Window"
+                  label={t('Window')}
                   value={`${formatShortDate(filters.from)} – ${formatShortDate(filters.to)}`}
                   icon={Clock}
                   tone="neutral"
                 />
                 <MetricCard
-                  label="Open risks"
+                  label={t('Open risks')}
                   value={insights?.openRisks ?? '—'}
                   icon={AlertTriangle}
                   tone="warning"

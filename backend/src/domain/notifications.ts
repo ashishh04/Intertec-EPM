@@ -1,7 +1,9 @@
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { enqueueEmail } from '../email/outbox.js';
+import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
+import { message, render, toLanguage, type Conventions, type Language, type Message } from '../lib/i18n.js';
 import type { HealthLevel } from '../types/epm.js';
 
 /**
@@ -34,8 +36,14 @@ export type Severity = 'info' | 'warning' | 'critical';
 export interface NotificationInput {
   recipients: string[];
   category: string;
-  title: string;
-  body: string;
+  /**
+   * A message rather than finished text (BR-605): each recipient's copy is
+   * written in their own language when it is created, so one event can reach
+   * an English reader and an Arabic one. Plain text is still accepted, for
+   * words that are data — a rule's own title — and is kept exactly as written.
+   */
+  title: string | Message;
+  body: string | Message;
   link?: string;
   severity: Severity;
   dedupeKey: string;
@@ -62,13 +70,19 @@ async function notify(input: NotificationInput): Promise<number> {
   let created = 0;
 
   for (const recipientId of recipients) {
+    // Written for this reader: the inbox stores text, so it is stored in the
+    // language they read EPM in, and the email copy below is the same words.
+    const write = await writerFor(recipientId);
+    const title = write(input.title);
+    const body = write(input.body);
+
     const result = await prisma.notification
       .createMany({
         data: {
           recipientId,
           category: input.category,
-          title: input.title,
-          body: input.body,
+          title,
+          body,
           link: input.link,
           severity: input.severity,
           dedupeKey: input.dedupeKey,
@@ -84,10 +98,49 @@ async function notify(input: NotificationInput): Promise<number> {
     // Only what was actually new: a repeat that wrote no row is not news in
     // the inbox either. Email is a side effect of the notification and must
     // never make it fail, so nothing here is allowed to throw.
-    if (result.count > 0) await offerByEmail(recipientId, input);
+    if (result.count > 0) await offerByEmail(recipientId, { ...input, title, body });
   }
 
   return created;
+}
+
+/** A recipient's language and conventions, from their preferences; English when unknown. */
+async function readerOf(recipientId: string): Promise<{ language: Language; conventions: Conventions }> {
+  const preferences = await getPreferences(recipientId).catch(() => undefined);
+  return {
+    language: toLanguage(preferences?.locale.language),
+    conventions: { calendar: preferences?.locale.calendar, numerals: preferences?.locale.numerals },
+  };
+}
+
+/**
+ * Writes text for one person, in the language they read EPM in (BR-605) — for
+ * the inbox here, and for anything else that mails people directly.
+ *
+ * A message is written out with its arguments. Plain text is data — a rule's
+ * own words, a post's title — and comes back exactly as given: read as a
+ * message, anything in it that looked like {an argument} would be dropped.
+ */
+export async function writerFor(recipientId: string): Promise<(value: string | Message) => string> {
+  const reader = await readerOf(recipientId);
+  return (value) => (typeof value === 'string' ? value : render(reader.language, value, reader.conventions));
+}
+
+/**
+ * Whole sentences one after another, as one message. Each is translated
+ * complete, so a translation never has to split one; all that is joined is
+ * the space between them. An absent sentence is left out.
+ */
+export function sentences(first: Message, ...rest: (string | Message | undefined)[]): Message {
+  return rest.reduce<Message>((text, next) => (next ? message('{first} {next}', { first: text, next }) : text), first);
+}
+
+/**
+ * Clauses in a series — "schedule variance green → amber; …" — joined the way
+ * the language joins them. Takes at least one.
+ */
+export function clauses(items: Message[]): Message {
+  return items.reduce((text, next) => message('{first}; {next}', { first: text, next }));
 }
 
 /**
@@ -99,7 +152,10 @@ export function notifyPeople(input: NotificationInput): Promise<number> {
   return notify(input);
 }
 
-async function offerByEmail(recipientId: string, input: NotificationInput): Promise<void> {
+async function offerByEmail(
+  recipientId: string,
+  input: NotificationInput & { title: string; body: string },
+): Promise<void> {
   try {
     const recipient = await resolveRecipient(recipientId);
     if (!recipient) return;
@@ -156,8 +212,11 @@ export async function notifyHealthChange(input: {
    * second time.
    */
   occurrence?: string;
-  /** Which criteria moved, said in the body so the owner knows where to look. */
-  detail?: string;
+  /**
+   * Which criteria moved, said in the body so the owner knows where to look.
+   * A message, so it reads in the owner's language like the rest.
+   */
+  detail?: string | Message;
 }): Promise<number> {
   // No transition, no news — whatever the evaluation count.
   if (input.previous === input.next) return 0;
@@ -169,22 +228,28 @@ export async function notifyHealthChange(input: {
       ['critical', 'warning', 'healthy'].indexOf(input.previous);
 
   const title = improved
-    ? `${input.projectName} health improved to ${input.next}`
-    : `${input.projectName} health is now ${input.next}`;
+    ? message('{project} health improved to {level, select, healthy {healthy} warning {warning} other {critical}}', {
+        project: input.projectName,
+        level: input.next,
+      })
+    : message('{project} health is now {level, select, healthy {healthy} warning {warning} other {critical}}', {
+        project: input.projectName,
+        level: input.next,
+      });
 
-  const wasWhat = input.previous ? `It was ${input.previous}.` : 'This is the first assessment.';
+  const wasWhat = input.previous
+    ? message('It was {level, select, healthy {healthy} warning {warning} other {critical}}.', { level: input.previous })
+    : message('This is the first assessment.');
   // Said plainly, so a pinned green is never read as a measured one.
   const because = input.overridden
-    ? ' The value is currently overridden rather than calculated.'
-    : '';
-
-  const detail = input.detail ? ` ${input.detail}` : '';
+    ? message('The value is currently overridden rather than calculated.')
+    : undefined;
 
   return notify({
     recipients: [input.ownerId],
     category: 'system',
     title,
-    body: `${wasWhat}${detail}${because}`,
+    body: sentences(wasWhat, input.detail, because),
     link: `/projects/${input.projectId}`,
     // An improvement is information, not an alarm, however far it moved.
     severity: improved ? 'info' : HEALTH_SEVERITY[input.next],
@@ -237,8 +302,14 @@ export async function notifyCapacityChange(input: {
   return notify({
     recipients,
     category: 'system',
-    title: `${input.employeeName} capacity ${direction} to ${input.to} h/week`,
-    body: `It was ${input.from} h/week.${profile?.team ? ` They are on ${profile.team.name}.` : ''}`,
+    title: message('{name} capacity {direction, select, increased {increased} other {reduced}} to {hours, number} h/week', {
+      name: input.employeeName,
+      direction,
+      hours: input.to,
+    }),
+    body: profile?.team
+      ? message('It was {hours, number} h/week. They are on {team}.', { hours: input.from, team: profile.team.name })
+      : message('It was {hours, number} h/week.', { hours: input.from }),
     link: '/employees',
     severity: 'info',
     // The mutation, not the state: setting 40 → 30 → 40 is three events, and
@@ -272,8 +343,9 @@ async function analyticsAdministrators(): Promise<string[]> {
  * paths; neither belongs in something a person reads.
  */
 export async function notifyAnalyticsProblem(input: {
-  title: string;
-  body: string;
+  /** Messages, so each administrator reads them in their own language. */
+  title: string | Message;
+  body: string | Message;
   /** Once per problem per period: the scheduler retries, and so would the notice. */
   dedupeKey: string;
   link?: string;
@@ -310,8 +382,15 @@ export async function notifySnapshotFailure(input: {
   return notify({
     recipients,
     category: 'system',
-    title: 'Analytics snapshot failed',
-    body: `No metrics were recorded for ${input.day}.${reason ? ` ${reason}.` : ''} The period will show as a gap until a capture succeeds.`,
+    title: message('Analytics snapshot failed'),
+    body: reason
+      ? message('No metrics were recorded for {day}. {reason}. The period will show as a gap until a capture succeeds.', {
+          day: input.day,
+          reason,
+        })
+      : message('No metrics were recorded for {day}. The period will show as a gap until a capture succeeds.', {
+          day: input.day,
+        }),
     link: '/analytics',
     severity: 'warning',
     dedupeKey: `snapshot-failed:${input.day}`,

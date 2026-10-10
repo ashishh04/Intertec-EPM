@@ -19,9 +19,10 @@ import type {
   PersonSpec,
 } from '../types/epm.js';
 import { recordAuditQuietly, withAudit } from './audit.js';
-import { notifyPeople } from './notifications.js';
+import { notifyPeople, sentences } from './notifications.js';
 import { resolvePeople, type PersonContext } from './people.js';
 import { personSpecSchema } from './rule-model.js';
+import { message, type Message } from '../lib/i18n.js';
 
 /**
  * Escalation policies (BRQ-10: BR-218).
@@ -196,7 +197,10 @@ export async function deletePolicy(id: string, actorId: string): Promise<void> {
   const raised = await prisma.escalationEvent.count({ where: { policyId: id } });
   if (raised > 0) {
     throw EpmError.conflict(
-      `"${existing.name}" has raised ${raised} ${raised === 1 ? 'escalation' : 'escalations'}, which are on record. Switch it off instead.`,
+      message('"{name}" has raised {count, plural, one {# escalation} other {# escalations}}, which are on record. Switch it off instead.', {
+        name: existing.name,
+        count: raised,
+      }),
     );
   }
   await withAudit((tx) => tx.escalationPolicy.delete({ where: { id } }), {
@@ -364,6 +368,23 @@ function phrase(trigger: EscalationTrigger, elapsed: number): string {
   return trigger === 'untouched' ? `untouched for ${days} ${days === 1 ? 'day' : 'days'}` : `overdue by ${days} ${days === 1 ? 'day' : 'days'}`;
 }
 
+/**
+ * The same reason as a message, for the people told, who read it in their own
+ * language; the event and the journal keep the English above.
+ */
+function reasonMessage(trigger: EscalationTrigger, title: string, elapsed: number): Message {
+  if (trigger === 'approval_sla') {
+    return message('{title} has been waiting {hours, plural, one {# hour} other {# hours}} past its approval SLA.', {
+      title,
+      hours: Math.floor(elapsed),
+    });
+  }
+  const days = Math.floor(elapsed);
+  return trigger === 'untouched'
+    ? message('{title} has been untouched for {days, plural, one {# day} other {# days}}.', { title, days })
+    : message('{title} has been overdue by {days, plural, one {# day} other {# days}}.', { title, days });
+}
+
 /** The people a level tells — the project owner when nobody it names is set. */
 async function recipientsFor(level: EscalationLevel, people: PersonContext): Promise<{ ids: string[]; fellBack: boolean }> {
   const ids = await resolvePeople(level.notify, people);
@@ -423,8 +444,11 @@ async function raise(policy: EscalationPolicy, candidate: Candidate, level: numb
   await notifyPeople({
     recipients: ids,
     category: 'deadline',
-    title: `Escalated, level ${level}: ${candidate.title}`,
-    body: `${reason}${fellBack ? ' Nobody this level names is set for it, so the project owner is told.' : ''}`,
+    title: message('Escalated, level {level, number}: {title}', { level, title: candidate.title }),
+    body: sentences(
+      reasonMessage(policy.trigger, candidate.title, candidate.elapsed),
+      fellBack ? message('Nobody this level names is set for it, so the project owner is told.') : undefined,
+    ),
     link: candidate.link,
     severity: level >= 2 ? 'critical' : 'warning',
     dedupeKey: `escalation:${event.id}`,

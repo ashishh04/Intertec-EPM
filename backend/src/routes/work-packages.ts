@@ -8,6 +8,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { idFromHref, openProject } from '../openproject/client.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Full-fidelity work package writes.
@@ -104,7 +105,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       const current = await openProject
         .request<OpWorkPackageWrite>(`/work_packages/${id}`, { signal })
         .catch(() => null);
-      if (!current) throw EpmError.notFound(`Work package ${id}`);
+      if (!current) throw EpmError.notFound(message('Work package {id}', { id }));
 
       // The schema form can carry a status too; the same guard applies.
       const statusLink = (payload._links as { status?: { href?: string | null } } | undefined)?.status;

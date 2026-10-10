@@ -13,6 +13,7 @@ import { DEFAULT_PREFERENCES, usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { cn, formatLongDate, greetingForHour } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { DashboardWidgetPlacement, DashboardWidgetWidth } from '@/types';
 
 const stagger = { hidden: {}, show: { transition: { staggerChildren: 0.045 } } };
@@ -74,17 +75,23 @@ export default function DashboardPage() {
 
   const reset = () => {
     save(DEFAULT_PREFERENCES.dashboard.widgets);
-    toast.success('Overview reset to the default layout');
+    toast.success(t('Overview reset to the default layout'));
   };
+
+  const firstName = user?.name?.split(' ')[0];
 
   return (
     <div className="space-y-7">
       <PageHeader
-        title={`${greetingForHour()}, ${user?.name?.split(' ')[0] ?? 'there'}.`}
+        title={
+          firstName === undefined
+            ? t('{greeting}, there.', { greeting: greetingForHour() })
+            : t('{greeting}, {name}.', { greeting: greetingForHour(), name: firstName })
+        }
         description={
           customising
-            ? 'Add, remove, resize and reorder. Changes save as you make them.'
-            : "Here's what needs your attention today."
+            ? t('Add, remove, resize and reorder. Changes save as you make them.')
+            : t('Here\'s what needs your attention today.')
         }
         actions={
           <>
@@ -92,29 +99,29 @@ export default function DashboardPage() {
               <>
                 <Button variant="secondary" onClick={() => setAdding(true)}>
                   <Plus className="h-4 w-4" />
-                  Add widget
+                  {t('Add widget')}
                 </Button>
                 <Button variant="ghost" onClick={reset}>
                   <RotateCcw className="h-3.5 w-3.5" />
-                  Reset
+                  {t('Reset')}
                 </Button>
-                <Button onClick={() => setCustomising(false)}>Done</Button>
+                <Button onClick={() => setCustomising(false)}>{t('Done')}</Button>
               </>
             ) : (
               <>
-                <div className="hidden text-right sm:block">
-                  <p className="epm-eyebrow">Today</p>
+                <div className="hidden text-end sm:block">
+                  <p className="epm-eyebrow">{t('Today')}</p>
                   <p className="font-mono text-xs font-medium text-foreground">
                     {formatLongDate(new Date())}
                   </p>
                 </div>
                 <Button variant="secondary" onClick={() => setCustomising(true)}>
                   <Settings2 className="h-3.5 w-3.5" />
-                  Customise
+                  {t('Customise')}
                 </Button>
                 <Button onClick={() => openTaskDrawer()}>
                   <Plus className="h-4 w-4" />
-                  Create
+                  {t('Create')}
                 </Button>
               </>
             )}
@@ -126,13 +133,13 @@ export default function DashboardPage() {
         <Card>
           <EmptyState
             icon={LayoutGrid}
-            title="Your Overview is empty"
-            description="Add the widgets you want to see. Nothing is fetched for a widget that is not on the page."
+            title={t('Your Overview is empty')}
+            description={t('Add the widgets you want to see. Nothing is fetched for a widget that is not on the page.')}
             action={{
-              label: 'Add the usual four',
+              label: t('Add the usual four'),
               onClick: () => {
                 save(SUGGESTED_WIDGET_IDS.map((id) => ({ id })));
-                toast.success('Added key metrics, My Work, project health and activity');
+                toast.success(t('Added key metrics, My Work, project health and activity'));
               },
             }}
           />

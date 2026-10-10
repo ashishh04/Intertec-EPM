@@ -25,6 +25,7 @@ import { useDeleteTimeEntry, useTimeEntries } from '@/hooks/useTimeEntries';
 import { useEmployee } from '@/hooks/useEmployees';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
+import { intlLocale, t } from '@/lib/i18n';
 import { cn, formatHours, formatWeekdayDate, toISODateOnly } from '@/lib/utils';
 import type { EpmTimeEntry, Weekday } from '@/types';
 
@@ -100,15 +101,15 @@ export default function MyTimePage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="My time tracking"
-        description="Everything you have logged, a week at a time."
+        title={t('My time tracking')}
+        description={t('Everything you have logged, a week at a time.')}
         actions={
           <>
             <div className="flex items-center gap-1 rounded-lg border border-border bg-surface p-0.5">
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Previous week"
+                aria-label={t('Previous week')}
                 onClick={() => setAnchor(addDays(weekStart, -7))}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -120,12 +121,12 @@ export default function MyTimePage() {
                 disabled={thisWeek}
                 onClick={() => setAnchor(startOfWeek(new Date(), { weekStartsOn }))}
               >
-                This week
+                {t('This week')}
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Next week"
+                aria-label={t('Next week')}
                 onClick={() => setAnchor(addDays(weekStart, 7))}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -133,7 +134,7 @@ export default function MyTimePage() {
             </div>
             <Button onClick={() => setCreatingOn(thisWeek ? today : from)}>
               <Plus className="h-4 w-4" />
-              Log time
+              {t('Log time')}
             </Button>
           </>
         }
@@ -147,8 +148,11 @@ export default function MyTimePage() {
           </CardTitle>
           <CardDescription className="text-2xs">
             {capacity > 0
-              ? `${formatHours(total)} logged of ${formatHours(capacity)} contracted`
-              : `${formatHours(total)} logged`}
+              ? t('{logged} logged of {capacity} contracted', {
+                  logged: formatHours(total),
+                  capacity: formatHours(capacity),
+                })
+              : t('{logged} logged', { logged: formatHours(total) })}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-4 pt-0">
@@ -161,7 +165,7 @@ export default function MyTimePage() {
             />
           ) : (
             <p className="text-2xs text-muted-foreground">
-              No weekly capacity is set for you, so there is nothing to measure this against.
+              {t('No weekly capacity is set for you, so there is nothing to measure this against.')}
             </p>
           )}
         </CardContent>
@@ -172,7 +176,7 @@ export default function MyTimePage() {
         isError={entriesQuery.isError}
         error={entriesQuery.error}
         onRetry={() => entriesQuery.refetch()}
-        errorTitle="Unable to load your time"
+        errorTitle={t('Unable to load your time')}
         skeleton={
           <div className="grid gap-3 lg:grid-cols-7">
             {days.map((day) => (
@@ -203,15 +207,15 @@ export default function MyTimePage() {
                 <div className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
                   <div className="min-w-0">
                     <p className="epm-eyebrow">
-                      {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                      {day.toLocaleDateString(intlLocale(), { weekday: 'short' })}
                       {!working ? (
-                        <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground">
-                          &middot; off
+                        <span className="ms-1 font-normal normal-case tracking-normal text-muted-foreground">
+                          &middot; {t('off')}
                         </span>
                       ) : null}
                     </p>
                     <p className="text-2xs text-muted-foreground">
-                      {day.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
+                      {day.toLocaleDateString(intlLocale(), { day: 'numeric', month: 'short' })}
                     </p>
                   </div>
                   {dayTotal > 0 ? (
@@ -231,7 +235,7 @@ export default function MyTimePage() {
                     />
                   ))}
                   {dayEntries.length === 0 ? (
-                    <p className="px-3 py-3 text-2xs text-muted-foreground">Nothing logged</p>
+                    <p className="px-3 py-3 text-2xs text-muted-foreground">{t('Nothing logged')}</p>
                   ) : null}
                 </div>
 
@@ -243,7 +247,7 @@ export default function MyTimePage() {
                     onClick={() => setCreatingOn(date)}
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Add
+                    {t('Add')}
                   </Button>
                 </div>
               </Card>
@@ -255,9 +259,9 @@ export default function MyTimePage() {
           <Card>
             <EmptyState
               icon={CalendarClock}
-              title="No time logged this week"
-              description="Log against a task from its page, or add an entry here."
-              action={{ label: 'Log time', onClick: () => setCreatingOn(thisWeek ? today : from) }}
+              title={t('No time logged this week')}
+              description={t('Log against a task from its page, or add an entry here.')}
+              action={{ label: t('Log time'), onClick: () => setCreatingOn(thisWeek ? today : from) }}
             />
           </Card>
         ) : null}
@@ -278,24 +282,27 @@ export default function MyTimePage() {
       <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete this entry?"
+        title={t('Delete this entry?')}
         description={
           deleting
-            ? `${formatHours(deleting.hours)} on ${deleting.spentOn} will be removed from the timesheet.`
+            ? t('{hours} on {date} will be removed from the timesheet.', {
+                hours: formatHours(deleting.hours),
+                date: deleting.spentOn,
+              })
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() => {
           if (!deleting) return;
           remove.mutate(deleting.id, {
             onSuccess: () => {
-              toast.success('Entry deleted');
+              toast.success(t('Entry deleted'));
               setDeleting(null);
             },
             onError: (error) =>
-              toast.error('That entry could not be deleted', {
+              toast.error(t('That entry could not be deleted'), {
                 description: error instanceof Error ? error.message : undefined,
               }),
           });
@@ -327,12 +334,12 @@ function DayEntry({
         <span className="font-mono text-xs font-medium">{formatHours(entry.hours)}</span>
         <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           {entry.can.update ? (
-            <Button variant="ghost" size="icon-sm" aria-label="Edit entry" onClick={onEdit}>
+            <Button variant="ghost" size="icon-sm" aria-label={t('Edit entry')} onClick={onEdit}>
               <Pencil className="h-3 w-3" />
             </Button>
           ) : null}
           {entry.can.delete ? (
-            <Button variant="ghost" size="icon-sm" aria-label="Delete entry" onClick={onDelete}>
+            <Button variant="ghost" size="icon-sm" aria-label={t('Delete entry')} onClick={onDelete}>
               <Trash2 className="h-3 w-3" />
             </Button>
           ) : null}
@@ -344,12 +351,13 @@ function DayEntry({
           to={`/tasks/${entry.workPackageId}`}
           className="block truncate text-2xs text-foreground hover:underline"
           title={entry.workPackageSubject}
+          dir="auto"
         >
           {entry.workPackageSubject ?? `#${entry.workPackageId}`}
         </Link>
       ) : (
-        <p className="truncate text-2xs text-muted-foreground" title={entry.projectName}>
-          {entry.projectName ?? 'Project'}
+        <p className="truncate text-2xs text-muted-foreground" title={entry.projectName} dir="auto">
+          {entry.projectName ?? t('Project')}
         </p>
       )}
 
@@ -361,7 +369,7 @@ function DayEntry({
       ) : null}
 
       {entry.comment ? (
-        <p className="line-clamp-2 text-2xs text-muted-foreground">{entry.comment}</p>
+        <p className="line-clamp-2 text-2xs text-muted-foreground" dir="auto">{entry.comment}</p>
       ) : null}
     </div>
   );

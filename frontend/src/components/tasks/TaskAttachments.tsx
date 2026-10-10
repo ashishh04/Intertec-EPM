@@ -16,6 +16,7 @@ import {
 import { useUserMap } from '@/hooks/useUsers';
 import { attachmentService } from '@/services';
 import { formatBytes, formatShortDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmAttachment } from '@/services/api/attachments';
 import type { ID } from '@/types';
 
@@ -48,11 +49,11 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
     if (!deleting) return;
     remove.mutate(deleting.id, {
       onSuccess: () => {
-        toast.success('Attachment deleted');
+        toast.success(t('Attachment deleted'));
         setDeleting(undefined);
       },
       onError: (error) =>
-        toast.error('Could not delete', {
+        toast.error(t('Could not delete'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -61,9 +62,9 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
   const send = (file: File) => {
     setPending(file.name);
     upload.mutate(file, {
-      onSuccess: (attachment) => toast.success(`Uploaded ${attachment.fileName}`),
+      onSuccess: (attachment) => toast.success(t('Uploaded {name}', { name: attachment.fileName })),
       onError: (error) =>
-        toast.error('Upload failed', {
+        toast.error(t('Upload failed'), {
           description: error instanceof Error ? error.message : undefined,
         }),
       onSettled: () => {
@@ -81,7 +82,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <Paperclip className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Attachments
+          {t('Attachments')}
           {files.length > 0 ? (
             <span className="text-2xs font-normal text-muted-foreground">{files.length}</span>
           ) : null}
@@ -93,7 +94,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
               ref={input}
               type="file"
               className="sr-only"
-              aria-label="Choose a file to attach"
+              aria-label={t('Choose a file to attach')}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (file) send(file);
@@ -107,7 +108,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
               onClick={() => input.current?.click()}
             >
               <Upload className="h-3.5 w-3.5" />
-              Upload
+              {t('Upload')}
             </Button>
           </>
         ) : null}
@@ -122,11 +123,11 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
         ) : files.length === 0 && !pending ? (
           <EmptyState
             icon={Paperclip}
-            title="No attachments"
+            title={t('No attachments')}
             description={
               canUpload
-                ? 'Upload a file to keep it with this work package.'
-                : 'No files have been attached to this work package.'
+                ? t('Upload a file to keep it with this work package.')
+                : t('No files have been attached to this work package.')
             }
           />
         ) : (
@@ -135,7 +136,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
               <li className="flex items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2">
                 <Upload className="h-4 w-4 shrink-0 animate-pulse text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  Uploading {pending}…
+                  {t('Uploading {name}…', { name: pending })}
                 </span>
               </li>
             ) : null}
@@ -148,7 +149,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
                 <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium">{attachment.fileName}</p>
+                  <p dir="auto" className="truncate text-xs font-medium">{attachment.fileName}</p>
                   <p className="text-2xs text-muted-foreground">
                     {formatBytes(attachment.fileSize)}
                     {attachment.contentType ? ` · ${attachment.contentType}` : ''}
@@ -166,7 +167,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
                   href={attachmentService.downloadUrl(attachment.id)}
                   download={attachment.fileName}
                   className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={`Download ${attachment.fileName}`}
+                  aria-label={t('Download {name}', { name: attachment.fileName })}
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
                 </a>
@@ -174,7 +175,7 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
                 {attachment.can.delete ? (
                   <button
                     type="button"
-                    aria-label={`Delete ${attachment.fileName}`}
+                    aria-label={t('Delete {name}', { name: attachment.fileName })}
                     className="rounded p-1.5 text-muted-foreground hover:bg-danger-soft hover:text-danger-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => setDeleting(attachment)}
                   >
@@ -192,9 +193,9 @@ export function TaskAttachments({ workPackageId, canUpload }: TaskAttachmentsPro
         onOpenChange={(open) => {
           if (!open) setDeleting(undefined);
         }}
-        title={`Delete ${deleting?.fileName ?? 'this attachment'}?`}
-        description="This cannot be undone."
-        confirmLabel="Delete"
+        title={deleting ? t('Delete {name}?', { name: deleting.fileName }) : t('Delete this attachment?')}
+        description={t('This cannot be undone.')}
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={confirmDelete}

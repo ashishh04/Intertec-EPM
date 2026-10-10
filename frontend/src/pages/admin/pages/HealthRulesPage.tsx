@@ -21,7 +21,8 @@ import {
 } from '@/hooks/useHealthRules';
 import { useUserMap } from '@/hooks/useUsers';
 import { HEALTH_CRITERIA_META } from '@/lib/domain';
-import { cn, formatDateTime, formatRelative } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { cn, formatDateTime, formatPercent, formatRelative } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type { HealthRulesInput, HealthRulesPreview } from '@/services/api/health';
 import type { HealthCriterion, HealthCriterionRule, HealthRules } from '@/types';
@@ -41,7 +42,11 @@ import { describeError } from './shared-format';
  * the same permission as overriding one.
  */
 
-const UNIT_LABEL: Record<string, string> = { days: 'days', percent: '% of budget', count: '' };
+const UNIT_LABEL: Record<string, string> = {
+  get days() { return t('days'); },
+  get percent() { return t('% of budget'); },
+  count: '',
+};
 
 type Draft = HealthRulesInput;
 
@@ -92,14 +97,14 @@ export default function HealthRulesPage() {
     const found: string[] = [];
     for (const meta of HEALTH_CRITERIA_META) {
       const rule = draft.criteria[meta.key];
-      if (!(rule.amberAt > 0)) found.push(`${meta.label}: the amber threshold must be above zero.`);
-      if (rule.redAt < rule.amberAt) found.push(`${meta.label}: the red threshold cannot be below the amber one.`);
+      if (!(rule.amberAt > 0)) found.push(t('{criterion}: the amber threshold must be above zero.', { criterion: meta.label }));
+      if (rule.redAt < rule.amberAt) found.push(t('{criterion}: the red threshold cannot be below the amber one.', { criterion: meta.label }));
       if (meta.unit === 'count' && (!Number.isInteger(rule.amberAt) || !Number.isInteger(rule.redAt))) {
-        found.push(`${meta.label}: thresholds are whole numbers.`);
+        found.push(t('{criterion}: thresholds are whole numbers.', { criterion: meta.label }));
       }
     }
     if (!HEALTH_CRITERIA_META.some(({ key }) => draft.criteria[key].enabled && draft.criteria[key].weight > 0)) {
-      found.push('At least one criterion has to be in use with a weight above zero.');
+      found.push(t('At least one criterion has to be in use with a weight above zero.'));
     }
     return found;
   }, [draft]);
@@ -119,7 +124,7 @@ export default function HealthRulesPage() {
     if (!draft) return;
     preview.mutate(draft, {
       onSuccess: setPreviewResult,
-      onError: (error) => toast.error('The preview could not run', { description: describeError(error) }),
+      onError: (error) => toast.error(t('The preview could not run'), { description: describeError(error) }),
     });
   };
 
@@ -128,20 +133,19 @@ export default function HealthRulesPage() {
     save.mutate(draft, {
       onSuccess: (saved) => {
         setPreviewResult(undefined);
-        toast.success(`Health rules saved as version ${saved.version}`, {
-          description: 'Every project is being recalculated under them.',
+        toast.success(t('Health rules saved as version {version, number}', { version: saved.version }), {
+          description: t('Every project is being recalculated under them.'),
         });
       },
-      onError: (error) => toast.error('The rules were not saved', { description: describeError(error) }),
+      onError: (error) => toast.error(t('The rules were not saved'), { description: describeError(error) }),
     });
   };
 
   return (
     <div className="space-y-4">
       {!mayConfigure ? (
-        <Alert tone="neutral" title="Read only">
-          These are the rules every project&apos;s health is calculated by. Changing them needs the
-          health configuration permission.
+        <Alert tone="neutral" title={t('Read only')}>
+          {t('These are the rules every project\'s health is calculated by. Changing them needs the health configuration permission.')}
         </Alert>
       ) : null}
 
@@ -150,28 +154,26 @@ export default function HealthRulesPage() {
         isError={rules.isError}
         error={rules.error}
         onRetry={() => rules.refetch()}
-        errorTitle="Unable to load the health rules"
+        errorTitle={t('Unable to load the health rules')}
         skeleton={<ListSkeleton rows={6} />}
       >
         {draft && rules.data ? (
           <>
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>Criteria</CardTitle>
+                <CardTitle>{t('Criteria')}</CardTitle>
                 <CardDescription>
-                  Each project is measured on these. A criterion turns amber at its amber threshold
-                  and red at its red one; its weight is how much it counts towards the overall. A
-                  weight of zero shows the criterion without letting it move the overall.
+                  {t('Each project is measured on these. A criterion turns amber at its amber threshold and red at its red one; its weight is how much it counts towards the overall. A weight of zero shows the criterion without letting it move the overall.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-2">
                 <div className="divide-y divide-border">
                   <div className="hidden grid-cols-[3rem_minmax(0,1fr)_6rem_8rem_8rem] gap-3 pb-2 text-2xs font-medium text-muted-foreground md:grid">
-                    <span>Use</span>
-                    <span>Criterion</span>
-                    <span>Weight</span>
-                    <span>Amber at</span>
-                    <span>Red at</span>
+                    <span>{t('Use')}</span>
+                    <span>{t('Criterion')}</span>
+                    <span>{t('Weight')}</span>
+                    <span>{t('Amber at')}</span>
+                    <span>{t('Red at')}</span>
                   </div>
                   {HEALTH_CRITERIA_META.map((meta) => {
                     const rule = draft.criteria[meta.key];
@@ -188,14 +190,14 @@ export default function HealthRulesPage() {
                           checked={rule.enabled}
                           onCheckedChange={(enabled) => setCriterion(meta.key, { enabled })}
                           disabled={!mayConfigure}
-                          aria-label={`Use ${meta.label}`}
+                          aria-label={t('Use {criterion}', { criterion: meta.label })}
                         />
                         <div className="min-w-0">
                           <p className="text-xs font-medium">{meta.label}</p>
                           <p className="text-2xs text-muted-foreground">{meta.hint}</p>
                         </div>
                         <NumberField
-                          label={`${meta.label} weight`}
+                          label={t('{criterion} weight', { criterion: meta.label })}
                           value={rule.weight}
                           onChange={(weight) => setCriterion(meta.key, { weight })}
                           disabled={!mayConfigure || !rule.enabled}
@@ -204,7 +206,7 @@ export default function HealthRulesPage() {
                           step={1}
                         />
                         <NumberField
-                          label={`${meta.label} amber threshold`}
+                          label={t('{criterion} amber threshold', { criterion: meta.label })}
                           value={rule.amberAt}
                           suffix={unit}
                           onChange={(amberAt) => setCriterion(meta.key, { amberAt })}
@@ -213,7 +215,7 @@ export default function HealthRulesPage() {
                           step={meta.unit === 'count' ? 1 : 'any'}
                         />
                         <NumberField
-                          label={`${meta.label} red threshold`}
+                          label={t('{criterion} red threshold', { criterion: meta.label })}
                           value={rule.redAt}
                           suffix={unit}
                           onChange={(redAt) => setCriterion(meta.key, { redAt })}
@@ -230,17 +232,15 @@ export default function HealthRulesPage() {
 
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>Overall</CardTitle>
+                <CardTitle>{t('Overall')}</CardTitle>
                 <CardDescription>
-                  The overall is decided by weight, counting only the criteria that could be
-                  assessed for a project — one with no budget is judged on the rest rather than
-                  read as on budget.
+                  {t('The overall is decided by weight, counting only the criteria that could be assessed for a project — one with no budget is judged on the rest rather than read as on budget.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 pt-2">
                 <ShareField
                   id="red-share"
-                  lead="Red when red criteria carry at least"
+                  lead={t('Red when red criteria carry at least')}
                   value={draft.redShare}
                   onChange={(redShare) => {
                     setDraft((was) => (was ? { ...was, redShare } : was));
@@ -250,7 +250,7 @@ export default function HealthRulesPage() {
                 />
                 <ShareField
                   id="amber-share"
-                  lead="Amber when amber or red criteria carry at least"
+                  lead={t('Amber when amber or red criteria carry at least')}
                   value={draft.amberShare}
                   onChange={(amberShare) => {
                     setDraft((was) => (was ? { ...was, amberShare } : was));
@@ -260,8 +260,11 @@ export default function HealthRulesPage() {
                 />
                 {weightShares.length > 0 ? (
                   <FieldHint>
-                    With every criterion assessed, each one alone carries:{' '}
-                    {weightShares.map((item) => `${item.label.toLowerCase()} ${item.share}%`).join(', ')}.
+                    {t('With every criterion assessed, each one alone carries: {shares}.', {
+                      shares: weightShares
+                        .map((item) => `${item.label.toLowerCase()} ${formatPercent(item.share)}`)
+                        .join(', '),
+                    })}
                   </FieldHint>
                 ) : null}
               </CardContent>
@@ -269,17 +272,16 @@ export default function HealthRulesPage() {
 
             <Card>
               <CardHeader variant="compact">
-                <CardTitle>What counts as a high risk</CardTitle>
+                <CardTitle>{t('What counts as a high risk')}</CardTitle>
                 <CardDescription>
-                  Open work packages of these types at these priorities. With nothing chosen, a
-                  type is a risk if its name says so, and high means High and above.
+                  {t('Open work packages of these types at these priorities. With nothing chosen, a type is a risk if its name says so, and high means High and above.')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 pt-2 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label>Risk types</Label>
+                  <Label>{t('Risk types')}</Label>
                   <MultiSelect
-                    label="Risk types"
+                    label={t('Risk types')}
                     options={options.data?.types ?? []}
                     selected={(options.data?.types ?? []).filter((type) =>
                       draft.criteria.risks.typeIds.includes(type.id),
@@ -298,24 +300,26 @@ export default function HealthRulesPage() {
                       );
                       setPreviewResult(undefined);
                     }}
-                    placeholder="Types named “Risk”"
+                    placeholder={t('Types named “Risk”')}
                     disabled={!mayConfigure}
                   />
                   <FieldHint>
                     {options.data
                       ? options.data.defaultRiskTypeIds.length > 0
-                        ? `Nothing chosen means: ${options.data.types
-                            .filter((type) => options.data!.defaultRiskTypeIds.includes(type.id))
-                            .map((type) => type.name)
-                            .join(', ')}.`
-                        : 'No type on this instance is named as a risk, so until one is chosen or created, risks are not assessed.'
+                        ? t('Nothing chosen means: {names}.', {
+                            names: options.data.types
+                              .filter((type) => options.data!.defaultRiskTypeIds.includes(type.id))
+                              .map((type) => type.name)
+                              .join(', '),
+                          })
+                        : t('No type on this instance is named as a risk, so until one is chosen or created, risks are not assessed.')
                       : null}
                   </FieldHint>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>High priorities</Label>
+                  <Label>{t('High priorities')}</Label>
                   <MultiSelect
-                    label="High priorities"
+                    label={t('High priorities')}
                     options={options.data?.priorities ?? []}
                     selected={(options.data?.priorities ?? []).filter((priority) =>
                       draft.criteria.risks.priorityIds.includes(priority.id),
@@ -334,17 +338,17 @@ export default function HealthRulesPage() {
                       );
                       setPreviewResult(undefined);
                     }}
-                    placeholder="High and above"
+                    placeholder={t('High and above')}
                     disabled={!mayConfigure}
                   />
                   {options.data && options.data.defaultHighPriorityIds.length > 0 ? (
                     <FieldHint>
-                      Nothing chosen means:{' '}
-                      {options.data.priorities
-                        .filter((priority) => options.data!.defaultHighPriorityIds.includes(priority.id))
-                        .map((priority) => priority.name)
-                        .join(', ')}
-                      .
+                      {t('Nothing chosen means: {names}.', {
+                        names: options.data.priorities
+                          .filter((priority) => options.data!.defaultHighPriorityIds.includes(priority.id))
+                          .map((priority) => priority.name)
+                          .join(', '),
+                      })}
                     </FieldHint>
                   ) : null}
                 </div>
@@ -352,8 +356,8 @@ export default function HealthRulesPage() {
             </Card>
 
             {problems.length > 0 ? (
-              <Alert tone="warning" title="These rules cannot be saved yet">
-                <ul className="list-disc pl-4">
+              <Alert tone="warning" title={t('These rules cannot be saved yet')}>
+                <ul className="list-disc ps-4">
                   {problems.map((problem) => (
                     <li key={problem}>{problem}</li>
                   ))}
@@ -365,8 +369,13 @@ export default function HealthRulesPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-2xs text-muted-foreground">
                   {rules.data.version > 0
-                    ? `Version ${rules.data.version} is in force${rules.data.updatedAt ? `, saved ${formatRelative(rules.data.updatedAt)}` : ''}.`
-                    : 'The built-in defaults are in force; nothing has been saved yet.'}
+                    ? rules.data.updatedAt
+                      ? t('Version {version, number} is in force, saved {when}.', {
+                          version: rules.data.version,
+                          when: formatRelative(rules.data.updatedAt),
+                        })
+                      : t('Version {version, number} is in force.', { version: rules.data.version })
+                    : t('The built-in defaults are in force; nothing has been saved yet.')}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -377,7 +386,7 @@ export default function HealthRulesPage() {
                       setPreviewResult(undefined);
                     }}
                   >
-                    Discard changes
+                    {t('Discard changes')}
                   </Button>
                   <Button
                     variant="secondary"
@@ -385,10 +394,10 @@ export default function HealthRulesPage() {
                     loading={preview.isPending}
                     onClick={runPreview}
                   >
-                    Preview impact
+                    {t('Preview impact')}
                   </Button>
                   <Button disabled={!dirty || problems.length > 0} loading={save.isPending} onClick={submit}>
-                    Save as version {rules.data.version + 1}
+                    {t('Save as version {version, number}', { version: rules.data.version + 1 })}
                   </Button>
                 </div>
               </div>
@@ -401,8 +410,8 @@ export default function HealthRulesPage() {
 
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>History</CardTitle>
-          <CardDescription>Every saved version, with who saved it and what changed.</CardDescription>
+          <CardTitle>{t('History')}</CardTitle>
+          <CardDescription>{t('Every saved version, with who saved it and what changed.')}</CardDescription>
         </CardHeader>
         <CardContent className="pt-2">
           <QueryBoundary
@@ -410,17 +419,17 @@ export default function HealthRulesPage() {
             isError={history.isError}
             error={history.error}
             onRetry={() => history.refetch()}
-            errorTitle="Unable to load the history"
+            errorTitle={t('Unable to load the history')}
             skeleton={<ListSkeleton rows={3} />}
             isEmpty={(history.data ?? []).length === 0}
-            empty={<p className="text-xs text-muted-foreground">No version has been saved yet.</p>}
+            empty={<p className="text-xs text-muted-foreground">{t('No version has been saved yet.')}</p>}
           >
             <ol className="space-y-2">
               {(history.data ?? []).map((entry) => (
                 <li key={entry.id} className="text-xs">
                   <p>{entry.summary}</p>
                   <p className="text-2xs text-muted-foreground">
-                    {entry.actorId ? users.get(entry.actorId)?.name ?? 'Someone no longer listed' : 'EPM'} ·{' '}
+                    {entry.actorId ? users.get(entry.actorId)?.name ?? t('Someone no longer listed') : 'EPM'} ·{' '}
                     {formatDateTime(entry.occurredAt)}
                   </p>
                 </li>
@@ -499,7 +508,7 @@ function ShareField({
         disabled={disabled}
         className="h-8 w-20 text-xs"
       />
-      <span className="text-muted-foreground">% of the weight assessed.</span>
+      <span className="text-muted-foreground">{t('% of the weight assessed.')}</span>
     </div>
   );
 }
@@ -510,11 +519,11 @@ function PreviewCard({ result }: { result: HealthRulesPreview }) {
   return (
     <Card>
       <CardHeader variant="compact">
-        <CardTitle>Preview</CardTitle>
+        <CardTitle>{t('Preview')}</CardTitle>
         <CardDescription>
           {result.changed === 0
-            ? 'No project’s overall health would change under these rules.'
-            : `${result.changed} ${result.changed === 1 ? 'project’s' : 'projects’'} overall health would change. Nothing has been saved.`}
+            ? t('No project’s overall health would change under these rules.')
+            : t('{count, plural, one {# project’s overall health would change. Nothing has been saved.} other {# projects’ overall health would change. Nothing has been saved.}}', { count: result.changed })}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 pt-2">
@@ -524,15 +533,15 @@ function PreviewCard({ result }: { result: HealthRulesPreview }) {
             {changed.map((row) => (
               <li key={row.projectId} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium">{row.projectName}</p>
+                  <p className="text-xs font-medium" dir="auto">{row.projectName}</p>
                   <p className="text-2xs text-muted-foreground">{row.explanation}</p>
                 </div>
                 <div className="flex items-center gap-2 text-2xs">
                   <HealthIndicator level={row.current.overall} />
-                  <span aria-hidden>→</span>
+                  <span aria-hidden className="rtl:-scale-x-100">→</span>
                   <HealthIndicator level={row.preview.overall} />
                   <Badge tone="neutral" className="text-2xs">
-                    would change
+                    {t('would change')}
                   </Badge>
                 </div>
               </li>

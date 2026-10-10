@@ -18,6 +18,7 @@ import type { HalLinks, OpProject } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
 import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Work packages.
@@ -467,7 +468,7 @@ function buildWorkPackageBody(
   for (const [key, value, collection] of nativeLinks) {
     if (typeof value !== 'string' || value === '') continue;
     // Numeric, because it goes straight into a URL.
-    if (!/^\d+$/.test(value)) throw EpmError.badRequest(`That ${key} is not valid.`);
+    if (!/^\d+$/.test(value)) throw EpmError.badRequest(message('That {field} is not valid.', { field: key }));
     links[key] = { href: `/api/v3/${collection}/${value}` };
   }
 

@@ -23,6 +23,7 @@ import { useLogTime } from '@/hooks/useTimeEntries';
 import { useSchemaForm } from '@/hooks/useSchemaForm';
 import { formService } from '@/services';
 import { allowedValuesOf, schemaField } from '@/services/api/forms';
+import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -87,7 +88,7 @@ export function LogTimeDialog({
   const submit = () => {
     const value = Number(hours);
     if (!Number.isFinite(value) || value <= 0) {
-      setError('Enter the hours worked, e.g. 1.5.');
+      setError(t('Enter the hours worked, e.g. 1.5.'));
       return;
     }
 
@@ -102,13 +103,15 @@ export function LogTimeDialog({
       },
       {
         onSuccess: (entry) => {
-          toast.success('Time logged', { description: `${entry.hours}h on ${entry.spentOn}` });
+          toast.success(t('Time logged'), {
+            description: t('{hours, number}h on {date}', { hours: entry.hours, date: entry.spentOn }),
+          });
           onOpenChange(false);
         },
         // OpenProject's sentence, not a generic one: "You are not allowed to
         // log time on this project" is the whole answer.
         onError: (failure) =>
-          setError(failure instanceof Error ? failure.message : 'The entry was refused.'),
+          setError(failure instanceof Error ? failure.message : t('The entry was refused.')),
       },
     );
   };
@@ -117,9 +120,9 @@ export function LogTimeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Log time</DialogTitle>
+          <DialogTitle>{t('Log time')}</DialogTitle>
           <DialogDescription>
-            Recorded against this work package and its project.
+            {t('Recorded against this work package and its project.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -127,7 +130,7 @@ export function LogTimeDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="time-hours" required>
-                Hours
+                {t('Hours')}
               </Label>
               <Input
                 id="time-hours"
@@ -136,12 +139,12 @@ export function LogTimeDialog({
                 value={hours}
                 onChange={(event) => setHours(event.target.value)}
               />
-              <FieldHint>Quarters are fine.</FieldHint>
+              <FieldHint>{t('Quarters are fine.')}</FieldHint>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="time-date" required>
-                Date
+                {t('Date')}
               </Label>
               <Input
                 id="time-date"
@@ -154,10 +157,10 @@ export function LogTimeDialog({
 
           {activities.length > 0 ? (
             <div className="space-y-1.5">
-              <Label htmlFor="time-activity">Activity</Label>
+              <Label htmlFor="time-activity">{t('Activity')}</Label>
               <Select value={activityId} onValueChange={setActivityId}>
                 <SelectTrigger id="time-activity">
-                  <SelectValue placeholder="Select an activity" />
+                  <SelectValue placeholder={t('Select an activity')} />
                 </SelectTrigger>
                 <SelectContent>
                   {activities.map((activity) => (
@@ -171,11 +174,11 @@ export function LogTimeDialog({
           ) : null}
 
           <div className="space-y-1.5">
-            <Label htmlFor="time-comment">Comment</Label>
+            <Label htmlFor="time-comment">{t('Comment')}</Label>
             <Textarea
               id="time-comment"
               rows={3}
-              placeholder="What was done in this time."
+              placeholder={t('What was done in this time.')}
               value={comment}
               onChange={(event) => setComment(event.target.value)}
             />
@@ -186,10 +189,10 @@ export function LogTimeDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={log.isPending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={submit} loading={log.isPending}>
-            Log time
+            {t('Log time')}
           </Button>
         </DialogFooter>
       </DialogContent>

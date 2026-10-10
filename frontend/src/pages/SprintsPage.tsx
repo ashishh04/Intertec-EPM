@@ -17,7 +17,8 @@ import { useSprints } from '@/hooks/useSprints';
 import { useProjects } from '@/hooks/useProjects';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { usePagination } from '@/hooks/usePagination';
-import { formatNumber, formatPercent, formatShortDate, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
 
 /** Sprint history and cadence across the delivery portfolio. */
 export default function SprintsPage() {
@@ -34,19 +35,19 @@ export default function SprintsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Sprints"
-        description="Cadence, commitment and delivery across every sprint."
+        title={t('Sprints')}
+        description={t('Cadence, commitment and delivery across every sprint.')}
         actions={
           <>
             <Button asChild variant="secondary">
               <Link to="/agile">
-                Agile workspace
+                {t('Agile workspace')}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
-              New sprint
+              {t('New sprint')}
             </Button>
           </>
         }
@@ -64,10 +65,14 @@ export default function SprintsPage() {
         isError={trendsQuery.isError}
         error={trendsQuery.error}
         onRetry={() => trendsQuery.refetch()}
-        errorTitle="Unable to load velocity"
+        errorTitle={t('Unable to load velocity')}
         skeleton={<ChartCardSkeleton height={240} />}
       >
-        <ChartCard title="Points delivered" description="Story points of the work delivered each month" height={240}>
+        <ChartCard
+          title={t('Points delivered')}
+          description={t('Story points of the work delivered each month')}
+          height={240}
+        >
           <VelocityChart data={trendsQuery.data ?? []} />
         </ChartCard>
       </QueryBoundary>
@@ -77,16 +82,16 @@ export default function SprintsPage() {
         isError={sprintsQuery.isError}
         error={sprintsQuery.error}
         onRetry={() => sprintsQuery.refetch()}
-        errorTitle="Unable to load sprints"
+        errorTitle={t('Unable to load sprints')}
         skeleton={<ListSkeleton rows={3} height="h-32" className="space-y-3" />}
         isEmpty={paged.total === 0}
         empty={
           <Card>
             <EmptyState
               icon={Timer}
-              title="No sprints yet"
-              description="Sprint history appears here once the first sprint is planned."
-              action={{ label: 'New sprint', onClick: () => setCreateOpen(true) }}
+              title={t('No sprints yet')}
+              description={t('Sprint history appears here once the first sprint is planned.')}
+              action={{ label: t('New sprint'), onClick: () => setCreateOpen(true) }}
             />
           </Card>
         }
@@ -111,6 +116,7 @@ export default function SprintsPage() {
                             <Link
                               to={`/agile?sprint=${sprint.id}`}
                               className="rounded transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              dir="auto"
                             >
                               {sprint.name}
                             </Link>
@@ -122,21 +128,21 @@ export default function SprintsPage() {
                         </p>
                       </div>
 
-                      <dl className="flex gap-6 text-right">
+                      <dl className="flex gap-6 text-end">
                         <div>
-                          <dt className="epm-eyebrow">Committed</dt>
+                          <dt className="epm-eyebrow">{t('Committed')}</dt>
                           <dd className="font-mono text-sm font-semibold tabular-nums">
                             {formatNumber(sprint.committedPoints)}
                           </dd>
                         </div>
                         <div>
-                          <dt className="epm-eyebrow">Completed</dt>
+                          <dt className="epm-eyebrow">{t('Completed')}</dt>
                           <dd className="font-mono text-sm font-semibold tabular-nums text-success">
                             {formatNumber(sprint.completedPoints)}
                           </dd>
                         </div>
                         <div>
-                          <dt className="epm-eyebrow">Delivered</dt>
+                          <dt className="epm-eyebrow">{t('Delivered')}</dt>
                           <dd className="font-mono text-sm font-semibold tabular-nums">
                             {formatPercent(progress)}
                           </dd>
@@ -146,8 +152,8 @@ export default function SprintsPage() {
 
                     <div className="mt-3 flex items-start gap-2.5 rounded-lg bg-muted/70 p-3">
                       <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
-                      <p className="text-2xs leading-relaxed text-muted-foreground">
-                        {sprint.goal || 'No sprint goal has been set.'}
+                      <p className="text-2xs leading-relaxed text-muted-foreground" dir="auto">
+                        {sprint.goal || t('No sprint goal has been set.')}
                       </p>
                     </div>
 
@@ -155,17 +161,18 @@ export default function SprintsPage() {
                       <ProgressBar
                         value={progress}
                         tone={sprint.state === 'completed' ? 'success' : 'primary'}
-                        label={`${sprint.name} completion`}
+                        label={t('{name} completion', { name: sprint.name })}
                       />
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-2xs text-muted-foreground">
-                          {formatNumber(sprintProjects.length)}{' '}
-                          {pluralize(sprintProjects.length, 'project')}:{' '}
-                          {sprintProjects.map((project) => project.identifier).join(', ') || '—'}
+                          {t('{count, plural, one {# project: {list}} other {# projects: {list}}}', {
+                            count: sprintProjects.length,
+                            list: sprintProjects.map((project) => project.identifier).join(', ') || '—',
+                          })}
                         </p>
                         <Button asChild variant="ghost" size="sm">
                           <Link to={`/agile?sprint=${sprint.id}`}>
-                            Open
+                            {t('Open')}
                             <ArrowRight className="h-3.5 w-3.5" />
                           </Link>
                         </Button>
@@ -185,7 +192,8 @@ export default function SprintsPage() {
               onPageChange={paged.setPage}
               onPageSizeChange={paged.setPageSize}
               pageSizeOptions={[8, 16, 32]}
-              itemLabel="sprint"
+              itemLabel={t('sprint')}
+              itemLabelPlural={t('sprints')}
             />
           </Card>
         </div>

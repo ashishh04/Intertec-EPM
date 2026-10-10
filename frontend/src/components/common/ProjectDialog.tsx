@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useSchemaForm } from '@/hooks/useSchemaForm';
+import { t } from '@/lib/i18n';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { formService, projectWriteService } from '@/services';
 import type { ID } from '@/types';
@@ -52,10 +53,10 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
     try {
       if (isEdit) {
         await projectWriteService.update(projectId!, form.draft);
-        toast.success('Project updated');
+        toast.success(t('Project updated'));
       } else {
         await projectWriteService.create(form.draft);
-        toast.success('Project created');
+        toast.success(t('Project created'));
       }
 
       for (const key of invalidationGroups.projectWrite) {
@@ -63,7 +64,7 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
       }
       onOpenChange(false);
     } catch (error) {
-      toast.error(isEdit ? 'Could not update project' : 'Could not create project', {
+      toast.error(isEdit ? t('Could not update project') : t('Could not create project'), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -75,15 +76,15 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit project' : 'New project'}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Edit project') : t('New project')}</DialogTitle>
           <DialogDescription>
-            Every project field configured for this workspace.
+            {t('Every project field configured for this workspace.')}
           </DialogDescription>
         </DialogHeader>
 
         {/* Scrolls, so the actions stay pinned however many fields the
             instance has configured. */}
-        <div className="epm-dialog-body epm-scroll -mr-1 space-y-4 py-1 pr-2">
+        <div className="epm-dialog-body epm-scroll -me-1 space-y-4 py-1 pe-2">
           <SchemaForm
             form={form.form}
             values={form.draft}
@@ -99,10 +100,10 @@ export function ProjectDialog({ open, onOpenChange, projectId }: ProjectDialogPr
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isSaving}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={save} loading={isSaving} disabled={!form.canSubmit || isSaving}>
-            {isEdit ? 'Save changes' : 'Create'}
+            {isEdit ? t('Save changes') : t('Create')}
           </Button>
         </DialogFooter>
       </DialogContent>

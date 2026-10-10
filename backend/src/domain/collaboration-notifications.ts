@@ -4,11 +4,13 @@ import { env } from '../config/env.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { referenceCache } from '../lib/cache.js';
+import { message, type Message } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpWorkPackage } from '../openproject/types.js';
 import type { UserPreferences } from '../types/epm.js';
 import { automationUserId } from './automation-account.js';
+import { writerFor } from './notifications.js';
 
 /**
  * Telling people about meetings, news, wiki pages and documents.
@@ -144,8 +146,12 @@ async function audienceFor(
 interface Announcement {
   /** The email switch this is governed by. */
   gate: keyof UserPreferences['email'];
-  title: string;
-  body: string;
+  /**
+   * Written for each recipient in the language they read EPM in (BR-605). Plain
+   * text — a post's own title — is data, and goes as it is.
+   */
+  title: string | Message;
+  body: string | Message;
   /** An EPM route. Made absolute for the email, never an OpenProject URL. */
   link: string;
   /** Unique per event, so a redelivery or a double-save sends one email. */
@@ -175,14 +181,15 @@ async function announce(
     for (const recipientId of audience) {
       const recipient = await resolveRecipient(recipientId).catch(() => undefined);
       if (!recipient) continue;
+      const write = await writerFor(recipientId);
 
       await enqueueEmail({
         recipientId,
         template: 'notification',
         payload: {
           firstName: recipient.firstName,
-          title: announcement.title,
-          body: announcement.body,
+          title: write(announcement.title),
+          body: write(announcement.body),
           url: `${env.APP_BASE_URL}${announcement.link}`,
         },
         channel,
@@ -218,7 +225,7 @@ export async function notifyNewsPublished(post: {
   await announce(post.projectId, post.authorId, {
     gate: 'news',
     title: post.title,
-    body: post.summary ?? 'A new announcement has been published.',
+    body: post.summary ?? message('A new announcement has been published.'),
     link: `/news`,
     dedupeKey: `news:${post.id}:${post.publishedAt.toISOString()}`,
   });
@@ -241,17 +248,18 @@ export async function notifyMeetingInvited(
     for (const recipientId of participantIds.filter((id) => id !== actorId)) {
       const recipient = await resolveRecipient(recipientId).catch(() => undefined);
       if (!recipient) continue;
+      const write = await writerFor(recipientId);
 
       await enqueueEmail({
         recipientId,
         template: 'notification',
         payload: {
           firstName: recipient.firstName,
-          title: `Meeting: ${meeting.title}`,
+          title: write(message('Meeting: {title}', { title: meeting.title })),
           // The instant, written in UTC and labelled as such. The recipient's own
           // zone is not knowable here for everybody, and an unlabelled time is
           // worse than a labelled one in the wrong zone.
-          body: `${meeting.startsAt.toISOString().replace('T', ' ').slice(0, 16)} UTC`,
+          body: write(message('{time} UTC', { time: meeting.startsAt.toISOString().replace('T', ' ').slice(0, 16) })),
           url: `${env.APP_BASE_URL}/meetings/${meeting.id}`,
         },
         channel: 'immediate',
@@ -287,10 +295,12 @@ export async function notifyWikiChanged(page: {
 
   await announce(page.projectId, page.updatedBy, {
     gate: 'wiki',
-    title: page.created ? `New wiki page: ${page.title}` : `Wiki page updated: ${page.title}`,
+    title: page.created
+      ? message('New wiki page: {title}', { title: page.title })
+      : message('Wiki page updated: {title}', { title: page.title }),
     body: page.created
-      ? 'A page has been added to the wiki.'
-      : 'A page you can see has been edited.',
+      ? message('A page has been added to the wiki.')
+      : message('A page you can see has been edited.'),
     link: `/wiki/${page.slug}${query}`,
     dedupeKey: `wiki:${page.id}:${page.updatedAt.toISOString()}`,
   });
@@ -305,8 +315,8 @@ export async function notifyDocumentUploaded(document: {
 }): Promise<void> {
   await announce(document.projectId, document.uploadedBy, {
     gate: 'documents',
-    title: `New document: ${document.name}`,
-    body: 'A file has been uploaded to a project you can see.',
+    title: message('New document: {name}', { name: document.name }),
+    body: message('A file has been uploaded to a project you can see.'),
     link: document.projectId ? `/projects/${document.projectId}/documents` : '/documents',
     dedupeKey: `document:${document.id}`,
   });
@@ -409,16 +419,18 @@ export async function notifyCommentAdded(input: {
     ) => {
       const recipient = await resolveRecipient(recipientId).catch(() => undefined);
       if (!recipient) return;
+      const write = await writerFor(recipientId);
 
       await enqueueEmail({
         recipientId,
         template: 'notification',
         payload: {
           firstName: recipient.firstName,
-          title:
+          title: write(
             gate === 'mentions'
-              ? `${input.authorName} mentioned you on ${subject}`
-              : `${input.authorName} commented on ${subject}`,
+              ? message('{author} mentioned you on {subject}', { author: input.authorName, subject })
+              : message('{author} commented on {subject}', { author: input.authorName, subject }),
+          ),
           body: excerpt,
           url,
         },

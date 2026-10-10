@@ -19,6 +19,7 @@ import {
 } from '@/hooks/useNotifications';
 import { useUserMap } from '@/hooks/useUsers';
 import { toast } from 'sonner';
+import { t } from '@/lib/i18n';
 
 /** Header notification bell with an inline preview of the newest items. */
 export function NotificationPanel() {
@@ -41,11 +42,15 @@ export function NotificationPanel() {
           variant="ghost"
           size="icon"
           className="relative"
-          aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+          aria-label={
+            unread > 0
+              ? t('Notifications, {count, number} unread', { count: unread })
+              : t('Notifications')
+          }
         >
           <Bell className="h-4 w-4" />
           {unread > 0 ? (
-            <span className="absolute right-1.5 top-1.5 flex h-2 w-2">
+            <span className="absolute end-1.5 top-1.5 flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full rounded-full bg-danger opacity-60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-danger ring-2 ring-surface" />
             </span>
@@ -56,7 +61,7 @@ export function NotificationPanel() {
       <PopoverContent align="end" className="w-[22rem] overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold tracking-tight">Notifications</h2>
+            <h2 className="text-sm font-semibold tracking-tight">{t('Notifications')}</h2>
             <CountBadge count={unread} />
           </div>
           {unread > 0 ? (
@@ -66,12 +71,12 @@ export function NotificationPanel() {
               className="h-6 px-1.5 text-2xs"
               onClick={() =>
                 markAllRead.mutate(undefined, {
-                  onSuccess: () => toast.success('All notifications marked as read'),
+                  onSuccess: () => toast.success(t('All notifications marked as read')),
                 })
               }
             >
               <CheckCheck className="h-3 w-3" />
-              Mark all read
+              {t('Mark all read')}
             </Button>
           ) : null}
         </div>
@@ -83,16 +88,16 @@ export function NotificationPanel() {
             // A failed fetch must not read as an empty inbox.
             <ErrorState
               size="inline"
-              title="Notifications could not be loaded"
-              description="Try again in a moment."
+              title={t('Notifications could not be loaded')}
+              description={t('Try again in a moment.')}
               onRetry={() => void refetch()}
             />
           ) : items.length === 0 ? (
             <EmptyState
               size="inline"
               icon={Bell}
-              title="You are all caught up"
-              description="New mentions, assignments and deadline alerts will appear here."
+              title={t('You are all caught up')}
+              description={t('New mentions, assignments and deadline alerts will appear here.')}
             />
           ) : (
             <ul className="divide-y divide-border">
@@ -115,7 +120,7 @@ export function NotificationPanel() {
         <div className="border-t border-border p-2">
           <Button asChild variant="ghost" size="sm" className="w-full text-2xs">
             <Link to="/notifications" onClick={() => setOpen(false)}>
-              View all notifications
+              {t('View all notifications')}
             </Link>
           </Button>
         </div>

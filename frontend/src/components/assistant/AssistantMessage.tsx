@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { EpmMark } from '@/components/common/EpmLogo';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { Markdown } from './Markdown';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type { AssistantMessage as AssistantMessageModel, AssistantToolCall } from '@/types';
@@ -11,7 +12,7 @@ import type { AssistantMessage as AssistantMessageModel, AssistantToolCall } fro
 function ToolCallChips({ calls }: { calls: AssistantToolCall[] }) {
   if (calls.length === 0) return null;
   return (
-    <ul className="flex flex-wrap gap-1" aria-label="Data the assistant consulted">
+    <ul className="flex flex-wrap gap-1" aria-label={t('Data the assistant consulted')}>
       {calls.map((call) => (
         <li key={call.id}>
           <Badge
@@ -29,10 +30,10 @@ function ToolCallChips({ calls }: { calls: AssistantToolCall[] }) {
             {call.label}
             <span className="sr-only">
               {call.status === 'running'
-                ? ', in progress'
+                ? t(', in progress')
                 : call.status === 'done'
-                  ? ', done'
-                  : ', failed'}
+                  ? t(', done')
+                  : t(', failed')}
             </span>
           </Badge>
         </li>
@@ -46,7 +47,7 @@ function StreamingCaret() {
   return (
     <span
       aria-hidden
-      className="ml-0.5 inline-block h-[1em] w-0.5 translate-y-[0.15em] animate-pulse rounded-full bg-foreground/70"
+      className="ms-0.5 inline-block h-[1em] w-0.5 translate-y-[0.15em] animate-pulse rounded-full bg-foreground/70"
     />
   );
 }
@@ -62,9 +63,9 @@ export function AssistantMessage({ message, streaming = false }: AssistantMessag
 
   if (message.role === 'user') {
     return (
-      <div className="flex items-end justify-end gap-2 pl-10">
-        <div className="max-w-full rounded-xl rounded-br-sm bg-primary-soft px-3.5 py-2 text-sm leading-relaxed text-foreground">
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+      <div className="flex items-end justify-end gap-2 ps-10">
+        <div className="max-w-full rounded-xl rounded-ee-sm bg-primary-soft px-3.5 py-2 text-sm leading-relaxed text-foreground">
+          <p dir="auto" className="whitespace-pre-wrap break-words">{message.content}</p>
         </div>
         <UserAvatar user={user} size="xs" className="mb-0.5" />
       </div>
@@ -74,7 +75,7 @@ export function AssistantMessage({ message, streaming = false }: AssistantMessag
   const waiting = streaming && !message.content;
 
   return (
-    <div className="flex items-start gap-2.5 pr-6">
+    <div className="flex items-start gap-2.5 pe-6">
       <EpmMark className="mt-0.5 h-6 w-6 shrink-0 rounded-md" />
       <div className={cn('min-w-0 flex-1 space-y-2', waiting && 'pt-1')}>
         <ToolCallChips calls={message.toolCalls} />
@@ -82,11 +83,13 @@ export function AssistantMessage({ message, streaming = false }: AssistantMessag
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
             {message.toolCalls.some((call) => call.status === 'running')
-              ? 'Looking that up…'
-              : 'Thinking…'}
+              ? t('Looking that up…')
+              : t('Thinking…')}
           </p>
         ) : (
-          <Markdown content={message.content} trailing={streaming ? <StreamingCaret /> : null} />
+          <div dir="auto">
+            <Markdown content={message.content} trailing={streaming ? <StreamingCaret /> : null} />
+          </div>
         )}
       </div>
     </div>

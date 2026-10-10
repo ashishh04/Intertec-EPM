@@ -14,18 +14,19 @@ import {
 import { BoardPlate } from './plates/BoardPlate';
 import { PortfolioPlate } from './plates/PortfolioPlate';
 import { useLandingMotion } from './useLandingMotion';
+import { t } from '@/lib/i18n';
 
 const CARDS = [
   {
-    tag: 'Plan',
-    title: 'Portfolios, projects & schedules',
-    body: 'Scope, budget, dependencies and dates in one place, rolled up so portfolio health is a consequence of the work rather than a slide assembled on Thursday.',
+    get tag() { return t('Plan'); },
+    get title() { return t('Portfolios, projects & schedules'); },
+    get body() { return t('Scope, budget, dependencies and dates in one place, rolled up so portfolio health is a consequence of the work rather than a slide assembled on Thursday.'); },
     Plate: PortfolioPlate,
   },
   {
-    tag: 'Deliver',
-    title: 'Boards, sprints & reporting',
-    body: 'Backlogs, sprint execution and velocity written to the same record the Gantt, the capacity view and the board report all read from.',
+    get tag() { return t('Deliver'); },
+    get title() { return t('Boards, sprints & reporting'); },
+    get body() { return t('Backlogs, sprint execution and velocity written to the same record the Gantt, the capacity view and the board report all read from.'); },
     Plate: BoardPlate,
   },
 ];
@@ -33,24 +34,24 @@ const CARDS = [
 const CAPABILITIES = [
   {
     icon: Layers,
-    title: 'Portfolios',
-    body: 'Roll delivery up from task to portfolio, with health and risk visible at every level.',
+    get title() { return t('Portfolios'); },
+    get body() { return t('Roll delivery up from task to portfolio, with health and risk visible at every level.'); },
   },
   {
     icon: FolderKanban,
-    title: 'Projects',
-    body: 'Scope, schedule, budget and membership per project in one record.',
+    get title() { return t('Projects'); },
+    get body() { return t('Scope, schedule, budget and membership per project in one record.'); },
   },
-  { icon: ListChecks, title: 'Tasks & My Work', body: 'A single queue of what each person owes today.' },
-  { icon: KanbanSquare, title: 'Agile boards & sprints', body: 'Backlogs, boards and sprint execution.' },
-  { icon: GanttChartSquare, title: 'Gantt & calendar', body: 'Dependencies and dates, planned against reality.' },
-  { icon: Users, title: 'Teams, departments & people', body: 'Capacity and allocation across the org.' },
-  { icon: FileText, title: 'Documents', body: 'Delivery artefacts attached where the work lives.' },
-  { icon: TrendingUp, title: 'Reports & analytics', body: 'Velocity, health and trend, scheduled or on demand.' },
+  { icon: ListChecks, get title() { return t('Tasks & My Work'); }, get body() { return t('A single queue of what each person owes today.'); } },
+  { icon: KanbanSquare, get title() { return t('Agile boards & sprints'); }, get body() { return t('Backlogs, boards and sprint execution.'); } },
+  { icon: GanttChartSquare, get title() { return t('Gantt & calendar'); }, get body() { return t('Dependencies and dates, planned against reality.'); } },
+  { icon: Users, get title() { return t('Teams, departments & people'); }, get body() { return t('Capacity and allocation across the org.'); } },
+  { icon: FileText, get title() { return t('Documents'); }, get body() { return t('Delivery artefacts attached where the work lives.'); } },
+  { icon: TrendingUp, get title() { return t('Reports & analytics'); }, get body() { return t('Velocity, health and trend, scheduled or on demand.'); } },
   {
     icon: Bell,
-    title: 'Notifications',
-    body: 'Watchers, mentions and escalations routed to the right people.',
+    get title() { return t('Notifications'); },
+    get body() { return t('Watchers, mentions and escalations routed to the right people.'); },
   },
 ];
 
@@ -71,10 +72,8 @@ export function CapabilitiesSection() {
 
       <div className="relative mx-auto max-w-6xl">
         <motion.div {...reveal(0, 0.7, { y: 30 })} className="flex items-end justify-between gap-6">
-          <h2 className="text-3xl tracking-tight text-white md:text-5xl">
-            What&apos;s <em className="font-serif italic text-white/50">inside</em>
-          </h2>
-          <p className="hidden text-sm text-white/40 md:block">The platform</p>
+          <h2 className="text-3xl tracking-tight text-white md:text-5xl">{t('What\'s inside')}</h2>
+          <p className="hidden text-sm text-white/40 md:block">{t('The platform')}</p>
         </motion.div>
 
         <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">

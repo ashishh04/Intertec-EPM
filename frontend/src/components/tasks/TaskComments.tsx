@@ -13,6 +13,7 @@ import { useAddComment, useComments, useEditComment } from '@/hooks/useComments'
 import { usePagination } from '@/hooks/usePagination';
 import { useUserMap } from '@/hooks/useUsers';
 import { formatRelative } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { EpmComment } from '@/services/api/comments';
 import type { ID } from '@/types';
 
@@ -56,10 +57,10 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
     add.mutate(body, {
       onSuccess: () => {
         setDraft('');
-        toast.success('Comment added');
+        toast.success(t('Comment added'));
       },
       onError: (error) =>
-        toast.error('Could not add that comment', {
+        toast.error(t('Could not add that comment'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -74,10 +75,10 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
       {
         onSuccess: () => {
           setEditingId(undefined);
-          toast.success('Comment updated');
+          toast.success(t('Comment updated'));
         },
         onError: (error) =>
-          toast.error('Could not update that comment', {
+          toast.error(t('Could not update that comment'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -90,17 +91,17 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
         isLoading={comments.isLoading}
         isError={comments.isError}
         onRetry={() => comments.refetch()}
-        errorTitle="Unable to load comments"
+        errorTitle={t('Unable to load comments')}
         skeleton={<ActivityTimelineSkeleton rows={3} />}
         isEmpty={(comments.data?.length ?? 0) === 0}
         empty={
           <EmptyState
             size="inline"
-            title="No comments yet"
+            title={t('No comments yet')}
             description={
               canComment
-                ? 'Start the discussion for this work package.'
-                : 'Nobody has commented on this work package.'
+                ? t('Start the discussion for this work package.')
+                : t('Nobody has commented on this work package.')
             }
           />
         }
@@ -120,15 +121,15 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                   </time>
                   {comment.updatedAt ? (
                     <span className="text-2xs text-muted-foreground">
-                      · edited {formatRelative(comment.updatedAt)}
+                      · {t('edited {when}', { when: formatRelative(comment.updatedAt) })}
                     </span>
                   ) : null}
 
                   {comment.editable && editingId !== comment.id ? (
                     <button
                       type="button"
-                      aria-label={`Edit comment by ${comment.author.name}`}
-                      className="ml-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={t('Edit comment by {name}', { name: comment.author.name })}
+                      className="ms-auto rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => {
                         setEditingId(comment.id);
                         setEditDraft(comment.body);
@@ -144,7 +145,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                     <Textarea
                       rows={3}
                       value={editDraft}
-                      aria-label="Edit comment"
+                      aria-label={t('Edit comment')}
                       onChange={(event) => setEditDraft(event.target.value)}
                     />
                     <div className="flex justify-end gap-2">
@@ -154,7 +155,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                         variant="ghost"
                         onClick={() => setEditingId(undefined)}
                       >
-                        Cancel
+                        {t('Cancel')}
                       </Button>
                       <Button
                         type="button"
@@ -163,14 +164,14 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                         loading={edit.isPending}
                         onClick={() => saveEdit(comment)}
                       >
-                        Save
+                        {t('Save')}
                       </Button>
                     </div>
                   </div>
                 ) : (
                   // Markdown source shown as written. `whitespace-pre-wrap`
                   // keeps line breaks without interpreting any of it as markup.
-                  <p className="mt-1 whitespace-pre-wrap rounded-lg bg-muted/70 px-3 py-2 text-xs leading-relaxed text-foreground">
+                  <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-lg bg-muted/70 px-3 py-2 text-xs leading-relaxed text-foreground">
                     {comment.body}
                   </p>
                 )}
@@ -184,7 +185,8 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
           pageSize={page.pageSize}
           total={page.total}
           onPageChange={page.setPage}
-          itemLabel="comment"
+          itemLabel={t('comment')}
+          itemLabelPlural={t('comments')}
           variant="compact"
           className="mt-3 justify-end border-t border-border pt-2"
         />
@@ -193,19 +195,19 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
       {canComment ? (
         <form onSubmit={submit} className="mt-4 space-y-2 border-t border-border pt-4">
           <label htmlFor="task-comment" className="sr-only">
-            Add a comment
+            {t('Add a comment')}
           </label>
           <Textarea
             id="task-comment"
             rows={3}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add a comment, decision or blocker..."
+            placeholder={t('Add a comment, decision or blocker...')}
           />
           <div className="flex justify-end">
             <Button type="submit" size="sm" disabled={!draft.trim()} loading={add.isPending}>
               <Send className="h-3.5 w-3.5" />
-              Comment
+              {t('Comment')}
             </Button>
           </div>
         </form>

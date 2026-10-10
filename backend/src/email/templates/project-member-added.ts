@@ -6,6 +6,7 @@ import {
   paragraph,
   paragraphHtml,
   textBody,
+  type EmailLocale,
   type RenderedEmail,
 } from './layout.js';
 
@@ -27,31 +28,43 @@ export interface ProjectMemberAddedPayload {
   url: string;
 }
 
-export function render(payload: ProjectMemberAddedPayload): RenderedEmail {
-  const subject = `You have been added to ${payload.projectName}`;
+/**
+ * Stands in for the project's name while the sentence around it is translated
+ * and escaped, so the name can then be set in bold wherever the language puts
+ * it. A private-use character: no translation or name contains it.
+ */
+const PROJECT = '\u{E000}';
+
+export function render(payload: ProjectMemberAddedPayload, locale: EmailLocale): RenderedEmail {
+  const { tr } = locale;
+  const subject = tr('You have been added to {project}', { project: payload.projectName });
+  const greeting = payload.firstName ? tr('Hi {name},', { name: payload.firstName }) : tr('Hello,');
+  const access = (project: string) =>
+    payload.addedBy
+      ? tr('You now have access to {project}, added by {name}.', { project, name: payload.addedBy })
+      : tr('You now have access to {project}.', { project });
+  const role = tr('Your role: {roles}', { roles: payload.roles });
 
   const html = layout(
     subject,
-    paragraph(`Hi ${payload.firstName},`) +
-      paragraphHtml(
-        `You now have access to <strong>${escape(payload.projectName)}</strong>` +
-          (payload.addedBy ? `, added by ${escape(payload.addedBy)}` : '') +
-          '.',
-      ) +
-      muted(`Your role: ${payload.roles}`) +
-      button('Open the project', payload.url),
+    paragraph(greeting) +
+      paragraphHtml(escape(access(PROJECT)).replace(PROJECT, () => `<strong>${escape(payload.projectName)}</strong>`)) +
+      muted(role) +
+      button(tr('Open the project'), payload.url),
+    locale,
   );
 
-  const text = textBody([
-    `Hi ${payload.firstName},`,
-    '',
-    `You now have access to ${payload.projectName}` +
-      (payload.addedBy ? `, added by ${payload.addedBy}` : '') +
-      '.',
-    `Your role: ${payload.roles}`,
-    '',
-    payload.url,
-  ]);
+  const text = textBody(
+    [
+      greeting,
+      '',
+      access(payload.projectName),
+      role,
+      '',
+      payload.url,
+    ],
+    locale,
+  );
 
   return { subject, html, text };
 }

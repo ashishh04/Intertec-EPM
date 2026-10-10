@@ -10,13 +10,20 @@
  *
  * The standard faces cover Latin script (Windows-1252). Characters outside it
  * are reduced to their unaccented letter where there is one and to "?" where
- * there is not; Arabic needs an embedded font and shaping, which come with
- * right-to-left support (Module 15).
+ * there is not — except Arabic, which is shaped, ordered and set in an
+ * embedded face (`pdf-text.ts`, BR-604). Only a line with right-to-left text
+ * in it takes that path; everything else is exactly as before.
  *
  * Content streams are not compressed: the files stay small for reports of this
  * size, the output is deterministic, and the text can be searched — which is
  * how a test checks what a report contains.
  */
+
+import { deflateSync } from 'node:zlib';
+
+import type { Glyph, Subset } from 'fontkit';
+
+import { arabicFont, isComplex, layoutLine, type Face } from './pdf-text.js';
 
 export type Rgb = readonly [number, number, number];
 
@@ -106,9 +113,14 @@ function byteWidth(byte: number, bold: boolean): number {
   return 556;
 }
 
-/** The width of `text` at `size` points. */
-export function textWidth(text: string, size: number, bold = false): number {
+/** The width of Latin `text` in Helvetica, at `size` points. */
+function latinWidth(text: string, size: number, bold = false): number {
   return (winAnsi(text).reduce((sum, byte) => sum + byteWidth(byte, bold), 0) * size) / 1000;
+}
+
+/** The width of `text` at `size` points — shaped, where it has Arabic in it. */
+export function textWidth(text: string, size: number, bold = false): number {
+  return isComplex(text) ? layoutLine(text, size, bold, latinWidth).width : latinWidth(text, size, bold);
 }
 
 /** `text` shortened with an ellipsis to fit `width`. */
@@ -173,6 +185,19 @@ export interface TextStyle {
   colour?: Rgb;
   /** Where `x` is: the left edge (default), the right edge, or the centre. */
   align?: 'left' | 'right' | 'center';
+  /**
+   * The line's base direction, for text with Arabic in it. Unset, the first
+   * strong character decides, as `dir="auto"` does in a browser.
+   */
+  direction?: 'ltr' | 'rtl';
+}
+
+/** The embedded Arabic face of one document: the glyphs it used, renumbered for the subset. */
+interface EmbeddedFace {
+  subset: Subset;
+  /** Original glyph id → id in the subset, which is the CID drawn. */
+  ids: Map<number, number>;
+  glyphs: Map<number, Glyph>;
 }
 
 /**
@@ -186,6 +211,8 @@ export class PdfDocument {
   private readonly pages: Page[] = [];
   /** The page drawing goes to. */
   private cursor = 0;
+  /** Arabic faces this document has drawn with; embedded, as subsets, when it is built. */
+  private readonly embedded: Partial<Record<Face, EmbeddedFace>> = {};
 
   constructor(private readonly info: { title: string; subject?: string; landscape?: boolean; createdAt?: Date }) {
     // A4.
@@ -217,13 +244,61 @@ export class PdfDocument {
   text(value: string, x: number, y: number, style: TextStyle = {}): void {
     const size = style.size ?? 9;
     const bold = style.bold ?? false;
-    const width = textWidth(value, size, bold);
-    const left = style.align === 'right' ? x - width : style.align === 'center' ? x - width / 2 : x;
     // `y` is the top of the line; the baseline sits about 0.8 of the size below it.
     const baseline = this.height - y - size * 0.8;
-    this.current.ops.push(
-      `BT /${bold ? 'F2' : 'F1'} ${n(size)} Tf ${colour(style.colour ?? COLOURS.ink)} rg ${n(left)} ${n(baseline)} Td ${literal(value)} Tj ET`,
-    );
+    const fill = colour(style.colour ?? COLOURS.ink);
+
+    if (!isComplex(value) && style.direction !== 'rtl') {
+      const width = latinWidth(value, size, bold);
+      const left = style.align === 'right' ? x - width : style.align === 'center' ? x - width / 2 : x;
+      this.current.ops.push(`BT /${bold ? 'F2' : 'F1'} ${n(size)} Tf ${fill} rg ${n(left)} ${n(baseline)} Td ${literal(value)} Tj ET`);
+      return;
+    }
+
+    // Shaped and reordered: each run drawn where the one before it ended, in
+    // Helvetica or in the embedded Arabic face.
+    const line = layoutLine(value, size, bold, latinWidth, style.direction);
+    let left = style.align === 'right' ? x - line.width : style.align === 'center' ? x - line.width / 2 : x;
+    const face: Face = bold ? 'bold' : 'regular';
+    for (const run of line.runs) {
+      if (run.kind === 'latin') {
+        this.current.ops.push(`BT /${bold ? 'F2' : 'F1'} ${n(size)} Tf ${fill} rg ${n(left)} ${n(baseline)} Td ${literal(run.text)} Tj ET`);
+      } else {
+        this.current.ops.push(
+          `BT /${bold ? 'F4' : 'F3'} ${n(size)} Tf ${fill} rg ${n(left)} ${n(baseline)} Td ${this.glyphArray(face, run.glyphs, run.advances)} TJ ET`,
+        );
+      }
+      left += run.width;
+    }
+  }
+
+  /**
+   * A TJ array for shaped glyphs: each glyph by its subset id, and after it the
+   * difference between its own width and the advance shaping gave it, so the
+   * pen moves exactly as the font's layout intends.
+   */
+  private glyphArray(face: Face, glyphs: Glyph[], advances: number[]): string {
+    const font = arabicFont(face);
+    let embedded = this.embedded[face];
+    if (!embedded) {
+      embedded = { subset: font.createSubset(), ids: new Map(), glyphs: new Map() };
+      this.embedded[face] = embedded;
+    }
+    const scale = 1000 / font.unitsPerEm;
+    const parts: string[] = [];
+    glyphs.forEach((glyph, index) => {
+      let id = embedded.ids.get(glyph.id);
+      if (id === undefined) {
+        // fontkit returns the glyph's new id, whatever its typings say.
+        id = embedded.subset.includeGlyph(glyph) as unknown as number;
+        embedded.ids.set(glyph.id, id);
+        embedded.glyphs.set(id, glyph);
+      }
+      parts.push(`<${id.toString(16).padStart(4, '0')}>`);
+      const adjustment = (glyph.advanceWidth - (advances[index] ?? glyph.advanceWidth)) * scale;
+      if (Math.abs(adjustment) > 0.01) parts.push(n(adjustment));
+    });
+    return `[${parts.join(' ')}]`;
   }
 
   rect(x: number, y: number, width: number, height: number, options: { fill?: Rgb; stroke?: Rgb; lineWidth?: number }): void {
@@ -247,6 +322,67 @@ export class PdfDocument {
     this.current.links.push({ x, y, width, height, url });
   }
 
+  /**
+   * Writes one embedded Arabic face — a Type 0 font over a CIDFontType2 whose
+   * CIDs are the subset's glyph ids — and returns its object number, or nothing
+   * when the document never drew with it. The subset holds only the glyphs
+   * used; a ToUnicode map keeps the text searchable and copyable.
+   */
+  private embedFace(face: Face, add: (body: string) => number): number | undefined {
+    const embedded = this.embedded[face];
+    if (!embedded) return undefined;
+    const font = arabicFont(face);
+    const scale = 1000 / font.unitsPerEm;
+    const tag = face === 'bold' ? 'EPMARB' : 'EPMARR';
+    const name = `${tag}+${font.postscriptName}`;
+
+    const raw = Buffer.from(embedded.subset.encode());
+    const program = deflateSync(raw);
+    const fontFile = add(
+      `<< /Length ${program.length} /Length1 ${raw.length} /Filter /FlateDecode >>\nstream\n${program.toString('latin1')}\nendstream`,
+    );
+    const descriptor = add(
+      `<< /Type /FontDescriptor /FontName /${name} /Flags 4 /FontBBox [${[font.bbox.minX, font.bbox.minY, font.bbox.maxX, font.bbox.maxY].map((value) => n(value * scale)).join(' ')}] ` +
+        `/ItalicAngle 0 /Ascent ${n(font.ascent * scale)} /Descent ${n(font.descent * scale)} /CapHeight ${n((font.capHeight || font.ascent) * scale)} /StemV 80 /FontFile2 ${fontFile} 0 R >>`,
+    );
+
+    const ids = [...embedded.glyphs.keys()].sort((a, b) => a - b);
+    const widths = ids.map((id) => `${id} [${n(embedded.glyphs.get(id)!.advanceWidth * scale)}]`).join(' ');
+    const cidFont = add(
+      `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> ` +
+        `/FontDescriptor ${descriptor} 0 R /W [${widths}] /CIDToGIDMap /Identity >>`,
+    );
+
+    // CID → the text it draws (a ligature draws two letters).
+    const entries = ids.map((id) => {
+      const text = String.fromCodePoint(...embedded.glyphs.get(id)!.codePoints);
+      const utf16 = [...text].map((char) => {
+        const code = char.codePointAt(0)!;
+        if (code <= 0xffff) return code.toString(16).padStart(4, '0');
+        const offset = code - 0x10000;
+        return ((0xd800 + (offset >> 10)).toString(16) + (0xdc00 + (offset & 0x3ff)).toString(16)).padStart(8, '0');
+      });
+      return `<${id.toString(16).padStart(4, '0')}> <${utf16.join('') || 'fffd'}>`;
+    });
+    const blocks: string[] = [];
+    for (let i = 0; i < entries.length; i += 100) {
+      const chunk = entries.slice(i, i + 100);
+      blocks.push(`${chunk.length} beginbfchar\n${chunk.join('\n')}\nendbfchar`);
+    }
+    const cmap =
+      '/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n' +
+      '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n' +
+      '/CMapName /Adobe-Identity-UCS def /CMapType 2 def\n' +
+      '1 begincodespacerange <0000> <FFFF> endcodespacerange\n' +
+      blocks.join('\n') +
+      '\nendcmap CMapName currentdict /CMap defineresource pop end end';
+    const toUnicode = add(`<< /Length ${Buffer.byteLength(cmap, 'latin1')} >>\nstream\n${cmap}\nendstream`);
+
+    return add(
+      `<< /Type /Font /Subtype /Type0 /BaseFont /${name} /Encoding /Identity-H /DescendantFonts [${cidFont} 0 R] /ToUnicode ${toUnicode} 0 R >>`,
+    );
+  }
+
   /** The finished file. */
   build(): Uint8Array {
     const objects: string[] = [];
@@ -259,6 +395,10 @@ export class PdfDocument {
     const pagesId = add('');
     const regular = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
     const bold = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    const arabicRegular = this.embedFace('regular', add);
+    const arabicBold = this.embedFace('bold', add);
+    const arabicResources =
+      (arabicRegular ? ` /F3 ${arabicRegular} 0 R` : '') + (arabicBold ? ` /F4 ${arabicBold} 0 R` : '');
     const created = this.info.createdAt ?? new Date(0);
     const stamp = created.toISOString().replace(/[-:T]/g, '').slice(0, 14);
     const infoId = add(
@@ -276,7 +416,7 @@ export class PdfDocument {
       );
       pageIds.push(
         add(
-          `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${n(this.width)} ${n(this.height)}] /Resources << /Font << /F1 ${regular} 0 R /F2 ${bold} 0 R >> >> /Contents ${contentId} 0 R${annots.length ? ` /Annots [${annots.map((id) => `${id} 0 R`).join(' ')}]` : ''} >>`,
+          `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${n(this.width)} ${n(this.height)}] /Resources << /Font << /F1 ${regular} 0 R /F2 ${bold} 0 R${arabicResources} >> >> /Contents ${contentId} 0 R${annots.length ? ` /Annots [${annots.map((id) => `${id} 0 R`).join(' ')}]` : ''} >>`,
         ),
       );
     }

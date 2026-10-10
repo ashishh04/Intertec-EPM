@@ -36,6 +36,7 @@ import { resolvePeople, type PersonContext } from './people.js';
 import { markSelfCaused, unmarkSelfCaused } from './rule-events.js';
 import { PERSON_WORDS, renderTemplate, resolveDate, ruleMatches, validateRule, type RuleFacts } from './rule-model.js';
 import { customFieldFacts } from './work-package-facts.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Automation rules (BRQ-10: BR-216, BR-217, BR-219).
@@ -194,7 +195,10 @@ export async function deleteRule(id: string, actorId: string): Promise<void> {
   const fired = await prisma.ruleFiring.count({ where: { ruleId: id } });
   if (fired > 0) {
     throw EpmError.conflict(
-      `"${existing.name}" has fired ${fired} ${fired === 1 ? 'time' : 'times'}, and its log is the record of what it did. Switch it off instead.`,
+      message('"{name}" has fired {count, plural, one {# time} other {# times}}, and its log is the record of what it did. Switch it off instead.', {
+        name: existing.name,
+        count: fired,
+      }),
     );
   }
   await withAudit(
@@ -585,8 +589,8 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Ru
         await notifyPeople({
           recipients: [target],
           category: 'assignment',
-          title: `Assigned to you: ${subject.title}`,
-          body: `By the rule "${context.rule.name}".`,
+          title: message('Assigned to you: {title}', { title: subject.title }),
+          body: message('By the rule "{rule}".', { rule: context.rule.name }),
           link: subject.link,
           severity: 'info',
           dedupeKey: `rule:${context.firingId}:assigned`,

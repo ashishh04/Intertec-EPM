@@ -45,8 +45,8 @@ import {
   formatNumber,
   formatPercent,
   formatShortDate,
-  pluralize,
 } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, UpdateTaskInput } from '@/types';
 
 type ColumnKey =
@@ -69,23 +69,23 @@ type ColumnKey =
   | 'updatedAt';
 
 const COLUMN_LABEL: Record<ColumnKey, string> = {
-  key: 'ID',
-  subject: 'Task',
-  project: 'Project',
-  type: 'Type',
-  status: 'Status',
-  priority: 'Priority',
-  assignee: 'Assignee',
-  author: 'Author',
-  startDate: 'Start date',
-  dueDate: 'Finish date',
-  estimate: 'Work',
-  spent: 'Spent time',
-  progress: '% Complete',
-  storyPoints: 'Story points',
-  version: 'Version',
-  createdAt: 'Created on',
-  updatedAt: 'Updated on',
+  get key() { return t('ID'); },
+  get subject() { return t('Task'); },
+  get project() { return t('Project'); },
+  get type() { return t('Type'); },
+  get status() { return t('Status'); },
+  get priority() { return t('Priority'); },
+  get assignee() { return t('Assignee'); },
+  get author() { return t('Author'); },
+  get startDate() { return t('Start date'); },
+  get dueDate() { return t('Finish date'); },
+  get estimate() { return t('Work'); },
+  get spent() { return t('Spent time'); },
+  get progress() { return t('% Complete'); },
+  get storyPoints() { return t('Story points'); },
+  get version() { return t('Version'); },
+  get createdAt() { return t('Created on'); },
+  get updatedAt() { return t('Updated on'); },
 };
 
 /**
@@ -345,21 +345,21 @@ export function TaskTable({
           <div className="flex items-center gap-2 text-xs">
             <ListChecks className="h-3.5 w-3.5 text-primary" aria-hidden />
             <span className="font-medium">
-              {formatNumber(selected.size)} {pluralize(selected.size, 'task')} selected
+              {t('{count, plural, one {# task selected} other {# tasks selected}}', { count: selected.size })}
             </span>
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-              Clear
+              {t('Clear')}
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="secondary">
-                  Change status
+                  {t('Change status')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Set status</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('Set status')}</DropdownMenuLabel>
                 {ALL_TASK_STATUSES.map((status) => (
                   <DropdownMenuItem
                     key={status}
@@ -377,11 +377,11 @@ export function TaskTable({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="secondary">
-                  Priority
+                  {t('Priority')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Set priority</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('Set priority')}</DropdownMenuLabel>
                 {ALL_TASK_PRIORITIES.map((priority) => (
                   <DropdownMenuItem
                     key={priority}
@@ -400,11 +400,11 @@ export function TaskTable({
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="secondary">
                   <UserPlus className="h-3.5 w-3.5" />
-                  Assign
+                  {t('Assign')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-                <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('Assign to')}</DropdownMenuLabel>
                 {[...users.values()].map((user) => (
                   <DropdownMenuItem
                     key={user.id}
@@ -430,7 +430,7 @@ export function TaskTable({
                 }}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete
+                {t('Delete')}
               </Button>
             ) : null}
           </div>
@@ -438,7 +438,7 @@ export function TaskTable({
       ) : (
         <>
           <p className="px-1 text-2xs text-muted-foreground">
-            {total === 0 ? 'No results' : `${formatNumber(total)} ${pluralize(total, 'task')}`}
+            {total === 0 ? t('No results') : t('{count, plural, one {# task} other {# tasks}}', { count: total })}
           </p>
           <div className="flex items-center gap-1.5">
             {/* Hidden when a query owns the columns — two pickers editing the
@@ -447,11 +447,11 @@ export function TaskTable({
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="ghost" className={cn(controlledColumns && 'hidden')}>
                   <Columns3 className="h-3.5 w-3.5" />
-                  Columns
+                  {t('Columns')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('Visible columns')}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {(Object.keys(COLUMN_LABEL) as ColumnKey[])
                   .filter((column) => !(hideProjectColumn && column === 'project'))
@@ -477,7 +477,7 @@ export function TaskTable({
             {onExport ? (
               <Button size="sm" variant="ghost" onClick={onExport}>
                 <Download className="h-3.5 w-3.5" />
-                Export
+                {t('Export')}
               </Button>
             ) : null}
           </div>
@@ -495,7 +495,8 @@ export function TaskTable({
         onPageChange={onPageChange}
         onPageSizeChange={onPageSizeChange}
         pageSizeOptions={[15, 25, 50, 100]}
-        itemLabel="task"
+        itemLabel={t('task')}
+        itemLabelPlural={t('tasks')}
       />
     ) : undefined;
 
@@ -503,19 +504,19 @@ export function TaskTable({
     <TableCard toolbar={toolbar} footer={footer}>
       {tasks.length === 0 ? (
         <EmptyState
-          title="No tasks found"
-          description="Nothing matches the current filters. Adjust them, or create the first task."
+          title={t('No tasks found')}
+          description={t('Nothing matches the current filters. Adjust them, or create the first task.')}
           action={emptyAction}
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 pr-0">
+              <TableHead className="w-10 pe-0">
                 <Checkbox
                   checked={allSelected ? true : someSelected ? 'indeterminate' : false}
                   onCheckedChange={toggleAll}
-                  aria-label="Select all tasks on this page"
+                  aria-label={t('Select all tasks on this page')}
                 />
               </TableHead>
               {columns.map((column) => {
@@ -567,7 +568,7 @@ export function TaskTable({
                         <span className="text-xs font-semibold text-foreground">
                           {/* An unset attribute is a real group, not a failure
                               to look one up, so it says so plainly. */}
-                          {group.value ?? 'None'}
+                          {group.value ?? t('None')}
                         </span>
                         <Badge tone="neutral" size="sm">
                           {formatNumber(group.count)}
@@ -587,11 +588,11 @@ export function TaskTable({
 
               return (
                 <TableRow key={task.id} data-state={isSelected ? 'selected' : undefined}>
-                  <TableCell className="pr-0">
+                  <TableCell className="pe-0">
                     <Checkbox
                       checked={isSelected}
                       onCheckedChange={() => toggleOne(task.id)}
-                      aria-label={`Select ${task.key}`}
+                      aria-label={t('Select {key}', { key: task.key })}
                     />
                   </TableCell>
 
@@ -607,11 +608,12 @@ export function TaskTable({
                             <span
                               key={level}
                               aria-hidden
-                              className="mr-2 h-4 w-3 shrink-0 border-l border-border"
+                              className="me-2 h-4 w-3 shrink-0 border-s border-border"
                             />
                           ))}
                           <Link
                             to={`/tasks/${task.id}`}
+                            dir="auto"
                             className="truncate font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
                           >
                             {task.subject}
@@ -633,7 +635,7 @@ export function TaskTable({
                         <div className="flex items-center gap-1.5">
                           <UserAvatarWithTooltip user={assignee} size="xs" />
                           <span className="truncate text-muted-foreground">
-                            {assignee?.name ?? 'Unassigned'}
+                            {assignee?.name ?? t('Unassigned')}
                           </span>
                         </div>
                       ) : column === 'dueDate' ? (
@@ -696,8 +698,8 @@ export function TaskTable({
           {sums ? (
             <TableFooter>
               <TableRow>
-                <TableCell className="pr-0 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Sum
+                <TableCell className="pe-0 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t('Sum')}
                 </TableCell>
                 {columns.map((column) => (
                   <TableCell key={column} numeric={numericColumns.has(column)} className="font-medium">
@@ -716,7 +718,7 @@ export function TaskTable({
 /** A custom field's value as the view shows it; a dash when it has none. */
 function CustomValueCell({ value }: { value?: number | boolean | string }) {
   if (value === undefined || value === '') return <span className="text-muted-foreground">—</span>;
-  if (typeof value === 'boolean') return <span className="text-muted-foreground">{value ? 'Yes' : 'No'}</span>;
+  if (typeof value === 'boolean') return <span className="text-muted-foreground">{value ? t('Yes') : t('No')}</span>;
   if (typeof value === 'number') return <span className="text-muted-foreground">{formatNumber(value)}</span>;
   return <span className="block max-w-56 truncate text-muted-foreground" title={value}>{value}</span>;
 }

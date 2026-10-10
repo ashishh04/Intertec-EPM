@@ -4,6 +4,7 @@ import * as guard from '../auth/guard.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * OpenProject Form endpoints, proxied.
@@ -117,7 +118,7 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
       const current = await openProject
         .request<{ lockVersion: number }>(`/work_packages/${id}`, { signal: requestSignal(request) })
         .catch(() => null);
-      if (!current) throw EpmError.notFound(`Work package ${id}`);
+      if (!current) throw EpmError.notFound(message('Work package {id}', { id }));
 
       return requestForm(
         `/work_packages/${id}/form`,

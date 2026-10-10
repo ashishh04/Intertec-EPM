@@ -29,9 +29,10 @@ import type {
 import { auditRow, recordAuditQuietly, type AuditInput } from './audit.js';
 import { automationConfigured, ensureAutomationMembership } from './automation-account.js';
 import { activeChains, conditionHolds, describeCondition, pickChain, type SubjectFacts } from './approval-chains.js';
-import { notifyPeople } from './notifications.js';
+import { notifyPeople, sentences } from './notifications.js';
 import { noteRuleEvent } from './rule-events.js';
 import { customFieldFacts } from './work-package-facts.js';
+import { listOf, message } from '../lib/i18n.js';
 
 /**
  * The approval engine (BRQ-09: BR-211 to BR-215).
@@ -429,6 +430,10 @@ async function nameIndex(): Promise<(id: string | null | undefined) => string> {
 const listNames = (names: string[]) =>
   names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 
+/** The same, as a message argument: joined the way the reader's language joins names. */
+const nameList = (names: string[]) =>
+  names.length <= 2 ? listOf(names, 'and') : listOf([listOf(names.slice(0, -1)), names.at(-1)], 'and');
+
 /* -------------------------------------------------------------------------- */
 /* Submitting                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -462,7 +467,10 @@ export async function submitForApproval(subjectId: string, requesterId: string):
     if (!chain.allowSelfApproval) approvers = approvers.filter((id) => id !== requesterId);
     if (approvers.length === 0) {
       throw EpmError.validation(
-        `Nobody ${chain.allowSelfApproval ? '' : 'other than you '}can approve the "${step.name}" step of ${chain.name}. Ask an administrator to name an approver for it.`,
+        message(
+          '{self, select, allowed {Nobody can approve the "{step}" step of {chain}.} other {Nobody other than you can approve the "{step}" step of {chain}.}} Ask an administrator to name an approver for it.',
+          { self: chain.allowSelfApproval ? 'allowed' : 'other', step: step.name, chain: chain.name },
+        ),
       );
     }
     step.approverIds = approvers;
@@ -471,7 +479,10 @@ export async function submitForApproval(subjectId: string, requesterId: string):
   const first = snapshot.steps.findIndex((step) => step.applies);
   if (first < 0) {
     throw EpmError.validation(
-      `No step of ${chain.name} applies to this work package, so nobody would decide it. Check its values, or ask an administrator to adjust the chain.`,
+      message(
+        'No step of {chain} applies to this work package, so nobody would decide it. Check its values, or ask an administrator to adjust the chain.',
+        { chain: chain.name },
+      ),
     );
   }
 
@@ -835,10 +846,9 @@ async function announceTasks(
   const names = await nameIndex();
   const projectName =
     (await runAsSystem(() => listProjects()).catch(() => [])).find((project) => String(project.id) === request.projectId)?.name ?? '';
-  const valueText =
-    request.value !== null && request.value !== undefined
-      ? `${snapshot.valueLabel ?? 'Value'}: ${formatNumber(request.value)}`
-      : undefined;
+  // To the cent, as it has always been shown; the email writes it in the
+  // reader's own format, with the chain's label or "Value".
+  const value = request.value !== null && request.value !== undefined ? Math.round(request.value * 100) / 100 : undefined;
 
   for (const task of tasks) {
     for (const recipientId of [task.approverId, task.delegateId].filter((id): id is string => Boolean(id))) {
@@ -848,8 +858,17 @@ async function announceTasks(
         await notifyPeople({
           recipients: [recipientId],
           category: 'assignment',
-          title: `Approval needed: ${snapshot.subjectKey} ${request.title}`,
-          body: `${names(request.requestedBy)} needs your approval at the "${task.stepName}" step${asDelegate ? ` on behalf of ${names(task.approverId)}` : ''}.`,
+          title: message('Approval needed: {key} {title}', { key: snapshot.subjectKey, title: request.title }),
+          body: asDelegate
+            ? message('{requester} needs your approval at the "{step}" step on behalf of {approver}.', {
+                requester: names(request.requestedBy),
+                step: task.stepName,
+                approver: names(task.approverId),
+              })
+            : message('{requester} needs your approval at the "{step}" step.', {
+                requester: names(request.requestedBy),
+                step: task.stepName,
+              }),
           link: `/tasks/${request.subjectId}`,
           severity: 'info',
           dedupeKey: `approval-task:${task.id}:${recipientId}`,
@@ -869,9 +888,10 @@ async function announceTasks(
             projectName,
             stepName: task.stepName,
             requesterName: names(request.requestedBy),
-            valueText,
+            value,
+            valueLabel: value !== undefined ? snapshot.valueLabel : undefined,
             onBehalfOfName: asDelegate ? names(task.approverId) : undefined,
-            dueText: task.dueAt ? `Due by ${task.dueAt.toISOString().slice(0, 16).replace('T', ' ')} UTC` : undefined,
+            dueAt: task.dueAt?.toISOString(),
             approveUrl: `${decideUrl}?decision=approve`,
             rejectUrl: `${decideUrl}?decision=reject`,
             openUrl: `${env.APP_BASE_URL}/tasks/${request.subjectId}`,
@@ -899,14 +919,24 @@ async function announceOutcome(
     const decidingTask = [...request.tasks]
       .filter((task) => task.decidedBy === deciderId)
       .sort((a, b) => (b.decidedAt?.getTime() ?? 0) - (a.decidedAt?.getTime() ?? 0))[0];
-    const decidedByText = `Decided by ${names(deciderId)}${decidingTask?.onBehalfOf ? ` on behalf of ${names(decidingTask.onBehalfOf)}` : ''}`;
+    const decidedBy = names(deciderId);
+    const onBehalfOf = decidingTask?.onBehalfOf ? names(decidingTask.onBehalfOf) : undefined;
     const outcome = request.status === 'approved' ? 'approved' : 'rejected';
 
     await notifyPeople({
       recipients: [request.requestedBy],
       category: 'project_update',
-      title: `${outcome === 'approved' ? 'Approved' : 'Rejected'}: ${snapshot.subjectKey} ${request.title}`,
-      body: `${decidedByText}.${comment ? ` “${comment}”` : ''}`,
+      title: message('{outcome, select, approved {Approved} other {Rejected}}: {key} {title}', {
+        outcome,
+        key: snapshot.subjectKey,
+        title: request.title,
+      }),
+      body: sentences(
+        onBehalfOf
+          ? message('Decided by {name} on behalf of {approver}.', { name: decidedBy, approver: onBehalfOf })
+          : message('Decided by {name}.', { name: decidedBy }),
+        comment ? message('“{comment}”', { comment }) : undefined,
+      ),
       link: `/tasks/${request.subjectId}`,
       severity: outcome === 'approved' ? 'info' : 'warning',
       dedupeKey: `approval-outcome:${request.id}`,
@@ -925,7 +955,8 @@ async function announceOutcome(
         title: request.title,
         projectName,
         outcome,
-        decidedByText,
+        decidedBy,
+        onBehalfOf,
         comment,
         openUrl: `${env.APP_BASE_URL}/tasks/${request.subjectId}`,
       },
@@ -1080,8 +1111,12 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
       await notifyPeople({
         recipients: [recipient],
         category: 'deadline',
-        title: `Approval overdue: ${snapshot.subjectKey} ${request.title}`,
-        body: `The "${step.name}" step passed its ${step.slaHours}-hour SLA waiting on ${waitingOn}.`,
+        title: message('Approval overdue: {key} {title}', { key: snapshot.subjectKey, title: request.title }),
+        body: message('The "{step}" step passed its {hours, number}-hour SLA waiting on {people}.', {
+          step: step.name,
+          hours: step.slaHours,
+          people: nameList(tasks.map((task) => names(task.approverId))),
+        }),
         link: `/tasks/${request.subjectId}`,
         severity: 'warning',
         dedupeKey: `approval-breach:${key}:${recipient}`,
@@ -1226,8 +1261,8 @@ export async function createDelegation(
   await notifyPeople({
     recipients: [input.delegateId],
     category: 'assignment',
-    title: `${names(delegatorId)} delegated their approvals to you`,
-    body: `From ${input.startsOn} to ${input.endsOn}.${reason ? ` ${reason}` : ''}`,
+    title: message('{name} delegated their approvals to you', { name: names(delegatorId) }),
+    body: sentences(message('From {start} to {end}.', { start: input.startsOn, end: input.endsOn }), reason ?? undefined),
     link: '/approvals',
     severity: 'info',
     dedupeKey: `approval-delegation:${row.id}`,
@@ -1478,7 +1513,10 @@ export async function assertStatusChangeAllowed(input: {
   if (owned.includes(input.nextStatusId)) {
     const name = (await runAsSystem(() => getCatalog()).catch(() => undefined))?.statusById.get(input.nextStatusId)?.name;
     throw EpmError.conflict(
-      `${name ?? 'That status'} is set by the ${chain.name} approval chain. Submit it for approval instead.`,
+      message('{status} is set by the {chain} approval chain. Submit it for approval instead.', {
+        status: name ?? message('That status'),
+        chain: chain.name,
+      }),
     );
   }
 }

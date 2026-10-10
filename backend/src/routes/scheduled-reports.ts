@@ -22,6 +22,7 @@ import {
   updateSchedule,
 } from '../domain/scheduled-reports.js';
 import { narrowedViewer, periodOf, scopeOf, scopeQuery, viewerOf } from './measures.js';
+import { listOf, message } from '../lib/i18n.js';
 
 /**
  * Scheduled reports (BRQ-08) and downloading a dashboard.
@@ -40,7 +41,7 @@ async function checkRecipients(raw: unknown): Promise<void> {
   if (!Array.isArray(ids)) return;
   const facts = await modelFacts();
   const unknown = ids.map(String).filter((id) => !facts.people.has(Number(id)));
-  if (unknown.length > 0) throw EpmError.badRequest(`Not people EPM knows: ${unknown.join(', ')}.`);
+  if (unknown.length > 0) throw EpmError.badRequest(message('Not people EPM knows: {ids}.', { ids: listOf(unknown) }));
 }
 
 export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {

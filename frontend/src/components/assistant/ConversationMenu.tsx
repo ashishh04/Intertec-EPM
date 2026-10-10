@@ -13,6 +13,7 @@ import {
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useAssistantConversations, useDeleteAssistantConversation } from '@/hooks/useAssistant';
+import { t } from '@/lib/i18n';
 import { cn, formatRelative, truncate } from '@/lib/utils';
 import type { AssistantConversation, ID } from '@/types';
 
@@ -45,10 +46,10 @@ export function ConversationMenu({ activeId, enabled, onSelect, onNew }: Convers
       onSuccess: () => {
         setPendingDelete(null);
         if (target.id === activeId) onNew();
-        toast.success('Conversation deleted');
+        toast.success(t('Conversation deleted'));
       },
       onError: (error) =>
-        toast.error('Could not delete the conversation', {
+        toast.error(t('Could not delete the conversation'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -57,12 +58,12 @@ export function ConversationMenu({ activeId, enabled, onSelect, onNew }: Convers
   return (
     <>
       <DropdownMenu open={open} onOpenChange={setOpen}>
-        <InfoTooltip label="Conversations">
+        <InfoTooltip label={t('Conversations')}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Conversations"
+              aria-label={t('Conversations')}
               disabled={!enabled}
             >
               <History className="h-4 w-4" />
@@ -72,13 +73,13 @@ export function ConversationMenu({ activeId, enabled, onSelect, onNew }: Convers
         <DropdownMenuContent align="end" className="w-72">
           <DropdownMenuItem onSelect={onNew}>
             <SquarePen />
-            New conversation
+            {t('New conversation')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuLabel>Recent</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('Recent')}</DropdownMenuLabel>
           {recent.length === 0 ? (
             <p className="px-2 pb-1.5 pt-0.5 text-2xs text-muted-foreground">
-              Nothing yet. Your conversations will be listed here.
+              {t('Nothing yet. Your conversations will be listed here.')}
             </p>
           ) : (
             recent.map((conversation) => {
@@ -94,8 +95,8 @@ export function ConversationMenu({ activeId, enabled, onSelect, onNew }: Convers
                     {active ? <Check className="text-primary" /> : null}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-foreground">
-                      {truncate(conversation.title || 'Untitled conversation', 60)}
+                    <span dir="auto" className="block truncate text-foreground">
+                      {truncate(conversation.title || t('Untitled conversation'), 60)}
                     </span>
                     <span className="block text-2xs text-muted-foreground">
                       {formatRelative(conversation.updatedAt)}
@@ -103,8 +104,8 @@ export function ConversationMenu({ activeId, enabled, onSelect, onNew }: Convers
                   </span>
                   <button
                     type="button"
-                    aria-label={`Delete "${conversation.title}"`}
-                    className="-mr-0.5 mt-0.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger-strong focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus:opacity-100"
+                    aria-label={t('Delete "{title}"', { title: conversation.title })}
+                    className="-me-0.5 mt-0.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-danger-soft hover:text-danger-strong focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation();
                       setOpen(false);
@@ -125,13 +126,15 @@ export function ConversationMenu({ activeId, enabled, onSelect, onNew }: Convers
         onOpenChange={(next) => {
           if (!next) setPendingDelete(null);
         }}
-        title="Delete this conversation?"
+        title={t('Delete this conversation?')}
         description={
           pendingDelete
-            ? `"${truncate(pendingDelete.title || 'Untitled conversation', 80)}" and its messages will be removed. This cannot be undone.`
+            ? t('"{title}" and its messages will be removed. This cannot be undone.', {
+                title: truncate(pendingDelete.title || t('Untitled conversation'), 80),
+              })
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={confirmDelete}

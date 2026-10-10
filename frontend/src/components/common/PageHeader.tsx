@@ -24,7 +24,7 @@ function PageHeader({ title, description, eyebrow, meta, actions, className }: P
       <div className="min-w-0 space-y-1">
         {eyebrow ? <div className="epm-eyebrow">{eyebrow}</div> : null}
         <div className="flex flex-wrap items-center gap-2.5">
-          <h1 className="font-display text-xl font-bold tracking-[-0.03em] text-foreground">{title}</h1>
+          <h1 dir="auto" className="font-display text-xl font-bold tracking-[-0.03em] text-foreground">{title}</h1>
           {meta}
         </div>
         {description ? (

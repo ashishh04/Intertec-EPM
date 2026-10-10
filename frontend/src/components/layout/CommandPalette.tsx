@@ -39,7 +39,7 @@ import { useUsers } from '@/hooks/useUsers';
 import { useTeams } from '@/hooks/useTeams';
 import { useDebounce } from '@/hooks/useDebounce';
 import { featureFlags } from '@/config/env';
-import { formatNumber } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 
 /** Each group shows this many before asking for a narrower search. */
 const LIMITS = { projects: 5, tasks: 6, users: 4, teams: 3 };
@@ -120,15 +120,15 @@ export function CommandPalette() {
       <CommandInput
         value={query}
         onValueChange={setQuery}
-        placeholder="Search projects, tasks, people..."
+        placeholder={t('Search projects, tasks, people...')}
       />
       <CommandList>
-        <CommandEmpty>No results for “{query}”.</CommandEmpty>
+        <CommandEmpty>{t('No results for “{query}”.', { query })}</CommandEmpty>
 
-        <CommandGroup heading="Actions">
+        <CommandGroup heading={t('Actions')}>
           <CommandItem value="create task new" onSelect={() => run(() => openTaskDrawer())}>
             <ListPlus />
-            Create task
+            {t('Create task')}
             <CommandShortcut>C</CommandShortcut>
           </CommandItem>
           {featureFlags.pragnya ? (
@@ -141,7 +141,7 @@ export function CommandPalette() {
               <Sparkles />
               {query.trim() ? (
                 <span className="truncate">
-                  Pragnya: <span className="text-muted-foreground">“{query.trim()}”</span>
+                  Pragnya: <span dir="auto" className="text-muted-foreground">“{query.trim()}”</span>
                 </span>
               ) : (
                 'Pragnya'
@@ -151,44 +151,44 @@ export function CommandPalette() {
           ) : null}
           <CommandItem value="my work" onSelect={() => run(() => navigate('/my-work'))}>
             <ListTodo />
-            Open my work
+            {t('Open my work')}
           </CommandItem>
           <CommandItem
             value="my time timesheet log hours"
             onSelect={() => run(() => navigate('/my-time'))}
           >
             <Clock />
-            Open my timesheet
+            {t('Open my timesheet')}
           </CommandItem>
           <CommandItem value="current sprint agile" onSelect={() => run(() => navigate('/agile'))}>
             <Timer />
-            Open current sprint
+            {t('Open current sprint')}
           </CommandItem>
           <CommandItem value="reports" onSelect={() => run(() => navigate('/reports'))}>
             <FileText />
-            Open reports
+            {t('Open reports')}
           </CommandItem>
           <CommandItem
             value="time and costs cost report hours spend"
             onSelect={() => run(() => navigate('/time-and-costs'))}
           >
             <Coins />
-            Open time and costs
+            {t('Open time and costs')}
           </CommandItem>
           <CommandItem value="analytics insights" onSelect={() => run(() => navigate('/analytics'))}>
             <BarChart3 />
-            Open delivery intelligence
+            {t('Open delivery intelligence')}
           </CommandItem>
           <CommandItem value="settings" onSelect={() => run(() => navigate('/settings'))}>
             <Settings />
-            Open settings
+            {t('Open settings')}
           </CommandItem>
         </CommandGroup>
 
         {matchedProjects.length > 0 ? (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Projects">
+            <CommandGroup heading={t('Projects')}>
               {matchedProjects.map((project) => (
                 <CommandItem
                   key={project.id}
@@ -196,7 +196,7 @@ export function CommandPalette() {
                   onSelect={() => run(() => navigate(`/projects/${project.id}`))}
                 >
                   <FolderKanban />
-                  <span className="truncate">{project.name}</span>
+                  <span dir="auto" className="truncate">{project.name}</span>
                   <CommandShortcut>{project.identifier}</CommandShortcut>
                 </CommandItem>
               ))}
@@ -213,14 +213,14 @@ export function CommandPalette() {
             className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-muted-foreground"
           >
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
-            Searching…
+            {t('Searching…')}
           </div>
         ) : null}
 
         {matchedTasks.length > 0 ? (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Tasks">
+            <CommandGroup heading={t('Tasks')}>
               {matchedTasks.map((task) => (
                 <CommandItem
                   key={task.id}
@@ -228,8 +228,8 @@ export function CommandPalette() {
                   onSelect={() => run(() => navigate(`/tasks/${task.id}`))}
                 >
                   <SquareKanban />
-                  <span className="truncate">{task.subject}</span>
-                  <span className="ml-auto flex shrink-0 items-center gap-2">
+                  <span dir="auto" className="truncate">{task.subject}</span>
+                  <span className="ms-auto flex shrink-0 items-center gap-2">
                     <StatusBadge status={task.statusCategory} size="sm" />
                     <span className="font-mono text-2xs text-muted-foreground">{task.key}</span>
                   </span>
@@ -243,7 +243,7 @@ export function CommandPalette() {
         {matchedUsers.length > 0 ? (
           <>
             <CommandSeparator />
-            <CommandGroup heading="People">
+            <CommandGroup heading={t('People')}>
               {matchedUsers.map((user) => (
                 <CommandItem
                   key={user.id}
@@ -251,7 +251,7 @@ export function CommandPalette() {
                   onSelect={() => run(() => navigate(`/my-work?assignee=${user.id}`))}
                 >
                   <UserAvatar user={user} size="xs" />
-                  <span className="truncate">{user.name}</span>
+                  <span dir="auto" className="truncate">{user.name}</span>
                   <CommandShortcut>{user.role}</CommandShortcut>
                 </CommandItem>
               ))}
@@ -263,7 +263,7 @@ export function CommandPalette() {
         {matchedTeams.length > 0 ? (
           <>
             <CommandSeparator />
-            <CommandGroup heading="Teams">
+            <CommandGroup heading={t('Teams')}>
               {matchedTeams.map((team) => (
                 <CommandItem
                   key={team.id}
@@ -271,7 +271,7 @@ export function CommandPalette() {
                   onSelect={() => run(() => navigate(`/teams/${team.id}`))}
                 >
                   <Users />
-                  <span className="truncate">{team.name}</span>
+                  <span dir="auto" className="truncate">{team.name}</span>
                 </CommandItem>
               ))}
               <MoreResults count={teamMatches.length - matchedTeams.length} />
@@ -280,22 +280,22 @@ export function CommandPalette() {
         ) : null}
 
         <CommandSeparator />
-        <CommandGroup heading="Navigate">
+        <CommandGroup heading={t('Navigate')}>
           <CommandItem value="dashboard overview" onSelect={() => run(() => navigate('/dashboard'))}>
             <LayoutDashboard />
-            Overview
+            {t('Overview')}
           </CommandItem>
           <CommandItem value="calendar" onSelect={() => run(() => navigate('/calendar'))}>
             <CalendarDays />
-            Calendar
+            {t('Calendar')}
           </CommandItem>
           <CommandItem value="teams" onSelect={() => run(() => navigate('/teams'))}>
             <Users />
-            Teams
+            {t('Teams')}
           </CommandItem>
           <CommandItem value="documents" onSelect={() => run(() => navigate('/documents'))}>
             <FileText />
-            Documents
+            {t('Documents')}
           </CommandItem>
           {/* The collaboration modules belong here too. A palette that knows
               about every page but the three newest is a palette people stop
@@ -305,21 +305,21 @@ export function CommandPalette() {
             onSelect={() => run(() => navigate('/meetings'))}
           >
             <CalendarClock />
-            Meetings
+            {t('Meetings')}
           </CommandItem>
           <CommandItem
             value="news announcements"
             onSelect={() => run(() => navigate('/news'))}
           >
             <Megaphone />
-            News
+            {t('News')}
           </CommandItem>
           <CommandItem
             value="wiki documentation handbook pages"
             onSelect={() => run(() => navigate('/wiki'))}
           >
             <BookOpen />
-            Wiki
+            {t('Wiki')}
           </CommandItem>
         </CommandGroup>
       </CommandList>
@@ -336,7 +336,7 @@ function MoreResults({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
     <p className="px-2.5 py-1.5 text-2xs text-muted-foreground" aria-live="polite">
-      {formatNumber(count)} more — refine your search
+      {t('{count, plural, other {# more — refine your search}}', { count })}
     </p>
   );
 }

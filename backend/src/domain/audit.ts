@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import { currentAuth } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
+import { render, renderStored, type Message } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import type { AuditEvent } from '../types/epm.js';
 
@@ -33,7 +34,12 @@ export interface AuditInput {
   entityType: string;
   entityId: string;
   action: string;
-  summary: string;
+  /**
+   * One line saying what happened. A message is kept as well as its English,
+   * so the journal reads in each reader's language (BR-605); the English is the
+   * record and what a search matches.
+   */
+  summary: string | Message;
   reason?: string | null;
   before?: unknown;
   after?: unknown;
@@ -60,7 +66,8 @@ export function auditRow(input: AuditInput): Prisma.AuditEventCreateManyInput {
     entityType: input.entityType,
     entityId: input.entityId,
     action: input.action,
-    summary: input.summary,
+    summary: typeof input.summary === 'string' ? input.summary : render('en', input.summary),
+    summaryMessage: typeof input.summary === 'string' ? Prisma.DbNull : json(input.summary),
     reason: input.reason ?? null,
     before: json(input.before),
     after: json(input.after),
@@ -130,7 +137,7 @@ export function toAuditEvent(row: AuditRow): AuditEvent {
     entityType: row.entityType,
     entityId: row.entityId,
     action: row.action,
-    summary: row.summary,
+    summary: renderStored(row.summary, row.summaryMessage),
     reason: row.reason ?? undefined,
     before: row.before ?? undefined,
     after: row.after ?? undefined,

@@ -22,6 +22,7 @@ import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePreferences, type Preferences } from '@/hooks/usePreferences';
 import { formatNumber } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { ID, EpmProject } from '@/types';
 
 /**
@@ -45,32 +46,32 @@ const PREFERENCES: ProfileToggle[] = [
   {
     section: 'notifications',
     key: 'mentions',
-    label: 'Mentions',
-    hint: 'When someone mentions you in a comment.',
+    get label() { return t('Mentions'); },
+    get hint() { return t('When someone mentions you in a comment.'); },
   },
   {
     section: 'notifications',
     key: 'assigned',
-    label: 'Assignments',
-    hint: 'When work is assigned to you.',
+    get label() { return t('Assignments'); },
+    get hint() { return t('When work is assigned to you.'); },
   },
   {
     section: 'notifications',
     key: 'dueReminders',
-    label: 'Deadline reminders',
-    hint: 'Two days before a due date.',
+    get label() { return t('Deadline reminders'); },
+    get hint() { return t('Two days before a due date.'); },
   },
   {
     section: 'notifications',
     key: 'digest',
-    label: 'Daily digest',
-    hint: 'A morning summary, in your notifications feed.',
+    get label() { return t('Daily digest'); },
+    get hint() { return t('A morning summary, in your notifications feed.'); },
   },
   {
     section: 'email',
     key: 'enabled',
-    label: 'Send me email',
-    hint: 'Off means no email of any kind.',
+    get label() { return t('Send me email'); },
+    get hint() { return t('Off means no email of any kind.'); },
   },
 ];
 
@@ -102,13 +103,13 @@ export default function ProfilePage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Profile"
-        description="Your identity, work and notification preferences."
+        title={t('Profile')}
+        description={t('Your identity, work and notification preferences.')}
         actions={
           <Button asChild variant="secondary" size="sm">
             <Link to="/settings">
               <Settings className="h-3.5 w-3.5" />
-              Settings
+              {t('Settings')}
             </Link>
           </Button>
         }
@@ -119,24 +120,24 @@ export default function ProfilePage() {
           <UserAvatar user={user} size="xl" showStatus />
 
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-semibold tracking-tight">{user.name}</h2>
+            <h2 dir="auto" className="truncate text-lg font-semibold tracking-tight">{user.name}</h2>
             <p className="text-xs text-muted-foreground">{user.role}</p>
 
             <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Building2 className="h-3.5 w-3.5" aria-hidden />
-                <dt className="sr-only">Department</dt>
+                <dt className="sr-only">{t('Department')}</dt>
                 <dd>{user.department}</dd>
               </div>
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Mail className="h-3.5 w-3.5" aria-hidden />
-                <dt className="sr-only">Email</dt>
+                <dt className="sr-only">{t('Email')}</dt>
                 <dd className="truncate font-mono text-2xs">{user.email}</dd>
               </div>
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" aria-hidden />
-                <dt className="sr-only">Timezone</dt>
-                <dd>{user.timezone || 'Timezone not set'}</dd>
+                <dt className="sr-only">{t('Timezone')}</dt>
+                <dd>{user.timezone || t('Timezone not set')}</dd>
               </div>
             </dl>
           </div>
@@ -146,16 +147,16 @@ export default function ProfilePage() {
       <Tabs defaultValue="work">
         <TabsList>
           <TabsTrigger value="work">
-            Assigned Work
+            {t('Assigned Work')}
             {assignedTotal > 0 ? (
-              <span className="ml-1.5 font-mono text-2xs text-muted-foreground">
+              <span className="ms-1.5 font-mono text-2xs text-muted-foreground">
                 {formatNumber(assignedTotal)}
               </span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="activity">My Activity</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          <TabsTrigger value="activity">{t('My Activity')}</TabsTrigger>
+          <TabsTrigger value="preferences">{t('Preferences')}</TabsTrigger>
+          <TabsTrigger value="notifications">{t('Notifications')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="work" className="mt-4">
@@ -164,10 +165,16 @@ export default function ProfilePage() {
               isLoading={tasksQuery.isLoading}
               isError={tasksQuery.isError}
               onRetry={() => tasksQuery.refetch()}
-              errorTitle="Unable to load your work"
+              errorTitle={t('Unable to load your work')}
               skeleton={<TaskListSkeleton rows={6} />}
               isEmpty={(tasksQuery.data?.items.length ?? 0) === 0}
-              empty={<EmptyState size="inline" title="No assigned work" description="Your queue is clear." />}
+              empty={
+                <EmptyState
+                  size="inline"
+                  title={t('No assigned work')}
+                  description={t('Your queue is clear.')}
+                />
+              }
             >
               <div className="divide-y divide-border">
                 {(tasksQuery.data?.items ?? []).map((task) => (
@@ -190,14 +197,14 @@ export default function ProfilePage() {
                 isLoading={activityQuery.isLoading}
                 isError={activityQuery.isError}
                 onRetry={() => activityQuery.refetch()}
-                errorTitle="Unable to load activity"
+                errorTitle={t('Unable to load activity')}
                 skeleton={<ActivityTimelineSkeleton rows={6} />}
                 isEmpty={myActivity.length === 0}
                 empty={
                   <EmptyState
                     size="inline"
-                    title="No recent activity"
-                    description="Your updates will appear here as you work."
+                    title={t('No recent activity')}
+                    description={t('Your updates will appear here as you work.')}
                   />
                 }
               >
@@ -210,17 +217,17 @@ export default function ProfilePage() {
         <TabsContent value="preferences" className="mt-4">
           <Card className="max-w-2xl">
             <CardHeader variant="compact">
-              <CardTitle>Working preferences</CardTitle>
-              <CardDescription>What the directory knows about you.</CardDescription>
+              <CardTitle>{t('Working preferences')}</CardTitle>
+              <CardDescription>{t('What the directory knows about you.')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 p-4">
               <FactList
                 facts={[
-                  { label: 'Timezone', value: user.timezone, mono: false },
-                  { label: 'Department', value: user.department, mono: false },
-                  { label: 'Role', value: user.role, mono: false },
+                  { label: t('Timezone'), value: user.timezone, mono: false },
+                  { label: t('Department'), value: user.department, mono: false },
+                  { label: t('Role'), value: user.role, mono: false },
                   {
-                    label: 'Account status',
+                    label: t('Account status'),
                     value: <span className="capitalize">{user.status}</span>,
                     mono: false,
                   },
@@ -228,8 +235,9 @@ export default function ProfilePage() {
               />
 
               <Alert tone="neutral">
-                Identity details are managed by your organisation directory and synchronised into
-                EPM. Contact the IT service desk to change your name, role or department.
+                {t(
+                  'Identity details are managed by your organisation directory and synchronised into EPM. Contact the IT service desk to change your name, role or department.',
+                )}
               </Alert>
             </CardContent>
           </Card>
@@ -238,8 +246,8 @@ export default function ProfilePage() {
         <TabsContent value="notifications" className="mt-4">
           <Card className="max-w-2xl">
             <CardHeader variant="compact">
-              <CardTitle>Notification preferences</CardTitle>
-              <CardDescription>Saved as you change them, and the same on every device.</CardDescription>
+              <CardTitle>{t('Notification preferences')}</CardTitle>
+              <CardDescription>{t('Saved as you change them, and the same on every device.')}</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
@@ -268,15 +276,15 @@ export default function ProfilePage() {
                   );
                 })}
                 <div className="px-4 py-2.5">
+                  {/* The whole sentence is the link, so it translates as one: a
+                      link on the last word alone would split it into fragments. */}
                   <FieldHint>
-                    Choose which kinds of email you get in{' '}
                     <Link
                       to="/settings?section=notifications"
                       className="text-primary underline-offset-4 hover:underline"
                     >
-                      Settings
+                      {t('Choose which kinds of email you get in Settings.')}
                     </Link>
-                    .
                   </FieldHint>
                 </div>
               </div>

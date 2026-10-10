@@ -7,6 +7,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { captureSnapshot, coverage, trends, type ScopeType } from '../domain/analytics.js';
 import { listPortfolios, toPortfolioFacts } from '../domain/portfolios.js';
 import { loadProjects } from './projects.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Analytics.
@@ -114,7 +115,7 @@ export const analyticsRoutes: FastifyPluginAsync = async (app) => {
 
     const scopeType = (query.scopeType ?? 'instance') as ScopeType;
     if (!SCOPE_TYPES.includes(scopeType)) {
-      throw EpmError.badRequest(`${query.scopeType} is not a scope type.`);
+      throw EpmError.badRequest(message('{value} is not a scope type.', { value: query.scopeType }));
     }
 
     // The snapshots are captured with the service key, so they count every

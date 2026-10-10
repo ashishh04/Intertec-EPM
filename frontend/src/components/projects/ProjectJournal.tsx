@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { useProjectJournal, useProjectJournalPage } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import type { AuditEvent, ID } from '@/types';
 
@@ -46,12 +47,13 @@ const skeleton = (
   </div>
 );
 
-const empty = (
+// A function, not a constant: its text is translated when it is shown, not at import.
+const empty = () => (
   <EmptyState
     size="inline"
     icon={Activity}
-    title="Nothing recorded yet"
-    description="Health calculations, overrides and plan changes are recorded here as they happen."
+    title={t('Nothing recorded yet')}
+    description={t('Health calculations, overrides and plan changes are recorded here as they happen.')}
   />
 );
 
@@ -74,10 +76,10 @@ export function ProjectJournal({ projectId, action, limit = 50, className }: Pro
       isError={query.isError}
       error={query.error}
       onRetry={() => query.refetch()}
-      errorTitle="Unable to load the journal"
+      errorTitle={t('Unable to load the journal')}
       skeleton={skeleton}
       isEmpty={(query.data ?? []).length === 0}
-      empty={empty}
+      empty={empty()}
     >
       <JournalEntries entries={query.data ?? []} users={users} className={className} />
     </QueryBoundary>
@@ -117,10 +119,10 @@ export function ProjectJournalPaged({
           isError={query.isError}
           error={query.error}
           onRetry={() => query.refetch()}
-          errorTitle="Unable to load the journal"
+          errorTitle={t('Unable to load the journal')}
           skeleton={skeleton}
           isEmpty={total === 0}
-          empty={empty}
+          empty={empty()}
         >
           <JournalEntries
             entries={query.data?.items ?? []}
@@ -140,8 +142,8 @@ export function ProjectJournalPaged({
             setPage(1);
           }}
           pageSizeOptions={[10, 15, 25, 50]}
-          itemLabel="entry"
-          itemLabelPlural="entries"
+          itemLabel={t('entry')}
+          itemLabelPlural={t('entries')}
           className="border-t border-border"
         />
       ) : null}
@@ -180,8 +182,8 @@ function JournalEntry({
     entry.actorKind === 'system'
       ? 'EPM'
       : entry.actorKind === 'service'
-        ? 'EPM Automation'
-        : actor?.name ?? 'Someone no longer listed';
+        ? t('EPM Automation')
+        : actor?.name ?? t('Someone no longer listed');
 
   return (
     <li className="flex items-start gap-2.5">
@@ -194,13 +196,13 @@ function JournalEntry({
       <div className="min-w-0 flex-1">
         <p className="text-xs leading-relaxed">{entry.summary}</p>
         {entry.reason ? (
-          <p className="mt-1 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">
+          <p className="mt-1 border-s-2 border-border ps-2 text-xs italic text-muted-foreground" dir="auto">
             {entry.reason}
           </p>
         ) : null}
         <p className="mt-1 flex items-center gap-1.5 text-2xs text-muted-foreground">
           {entry.actorKind === 'user' ? <UserAvatar user={actor} size="xs" /> : null}
-          <span>{who}</span>
+          <span dir="auto">{who}</span>
           <span aria-hidden>·</span>
           <InfoTooltip label={formatDateTime(entry.occurredAt)}>
             <time dateTime={entry.occurredAt} tabIndex={0}>

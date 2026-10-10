@@ -31,7 +31,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
-import { cn, formatNumber, pluralize } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { buildFilters, buildSort, type QueryFilterInstance } from '@/services/api/queries';
 import type { ID, EpmProject, UpdateTaskInput } from '@/types';
 
@@ -312,12 +313,12 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       },
       {
         onSuccess: (query) => {
-          toast.success(`Saved “${query.name}”`);
+          toast.success(t('Saved “{name}”', { name: query.name }));
           setNewName('');
           if (query.id) setSelectedQueryId(query.id);
         },
         onError: (error) =>
-          toast.error('Could not save this view', {
+          toast.error(t('Could not save this view'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -335,11 +336,11 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       { id: selected.id, patch: { name } },
       {
         onSuccess: () => {
-          toast.success('View renamed');
+          toast.success(t('View renamed'));
           setRenaming(false);
         },
         onError: (error) =>
-          toast.error('Could not rename this view', {
+          toast.error(t('Could not rename this view'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -351,12 +352,12 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
     deleteQuery.mutate(selected.id, {
       onSuccess: () => {
-        toast.success('View deleted');
+        toast.success(t('View deleted'));
         setDeletingView(false);
         selectQuery(AD_HOC);
       },
       onError: (error) =>
-        toast.error('Could not delete this view', {
+        toast.error(t('Could not delete this view'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -367,7 +368,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
     deleteTasks.mutate(deletingTasks, {
       onSuccess: () => {
-        toast.success('Deleted');
+        toast.success(t('Deleted'));
         setDeletingTasks(undefined);
       },
     });
@@ -378,16 +379,16 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       <div className="mb-3 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Select value={selectedQueryId} onValueChange={selectQuery}>
-            <SelectTrigger className="h-8 w-60" aria-label="View">
-              <SelectValue placeholder="Select a view" />
+            <SelectTrigger className="h-8 w-60" aria-label={t('View')}>
+              <SelectValue placeholder={t('Select a view')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={AD_HOC}>Default view</SelectItem>
+              <SelectItem value={AD_HOC}>{t('Default view')}</SelectItem>
               {(savedQueries.data ?? []).map((query) => (
                 <SelectItem key={query.id} value={String(query.id)}>
                   <span className="inline-flex items-center gap-1.5">
                     {query.starred ? (
-                      <Star className="h-3 w-3 fill-warning text-warning" aria-label="Starred" />
+                      <Star className="h-3 w-3 fill-warning text-warning" aria-label={t('Starred')} />
                     ) : null}
                     {query.name}
                   </span>
@@ -410,7 +411,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                     className={cn('h-3.5 w-3.5', selected.starred && 'fill-warning text-warning')}
                     aria-hidden
                   />
-                  {selected.starred ? 'Unstar' : 'Star'}
+                  {selected.starred ? t('Unstar') : t('Star')}
                 </Button>
               ) : null}
 
@@ -418,7 +419,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               {selected.can.update ? (
                 <Button variant="ghost" size="sm" onClick={() => setRenaming(true)}>
                   <Pencil className="h-3.5 w-3.5" />
-                  Rename
+                  {t('Rename')}
                 </Button>
               ) : null}
 
@@ -426,7 +427,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               {selected.can.delete ? (
                 <Button variant="ghost" size="sm" onClick={() => setDeletingView(true)}>
                   <Trash2 className="h-3.5 w-3.5" />
-                  Delete
+                  {t('Delete')}
                 </Button>
               ) : null}
             </>
@@ -440,26 +441,26 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             The title carries the reason for a pointer, and the hint below states
             it outright.
           */}
-          <div className="ml-auto flex flex-col items-end gap-0.5">
+          <div className="ms-auto flex flex-col items-end gap-0.5">
             <div className="flex items-center gap-1.5">
               <Input
                 value={newName}
                 onChange={(event) => setNewName(event.target.value)}
-                placeholder="Save current filters as…"
-                aria-label="New view name"
+                placeholder={t('Save current filters as…')}
+                aria-label={t('New view name')}
                 className="h-8 w-52"
               />
               <Button
                 size="sm"
                 onClick={save}
                 disabled={!newName.trim() || createQuery.isPending}
-                title={newName.trim() ? undefined : 'Give the view a name to save it'}
+                title={newName.trim() ? undefined : t('Give the view a name to save it')}
               >
-                Save view
+                {t('Save view')}
               </Button>
             </div>
             {!newName.trim() ? (
-              <p className="text-2xs text-muted-foreground">Name the view to save it.</p>
+              <p className="text-2xs text-muted-foreground">{t('Name the view to save it.')}</p>
             ) : null}
           </div>
         </div>
@@ -484,14 +485,14 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               setPage(1);
             }}
           >
-            <SelectTrigger className="h-8 w-48 shrink-0" aria-label="Group by">
-              <SelectValue placeholder="No grouping" />
+            <SelectTrigger className="h-8 w-48 shrink-0" aria-label={t('Group by')}>
+              <SelectValue placeholder={t('No grouping')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_GROUP}>No grouping</SelectItem>
+              <SelectItem value={NO_GROUP}>{t('No grouping')}</SelectItem>
               {(schemaQuery.data?.groupable ?? []).map((option) => (
                 <SelectItem key={option.id} value={option.id}>
-                  Group by {option.name}
+                  {t('Group by {name}', { name: option.name })}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -502,8 +503,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           <InfoTooltip
             label={
               groupBy || sort
-                ? 'Grouping and sorting each impose their own order, so the tree is off while either is set.'
-                : 'Show sub-items nested under their parent.'
+                ? t('Grouping and sorting each impose their own order, so the tree is off while either is set.')
+                : t('Show sub-items nested under their parent.')
             }
           >
             <span>
@@ -519,12 +520,16 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                 }}
               >
                 <ListTree className="h-3.5 w-3.5" />
-                Hierarchy
+                {t('Hierarchy')}
               </Button>
             </span>
           </InfoTooltip>
 
-          <InfoTooltip label="Show the total of each column that adds up, such as work, spent time and number fields like float, over the whole result.">
+          <InfoTooltip
+            label={t(
+              'Show the total of each column that adds up, such as work, spent time and number fields like float, over the whole result.',
+            )}
+          >
             <span>
               <Button
                 variant={effectiveSums ? 'secondary' : 'ghost'}
@@ -534,7 +539,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                 onClick={() => setSums(!effectiveSums)}
               >
                 <Sigma className="h-3.5 w-3.5" />
-                Sums
+                {t('Sums')}
               </Button>
             </span>
           </InfoTooltip>
@@ -558,7 +563,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         skeleton={<TaskTableSkeleton />}
         // No `empty` here on purpose: the table draws its own empty state so
         // the toolbar and column controls stay put when a filter matches nothing.
-        errorTitle="This view could not be loaded"
+        errorTitle={t('This view could not be loaded')}
       >
         <TaskTable
           tasks={result.data?.tasks ?? []}
@@ -586,7 +591,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               { ids, patch },
               {
                 onSuccess: (updated) =>
-                  toast.success(`Updated ${updated.length} ${pluralize(updated.length, 'task')}`),
+                  toast.success(
+                    t('{count, plural, one {Updated # task} other {Updated # tasks}}', { count: updated.length }),
+                  ),
               },
             )
           }
@@ -597,7 +604,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           sums={tableSums}
           hideProjectColumn={Boolean(projectId)}
           emptyAction={{
-            label: 'New task',
+            label: t('New task'),
             onClick: () => openTaskDrawer(projectId ? { projectId } : undefined),
           }}
         />
@@ -605,20 +612,20 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
 
       {current ? (
         <p className="mt-2 text-2xs text-muted-foreground">
-          {formatNumber(result.data?.total ?? 0)}{' '}
-          {pluralize(result.data?.total ?? 0, 'work package')} ·{' '}
-          {formatNumber(appliedFilters.length)} {pluralize(appliedFilters.length, 'filter')}{' '}
-          applied
+          {t(
+            '{total, plural, one {# work package} other {# work packages}} · {filters, plural, one {# filter applied} other {# filters applied}}',
+            { total: result.data?.total ?? 0, filters: appliedFilters.length },
+          )}
         </p>
       ) : null}
 
       <PromptDialog
         open={renaming}
         onOpenChange={setRenaming}
-        title="Rename this view"
-        label="Name"
+        title={t('Rename this view')}
+        label={t('Name')}
         initialValue={selected?.name ?? ''}
-        confirmLabel="Rename"
+        confirmLabel={t('Rename')}
         pending={updateQuery.isPending}
         onSubmit={rename}
       />
@@ -626,9 +633,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       <ConfirmDialog
         open={deletingView}
         onOpenChange={setDeletingView}
-        title={`Delete the view “${selected?.name ?? ''}”?`}
-        description="This cannot be undone."
-        confirmLabel="Delete view"
+        title={t('Delete the view “{name}”?', { name: selected?.name ?? '' })}
+        description={t('This cannot be undone.')}
+        confirmLabel={t('Delete view')}
         tone="danger"
         pending={deleteQuery.isPending}
         onConfirm={remove}
@@ -639,9 +646,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         onOpenChange={(open) => {
           if (!open) setDeletingTasks(undefined);
         }}
-        title={`Delete ${formatNumber(deletingTasks?.length ?? 0)} ${pluralize(deletingTasks?.length ?? 0, 'task')}?`}
-        description="This cannot be undone."
-        confirmLabel="Delete"
+        title={t('{count, plural, one {Delete # task?} other {Delete # tasks?}}', { count: deletingTasks?.length ?? 0 })}
+        description={t('This cannot be undone.')}
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={deleteTasks.isPending}
         onConfirm={removeTasks}

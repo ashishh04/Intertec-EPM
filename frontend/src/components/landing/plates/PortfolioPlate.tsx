@@ -1,4 +1,5 @@
 import { PlateFrame } from './PlateFrame';
+import { t } from '@/lib/i18n';
 
 /**
  * Portfolio rollup: three projects and the single figure they add up to.
@@ -18,10 +19,10 @@ const RING_LENGTH = 2 * Math.PI * RING_RADIUS;
 const RING_FRACTION = 0.82;
 
 const ROWS = [
-  { label: 'Digital transformation', pct: 82, kind: 'portfolio', indent: 0 },
-  { label: 'Core banking', pct: 64, kind: 'track', indent: 8 },
-  { label: 'Retail portal', pct: 41, kind: 'risk', indent: 8 },
-  { label: 'Network refresh', pct: 73, kind: 'track', indent: 8 },
+  { get label() { return t('Digital transformation'); }, pct: 82, kind: 'portfolio', indent: 0 },
+  { get label() { return t('Core banking'); }, pct: 64, kind: 'track', indent: 8 },
+  { get label() { return t('Retail portal'); }, pct: 41, kind: 'risk', indent: 8 },
+  { get label() { return t('Network refresh'); }, pct: 73, kind: 'track', indent: 8 },
 ] as const;
 
 /*
@@ -60,10 +61,10 @@ export function PortfolioPlate() {
             <p
               className={`font-display font-semibold uppercase tracking-[0.2em] text-white/70 ${LABEL}`}
             >
-              Portfolio health
+              {t('Portfolio health')}
             </p>
             <p className={`mt-[0.5em] font-mono text-white/30 ${MICRO}`}>
-              {ROWS.length - 1} projects · FY26 Q4
+              {t('{count, plural, one {# project} other {# projects}} · FY26 Q4', { count: ROWS.length - 1 })}
             </p>
           </div>
 
@@ -71,7 +72,7 @@ export function PortfolioPlate() {
             className={`flex items-center gap-[0.5em] rounded-full bg-[hsl(var(--highlight)/0.14)] px-[0.8em] py-[0.45em] font-mono text-[hsl(var(--highlight))] ring-1 ring-inset ring-[hsl(var(--highlight)/0.35)] ${MICRO}`}
           >
             <span className="h-[0.45em] w-[0.45em] rounded-full bg-[hsl(var(--highlight))]" />
-            {atRisk} at risk
+            {t('{count, number} at risk', { count: atRisk })}
           </span>
         </div>
 
@@ -117,27 +118,27 @@ export function PortfolioPlate() {
               <span className="font-display text-[clamp(14px,1.6vw,28px)] font-semibold leading-none tracking-tight text-white">
                 82%
               </span>
-              <span className={`uppercase tracking-[0.16em] text-white/40 ${MICRO}`}>On track</span>
+              <span className={`uppercase tracking-[0.16em] text-white/40 ${MICRO}`}>{t('On track')}</span>
             </span>
           </div>
 
           {/* The rows it is made of */}
           <div className="relative grid h-full flex-1 grid-rows-4 items-center">
             {/* The rail that ties the projects to the portfolio above them */}
-            <span className="absolute bottom-[14%] left-[2%] top-[32%] w-px bg-white/10" />
+            <span className="absolute bottom-[14%] start-[2%] top-[32%] w-px bg-white/10" />
 
             {ROWS.map((row, index) => (
-              <div key={row.label} style={{ paddingLeft: `${row.indent}%` }}>
+              <div key={row.label} style={{ paddingInlineStart: `${row.indent}%` }}>
                 <div className={`flex items-center gap-[3%] ${LABEL}`}>
                   <span className={`h-[0.5em] w-[0.5em] shrink-0 rounded-full ${KIND[row.kind].dot}`} />
                   <span className="truncate text-white/70">{row.label}</span>
-                  <span className="ml-auto shrink-0 font-mono tabular-nums text-white/45">
+                  <span className="ms-auto shrink-0 font-mono tabular-nums text-white/45">
                     {row.pct}%
                   </span>
                 </div>
                 <span className="relative mt-[0.55em] block h-[5px] overflow-hidden rounded-full bg-white/[0.05] ring-1 ring-inset ring-white/[0.04]">
                   <span
-                    className={`absolute inset-y-0 left-0 origin-left rounded-full ${KIND[row.kind].bar}`}
+                    className={`absolute inset-y-0 start-0 origin-left rtl:origin-right rounded-full ${KIND[row.kind].bar}`}
                     style={{
                       width: `${row.pct}%`,
                       animation: `epm-bar-draw ${CYCLE_SECONDS}s cubic-bezier(0.32,0.72,0,1) infinite`,

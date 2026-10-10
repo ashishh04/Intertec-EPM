@@ -14,6 +14,7 @@ import { FieldError, FieldHint, Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useApprovalLink, useDecideApprovalLink } from '@/hooks/useApprovals';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { ApiError } from '@/services/api/client';
 import type { ApprovalDecision } from '@/services/api/approvals';
 import type { ApprovalRequestView } from '@/types';
@@ -47,15 +48,15 @@ export default function ApprovalDecidePage() {
 
   if (link.isError) {
     const status = link.error instanceof ApiError ? link.error.status : 0;
-    const message = link.error instanceof Error ? link.error.message : 'This link cannot be used.';
+    const message = link.error instanceof Error ? link.error.message : t('This link cannot be used.');
     return (
       <div className="mx-auto max-w-xl space-y-4">
-        <PageHeader title="Approval link" />
-        <Alert tone={status === 403 ? 'danger' : 'warning'} icon={status === 410 ? CircleSlash : XCircle} title={status === 410 ? 'This link is spent' : 'This link cannot be used'}>
+        <PageHeader title={t('Approval link')} />
+        <Alert tone={status === 403 ? 'danger' : 'warning'} icon={status === 410 ? CircleSlash : XCircle} title={status === 410 ? t('This link is spent') : t('This link cannot be used')}>
           {message}
         </Alert>
         <Button asChild variant="secondary">
-          <Link to="/approvals">Open Approvals</Link>
+          <Link to="/approvals">{t('Open Approvals')}</Link>
         </Button>
       </div>
     );
@@ -69,18 +70,21 @@ export default function ApprovalDecidePage() {
   if (result) {
     return (
       <div className="mx-auto max-w-xl space-y-4">
-        <PageHeader title="Decision recorded" />
-        <Alert tone="success" icon={CheckCircle2} title={reject ? 'Rejected' : 'Approved'}>
+        <PageHeader title={t('Decision recorded')} />
+        <Alert tone="success" icon={CheckCircle2} title={reject ? t('Rejected') : t('Approved')}>
           {request.status === 'pending'
-            ? 'Your step is done; the next approvers have been told.'
-            : `The request is now ${REQUEST_STATUS[request.status].label.toLowerCase()}, and the requester has been told.`}
+            ? t('Your step is done; the next approvers have been told.')
+            : t(
+                '{status, select, approved {The request is now approved, and the requester has been told.} rejected {The request is now rejected, and the requester has been told.} cancelled {The request is now withdrawn, and the requester has been told.} other {The request is now waiting for approval, and the requester has been told.}}',
+                { status: request.status },
+              )}
         </Alert>
         <div className="flex gap-2">
           <Button asChild>
-            <Link to={`/tasks/${request.subjectId}`}>Open the work package</Link>
+            <Link to={`/tasks/${request.subjectId}`}>{t('Open the work package')}</Link>
           </Button>
           <Button asChild variant="secondary">
-            <Link to="/approvals">Back to Approvals</Link>
+            <Link to="/approvals">{t('Back to Approvals')}</Link>
           </Button>
         </div>
       </div>
@@ -90,10 +94,10 @@ export default function ApprovalDecidePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader
-        eyebrow="Approval"
+        eyebrow={t('Approval')}
         title={request.title}
         description={`${request.projectName ?? ''} · ${request.chainName}${
-          request.value !== undefined ? ` · ${request.valueLabel ?? 'Value'} ${request.value.toLocaleString('en-US')}` : ''
+          request.value !== undefined ? ` · ${request.valueLabel ?? t('Value')} ${request.value.toLocaleString('en-US')}` : ''
         }`}
         meta={<Badge tone={REQUEST_STATUS[request.status].tone}>{REQUEST_STATUS[request.status].label}</Badge>}
       />
@@ -102,26 +106,26 @@ export default function ApprovalDecidePage() {
         <CardHeader className="border-b border-border">
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden />
-            Your decision at “{view.stepName}”
+            {t('Your decision at “{step}”', { step: view.stepName })}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
           {view.onBehalfOf ? (
-            <Alert tone="neutral">You are deciding on behalf of {users.get(view.onBehalfOf)?.name ?? 'the approver'}, under their delegation.</Alert>
+            <Alert tone="neutral">{t('You are deciding on behalf of {name}, under their delegation.', { name: users.get(view.onBehalfOf)?.name ?? t('the approver') })}</Alert>
           ) : null}
 
-          <div className="flex gap-2" role="radiogroup" aria-label="Decision">
+          <div className="flex gap-2" role="radiogroup" aria-label={t('Decision')}>
             <Button variant={!reject ? 'default' : 'secondary'} role="radio" aria-checked={!reject} onClick={() => setDecision('approve')}>
-              Approve
+              {t('Approve')}
             </Button>
             <Button variant={reject ? 'danger' : 'secondary'} role="radio" aria-checked={reject} onClick={() => setDecision('reject')}>
-              Reject
+              {t('Reject')}
             </Button>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="link-comment" required={reject}>
-              {reject ? 'Reason' : 'Comment'}
+              {reject ? t('Reason') : t('Comment')}
             </Label>
             <Textarea
               id="link-comment"
@@ -129,18 +133,18 @@ export default function ApprovalDecidePage() {
               maxLength={2000}
               value={comment}
               onChange={(event) => setComment(event.target.value)}
-              placeholder={reject ? 'What would have to change for this to be approved?' : 'Optional'}
+              placeholder={reject ? t('What would have to change for this to be approved?') : t('Optional')}
               invalid={touched && missing}
             />
             {touched && missing ? (
-              <FieldError>Say why you are rejecting it: the requester is shown your reason.</FieldError>
+              <FieldError>{t('Say why you are rejecting it: the requester is shown your reason.')}</FieldError>
             ) : (
-              <FieldHint>Nothing is decided until you confirm. This link then stops working.</FieldHint>
+              <FieldHint>{t('Nothing is decided until you confirm. This link then stops working.')}</FieldHint>
             )}
           </div>
 
           {decide.isError ? (
-            <Alert tone="danger">{decide.error instanceof Error ? decide.error.message : 'That could not be recorded.'}</Alert>
+            <Alert tone="danger">{decide.error instanceof Error ? decide.error.message : t('That could not be recorded.')}</Alert>
           ) : null}
 
           <Button
@@ -152,14 +156,14 @@ export default function ApprovalDecidePage() {
               decide.mutate({ token, decision, comment: comment.trim() || undefined }, { onSuccess: setResult });
             }}
           >
-            Confirm: {reject ? 'reject' : 'approve'}
+            {reject ? t('Confirm: reject') : t('Confirm: approve')}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="border-b border-border">
-          <CardTitle>The chain so far</CardTitle>
+          <CardTitle>{t('The chain so far')}</CardTitle>
         </CardHeader>
         <CardContent className="pt-4">
           {/* Read-only here: the decision above is the one this link makes. */}

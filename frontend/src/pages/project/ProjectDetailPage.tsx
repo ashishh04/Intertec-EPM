@@ -42,6 +42,7 @@ import { projectWriteService } from '@/services';
 import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
+import { t } from '@/lib/i18n';
 import { toast } from 'sonner';
 
 /**
@@ -70,9 +71,9 @@ export default function ProjectDetailPage() {
     setWorking(true);
 
     const verbs = {
-      archive: { run: () => projectWriteService.archive(project.id), done: 'Project archived' },
-      restore: { run: () => projectWriteService.restore(project.id), done: 'Project restored' },
-      delete: { run: () => projectWriteService.remove(project.id), done: 'Project deleted' },
+      archive: { run: () => projectWriteService.archive(project.id), done: t('Project archived') },
+      restore: { run: () => projectWriteService.restore(project.id), done: t('Project restored') },
+      delete: { run: () => projectWriteService.remove(project.id), done: t('Project deleted') },
     } as const;
 
     try {
@@ -108,7 +109,7 @@ export default function ProjectDetailPage() {
         ),
       );
     } catch (error) {
-      toast.error('That could not be done', {
+      toast.error(t('That could not be done'), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -124,8 +125,8 @@ export default function ProjectDetailPage() {
   if (isError) {
     return (
       <ErrorState
-        title="Unable to load project"
-        description="Something went wrong while loading this project."
+        title={t('Unable to load project')}
+        description={t('Something went wrong while loading this project.')}
         onRetry={() => refetch()}
       />
     );
@@ -164,9 +165,9 @@ export default function ProjectDetailPage() {
           <>
             <div className="hidden items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 sm:flex">
               <UserAvatar user={owner} size="sm" />
-              <div className="text-left">
-                <p className="epm-eyebrow">Owner</p>
-                <p className="text-2xs font-medium">{owner?.name ?? 'Unassigned'}</p>
+              <div className="text-start">
+                <p className="epm-eyebrow">{t('Owner')}</p>
+                <p className="text-2xs font-medium">{owner?.name ?? t('Unassigned')}</p>
               </div>
             </div>
 
@@ -177,7 +178,7 @@ export default function ProjectDetailPage() {
               disabled={!canInProject(projectId, 'project:edit')}
             >
               <Pencil className="h-3.5 w-3.5" />
-              Edit
+              {t('Edit')}
             </Button>
             <Button
               size="sm"
@@ -185,7 +186,7 @@ export default function ProjectDetailPage() {
               disabled={!canInProject(projectId, 'task:create')}
             >
               <Plus className="h-4 w-4" />
-              Add Task
+              {t('Add Task')}
             </Button>
             <Button
               variant="secondary"
@@ -194,12 +195,12 @@ export default function ProjectDetailPage() {
               onClick={() => setInviteOpen(true)}
             >
               <UserPlus className="h-3.5 w-3.5" />
-              Invite
+              {t('Invite')}
             </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="More project actions">
+                <Button variant="ghost" size="icon" aria-label={t('More project actions')}>
                   <Ellipsis className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -210,7 +211,7 @@ export default function ProjectDetailPage() {
                     a different feature. */}
                 <DropdownMenuItem onSelect={() => setInviteOpen(true)}>
                   <Share2 />
-                  Share with someone
+                  {t('Share with someone')}
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
@@ -218,7 +219,7 @@ export default function ProjectDetailPage() {
                 {project.status === 'paused' ? (
                   <DropdownMenuItem onSelect={() => setPendingAction('restore')}>
                     <ArchiveRestore />
-                    Restore project
+                    {t('Restore project')}
                   </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem
@@ -226,7 +227,7 @@ export default function ProjectDetailPage() {
                     disabled={!project.can.archive}
                   >
                     <Archive />
-                    Archive project
+                    {t('Archive project')}
                   </DropdownMenuItem>
                 )}
 
@@ -235,7 +236,7 @@ export default function ProjectDetailPage() {
                 {project.can.remove ? (
                   <DropdownMenuItem destructive onSelect={() => setPendingAction('delete')}>
                     <Trash2 />
-                    Delete project
+                    {t('Delete project')}
                   </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
@@ -246,11 +247,13 @@ export default function ProjectDetailPage() {
 
       <div className="flex items-center gap-3">
         <AvatarGroup users={project.memberIds.map((id) => users.get(id))} max={6} size="sm" />
-        <span className="text-2xs text-muted-foreground">{project.memberIds.length} members</span>
+        <span className="text-2xs text-muted-foreground">
+          {t('{count, plural, other {# members}}', { count: project.memberIds.length })}
+        </span>
       </div>
 
       {/* Project navigation */}
-      <nav aria-label="Project sections" className="epm-scroll -mx-1 overflow-x-auto">
+      <nav aria-label={t('Project sections')} className="epm-scroll -mx-1 overflow-x-auto">
         <ul className="flex min-w-max items-center gap-4 border-b border-border px-1">
           {PROJECT_TABS.map((tab) => (
             <li key={tab.segment || 'overview'}>
@@ -292,22 +295,22 @@ export default function ProjectDetailPage() {
           <DialogHeader>
             <DialogTitle>
               {pendingAction === 'delete'
-                ? `Delete ${project.name}?`
+                ? t('Delete {name}?', { name: project.name })
                 : pendingAction === 'restore'
-                  ? `Restore ${project.name}?`
-                  : `Archive ${project.name}?`}
+                  ? t('Restore {name}?', { name: project.name })
+                  : t('Archive {name}?', { name: project.name })}
             </DialogTitle>
             <DialogDescription>
               {pendingAction === 'delete'
-                ? 'This removes the project permanently, along with every work package, comment and time entry in it. It cannot be undone. Archiving keeps all of that and can be reversed.'
+                ? t('This removes the project permanently, along with every work package, comment and time entry in it. It cannot be undone. Archiving keeps all of that and can be reversed.')
                 : pendingAction === 'restore'
-                  ? 'It becomes active again and reappears in the project list.'
-                  : 'It stops appearing in the active project list and its work is put aside. You can restore it afterwards.'}
+                  ? t('It becomes active again and reappears in the project list.')
+                  : t('It stops appearing in the active project list and its work is put aside. You can restore it afterwards.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setPendingAction(undefined)} disabled={working}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button
               variant={pendingAction === 'restore' ? 'default' : 'danger'}
@@ -315,10 +318,10 @@ export default function ProjectDetailPage() {
               disabled={working}
             >
               {pendingAction === 'delete'
-                ? 'Delete permanently'
+                ? t('Delete permanently')
                 : pendingAction === 'restore'
-                  ? 'Restore'
-                  : 'Archive'}
+                  ? t('Restore')
+                  : t('Archive')}
             </Button>
           </DialogFooter>
         </DialogContent>

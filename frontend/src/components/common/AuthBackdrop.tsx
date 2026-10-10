@@ -33,11 +33,11 @@ export function AuthBackdrop({
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -left-40 top-[-16rem] h-[42rem] w-[42rem] rounded-full bg-white/15 blur-3xl"
+        className="pointer-events-none absolute -start-40 top-[-16rem] h-[42rem] w-[42rem] rounded-full bg-white/15 blur-3xl"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-48 bottom-[-18rem] h-[46rem] w-[46rem] rounded-full bg-brand-to/60 blur-3xl"
+        className="pointer-events-none absolute -end-48 bottom-[-18rem] h-[46rem] w-[46rem] rounded-full bg-brand-to/60 blur-3xl"
       />
       <div
         aria-hidden

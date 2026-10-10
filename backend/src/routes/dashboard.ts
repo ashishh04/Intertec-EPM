@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
+import { contextLanguage, t } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId, type OpFilter } from '../openproject/client.js';
@@ -45,7 +46,7 @@ async function trendFor(
     changePct: 0,
     direction: 'flat',
     positiveIsUp,
-    periodLabel: 'vs last week',
+    periodLabel: t(contextLanguage(), 'vs last week'),
   };
 
   const previous = await optional(async () => {
@@ -64,7 +65,7 @@ async function trendFor(
     changePct: Math.abs(changePct),
     direction: changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat',
     positiveIsUp,
-    periodLabel: 'vs last week',
+    periodLabel: t(contextLanguage(), 'vs last week'),
   };
 }
 
@@ -161,7 +162,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
      *
      * Keyed per user — these are *your* counts, filtered by your permissions.
      */
-    return aggregateCache.get(userScopedKey('dashboard-metrics'), async () => {
+    // Per language too: the comparison label inside is written for the reader.
+    return aggregateCache.get(userScopedKey(`dashboard-metrics:${contextLanguage()}`), async () => {
 
     const [me, catalog, projects] = await Promise.all([
       getCurrentUser(signal),

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import type { ApprovalDecision } from '@/services/api/approvals';
 import type { ApprovalStepView, ApprovalTaskView } from '@/types';
@@ -19,18 +20,18 @@ import type { ApprovalStepView, ApprovalTaskView } from '@/types';
  */
 
 const STEP_STATUS: Record<ApprovalStepView['status'], { label: string; tone: 'neutral' | 'primary' | 'success' | 'danger' }> = {
-  waiting: { label: 'Waiting', tone: 'neutral' },
-  active: { label: 'Deciding now', tone: 'primary' },
-  approved: { label: 'Approved', tone: 'success' },
-  rejected: { label: 'Rejected', tone: 'danger' },
-  skipped: { label: 'Skipped', tone: 'neutral' },
+  waiting: { get label() { return t('Waiting'); }, tone: 'neutral' },
+  active: { get label() { return t('Deciding now'); }, tone: 'primary' },
+  approved: { get label() { return t('Approved'); }, tone: 'success' },
+  rejected: { get label() { return t('Rejected'); }, tone: 'danger' },
+  skipped: { get label() { return t('Skipped'); }, tone: 'neutral' },
 };
 
 function hoursText(ms: number): string {
   const hours = Math.abs(ms) / 3_600_000;
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} min`;
-  if (hours < 48) return `${Math.round(hours)} h`;
-  return `${Math.round(hours / 24)} days`;
+  if (hours < 1) return t('{minutes, number} min', { minutes: Math.max(1, Math.round(hours * 60)) });
+  if (hours < 48) return t('{hours, number} h', { hours: Math.round(hours) });
+  return t('{days, plural, one {# day} other {# days}}', { days: Math.round(hours / 24) });
 }
 
 function SlaNote({ task }: { task: ApprovalTaskView }) {
@@ -38,20 +39,20 @@ function SlaNote({ task }: { task: ApprovalTaskView }) {
   const left = Date.parse(task.dueAt) - Date.now();
   if (task.breachedAt || left < 0) {
     return (
-      <InfoTooltip label={`SLA ran out ${formatDateTime(task.dueAt)}`}>
+      <InfoTooltip label={t('SLA ran out {date}', { date: formatDateTime(task.dueAt) })}>
         <span tabIndex={0} className="inline-flex items-center gap-1 font-medium text-danger">
           <Clock className="h-3 w-3" aria-hidden />
-          Overdue by {hoursText(left)}
-          {task.breachedAt ? ' · escalated' : ''}
+          {t('Overdue by {duration}', { duration: hoursText(left) })}
+          {task.breachedAt ? ` · ${t('escalated')}` : ''}
         </span>
       </InfoTooltip>
     );
   }
   return (
-    <InfoTooltip label={`Due ${formatDateTime(task.dueAt)}`}>
+    <InfoTooltip label={t('Due {date}', { date: formatDateTime(task.dueAt) })}>
       <span tabIndex={0} className="inline-flex items-center gap-1 text-muted-foreground">
         <Clock className="h-3 w-3" aria-hidden />
-        {hoursText(left)} left
+        {t('{duration} left', { duration: hoursText(left) })}
       </span>
     </InfoTooltip>
   );
@@ -66,7 +67,7 @@ interface ApprovalStepsProps {
 
 export function ApprovalSteps({ steps, onDecide, className }: ApprovalStepsProps) {
   const users = useUserMap();
-  const name = (id?: string) => (id ? users.get(id)?.name ?? 'Someone no longer listed' : '');
+  const name = (id?: string) => (id ? users.get(id)?.name ?? t('Someone no longer listed') : '');
 
   return (
     <ol className={cn('space-y-3', className)}>
@@ -83,11 +84,11 @@ export function ApprovalSteps({ steps, onDecide, className }: ApprovalStepsProps
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold">
-                <span className="mr-1.5 font-mono text-2xs text-muted-foreground">{step.index + 1}</span>
+                <span className="me-1.5 font-mono text-2xs text-muted-foreground">{step.index + 1}</span>
                 {step.name}
-                <span className="ml-1.5 font-normal text-muted-foreground">
-                  · {step.mode === 'all' ? 'everyone must approve' : 'any one approves'}
-                  {step.slaHours ? ` · ${step.slaHours} h SLA` : ''}
+                <span className="ms-1.5 font-normal text-muted-foreground">
+                  · {step.mode === 'all' ? t('everyone must approve') : t('any one approves')}
+                  {step.slaHours ? ` · ${t('{hours, number} h SLA', { hours: step.slaHours })}` : ''}
                 </span>
               </p>
               <Badge tone={meta.tone} className="text-2xs">
@@ -106,32 +107,32 @@ export function ApprovalSteps({ steps, onDecide, className }: ApprovalStepsProps
                         <p className="text-xs">
                           <span className="font-medium">{name(task.approverId)}</span>
                           {task.status === 'approved' ? (
-                            <span className="ml-1.5 inline-flex items-center gap-0.5 text-success">
-                              <Check className="h-3 w-3" aria-hidden /> approved
+                            <span className="ms-1.5 inline-flex items-center gap-0.5 text-success">
+                              <Check className="h-3 w-3" aria-hidden /> {t('approved')}
                             </span>
                           ) : task.status === 'rejected' ? (
-                            <span className="ml-1.5 inline-flex items-center gap-0.5 text-danger">
-                              <X className="h-3 w-3" aria-hidden /> rejected
+                            <span className="ms-1.5 inline-flex items-center gap-0.5 text-danger">
+                              <X className="h-3 w-3" aria-hidden /> {t('rejected')}
                             </span>
                           ) : task.status === 'skipped' ? (
-                            <span className="ml-1.5 inline-flex items-center gap-0.5 text-muted-foreground">
-                              <Minus className="h-3 w-3" aria-hidden /> not needed
+                            <span className="ms-1.5 inline-flex items-center gap-0.5 text-muted-foreground">
+                              <Minus className="h-3 w-3" aria-hidden /> {t('not needed')}
                             </span>
                           ) : task.status === 'pending' ? (
-                            <span className="ml-1.5 text-muted-foreground">to decide</span>
+                            <span className="ms-1.5 text-muted-foreground">{t('to decide')}</span>
                           ) : (
-                            <span className="ml-1.5 text-muted-foreground">waiting for the step before</span>
+                            <span className="ms-1.5 text-muted-foreground">{t('waiting for the step before')}</span>
                           )}
                         </p>
                         {task.delegateId && task.status === 'pending' ? (
                           <p className="flex items-center gap-1 text-2xs text-muted-foreground">
                             <CornerDownRight className="h-3 w-3" aria-hidden />
-                            Delegated to {name(task.delegateId)}; either may decide
+                            {t('Delegated to {name}; either may decide', { name: name(task.delegateId) })}
                           </p>
                         ) : null}
                         {task.decidedAt ? (
                           <p className="text-2xs text-muted-foreground">
-                            {task.onBehalfOf ? `By ${name(task.decidedBy)} on behalf of ${name(task.onBehalfOf)} · ` : ''}
+                            {task.onBehalfOf ? `${t('By {name} on behalf of {principal}', { name: name(task.decidedBy), principal: name(task.onBehalfOf) })} · ` : ''}
                             <InfoTooltip label={formatDateTime(task.decidedAt)}>
                               <time tabIndex={0} dateTime={task.decidedAt}>
                                 {formatRelative(task.decidedAt)}
@@ -140,7 +141,7 @@ export function ApprovalSteps({ steps, onDecide, className }: ApprovalStepsProps
                           </p>
                         ) : null}
                         {task.comment ? (
-                          <p className="mt-1 border-l-2 border-border pl-2 text-xs italic text-muted-foreground">{task.comment}</p>
+                          <p dir="auto" className="mt-1 border-s-2 border-border ps-2 text-xs italic text-muted-foreground">{task.comment}</p>
                         ) : null}
                         <p className="text-2xs">
                           <SlaNote task={task} />
@@ -150,10 +151,10 @@ export function ApprovalSteps({ steps, onDecide, className }: ApprovalStepsProps
                     {task.canDecide && onDecide ? (
                       <div className="flex shrink-0 gap-1.5">
                         <Button size="sm" variant="secondary" onClick={() => onDecide(task, 'reject')}>
-                          Reject
+                          {t('Reject')}
                         </Button>
                         <Button size="sm" onClick={() => onDecide(task, 'approve')}>
-                          Approve
+                          {t('Approve')}
                         </Button>
                       </div>
                     ) : null}

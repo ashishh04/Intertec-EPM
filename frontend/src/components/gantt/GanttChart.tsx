@@ -36,6 +36,7 @@ import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { floatBand, floatLabel, NEAR_CRITICAL_CHOICES, type FloatBand } from '@/lib/critical-path';
 import { TASK_STATUS_META, TONE_FILL } from '@/lib/domain';
 import { cn, formatPercent, formatRelative, formatShortDate } from '@/lib/utils';
+import { currentConventions, currentLanguage, intlLocale, isRightToLeft, t } from '@/lib/i18n';
 import type { ID, Milestone, EpmTask, EpmUser, ProjectCriticalPath, ScheduleItem } from '@/types';
 
 type ZoomLevel = 'day' | 'week' | 'month';
@@ -78,6 +79,27 @@ interface GanttChartProps {
  * and the relations that drive the critical path in red. Its settings live in
  * the address, so a highlighted view can be shared as a link.
  */
+
+/**
+ * Month and day labels for the scale, in the reader's language and digits. The
+ * bands are Gregorian months whatever calendar the reader prefers — a Hijri
+ * month does not line up with them — so the Gregorian calendar is named here.
+ */
+function monthLabel(date: Date, long: boolean): string {
+  if (currentLanguage() === 'en' && currentConventions().numerals === 'latn') {
+    return format(date, long ? 'MMMM yyyy' : 'MMM');
+  }
+  return new Intl.DateTimeFormat(
+    intlLocale({ ...currentConventions(), calendar: 'gregory' }),
+    long ? { month: 'long', year: 'numeric' } : { month: 'short' },
+  ).format(date);
+}
+
+function dayLabel(date: Date): string {
+  if (currentConventions().numerals === 'latn') return format(date, 'd');
+  return new Intl.NumberFormat(intlLocale()).format(date.getDate());
+}
+
 export function GanttChart({ tasks, users, milestones = [], schedule, className }: GanttChartProps) {
   const [zoom, setZoom] = useState<ZoomLevel>('week');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -178,7 +200,10 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    container.scrollLeft = Math.max(0, todayOffset - container.clientWidth / 4);
+    // Right to left, the browser counts scroll from the right edge and goes
+    // negative toward the past, so the same distance is applied with its sign
+    // turned (BR-603).
+    container.scrollLeft = (isRightToLeft() ? -1 : 1) * Math.max(0, todayOffset - container.clientWidth / 4);
   }, [todayOffset, zoom]);
 
   // Month bands drawn above the day scale.
@@ -197,7 +222,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
       // and it stays unlabelled; the day scale below still dates it.
       const width = span * columnWidth;
       bands.push({
-        label: width >= 120 ? format(monthStart, 'MMMM yyyy') : width >= 44 ? format(monthStart, 'MMM') : '',
+        label: width >= 120 ? monthLabel(monthStart, true) : width >= 44 ? monthLabel(monthStart, false) : '',
         width,
         offset: index * columnWidth,
       });
@@ -242,8 +267,8 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
     return (
       <Card className={className}>
         <EmptyState
-          title="Nothing scheduled yet"
-          description="Work packages need a start and due date before they appear on the timeline."
+          title={t('Nothing scheduled yet')}
+          description={t('Work packages need a start and due date before they appear on the timeline.')}
         />
       </Card>
     );
@@ -262,34 +287,38 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
             <>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-danger" aria-hidden />
-                Critical
+                {t('Critical')}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-warning" aria-hidden />
-                Near-critical, {threshold === 0 ? 'none' : `float ≤ ${threshold} ${threshold === 1 ? 'day' : 'days'}`}
+                {threshold === 0
+                  ? t('Near-critical, none')
+                  : t('{days, plural, one {Near-critical, float ≤ # day} other {Near-critical, float ≤ # days}}', {
+                      days: threshold,
+                    })}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-muted-foreground/35" aria-hidden />
-                Other
+                {t('Other')}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-px w-4 bg-muted-foreground" aria-hidden />
-                Float
+                {t('Float')}
               </span>
             </>
           ) : (
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
-              Scheduled work
+              {t('Scheduled work')}
             </span>
           )}
           <span className="flex items-center gap-1.5">
             <Diamond className="h-3 w-3 fill-warning text-warning" aria-hidden />
-            Milestone
+            {t('Milestone')}
           </span>
           <span className="hidden items-center gap-1.5 sm:flex">
             <span className="h-3 w-px bg-danger" aria-hidden />
-            Today
+            {t('Today')}
           </span>
         </div>
 
@@ -297,8 +326,8 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
           <InfoTooltip
             label={
               available
-                ? 'Colour the bars by total float: the work whose slip moves the project finish, and the work close to it.'
-                : 'Float is not computed on this server.'
+                ? t('Colour the bars by total float: the work whose slip moves the project finish, and the work close to it.')
+                : t('Float is not computed on this server.')
             }
           >
             <span>
@@ -310,20 +339,22 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                 onClick={() => setView({ cp: criticalOn ? null : '1', cpOnly: null })}
               >
                 <Route className="h-3.5 w-3.5" />
-                Critical path
+                {t('Critical path')}
               </Button>
             </span>
           </InfoTooltip>
           {criticalOn ? (
             <>
               <Select value={String(threshold)} onValueChange={(value) => setView({ near: value })}>
-                <SelectTrigger className="h-8 w-40" aria-label="Near-critical threshold: total float of at most">
+                <SelectTrigger className="h-8 w-40" aria-label={t('Near-critical threshold: total float of at most')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {thresholdChoices.map((days) => (
                     <SelectItem key={days} value={String(days)}>
-                      {days === 0 ? 'Critical only' : `Float ≤ ${days} ${days === 1 ? 'day' : 'days'}`}
+                      {days === 0
+                        ? t('Critical only')
+                        : t('{days, plural, one {Float ≤ # day} other {Float ≤ # days}}', { days })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -332,24 +363,24 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                 <Checkbox
                   checked={onlyHighlighted}
                   onCheckedChange={(checked) => setView({ cpOnly: checked === true ? '1' : null })}
-                  aria-label="Show only critical and near-critical work"
+                  aria-label={t('Show only critical and near-critical work')}
                 />
-                Highlighted only
+                {t('Highlighted only')}
               </label>
             </>
           ) : null}
           <Tabs value={zoom} onValueChange={(value) => setZoom(value as ZoomLevel)}>
             <TabsList>
-              <TabsTrigger value="day">Day</TabsTrigger>
-              <TabsTrigger value="week">Week</TabsTrigger>
-              <TabsTrigger value="month">Month</TabsTrigger>
+              <TabsTrigger value="day">{t('Day')}</TabsTrigger>
+              <TabsTrigger value="week">{t('Week')}</TabsTrigger>
+              <TabsTrigger value="month">{t('Month')}</TabsTrigger>
             </TabsList>
           </Tabs>
           <div className="flex items-center">
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Zoom out"
+              aria-label={t('Zoom out')}
               disabled={zoom === 'month'}
               onClick={() => setZoom(zoom === 'day' ? 'week' : 'month')}
             >
@@ -358,7 +389,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Zoom in"
+              aria-label={t('Zoom in')}
               disabled={zoom === 'day'}
               onClick={() => setZoom(zoom === 'month' ? 'week' : 'day')}
             >
@@ -377,24 +408,31 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
             <span className="font-semibold text-danger" data-count="critical">
               {counts.critical}
             </span>{' '}
-            critical ·{' '}
+            {t('critical')} ·{' '}
             <span className="font-semibold text-warning-strong" data-count="near">
               {counts.near}
             </span>{' '}
-            near-critical
+            {t('near-critical')}
           </span>
-          {schedule?.finish ? <span>Finish on the critical path: {formatShortDate(schedule.finish)}</span> : null}
-          {schedule?.computedAt ? <span>Float computed {formatRelative(schedule.computedAt)}</span> : null}
+          {schedule?.finish ? (
+            <span>{t('Finish on the critical path: {date}', { date: formatShortDate(schedule.finish) })}</span>
+          ) : null}
+          {schedule?.computedAt ? (
+            <span>{t('Float computed {when}', { when: formatRelative(schedule.computedAt) })}</span>
+          ) : null}
           {schedule?.pending ? (
             <span className="flex items-center gap-1">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-              Recalculating
+              {t('Recalculating')}
             </span>
           ) : null}
           {cycleMembers.size > 0 ? (
             <span className="flex items-center gap-1 text-warning-strong">
               <AlertTriangle className="h-3 w-3" aria-hidden />
-              {cycleMembers.size} work packages are in a loop of dependencies; their float ignores the relations between them.
+              {t(
+                '{count, plural, other {# work packages are in a loop of dependencies; their float ignores the relations between them.}}',
+                { count: cycleMembers.size },
+              )}
             </span>
           ) : null}
         </div>
@@ -402,23 +440,23 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
 
       {allScheduled.length === 0 ? (
         <EmptyState
-          title="Nothing within the threshold"
-          description="No scheduled work has total float at or below it. Raise the threshold, or show all the work."
+          title={t('Nothing within the threshold')}
+          description={t('No scheduled work has total float at or below it. Raise the threshold, or show all the work.')}
         />
       ) : (
         <div className="flex">
           {/* Task pane */}
-          <div className="w-64 shrink-0 border-r border-border sm:w-80">
+          <div className="w-64 shrink-0 border-e border-border sm:w-80">
             <div className="flex h-12 items-end border-b border-border px-3 pb-1.5">
-              <span className="epm-eyebrow">Task</span>
-              <span className="epm-eyebrow ml-auto hidden sm:block">{criticalOn ? 'Float' : 'Status'}</span>
+              <span className="epm-eyebrow">{t('Task')}</span>
+              <span className="epm-eyebrow ms-auto hidden sm:block">{criticalOn ? t('Float') : t('Status')}</span>
             </div>
             {milestones.length > 0 ? (
               <div
                 style={{ height: MILESTONE_LANE }}
                 className="flex items-center border-b border-border px-3"
               >
-                <span className="epm-eyebrow">Milestones</span>
+                <span className="epm-eyebrow">{t('Milestones')}</span>
               </div>
             ) : null}
             {scheduled.map((task) => {
@@ -438,6 +476,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                   />
                   <Link
                     to={`/tasks/${task.id}`}
+                    dir="auto"
                     className="min-w-0 flex-1 truncate text-xs text-foreground underline-offset-2 hover:text-primary hover:underline"
                   >
                     {task.subject}
@@ -452,9 +491,9 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                             ? 'bg-warning-soft text-warning-strong'
                             : 'text-muted-foreground',
                       )}
-                      title={item ? `Total float: ${floatLabel(item.totalFloat)}` : 'Not computed yet'}
+                      title={item ? t('Total float: {float}', { float: floatLabel(item.totalFloat) }) : t('Not computed yet')}
                     >
-                      {item ? `${item.totalFloat}d` : '—'}
+                      {item ? t('{days, number}d', { days: item.totalFloat }) : '—'}
                     </span>
                   ) : (
                     <StatusBadge status={task.statusCategory} size="sm" className="hidden shrink-0 sm:inline-flex" />
@@ -473,8 +512,8 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                   {monthBands.map((band) => (
                     <span
                       key={`${band.label}-${band.offset}`}
-                      style={{ left: band.offset, width: band.width }}
-                      className="absolute flex h-6 items-center overflow-hidden whitespace-nowrap border-l border-border px-2 text-2xs font-medium text-foreground"
+                      style={{ insetInlineStart: band.offset, width: band.width }}
+                      className="absolute flex h-6 items-center overflow-hidden whitespace-nowrap border-s border-border px-2 text-2xs font-medium text-foreground"
                     >
                       {band.label}
                     </span>
@@ -487,14 +526,14 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                     return (
                       <span
                         key={date.toISOString()}
-                        style={{ left: index * columnWidth, width: columnWidth }}
+                        style={{ insetInlineStart: index * columnWidth, width: columnWidth }}
                         className={cn(
                           'absolute flex h-6 items-center justify-center text-2xs',
                           isWeekend(date) ? 'text-muted-foreground/50' : 'text-muted-foreground',
                           isSameDay(date, today) && 'font-semibold text-danger',
                         )}
                       >
-                        {showLabel ? format(date, 'd') : ''}
+                        {showLabel ? dayLabel(date) : ''}
                       </span>
                     );
                   })}
@@ -507,7 +546,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                   isWeekend(date) ? (
                     <span
                       key={date.toISOString()}
-                      style={{ left: index * columnWidth, width: columnWidth }}
+                      style={{ insetInlineStart: index * columnWidth, width: columnWidth }}
                       className="absolute inset-y-0 bg-muted/50"
                     />
                   ) : null,
@@ -517,7 +556,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
               {/* Today marker */}
               {todayOffset >= 0 && todayOffset <= totalWidth ? (
                 <div
-                  style={{ left: todayOffset }}
+                  style={{ insetInlineStart: todayOffset }}
                   className="pointer-events-none absolute inset-y-0 top-12 z-10 w-px bg-danger"
                   aria-hidden
                 />
@@ -537,7 +576,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                       <Tooltip key={milestone.id}>
                         <TooltipTrigger asChild>
                           <span
-                            style={{ left: offset - 5 }}
+                            style={{ insetInlineStart: offset - 5 }}
                             className="absolute top-1/2 z-10 -translate-y-1/2 cursor-default"
                           >
                             <Diamond
@@ -548,7 +587,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                                   : 'fill-warning text-warning',
                               )}
                             />
-                            <span className="sr-only">{milestone.name} milestone</span>
+                            <span className="sr-only">{t('{name} milestone', { name: milestone.name })}</span>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent>
@@ -565,7 +604,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                 {/* Relations: from a predecessor's finish to its successor's start. */}
                 {arrows.length > 0 ? (
                   <svg
-                    className="pointer-events-none absolute left-0 top-0 overflow-visible"
+                    className="pointer-events-none absolute start-0 top-0 overflow-visible rtl:-scale-x-100"
                     width={totalWidth}
                     height={scheduled.length * ROW_HEIGHT}
                     aria-hidden
@@ -621,11 +660,11 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                     >
                       {slack && slack.right > slack.left ? (
                         <span
-                          style={{ left: slack.left, width: slack.right - slack.left }}
+                          style={{ insetInlineStart: slack.left, width: slack.right - slack.left }}
                           className="pointer-events-none absolute top-1/2 h-px bg-muted-foreground/70"
                           aria-hidden
                         >
-                          <span className="absolute -top-1 right-0 h-2 w-px bg-muted-foreground/70" />
+                          <span className="absolute -top-1 end-0 h-2 w-px bg-muted-foreground/70" />
                         </span>
                       ) : null}
 
@@ -633,7 +672,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                         <TooltipTrigger asChild>
                           <Link
                             to={`/tasks/${task.id}`}
-                            style={{ left: offset, width }}
+                            style={{ insetInlineStart: offset, width }}
                             data-task-id={task.id}
                             data-float-band={band ?? undefined}
                             className={cn(
@@ -643,31 +682,45 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
                             )}
                           >
                             {/* A one-day bar is too narrow for a legible key. */}
-                            {width >= 44 ? <span className="truncate">{task.key}</span> : null}
+                            {width >= 44 ? <span dir="auto" className="truncate">{task.key}</span> : null}
                             {task.progress > 0 && task.progress < 100 ? (
                               <span
                                 style={{ width: `${task.progress}%` }}
-                                className="absolute inset-y-0 left-0 bg-foreground/15"
+                                className="absolute inset-y-0 start-0 bg-foreground/15"
                                 aria-hidden
                               />
                             ) : null}
                           </Link>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <span className="block font-semibold">{task.subject}</span>
+                          <span dir="auto" className="block font-semibold">{task.subject}</span>
                           <span className="block">
-                            {formatShortDate(task.startDate)} — {formatShortDate(task.dueDate)} ·{' '}
-                            {formatPercent(task.progress)} complete
+                            {t('{start} — {end} · {percent} complete', {
+                              start: formatShortDate(task.startDate),
+                              end: formatShortDate(task.dueDate),
+                              percent: formatPercent(task.progress),
+                            })}
                           </span>
                           {item ? (
                             <>
                               <span className="block">
-                                {item.critical ? 'On the critical path · ' : ''}Total float {floatLabel(item.totalFloat)} ·
-                                free float {floatLabel(item.freeFloat)}
+                                {item.critical
+                                  ? t('On the critical path · Total float {total} · free float {free}', {
+                                      total: floatLabel(item.totalFloat),
+                                      free: floatLabel(item.freeFloat),
+                                    })
+                                  : t('Total float {total} · free float {free}', {
+                                      total: floatLabel(item.totalFloat),
+                                      free: floatLabel(item.freeFloat),
+                                    })}
                               </span>
                               <span className="block text-muted-foreground">
-                                Early {formatShortDate(item.earlyStart)} — {formatShortDate(item.earlyFinish)} · late{' '}
-                                {formatShortDate(item.lateStart)} — {formatShortDate(item.lateFinish)}
+                                {t('Early {earlyStart} — {earlyFinish} · late {lateStart} — {lateFinish}', {
+                                  earlyStart: formatShortDate(item.earlyStart),
+                                  earlyFinish: formatShortDate(item.earlyFinish),
+                                  lateStart: formatShortDate(item.lateStart),
+                                  lateFinish: formatShortDate(item.lateFinish),
+                                })}
                               </span>
                             </>
                           ) : null}
@@ -689,7 +742,8 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
         onPageChange={paged.setPage}
         onPageSizeChange={paged.setPageSize}
         pageSizeOptions={[15, 30, 50, 100]}
-        itemLabel="scheduled item"
+        itemLabel={t('scheduled item')}
+        itemLabelPlural={t('scheduled items')}
         className="border-t border-border"
       />
     </Card>
@@ -703,7 +757,7 @@ export function GanttChartSkeleton() {
         <Skeleton className="h-4 w-48" />
       </div>
       <div className="flex">
-        <div className="w-64 shrink-0 space-y-3 border-r border-border p-3 sm:w-80">
+        <div className="w-64 shrink-0 space-y-3 border-e border-border p-3 sm:w-80">
           {Array.from({ length: 8 }).map((_, index) => (
             <Skeleton key={index} className="h-4 w-full" />
           ))}
@@ -713,7 +767,7 @@ export function GanttChartSkeleton() {
             <Skeleton
               key={index}
               className="h-4"
-              style={{ width: `${35 + ((index * 13) % 50)}%`, marginLeft: `${(index * 7) % 30}%` }}
+              style={{ width: `${35 + ((index * 13) % 50)}%`, marginInlineStart: `${(index * 7) % 30}%` }}
             />
           ))}
         </div>

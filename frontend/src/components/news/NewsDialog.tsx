@@ -18,6 +18,7 @@ import { FieldHint, Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCreateNews, useUpdateNews } from '@/hooks/useCollaborationModules';
 import { useProjects } from '@/hooks/useProjects';
+import { t } from '@/lib/i18n';
 import type { EpmNewsPost, ID } from '@/types';
 
 /**
@@ -74,8 +75,8 @@ export function NewsDialog({ open, onOpenChange, post, projectId }: NewsDialogPr
 
   const save = (published: boolean) => {
     setProblem(undefined);
-    if (!title.trim()) return setProblem('Give the post a title.');
-    if (!body.trim()) return setProblem('A post needs some text.');
+    if (!title.trim()) return setProblem(t('Give the post a title.'));
+    if (!body.trim()) return setProblem(t('A post needs some text.'));
 
     const input = {
       title: title.trim(),
@@ -86,7 +87,7 @@ export function NewsDialog({ open, onOpenChange, post, projectId }: NewsDialogPr
     };
 
     const failed = (error: unknown) =>
-      setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+      setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
     const done = (message: string) => {
       toast.success(message);
@@ -96,13 +97,13 @@ export function NewsDialog({ open, onOpenChange, post, projectId }: NewsDialogPr
     if (post) {
       update.mutate(
         { id: post.id, input },
-        { onSuccess: () => done(published ? 'Post published' : 'Saved as a draft'), onError: failed },
+        { onSuccess: () => done(published ? t('Post published') : t('Saved as a draft')), onError: failed },
       );
       return;
     }
 
     create.mutate(input, {
-      onSuccess: () => done(published ? 'Post published' : 'Saved as a draft'),
+      onSuccess: () => done(published ? t('Post published') : t('Saved as a draft')),
       onError: failed,
     });
   };
@@ -111,66 +112,66 @@ export function NewsDialog({ open, onOpenChange, post, projectId }: NewsDialogPr
     <Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
       <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{post ? 'Edit post' : 'Write an announcement'}</DialogTitle>
+          <DialogTitle>{post ? t('Edit post') : t('Write an announcement')}</DialogTitle>
           <DialogDescription>
             {post?.publishedAt
-              ? 'This post is already published. Saving updates it in place.'
-              : 'A draft is visible only to you until you publish it.'}
+              ? t('This post is already published. Saving updates it in place.')
+              : t('A draft is visible only to you until you publish it.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="epm-dialog-body space-y-4 pb-4">
           <div className="space-y-1.5">
             <Label htmlFor="news-title" required>
-              Title
+              {t('Title')}
             </Label>
             <Input
               id="news-title"
               value={title}
               autoFocus
-              placeholder="Release 4.2 is live"
+              placeholder={t('Release 4.2 is live')}
               onChange={(event) => setTitle(event.target.value)}
             />
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="news-summary">Standfirst</Label>
+              <Label htmlFor="news-summary">{t('Standfirst')}</Label>
               <Input
                 id="news-summary"
                 value={summary}
-                placeholder="One line for the list"
+                placeholder={t('One line for the list')}
                 onChange={(event) => setSummary(event.target.value)}
               />
-              <FieldHint>Optional. A short post is its own summary.</FieldHint>
+              <FieldHint>{t('Optional. A short post is its own summary.')}</FieldHint>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="news-project">Project</Label>
+              <Label htmlFor="news-project">{t('Project')}</Label>
               <ComboSelect
                 id="news-project"
-                label="Project"
+                label={t('Project')}
                 options={projectOptions}
                 value={scope}
                 clearable
                 loading={projectsQuery.isLoading}
-                placeholder="Organisation-wide"
-                emptyLabel="No projects match"
+                placeholder={t('Organisation-wide')}
+                emptyLabel={t('No projects match')}
                 onChange={setScope}
               />
-              <FieldHint>Organisation-wide posts need administrator rights.</FieldHint>
+              <FieldHint>{t('Organisation-wide posts need administrator rights.')}</FieldHint>
             </div>
           </div>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="news-body" required>
-                Post
+                {t('Post')}
               </Label>
               <Tabs value={tab} onValueChange={(value) => setTab(value as typeof tab)}>
                 <TabsList>
-                  <TabsTrigger value="write">Write</TabsTrigger>
-                  <TabsTrigger value="preview">Preview</TabsTrigger>
+                  <TabsTrigger value="write">{t('Write')}</TabsTrigger>
+                  <TabsTrigger value="preview">{t('Preview')}</TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>
@@ -180,19 +181,19 @@ export function NewsDialog({ open, onOpenChange, post, projectId }: NewsDialogPr
                 id="news-body"
                 rows={12}
                 value={body}
-                placeholder={'What changed, and what anybody reading needs to do about it.'}
+                placeholder={t('What changed, and what anybody reading needs to do about it.')}
                 onChange={(event) => setBody(event.target.value)}
               />
             ) : (
-              <div className="min-h-64 rounded-lg border border-border bg-surface p-4">
+              <div dir="auto" className="min-h-64 rounded-lg border border-border bg-surface p-4">
                 <Markdown
-                  empty={<p className="text-2xs text-muted-foreground">Nothing to preview yet.</p>}
+                  empty={<p className="text-2xs text-muted-foreground">{t('Nothing to preview yet.')}</p>}
                 >
                   {body}
                 </Markdown>
               </div>
             )}
-            <FieldHint>Markdown. Headings, lists, links and code all work.</FieldHint>
+            <FieldHint>{t('Markdown. Headings, lists, links and code all work.')}</FieldHint>
           </div>
 
           {problem ? <Alert tone="danger">{problem}</Alert> : null}
@@ -200,17 +201,17 @@ export function NewsDialog({ open, onOpenChange, post, projectId }: NewsDialogPr
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           {/* A published post keeps only one action: unpublishing it back to a
               draft is a different intent, and lives on the post itself. */}
           {post?.publishedAt ? null : (
             <Button variant="secondary" onClick={() => save(false)} disabled={pending}>
-              Save draft
+              {t('Save draft')}
             </Button>
           )}
           <Button onClick={() => save(true)} loading={pending}>
-            {post?.publishedAt ? 'Save changes' : 'Publish'}
+            {post?.publishedAt ? t('Save changes') : t('Publish')}
           </Button>
         </DialogFooter>
       </DialogContent>

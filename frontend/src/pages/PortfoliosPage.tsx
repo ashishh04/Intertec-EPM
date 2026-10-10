@@ -22,6 +22,7 @@ import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { usePagination } from '@/hooks/usePagination';
 import { useDeletePortfolio, usePortfolios, useSetPortfolioActive } from '@/hooks/usePortfolios';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmPortfolio } from '@/services/api/portfolios';
 
@@ -66,11 +67,11 @@ export default function PortfoliosPage() {
 
     deletePortfolio.mutate(removing.id, {
       onSuccess: () => {
-        toast.success(`${name} deleted`);
+        toast.success(t('{name} deleted', { name }));
         setRemoving(undefined);
       },
       onError: (error) =>
-        toast.error('That could not be deleted', {
+        toast.error(t('That could not be deleted'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -82,9 +83,9 @@ export default function PortfoliosPage() {
     setActive.mutate(
       { id: portfolio.id, active },
       {
-        onSuccess: () => toast.success(active ? 'Portfolio restored' : 'Portfolio archived'),
+        onSuccess: () => toast.success(active ? t('Portfolio restored') : t('Portfolio archived')),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -100,26 +101,26 @@ export default function PortfoliosPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Portfolios"
-        description="How delivery is grouped for reporting."
+        title={t('Portfolios')}
+        description={t('How delivery is grouped for reporting.')}
         actions={
           mayManage ? (
             <Button size="sm" onClick={openCreate}>
               <Plus className="h-3.5 w-3.5" />
-              New portfolio
+              {t('New portfolio')}
             </Button>
           ) : null
         }
       />
 
-      <ListToolbar trailing={<ResultCount count={items.length} label="portfolio" />}>
+      <ListToolbar trailing={<ResultCount count={items.length} label={t('portfolio')} plural={t('portfolios')} />}>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <Switch
             checked={showArchived}
             onCheckedChange={setShowArchived}
-            aria-label="Show archived portfolios"
+            aria-label={t('Show archived portfolios')}
           />
-          Show archived
+          {t('Show archived')}
         </label>
       </ListToolbar>
 
@@ -127,7 +128,7 @@ export default function PortfoliosPage() {
         isLoading={portfolios.isLoading}
         isError={portfolios.isError}
         onRetry={() => portfolios.refetch()}
-        errorTitle="Unable to load portfolios"
+        errorTitle={t('Unable to load portfolios')}
         skeleton={
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <PortfolioCardSkeleton />
@@ -139,11 +140,11 @@ export default function PortfoliosPage() {
         empty={
           <EmptyState
             icon={Briefcase}
-            title={showArchived ? 'No portfolios' : 'No active portfolios'}
+            title={showArchived ? t('No portfolios') : t('No active portfolios')}
             description={
               mayManage
-                ? 'Create a portfolio, then assign projects to it from each project.'
-                : 'No portfolios have been set up yet.'
+                ? t('Create a portfolio, then assign projects to it from each project.')
+                : t('No portfolios have been set up yet.')
             }
           />
         }
@@ -170,7 +171,8 @@ export default function PortfoliosPage() {
               onPageChange={paged.setPage}
               onPageSizeChange={paged.setPageSize}
               pageSizeOptions={[12, 24, 48]}
-              itemLabel="portfolio"
+              itemLabel={t('portfolio')}
+              itemLabelPlural={t('portfolios')}
             />
           </Card>
         </div>
@@ -181,10 +183,11 @@ export default function PortfoliosPage() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              This removes the portfolio from EPM permanently. Archiving keeps it and can be
-              undone; deleting cannot. It is refused if any project is still in it.
+              {t(
+                'This removes the portfolio from EPM permanently. Archiving keeps it and can be undone; deleting cannot. It is refused if any project is still in it.',
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -193,10 +196,10 @@ export default function PortfoliosPage() {
               onClick={() => setRemoving(undefined)}
               disabled={deletePortfolio.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} disabled={deletePortfolio.isPending}>
-              Delete permanently
+              {t('Delete permanently')}
             </Button>
           </DialogFooter>
         </DialogContent>

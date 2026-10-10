@@ -81,7 +81,7 @@ async function membershipInProject(
     .catch(() => null);
 
   if (!membership || linkId(membership._links, 'project') !== projectId) {
-    throw EpmError.notFound('That membership does not exist on this project.');
+    throw EpmError.notFound('That membership');
   }
 
   return membership;

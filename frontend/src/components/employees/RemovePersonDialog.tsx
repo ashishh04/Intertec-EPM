@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useDeleteAccount, useRevokeAccess, useSetAccountLocked } from '@/hooks/useAccounts';
 import type { AccountRevocation, EpmAccount } from '@/types';
@@ -98,7 +99,7 @@ function Step({
           <p className="text-xs font-medium">{title}</p>
           {done ? (
             <Badge tone="success" size="sm">
-              Done
+              {t('Done')}
             </Badge>
           ) : null}
         </div>
@@ -134,22 +135,24 @@ function describe(revocation: AccountRevocation): string {
 
   if (revocation.sessionsEnded > 0) {
     parts.push(
-      `${revocation.sessionsEnded} session${revocation.sessionsEnded === 1 ? '' : 's'} ended`,
+      t('{count, plural, one {# session ended} other {# sessions ended}}', {
+        count: revocation.sessionsEnded,
+      }),
     );
   }
   if (revocation.membershipsRemoved > 0) {
     parts.push(
-      `removed from ${revocation.membershipsRemoved} project${
-        revocation.membershipsRemoved === 1 ? '' : 's'
-      }`,
+      t('{count, plural, one {removed from # project} other {removed from # projects}}', {
+        count: revocation.membershipsRemoved,
+      }),
     );
   }
-  if (revocation.adminRevoked) parts.push('administrator rights removed');
+  if (revocation.adminRevoked) parts.push(t('administrator rights removed'));
 
   // Nothing to report is itself the answer: they held nothing to take away.
   return parts.length > 0
-    ? `${parts.join(', ')}.`
-    : 'They held no sessions, memberships or administrator rights.';
+    ? `${parts.join(t(', '))}.`
+    : t('They held no sessions, memberships or administrator rights.');
 }
 
 interface RemovePersonDialogProps {
@@ -183,14 +186,14 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
   const busy = setLocked.isPending || revokeAccess.isPending || deleteAccount.isPending;
 
   const fail = (error: unknown) =>
-    setProblem(error instanceof Error ? error.message : 'That could not be done.');
+    setProblem(error instanceof Error ? error.message : t('That could not be done.'));
 
   const runDeactivate = () => {
     setProblem(undefined);
     setLocked.mutate(
       { id: account.id, locked: true },
       {
-        onSuccess: () => toast.success(`${account.name} deactivated`),
+        onSuccess: () => toast.success(t('{name} deactivated', { name: account.name })),
         onError: fail,
       },
     );
@@ -202,11 +205,11 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
       onSuccess: (result) => {
         setRevoked(result);
         if (result.problems?.length) {
-          toast.warning('Access was only partly revoked', {
+          toast.warning(t('Access was only partly revoked'), {
             description: result.problems.join(' '),
           });
         } else {
-          toast.success('Access revoked', { description: describe(result) });
+          toast.success(t('Access revoked'), { description: describe(result) });
         }
       },
       onError: fail,
@@ -217,7 +220,7 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
     setProblem(undefined);
     deleteAccount.mutate(account.id, {
       onSuccess: () => {
-        toast.success(`${account.name} was deleted`);
+        toast.success(t('{name} was deleted', { name: account.name }));
         onOpenChange(false);
       },
       onError: fail,
@@ -253,51 +256,62 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
     <Dialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Remove {account.name}</DialogTitle>
+          <DialogTitle>{t('Remove {name}', { name: account.name })}</DialogTitle>
           <DialogDescription>
-            Three steps, in order. You can stop after any of them — deactivating alone already
-            prevents sign-in, and keeps their history intact.
+            {t(
+              'Three steps, in order. You can stop after any of them — deactivating alone already prevents sign-in, and keeps their history intact.',
+            )}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="epm-dialog-body epm-scroll py-1 pr-1">
+        <div className="epm-dialog-body epm-scroll py-1 pe-1">
           <ol>
             <Step
               index={1}
               icon={Lock}
-              title="Deactivate the account"
-              body="They can no longer sign in. Reversible at any time from the account menu, and for most leavers this is as far as you need to go."
+              title={t('Deactivate the account')}
+              body={t(
+                'They can no longer sign in. Reversible at any time from the account menu, and for most leavers this is as far as you need to go.',
+              )}
               state={deactivateState}
-              reason="This account cannot be deactivated: an invitation that was never accepted has no sign-in to stop."
-              outcome={deactivated ? 'They cannot sign in.' : undefined}
-              action="Deactivate"
+              reason={t(
+                'This account cannot be deactivated: an invitation that was never accepted has no sign-in to stop.',
+              )}
+              outcome={deactivated ? t('They cannot sign in.') : undefined}
+              action={t('Deactivate')}
               onRun={runDeactivate}
             />
 
             <Step
               index={2}
               icon={ShieldOff}
-              title="Revoke their access"
-              body="Ends every browser session, removes them from every project, and takes away instance-administrator rights. Their work, comments and logged time stay where they are."
+              title={t('Revoke their access')}
+              body={t(
+                'Ends every browser session, removes them from every project, and takes away instance-administrator rights. Their work, comments and logged time stay where they are.',
+              )}
               state={revokeState}
-              reason="Deactivate the account first."
+              reason={t('Deactivate the account first.')}
               outcome={revoked ? describe(revoked) : undefined}
-              action="Revoke access"
+              action={t('Revoke access')}
               onRun={runRevoke}
             />
 
             <Step
               index={3}
               icon={Trash2}
-              title="Delete permanently"
-              body="Removes the account itself, along with their department, team and capacity in EPM. This cannot be undone."
+              title={t('Delete permanently')}
+              body={t(
+                'Removes the account itself, along with their department, team and capacity in EPM. This cannot be undone.',
+              )}
               state={deleteState}
               reason={
                 account.can.remove
-                  ? 'Complete the steps above first.'
-                  : 'Deleting people is switched off for this instance. An administrator can turn on "Users deletable by admins" under Administration → Users and permissions → User settings. Steps 1 and 2 withdraw their access without it.'
+                  ? t('Complete the steps above first.')
+                  : t(
+                      'Deleting people is switched off for this instance. An administrator can turn on "Users deletable by admins" under Administration → Users and permissions → User settings. Steps 1 and 2 withdraw their access without it.',
+                    )
               }
-              action="Delete permanently"
+              action={t('Delete permanently')}
               destructive
               onRun={runDelete}
             />
@@ -305,7 +319,9 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
 
           {revoked?.problems?.length ? (
             <Alert tone="warning" className="mt-1">
-              Some access could not be withdrawn: {revoked.problems.join(' ')}
+              {t('Some access could not be withdrawn: {problems}', {
+                problems: revoked.problems.join(' '),
+              })}
             </Alert>
           ) : null}
 
@@ -318,7 +334,7 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
-            {deactivated || revoked ? 'Done' : 'Cancel'}
+            {deactivated || revoked ? t('Done') : t('Cancel')}
           </Button>
         </DialogFooter>
       </DialogContent>

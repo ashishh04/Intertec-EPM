@@ -45,9 +45,9 @@ const buttonVariants = cva(
 
 /** Padding on the arrow side tightens, the way the site's CTAs are set. */
 const ARROW_INSET: Record<string, string> = {
-  sm: 'pr-1',
-  default: 'pr-1',
-  lg: 'pr-1.5',
+  sm: 'pe-1',
+  default: 'pe-1',
+  lg: 'pe-1.5',
 };
 
 /**
@@ -60,7 +60,7 @@ function ArrowChip({ size }: { size: 'sm' | 'default' | 'lg' }) {
     <span
       aria-hidden
       className={cn(
-        'ml-0.5 grid shrink-0 place-items-center rounded-full bg-white/25',
+        'ms-0.5 grid shrink-0 place-items-center rounded-full bg-white/25',
         size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-5 w-5' : 'h-6 w-6',
       )}
     >

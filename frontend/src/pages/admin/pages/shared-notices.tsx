@@ -1,5 +1,6 @@
 import { Server } from 'lucide-react';
 import { Alert } from '@/components/ui/alert';
+import { t } from '@/lib/i18n';
 
 /**
  * Notices more than one administration page shows, built on the product's
@@ -18,9 +19,10 @@ export function ManagedUpstreamNotice({
   shown: 'list' | 'values';
 }) {
   return (
-    <Alert tone="neutral" icon={Server} title="This calendar cannot be changed from EPM on this instance">
-      The delivery system's version does not offer this change through its API. The {shown} shown{' '}
-      {shown === 'list' ? 'is' : 'are'} current.
+    <Alert tone="neutral" icon={Server} title={t('This calendar cannot be changed from EPM on this instance')}>
+      {shown === 'list'
+        ? t('The delivery system\'s version does not offer this change through its API. The list shown is current.')
+        : t('The delivery system\'s version does not offer this change through its API. The values shown are current.')}
     </Alert>
   );
 }

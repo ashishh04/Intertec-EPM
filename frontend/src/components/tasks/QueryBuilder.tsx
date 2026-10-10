@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { MultiSelect } from '@/components/common/MultiSelect';
 import { cn } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import {
   useProjectAssignees,
   usePriorities,
@@ -106,15 +107,15 @@ function ValueControl({
         <Input
           type="date"
           value={from}
-          aria-label={`${filter.name} from`}
+          aria-label={t('{name} from', { name: filter.name })}
           onChange={(event) => onChange([{ id: event.target.value }, { id: to }])}
           className="h-8 w-36"
         />
-        <span className="text-2xs text-muted-foreground">to</span>
+        <span className="text-2xs text-muted-foreground">{t('to')}</span>
         <Input
           type="date"
           value={to}
-          aria-label={`${filter.name} to`}
+          aria-label={t('{name} to', { name: filter.name })}
           onChange={(event) => onChange([{ id: from }, { id: event.target.value }])}
           className="h-8 w-36"
         />
@@ -129,7 +130,7 @@ function ValueControl({
     if (operator.arity === 'many') {
       return (
         <MultiSelect
-          label={`${filter.name} values`}
+          label={t('{name} values', { name: filter.name })}
           options={candidates}
           selected={filter.values.map((value) => ({
             id: value.id,
@@ -152,8 +153,8 @@ function ValueControl({
           onChange([{ id: value, name: match?.name }]);
         }}
       >
-        <SelectTrigger className="h-8 w-52" aria-label={`${filter.name} value`}>
-          <SelectValue placeholder="Select a value" />
+        <SelectTrigger className="h-8 w-52" aria-label={t('{name} value', { name: filter.name })}>
+          <SelectValue placeholder={t('Select a value')} />
         </SelectTrigger>
         <SelectContent>
           {candidates.map((candidate) => (
@@ -172,12 +173,12 @@ function ValueControl({
         value={filter.values[0]?.id ?? ''}
         onValueChange={(value) => onChange([{ id: value }])}
       >
-        <SelectTrigger className="h-8 w-32" aria-label={`${filter.name} value`}>
-          <SelectValue placeholder="Select" />
+        <SelectTrigger className="h-8 w-32" aria-label={t('{name} value', { name: filter.name })}>
+          <SelectValue placeholder={t('Select')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="t">Yes</SelectItem>
-          <SelectItem value="f">No</SelectItem>
+          <SelectItem value="t">{t('Yes')}</SelectItem>
+          <SelectItem value="f">{t('No')}</SelectItem>
         </SelectContent>
       </Select>
     );
@@ -190,8 +191,8 @@ function ValueControl({
     <Input
       type={isDate ? 'date' : isNumeric ? 'number' : 'text'}
       value={filter.values[0]?.id ?? ''}
-      aria-label={`${filter.name} value`}
-      placeholder={operator.isResource ? 'Value id' : 'Value'}
+      aria-label={t('{name} value', { name: filter.name })}
+      placeholder={operator.isResource ? t('Value id') : t('Value')}
       onChange={(event) => onChange([{ id: event.target.value }])}
       className="h-8 w-52"
     />
@@ -262,7 +263,7 @@ export function QueryBuilder({
                 update(index, { ...filter, operator: value, values: [] })
               }
             >
-              <SelectTrigger className="h-8 w-44" aria-label={`${filter.name} operator`}>
+              <SelectTrigger className="h-8 w-44" aria-label={t('{name} operator', { name: filter.name })}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -286,8 +287,8 @@ export function QueryBuilder({
             <Button
               variant="ghost"
               size="sm"
-              className="ml-auto h-8 w-8 p-0"
-              aria-label={`Remove ${filter.name} filter`}
+              className="ms-auto h-8 w-8 p-0"
+              aria-label={t('Remove {label} filter', { label: filter.name })}
               onClick={() => remove(index)}
             >
               <X className="h-3.5 w-3.5" />
@@ -298,8 +299,8 @@ export function QueryBuilder({
 
       <div className="flex items-center gap-2">
         <Select value="" onValueChange={addFilter} disabled={isLoading || available.length === 0}>
-          <SelectTrigger className="h-8 w-56" aria-label="Add filter">
-            <SelectValue placeholder={isLoading ? 'Loading filters…' : 'Add filter'} />
+          <SelectTrigger className="h-8 w-56" aria-label={t('Add filter')}>
+            <SelectValue placeholder={isLoading ? t('Loading filters…') : t('Add filter')} />
           </SelectTrigger>
           <SelectContent>
             {available.map((entry) => (
@@ -312,13 +313,13 @@ export function QueryBuilder({
 
         {filters.length > 0 ? (
           <Button variant="ghost" size="sm" onClick={() => onChange([])}>
-            Clear all
+            {t('Clear all')}
           </Button>
         ) : null}
 
         {!isLoading ? (
           <span className="text-2xs text-muted-foreground">
-            {schema.length} filters available
+            {t('{count, plural, other {# filters available}}', { count: schema.length })}
           </span>
         ) : null}
       </div>

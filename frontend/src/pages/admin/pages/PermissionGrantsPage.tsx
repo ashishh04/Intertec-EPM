@@ -22,6 +22,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { useGrantPermission, usePermissionGrants, useRevokePermission } from '@/hooks/useGovernance';
 import { usePagination } from '@/hooks/usePagination';
 import { useUsers } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 import { formatDateTime } from '@/lib/utils';
 import type { GrantablePermission, Permission, PermissionGrant } from '@/types';
 import { describeError } from './shared-format';
@@ -70,13 +71,16 @@ export default function PermissionGrantsPage() {
       {
         onSuccess: () => {
           setRemoving(undefined);
-          toast.success('Permission removed', {
-            description: `${labelOf.get(target.permission)?.label ?? target.permission} — ${target.userName}`,
+          toast.success(t('Permission removed'), {
+            description: t('{permission} — {person}', {
+              permission: labelOf.get(target.permission)?.label ?? target.permission,
+              person: target.userName,
+            }),
           });
         },
         onError: (error) => {
           setRemoving(undefined);
-          toast.error('The permission was not removed', { description: describeError(error) });
+          toast.error(t('The permission was not removed'), { description: describeError(error) });
         },
       },
     );
@@ -85,16 +89,15 @@ export default function PermissionGrantsPage() {
   return (
     <div className="space-y-4">
       <Alert tone="neutral" icon={ShieldCheck}>
-        These are EPM&apos;s own permissions, for things OpenProject has no notion of. What someone
-        may do inside a project comes from their role there (Roles and permissions). Every change
-        here is journalled and takes effect within a minute.
+        {t('These are EPM\'s own permissions, for things OpenProject has no notion of. What someone may do inside a project comes from their role there (Roles and permissions). Every change here is journalled and takes effect within a minute.')}
       </Alert>
 
       {configured.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {configured.map((holder) => holder.userName).join(', ')}{' '}
-          {configured.length === 1 ? 'holds' : 'hold'} every EPM permission from the server&apos;s
-          configuration (EPM_ADMIN_USER_IDS). That is changed in configuration, not here.
+          {t(
+            '{count, plural, one {{names} holds every EPM permission from the server\'s configuration (EPM_ADMIN_USER_IDS). That is changed in configuration, not here.} other {{names} hold every EPM permission from the server\'s configuration (EPM_ADMIN_USER_IDS). That is changed in configuration, not here.}}',
+            { count: configured.length, names: configured.map((holder) => holder.userName).join(', ') },
+          )}
         </p>
       ) : null}
 
@@ -102,11 +105,11 @@ export default function PermissionGrantsPage() {
         trailing={
           <Button size="sm" onClick={() => setAdding(true)} disabled={catalogue.length === 0}>
             <Plus className="h-3.5 w-3.5" />
-            Grant a permission
+            {t('Grant a permission')}
           </Button>
         }
       >
-        <ResultCount count={rows.length} label="grant" />
+        <ResultCount count={rows.length} label={t('grant')} plural={t('grants')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -114,26 +117,26 @@ export default function PermissionGrantsPage() {
         isError={grants.isError}
         error={grants.error}
         onRetry={() => void grants.refetch()}
-        errorTitle="EPM permissions could not be loaded"
+        errorTitle={t('EPM permissions could not be loaded')}
         skeleton={<TableSkeleton columns={4} />}
         isEmpty={rows.length === 0}
         empty={
           <EmptyState
             icon={KeyRound}
-            title="No permissions granted"
-            description="Nobody holds an EPM permission except through the server's configuration."
-            action={{ label: 'Grant a permission', onClick: () => setAdding(true) }}
+            title={t('No permissions granted')}
+            description={t('Nobody holds an EPM permission except through the server\'s configuration.')}
+            action={{ label: t('Grant a permission'), onClick: () => setAdding(true) }}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="grant" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('grant')} itemLabelPlural={t('grants')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Permission</TableHead>
-              <TableHead>Person</TableHead>
-              <TableHead>Granted</TableHead>
+              <TableHead>{t('Permission')}</TableHead>
+              <TableHead>{t('Person')}</TableHead>
+              <TableHead>{t('Granted')}</TableHead>
               <TableHead className="w-12">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -148,14 +151,18 @@ export default function PermissionGrantsPage() {
                   </TableCell>
                   <TableCell className="font-medium">{row.userName}</TableCell>
                   <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                    {formatDateTime(row.grantedAt)}
-                    {row.grantedByName ? ` · by ${row.grantedByName}` : ''}
+                    {row.grantedByName
+                      ? t('{date} · by {name}', { date: formatDateTime(row.grantedAt), name: row.grantedByName })
+                      : formatDateTime(row.grantedAt)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      aria-label={`Remove ${entry?.label ?? row.permission} from ${row.userName}`}
+                      aria-label={t('Remove {permission} from {person}', {
+                        permission: entry?.label ?? row.permission,
+                        person: row.userName,
+                      })}
                       className="text-muted-foreground hover:text-danger"
                       onClick={() => setRemoving(row)}
                     >
@@ -178,11 +185,14 @@ export default function PermissionGrantsPage() {
           grant.mutate(input, {
             onSuccess: (created) => {
               setAdding(false);
-              toast.success('Permission granted', {
-                description: `${labelOf.get(created.permission)?.label ?? created.permission} — ${created.userName}`,
+              toast.success(t('Permission granted'), {
+                description: t('{permission} — {person}', {
+                  permission: labelOf.get(created.permission)?.label ?? created.permission,
+                  person: created.userName,
+                }),
               });
             },
-            onError: (error) => toast.error('The permission was not granted', { description: describeError(error) }),
+            onError: (error) => toast.error(t('The permission was not granted'), { description: describeError(error) }),
           })
         }
       />
@@ -191,18 +201,20 @@ export default function PermissionGrantsPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Remove {removing ? labelOf.get(removing.permission)?.label ?? removing.permission : ''}?
+              {t('Remove {permission}?', {
+                permission: removing ? labelOf.get(removing.permission)?.label ?? removing.permission : '',
+              })}
             </DialogTitle>
             <DialogDescription>
-              {removing?.userName} loses it within a minute. The change is journalled.
+              {t('{person} loses it within a minute. The change is journalled.', { person: removing?.userName })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRemoving(undefined)} disabled={revoke.isPending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button variant="danger" onClick={confirmRemove} loading={revoke.isPending}>
-              Remove
+              {t('Remove')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -250,8 +262,8 @@ function GrantDialog({ open, onOpenChange, catalogue, pending, onSubmit }: Grant
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const next: { userId?: string; permission?: string } = {};
-    if (!userId) next.userId = 'Choose a person.';
-    if (!permission) next.permission = 'Choose a permission.';
+    if (!userId) next.userId = t('Choose a person.');
+    if (!permission) next.permission = t('Choose a permission.');
     setErrors(next);
     if (next.userId || next.permission) return;
     onSubmit({ userId: userId!, permission: permission! });
@@ -262,34 +274,34 @@ function GrantDialog({ open, onOpenChange, catalogue, pending, onSubmit }: Grant
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <DialogHeader>
-            <DialogTitle>Grant a permission</DialogTitle>
-            <DialogDescription>One EPM permission to one person. It is journalled.</DialogDescription>
+            <DialogTitle>{t('Grant a permission')}</DialogTitle>
+            <DialogDescription>{t('One EPM permission to one person. It is journalled.')}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="grant-person" required>
-                Person
+                {t('Person')}
               </Label>
               <ComboSelect
                 id="grant-person"
-                label="Person"
+                label={t('Person')}
                 options={people}
                 value={userId}
                 onChange={setUserId}
                 loading={users.isLoading}
-                placeholder="Choose a person"
+                placeholder={t('Choose a person')}
               />
               {errors.userId ? <FieldError>{errors.userId}</FieldError> : null}
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="grant-permission" required>
-                Permission
+                {t('Permission')}
               </Label>
               <Select value={permission} onValueChange={(value) => setPermission(value as Permission)}>
                 <SelectTrigger id="grant-permission">
-                  <SelectValue placeholder="Choose a permission" />
+                  <SelectValue placeholder={t('Choose a permission')} />
                 </SelectTrigger>
                 <SelectContent>
                   {catalogue.map((entry) => (
@@ -309,10 +321,10 @@ function GrantDialog({ open, onOpenChange, catalogue, pending, onSubmit }: Grant
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => handleOpenChange(false)} disabled={pending}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={pending}>
-              Grant
+              {t('Grant')}
             </Button>
           </DialogFooter>
         </form>

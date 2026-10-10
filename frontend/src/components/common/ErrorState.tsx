@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 interface ErrorStateProps {
@@ -13,8 +14,8 @@ interface ErrorStateProps {
 
 /** Polished failure state. Never leave the user looking at a blank region. */
 function ErrorState({
-  title = 'Something went wrong',
-  description = 'We could not load this content. Try again, and if the problem continues contact the EPM platform team.',
+  title = t('Something went wrong'),
+  description = t('We could not load this content. Try again, and if the problem continues contact the EPM platform team.'),
   onRetry,
   className,
   size = 'default',
@@ -41,7 +42,7 @@ function ErrorState({
       {onRetry ? (
         <Button size="sm" variant="secondary" onClick={onRetry} className="mt-1">
           <RefreshCw className="h-3.5 w-3.5" />
-          Retry
+          {t('Retry')}
         </Button>
       ) : null}
     </div>
@@ -74,7 +75,7 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
     if (this.state.error) {
       return (
         <ErrorState
-          title={this.props.fallbackTitle ?? 'This section could not be displayed'}
+          title={this.props.fallbackTitle ?? t('This section could not be displayed')}
           description={this.state.error.message}
           onRetry={() => this.setState({ error: null })}
         />

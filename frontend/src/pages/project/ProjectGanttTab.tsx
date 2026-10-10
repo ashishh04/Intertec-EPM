@@ -7,6 +7,7 @@ import { useProjectCriticalPath } from '@/hooks/useSchedule';
 import { useTaskTimeline } from '@/hooks/useTasks';
 import { useProjectMilestones } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
+import { t } from '@/lib/i18n';
 
 /** Schedule view for a single project. */
 export default function ProjectGanttTab() {
@@ -23,15 +24,15 @@ export default function ProjectGanttTab() {
   return (
     <div className="space-y-3">
       <SectionHeader
-        title="Timeline"
-        description="Scheduled work packages, dependencies, milestones and the critical path"
+        title={t('Timeline')}
+        description={t('Scheduled work packages, dependencies, milestones and the critical path')}
       />
       <QueryBoundary
         isLoading={tasksQuery.isLoading}
         isError={tasksQuery.isError}
         error={tasksQuery.error}
         onRetry={() => tasksQuery.refetch()}
-        errorTitle="Unable to load the timeline"
+        errorTitle={t('Unable to load the timeline')}
         skeleton={<GanttChartSkeleton />}
       >
         <div className="space-y-3">
@@ -41,7 +42,7 @@ export default function ProjectGanttTab() {
             milestones={milestonesQuery.data ?? []}
             schedule={criticalPath.data}
           />
-          <TruncationNotice shown={tasks.length} total={total} itemLabel="task" affected="The bars" />
+          <TruncationNotice shown={tasks.length} total={total} affected={t('The bars')} />
         </div>
       </QueryBoundary>
     </div>

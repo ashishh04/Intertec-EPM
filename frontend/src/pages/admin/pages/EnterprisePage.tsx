@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAdminEnterprise } from '@/hooks/useAdmin';
+import { t } from '@/lib/i18n';
 
 /**
  * Enterprise edition status.
@@ -23,7 +24,7 @@ import { useAdminEnterprise } from '@/hooks/useAdmin';
 
 /** What each gated feature is, so the list reads as capabilities rather than keys. */
 const FEATURE_LABELS: Record<string, string> = {
-  placeholderUsers: 'Placeholder users',
+  get placeholderUsers() { return t('Placeholder users'); },
 };
 
 /** `placeholderUsers` → `Placeholder users`, for a feature added after this shipped. */
@@ -41,37 +42,36 @@ export default function EnterprisePage() {
       isError={enterprise.isError}
       error={enterprise.error}
       onRetry={() => enterprise.refetch()}
-      errorTitle="Unable to read the licence state"
+      errorTitle={t('Unable to read the licence state')}
       skeleton={<Skeleton className="h-64 w-full rounded-xl" />}
     >
       <div className="space-y-4">
         <Card>
           <CardHeader variant="compact">
-            <CardTitle>Enterprise edition</CardTitle>
+            <CardTitle>{t('Enterprise edition')}</CardTitle>
             <CardDescription>
-              The support token that unlocks Enterprise features on this instance.
+              {t('The support token that unlocks Enterprise features on this instance.')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 pt-4">
             {enterprise.data?.active ? (
-              <Alert tone="success" icon={ShieldCheck} title="Licensed">
-                This instance holds an Enterprise token, so the features below are available.
+              <Alert tone="success" icon={ShieldCheck} title={t('Licensed')}>
+                {t('This instance holds an Enterprise token, so the features below are available.')}
               </Alert>
             ) : (
-              <Alert tone="neutral" icon={Lock} title="Community edition">
-                This instance holds no Enterprise token. Everything below is unavailable, and no
-                change in EPM can enable it — a licence has to be applied to OpenProject itself.
+              <Alert tone="neutral" icon={Lock} title={t('Community edition')}>
+                {t('This instance holds no Enterprise token. Everything below is unavailable, and no change in EPM can enable it — a licence has to be applied to OpenProject itself.')}
               </Alert>
             )}
 
             <FactList
               facts={[
                 {
-                  label: 'Licence',
+                  label: t('Licence'),
                   mono: false,
                   value: (
                     <Badge tone={enterprise.data?.active ? 'success' : 'neutral'} size="sm" dot>
-                      {enterprise.data?.active ? 'Active' : 'Not active'}
+                      {enterprise.data?.active ? t('Active') : t('Not active')}
                     </Badge>
                   ),
                 },
@@ -79,18 +79,16 @@ export default function EnterprisePage() {
             />
 
             <p className="text-xs text-muted-foreground">
-              A token is applied in the OpenProject administration, under{' '}
-              <span className="font-medium text-foreground">Enterprise edition</span>. EPM reads the
-              result; it cannot set it.
+              {t('A token is applied in the OpenProject administration, under {section}. EPM reads the result; it cannot set it.', { section: t('Enterprise edition') })}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader variant="compact">
-            <CardTitle>Gated features</CardTitle>
+            <CardTitle>{t('Gated features')}</CardTitle>
             <CardDescription>
-              What EPM checks this licence for before offering an action.
+              {t('What EPM checks this licence for before offering an action.')}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4">
@@ -99,7 +97,7 @@ export default function EnterprisePage() {
                 check appears without a frontend release. */}
             {Object.keys(enterprise.data?.allows ?? {}).length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                EPM does not currently gate any action on an Enterprise licence.
+                {t('EPM does not currently gate any action on an Enterprise licence.')}
               </p>
             ) : (
               <FactList
@@ -108,7 +106,7 @@ export default function EnterprisePage() {
                   mono: false,
                   value: (
                     <Badge tone={allowed ? 'success' : 'neutral'} size="sm">
-                      {allowed ? 'Available' : 'Not licensed'}
+                      {allowed ? t('Available') : t('Not licensed')}
                     </Badge>
                   ),
                 }))}

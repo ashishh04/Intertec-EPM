@@ -17,6 +17,7 @@ import {
   type Scope,
   type Viewer,
 } from '../domain/measures.js';
+import { listOf, message } from '../lib/i18n.js';
 
 /**
  * The semantic layer and the dashboards built on it (BR-404, BR-405).
@@ -106,7 +107,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
     const scope = await scopeOf(query.scope, viewer);
     const ids = query.ids.split(',').map((id) => id.trim()).filter(Boolean);
     const unknown = ids.filter((id) => !measureById(id));
-    if (unknown.length > 0) throw EpmError.badRequest(`Unknown measures: ${unknown.join(', ')}.`);
+    if (unknown.length > 0) throw EpmError.badRequest(message('Unknown measures: {ids}.', { ids: listOf(unknown) }));
     return evaluateMeasures(ids, scope, periodOf(query), await narrowedViewer(viewer, query.within), todayIso());
   });
 
@@ -115,7 +116,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
     const query = scopeQuery.parse(request.query);
     const measure = measureById(request.params.id);
     if (!measure) throw EpmError.notFound('That measure');
-    if (!measure.memberKind) throw EpmError.badRequest(`${measure.label} is a figure, not a list of things to open.`);
+    if (!measure.memberKind) throw EpmError.badRequest(message('{measure} is a figure, not a list of things to open.', { measure: measure.label }));
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     return measureMembers(measure.id, scope, periodOf(query), await narrowedViewer(viewer, query.within), todayIso());
@@ -136,7 +137,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
       .parse(request.query);
     const measure = measureById(request.params.id);
     if (!measure) throw EpmError.notFound('That measure');
-    if (!measure.entries) throw EpmError.badRequest(`${measure.label} is not made of logged time.`);
+    if (!measure.entries) throw EpmError.badRequest(message('{measure} is not made of logged time.', { measure: measure.label }));
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     if (scope.kind !== 'project') throw EpmError.badRequest('Time entries are listed for one project: scope=project:<id>.');
@@ -159,7 +160,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
     const query = scopeQuery.extend({ bucket: z.enum(['week', 'month']).default('week') }).parse(request.query);
     const measure = measureById(request.params.id);
     if (!measure) throw EpmError.notFound('That measure');
-    if (!measure.trend) throw EpmError.badRequest(`${measure.label} has no series over time.`);
+    if (!measure.trend) throw EpmError.badRequest(message('{measure} has no series over time.', { measure: measure.label }));
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     return measureTrend(measure.id, scope, periodOf(query), query.bucket, await narrowedViewer(viewer, query.within), todayIso());

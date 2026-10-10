@@ -9,6 +9,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/compon
 import { useAdminVersions } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
 import type { Tone } from '@/lib/domain';
+import { t } from '@/lib/i18n';
 import { formatLongDate } from '@/lib/utils';
 import { AdminPagination, AdminTable } from './shared-tables';
 
@@ -19,11 +20,11 @@ const STATUS_TONE: Record<string, Tone> = {
 };
 
 const SHARING_LABEL: Record<string, string> = {
-  none: 'Not shared',
-  descendants: 'Subprojects',
-  hierarchy: 'Project hierarchy',
-  tree: 'Project tree',
-  system: 'All projects',
+  get none() { return t('Not shared'); },
+  get descendants() { return t('Subprojects'); },
+  get hierarchy() { return t('Project hierarchy'); },
+  get tree() { return t('Project tree'); },
+  get system() { return t('All projects'); },
 };
 
 /** Backlogs: every version sprints and product backlogs are planned into. */
@@ -41,7 +42,7 @@ export default function BacklogsPage() {
   return (
     <div className="space-y-4">
       <ListToolbar>
-        <ResultCount count={rows.length} label="version" />
+        <ResultCount count={rows.length} label={t('version')} plural={t('versions')} />
       </ListToolbar>
 
       <QueryBoundary
@@ -49,26 +50,28 @@ export default function BacklogsPage() {
         isError={versions.isError}
         error={versions.error}
         onRetry={() => void versions.refetch()}
-        errorTitle="Versions could not be loaded"
+        errorTitle={t('Versions could not be loaded')}
         skeleton={<TableSkeleton columns={6} />}
         isEmpty={rows.length === 0}
         empty={
           <EmptyState
             icon={Layers}
-            title="No versions exist yet"
-            description="Versions are created inside a project. Sprints and backlogs appear here once a project has one."
+            title={t('No versions exist yet')}
+            description={t('Versions are created inside a project. Sprints and backlogs appear here once a project has one.')}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="version" />}>
+        <AdminTable
+          footer={<AdminPagination paging={paging} itemLabel={t('version')} itemLabelPlural={t('versions')} />}
+        >
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Start</TableHead>
-              <TableHead>End</TableHead>
-              <TableHead>Sharing</TableHead>
+              <TableHead>{t('Name')}</TableHead>
+              <TableHead>{t('Project')}</TableHead>
+              <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('Start')}</TableHead>
+              <TableHead>{t('End')}</TableHead>
+              <TableHead>{t('Sharing')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -76,11 +79,11 @@ export default function BacklogsPage() {
               const status = row.status.toLowerCase();
               return (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.name}</TableCell>
-                  <TableCell>{row.projectName}</TableCell>
+                  <TableCell className="font-medium" dir="auto">{row.name}</TableCell>
+                  <TableCell dir="auto">{row.projectName}</TableCell>
                   <TableCell>
                     <Badge tone={STATUS_TONE[status] ?? 'neutral'} size="sm" dot className="capitalize">
-                      {status}
+                      {t('{status, select, open {open} locked {locked} closed {closed} other {{status}}}', { status })}
                     </Badge>
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">

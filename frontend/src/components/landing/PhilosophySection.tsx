@@ -1,15 +1,16 @@
 import { motion } from 'framer-motion';
 import { CapacityPlate } from './plates/CapacityPlate';
 import { useLandingMotion } from './useLandingMotion';
+import { t } from '@/lib/i18n';
 
 const BLOCKS = [
   {
-    label: 'Plan with intent',
-    body: 'Every commitment begins somewhere — a portfolio decision, a budget, a date given to a customer. EPM keeps that thread intact from the portfolio down to the task, so a slip three levels down is visible to the person who made the promise.',
+    get label() { return t('Plan with intent'); },
+    get body() { return t('Every commitment begins somewhere — a portfolio decision, a budget, a date given to a customer. EPM keeps that thread intact from the portfolio down to the task, so a slip three levels down is visible to the person who made the promise.'); },
   },
   {
-    label: 'Deliver with evidence',
-    body: 'Status is only worth having if it comes from the work itself. Boards, sprints, timesheets and documents all write to the same record, so velocity, health and capacity are read from delivery rather than reassembled for a meeting.',
+    get label() { return t('Deliver with evidence'); },
+    get body() { return t('Status is only worth having if it comes from the work itself. Boards, sprints, timesheets and documents all write to the same record, so velocity, health and capacity are read from delivery rather than reassembled for a meeting.'); },
   },
 ];
 
@@ -28,7 +29,7 @@ export function PhilosophySection() {
           {...reveal()}
           className="mb-16 text-5xl tracking-tight text-white md:mb-24 md:text-7xl lg:text-8xl"
         >
-          Plan <em className="font-serif italic text-white/40">×</em> Deliver
+          {t('Plan')} <em className="font-serif italic text-white/40">×</em> {t('Deliver')}
         </motion.h2>
 
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 md:gap-12">

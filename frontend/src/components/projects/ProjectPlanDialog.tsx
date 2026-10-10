@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { FieldError, FieldHint, Label } from '@/components/ui/label';
 import { env } from '@/config/env';
 import { useUpdateProjectPlan } from '@/hooks/useProjects';
+import { t } from '@/lib/i18n';
 import type { EpmProject, ProjectPlanInput } from '@/types';
 
 /**
@@ -69,10 +70,10 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
       { id: project.id, plan },
       {
         onSuccess: () => {
-          toast.success('Plan saved', { description: 'Health has been recalculated against it.' });
+          toast.success(t('Plan saved'), { description: t('Health has been recalculated against it.') });
           onOpenChange(false);
         },
-        onError: (error) => setProblem(error instanceof Error ? error.message : 'That could not be saved.'),
+        onError: (error) => setProblem(error instanceof Error ? error.message : t('That could not be saved.')),
       },
     );
   };
@@ -81,21 +82,20 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Plan and budget</DialogTitle>
+          <DialogTitle>{t('Plan and budget')}</DialogTitle>
           <DialogDescription>
-            The baseline this project&apos;s health is measured against. Leave a field empty to
-            clear it.
+            {t('The baseline this project\'s health is measured against. Leave a field empty to clear it.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="plan-start">Planned start</Label>
+              <Label htmlFor="plan-start">{t('Planned start')}</Label>
               <Input id="plan-start" type="date" value={start} onChange={(event) => setStart(event.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="plan-finish">Planned finish</Label>
+              <Label htmlFor="plan-finish">{t('Planned finish')}</Label>
               <Input
                 id="plan-finish"
                 type="date"
@@ -107,16 +107,17 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
             </div>
           </div>
           {finishBeforeStart ? (
-            <FieldError>The planned finish cannot be before the planned start.</FieldError>
+            <FieldError>{t('The planned finish cannot be before the planned start.')}</FieldError>
           ) : (
             <FieldHint>
-              Schedule variance is measured from the planned finish; the budget is phased evenly
-              between the two dates.
+              {t(
+                'Schedule variance is measured from the planned finish; the budget is phased evenly between the two dates.',
+              )}
             </FieldHint>
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="plan-budget">Budget ({env.currency})</Label>
+            <Label htmlFor="plan-budget">{t('Budget ({currency})', { currency: env.currency })}</Label>
             <Input
               id="plan-budget"
               type="number"
@@ -128,11 +129,12 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
               invalid={budgetInvalid}
             />
             {budgetInvalid ? (
-              <FieldError>A budget is a positive amount, or empty for none.</FieldError>
+              <FieldError>{t('A budget is a positive amount, or empty for none.')}</FieldError>
             ) : (
               <FieldHint>
-                Spend is calculated from logged time at each person&apos;s hourly rate, so only the
-                budget is entered here.
+                {t(
+                  'Spend is calculated from logged time at each person\'s hourly rate, so only the budget is entered here.',
+                )}
               </FieldHint>
             )}
           </div>
@@ -142,10 +144,10 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={updatePlan.isPending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button onClick={save} loading={updatePlan.isPending} disabled={finishBeforeStart || budgetInvalid}>
-            Save plan
+            {t('Save plan')}
           </Button>
         </DialogFooter>
       </DialogContent>

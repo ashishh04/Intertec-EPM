@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { HEALTH_CRITERIA_META, HEALTH_MATRIX_LABEL, HEALTH_META, TONE_FILL, TONE_TEXT } from '@/lib/domain';
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { cn, formatLongDate } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import type { HealthLevel } from '@/types';
 
 /** Executive view: portfolio health, delivery confidence and the risk matrix. */
@@ -48,7 +49,7 @@ import type { HealthLevel } from '@/types';
 function SourceBadge({ live }: { live: boolean }) {
   return (
     <Badge tone={live ? 'primary' : 'neutral'} className="text-2xs">
-      {live ? 'Live' : 'Snapshot history'}
+      {live ? t('Live') : t('Snapshot history')}
     </Badge>
   );
 }
@@ -90,9 +91,9 @@ export default function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Executive"
-        title="Delivery Intelligence"
-        description="Portfolio health, delivery confidence and where attention is needed."
+        eyebrow={t('Executive')}
+        title={t('Delivery Intelligence')}
+        description={t('Portfolio health, delivery confidence and where attention is needed.')}
       />
 
       <motion.div
@@ -126,8 +127,8 @@ export default function AnalyticsPage() {
       {/* Portfolio health matrix */}
       <section className="space-y-3">
         <SectionHeader
-          title="Portfolio health matrix"
-          description="Each project on the health rules: schedule, budget, high risks and overdue work"
+          title={t('Portfolio health matrix')}
+          description={t('Each project on the health rules: schedule, budget, high risks and overdue work')}
         />
 
         <QueryBoundary
@@ -135,15 +136,15 @@ export default function AnalyticsPage() {
           isError={insightsQuery.isError}
           error={insightsQuery.error}
           onRetry={() => insightsQuery.refetch()}
-          errorTitle="Unable to load portfolio health"
+          errorTitle={t('Unable to load portfolio health')}
           skeleton={<TableSkeleton columns={5} rows={6} />}
           isEmpty={matrixPage.total === 0}
           empty={
             <Card>
               <EmptyState
                 icon={Gauge}
-                title="No projects to assess"
-                description="The matrix fills in once projects exist in the portfolio."
+                title={t('No projects to assess')}
+                description={t('The matrix fills in once projects exist in the portfolio.')}
               />
             </Card>
           }
@@ -158,7 +159,8 @@ export default function AnalyticsPage() {
                   pageSize={matrixPage.pageSize}
                   total={matrixPage.total}
                   onPageChange={matrixPage.setPage}
-                  itemLabel="project"
+                  itemLabel={t('project')}
+                  itemLabelPlural={t('projects')}
                   className="border-b border-border"
                 />
                 <div className="flex flex-wrap items-center gap-4 px-3 py-2 text-2xs text-muted-foreground">
@@ -178,11 +180,11 @@ export default function AnalyticsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-48">Project</TableHead>
+                  <TableHead className="min-w-48">{t('Project')}</TableHead>
                   {HEALTH_CRITERIA_META.map((criterion) => (
                     <TableHead key={criterion.key}>{criterion.short}</TableHead>
                   ))}
-                  <TableHead>Overall</TableHead>
+                  <TableHead>{t('Overall')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -211,10 +213,13 @@ export default function AnalyticsPage() {
                             the calculated level and the reason travel with it. */}
                         {row.override ? (
                           <InfoTooltip
-                            label={`Overridden — calculated ${HEALTH_MATRIX_LABEL[row.calculatedOverall]}. ${row.override.reason}`}
+                            label={t('Overridden — calculated {level}. {reason}', {
+                              level: HEALTH_MATRIX_LABEL[row.calculatedOverall],
+                              reason: row.override.reason,
+                            })}
                           >
                             <Badge tone="accent" className="text-2xs" tabIndex={0}>
-                              Pinned
+                              {t('Pinned')}
                             </Badge>
                           </InfoTooltip>
                         ) : null}
@@ -237,12 +242,12 @@ export default function AnalyticsPage() {
           isError={trendsQuery.isError}
           error={trendsQuery.error}
           onRetry={() => trendsQuery.refetch()}
-          errorTitle="Unable to load delivery throughput"
+          errorTitle={t('Unable to load delivery throughput')}
           skeleton={<ChartCardSkeleton height={260} className="lg:col-span-2" />}
         >
           <ChartCard
-            title="Delivery throughput"
-            description="Completed vs. created work packages"
+            title={t('Delivery throughput')}
+            description={t('Completed vs. created work packages')}
             height={260}
             className="lg:col-span-2"
           >
@@ -255,10 +260,10 @@ export default function AnalyticsPage() {
           isError={distributionQuery.isError}
           error={distributionQuery.error}
           onRetry={() => distributionQuery.refetch()}
-          errorTitle="Unable to load work distribution"
+          errorTitle={t('Unable to load work distribution')}
           skeleton={<ChartCardSkeleton height={260} />}
         >
-          <ChartCard title="Work distribution" description="Portfolio-wide status mix" height={260}>
+          <ChartCard title={t('Work distribution')} description={t('Portfolio-wide status mix')} height={260}>
             <StatusDistributionChart data={distributionQuery.data ?? []} />
           </ChartCard>
         </QueryBoundary>
@@ -269,25 +274,27 @@ export default function AnalyticsPage() {
         isError={trendsQuery.isError}
         error={trendsQuery.error}
         onRetry={() => trendsQuery.refetch()}
-        errorTitle="Unable to load velocity"
+        errorTitle={t('Unable to load velocity')}
         skeleton={<ChartCardSkeleton height={240} />}
       >
-        <ChartCard title="Points delivered" description="Story points of the work delivered each month" height={240}>
+        <ChartCard title={t('Points delivered')} description={t('Story points of the work delivered each month')} height={240}>
           <VelocityChart data={trendsQuery.data ?? []} />
         </ChartCard>
       </QueryBoundary>
 
       {/* Historical -------------------------------------------------------- */}
       <SectionHeader
-        title="Trends"
+        title={t('Trends')}
         description={
           hasHistory
             ? // The last snapshot's date is what tells someone whether capture
               // is actually running. Read from coverage the API already returns.
-              `Recorded snapshots, ${formatLongDate(history?.firstSnapshot)} to ` +
-              `${formatLongDate(history?.lastSnapshot)} · last capture ` +
-              formatLongDate(history?.lastSnapshot)
-            : 'Recorded snapshots. History begins at the first capture.'
+              t('Recorded snapshots, {from} to {to} · last capture {last}', {
+                from: formatLongDate(history?.firstSnapshot),
+                to: formatLongDate(history?.lastSnapshot),
+                last: formatLongDate(history?.lastSnapshot),
+              })
+            : t('Recorded snapshots. History begins at the first capture.')
         }
         actions={
           <div className="flex items-center gap-3">
@@ -300,15 +307,20 @@ export default function AnalyticsPage() {
                 onClick={() =>
                   capture.mutate(undefined, {
                     onSuccess: (result) =>
-                      toast.success(`Captured ${result.records} metrics for ${result.sampledOn}`),
+                      toast.success(
+                        t('Captured {records, number} metrics for {date}', {
+                          records: result.records,
+                          date: result.sampledOn,
+                        }),
+                      ),
                     onError: (error) =>
-                      toast.error('Could not capture a snapshot', {
+                      toast.error(t('Could not capture a snapshot'), {
                         description: error instanceof Error ? error.message : undefined,
                       }),
                   })
                 }
               >
-                Capture snapshot
+                {t('Capture snapshot')}
               </Button>
             ) : null}
           </div>
@@ -318,55 +330,55 @@ export default function AnalyticsPage() {
       {mayReadHistory ? (
       <div className="grid gap-4 lg:grid-cols-2">
         <ChartCard
-          title="Projects over time"
-          description="Active and total, per snapshot"
+          title={t('Projects over time')}
+          description={t('Active and total, per snapshot')}
           height={240}
         >
           <TrendChart
             trends={projectTrends.data ?? []}
-            unit="projects"
-            labels={{ 'projects.active': 'Active', 'projects.total': 'Total' }}
+            unit={t('projects')}
+            labels={{ 'projects.active': t('Active'), 'projects.total': t('Total') }}
             tones={['primary', 'neutral']}
           />
         </ChartCard>
 
         <ChartCard
-          title="Health over time"
-          description="Active projects by effective health"
+          title={t('Health over time')}
+          description={t('Active projects by effective health')}
           height={240}
         >
           <TrendChart
             trends={healthTrends.data ?? []}
-            unit="projects"
+            unit={t('projects')}
             labels={{
-              'health.healthy': 'Healthy',
-              'health.warning': 'Warning',
-              'health.critical': 'Critical',
+              'health.healthy': t('Healthy'),
+              'health.warning': t('Warning'),
+              'health.critical': t('Critical'),
             }}
             tones={['success', 'warning', 'danger']}
           />
         </ChartCard>
 
         <ChartCard
-          title="Capacity over time"
-          description="Weekly hours of mapped people"
+          title={t('Capacity over time')}
+          description={t('Weekly hours of mapped people')}
           height={240}
           className="lg:col-span-2"
         >
           <TrendChart
             trends={capacityTrends.data ?? []}
-            unit="h/wk"
-            labels={{ 'capacity.hours': 'Capacity', 'employees.mapped': 'People mapped' }}
+            unit={t('h/wk')}
+            labels={{ 'capacity.hours': t('Capacity'), 'employees.mapped': t('People mapped') }}
             tones={['accent', 'neutral']}
           />
         </ChartCard>
       </div>
       ) : (
         <Card className="p-5 text-sm text-muted-foreground">
-          These snapshots count every project and person in the organisation, so they are shown to
-          people who manage analytics. Your own view, limited to the projects you can see, is under{' '}
+          {t('These snapshots count every project and person in the organisation, so they are shown to people who manage analytics.')}{' '}
+          {t('Your own view, limited to the projects you can see, is under')}{' '}
           <Link to="/insights" className="font-medium text-primary underline-offset-2 hover:underline">
-            Insights
+            {t('Insights')}
           </Link>
           .
         </Card>
@@ -378,7 +390,7 @@ export default function AnalyticsPage() {
 function HealthCell({ level, emphasis = false }: { level: HealthLevel | null; emphasis?: boolean }) {
   if (level === null) {
     // Not assessed: nothing to measure against yet, which is not the same as good.
-    return <span className="text-xs text-muted-foreground">n/a</span>;
+    return <span className="text-xs text-muted-foreground">{t('n/a')}</span>;
   }
   const meta = HEALTH_META[level];
   return (

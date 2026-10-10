@@ -39,7 +39,8 @@ import {
 } from '@/hooks/useAccounts';
 import { usePagination } from '@/hooks/usePagination';
 import type { Tone } from '@/lib/domain';
-import { formatLongDate, formatNumber } from '@/lib/utils';
+import { t } from '@/lib/i18n';
+import { formatLongDate } from '@/lib/utils';
 import type { AccountStatus, EpmAccount } from '@/types';
 import { AdminPagination, AdminTable, CheckCell } from './shared-tables';
 
@@ -57,10 +58,10 @@ const ALL = '__all__';
 type StatusFilter = typeof ALL | AccountStatus;
 
 const STATUS_LABEL: Record<AccountStatus, string> = {
-  active: 'Active',
-  invited: 'Invited',
-  registered: 'Registered',
-  locked: 'Locked',
+  get active() { return t('Active'); },
+  get invited() { return t('Invited'); },
+  get registered() { return t('Registered'); },
+  get locked() { return t('Locked'); },
 };
 
 const STATUS_TONE: Record<AccountStatus, Tone> = {
@@ -127,9 +128,13 @@ export default function UsersPage() {
       { id: account.id, locked },
       {
         onSuccess: () =>
-          toast.success(locked ? `${account.name} deactivated` : `${account.name} reactivated`),
+          toast.success(
+            locked
+              ? t('{name} deactivated', { name: account.name })
+              : t('{name} reactivated', { name: account.name }),
+          ),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -140,9 +145,9 @@ export default function UsersPage() {
   // working.
   const sendInvitation = (account: EpmAccount) => {
     resendInvite.mutate(account.id, {
-      onSuccess: () => toast.success(`Invitation sent to ${account.email}`),
+      onSuccess: () => toast.success(t('Invitation sent to {email}', { email: account.email })),
       onError: (error) =>
-        toast.error('The invitation could not be sent', {
+        toast.error(t('The invitation could not be sent'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -154,11 +159,11 @@ export default function UsersPage() {
 
     deleteAccount.mutate(removing.id, {
       onSuccess: () => {
-        toast.success(`${label} was deleted`);
+        toast.success(t('{name} was deleted', { name: label }));
         setRemoving(undefined);
       },
       onError: (error) =>
-        toast.error('That could not be deleted', {
+        toast.error(t('That could not be deleted'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -169,10 +174,10 @@ export default function UsersPage() {
       <ListToolbar
         trailing={
           <>
-            <ResultCount count={items.length} total={all.length} label="user" />
+            <ResultCount count={items.length} total={all.length} label={t('user')} plural={t('users')} />
             <Button size="sm" onClick={openCreate}>
               <UserPlus className="h-3.5 w-3.5" />
-              Add user
+              {t('Add user')}
             </Button>
           </>
         }
@@ -180,19 +185,19 @@ export default function UsersPage() {
         <SearchInput
           value={name}
           onValueChange={setName}
-          placeholder="Filter by name"
-          aria-label="Filter users by name"
+          placeholder={t('Filter by name')}
+          aria-label={t('Filter users by name')}
         />
         <Select value={status} onValueChange={(value) => setStatus(value as StatusFilter)}>
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label="Filter by status">
-            <SelectValue placeholder="All statuses" />
+          <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by status')}>
+            <SelectValue placeholder={t('All statuses')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All ({formatNumber(all.length)})</SelectItem>
+            <SelectItem value={ALL}>{t('All ({count, number})', { count: all.length })}</SelectItem>
             {STATUS_ORDER.filter((key) => key !== 'registered' || counts.registered > 0).map(
               (key) => (
                 <SelectItem key={key} value={key}>
-                  {STATUS_LABEL[key]} ({formatNumber(counts[key])})
+                  {t('{status} ({count, number})', { status: STATUS_LABEL[key], count: counts[key] })}
                 </SelectItem>
               ),
             )}
@@ -205,34 +210,34 @@ export default function UsersPage() {
         isError={accounts.isError}
         error={accounts.error}
         onRetry={() => accounts.refetch()}
-        errorTitle="Unable to load users"
+        errorTitle={t('Unable to load users')}
         skeleton={<TableSkeleton columns={8} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={UserRound}
-            title={filtering ? 'No users match' : 'No users'}
+            title={filtering ? t('No users match') : t('No users')}
             description={
               filtering
-                ? 'Try a different status or name.'
-                : 'Users appear here once they have an account.'
+                ? t('Try a different status or name.')
+                : t('Users appear here once they have an account.')
             }
-            action={filtering ? undefined : { label: 'Add user', onClick: openCreate }}
+            action={filtering ? undefined : { label: t('Add user'), onClick: openCreate }}
           />
         }
       >
-        <AdminTable footer={<AdminPagination paging={paging} itemLabel="user" />}>
+        <AdminTable footer={<AdminPagination paging={paging} itemLabel={t('user')} itemLabelPlural={t('users')} />}>
           <TableHeader>
             <TableRow>
-              <TableHead>Username</TableHead>
-              <TableHead>First name</TableHead>
-              <TableHead>Last name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Administrator</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Created on</TableHead>
+              <TableHead>{t('Username')}</TableHead>
+              <TableHead>{t('First name')}</TableHead>
+              <TableHead>{t('Last name')}</TableHead>
+              <TableHead>{t('Email')}</TableHead>
+              <TableHead>{t('Administrator')}</TableHead>
+              <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('Created on')}</TableHead>
               <TableHead className="w-12">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t('Actions')}</span>
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -244,8 +249,8 @@ export default function UsersPage() {
               return (
                 <TableRow key={account.id}>
                   <TableCell className="font-mono text-2xs">{account.login}</TableCell>
-                  <TableCell>{account.firstName}</TableCell>
-                  <TableCell>{account.lastName}</TableCell>
+                  <TableCell dir="auto">{account.firstName}</TableCell>
+                  <TableCell dir="auto">{account.lastName}</TableCell>
                   <TableCell>
                     {account.email ? (
                       <a
@@ -259,7 +264,7 @@ export default function UsersPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <CheckCell value={account.admin} label="Administrator" />
+                    <CheckCell value={account.admin} label={t('Administrator')} />
                   </TableCell>
                   <TableCell>
                     <Badge tone={STATUS_TONE[account.status]} size="sm">
@@ -269,14 +274,14 @@ export default function UsersPage() {
                   <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                     {formatLongDate(account.createdAt)}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-end">
                     {hasActions ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             size="icon-sm"
                             variant="ghost"
-                            aria-label={`Actions for ${account.name}`}
+                            aria-label={t('Actions for {name}', { name: account.name })}
                           >
                             <Ellipsis className="h-4 w-4" />
                           </Button>
@@ -285,28 +290,28 @@ export default function UsersPage() {
                           {update ? (
                             <DropdownMenuItem onSelect={() => openEdit(account)}>
                               <Pencil />
-                              Edit
+                              {t('Edit')}
                             </DropdownMenuItem>
                           ) : null}
 
                           {update ? (
                             <DropdownMenuItem onSelect={() => sendInvitation(account)}>
                               <Mail />
-                              Resend invitation
+                              {t('Resend invitation')}
                             </DropdownMenuItem>
                           ) : null}
 
                           {lock || unlock ? (
                             <DropdownMenuItem onSelect={() => toggleLocked(account)}>
                               {unlock ? <Unlock /> : <Lock />}
-                              {unlock ? 'Reactivate' : 'Deactivate'}
+                              {unlock ? t('Reactivate') : t('Deactivate')}
                             </DropdownMenuItem>
                           ) : null}
 
                           {remove ? (
                             <DropdownMenuItem destructive onSelect={() => setRemoving(account)}>
                               <Trash2 />
-                              Delete
+                              {t('Delete')}
                             </DropdownMenuItem>
                           ) : null}
                         </DropdownMenuContent>
@@ -325,11 +330,11 @@ export default function UsersPage() {
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              This removes their account permanently, along with their department, team and
-              capacity in EPM. It cannot be undone. To keep their history and stop them signing
-              in, deactivate them instead.
+              {t(
+                'This removes their account permanently, along with their department, team and capacity in EPM. It cannot be undone. To keep their history and stop them signing in, deactivate them instead.',
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -338,14 +343,14 @@ export default function UsersPage() {
               onClick={() => setRemoving(undefined)}
               disabled={deleteAccount.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={confirmRemove}
               loading={deleteAccount.isPending}
             >
-              Delete permanently
+              {t('Delete permanently')}
             </Button>
           </DialogFooter>
         </DialogContent>

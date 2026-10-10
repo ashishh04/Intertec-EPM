@@ -74,6 +74,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     // claiming one here would override it for everyone who never chose.
     language: '',
     dateFormat: 'system',
+    calendar: 'gregory',
+    numerals: 'latn',
   },
   availability: {
     workingDays: DEFAULT_WORKING_DAYS,
@@ -174,6 +176,8 @@ export const preferencesPatchSchema = z
         // instance default", which is the state everybody starts in.
         language: z.string().max(16),
         dateFormat: z.enum(['system', 'iso', 'dmy', 'mdy']),
+        calendar: z.enum(['gregory', 'islamic-umalqura']),
+        numerals: z.enum(['latn', 'arab']),
       })
       .partial(),
     availability: z

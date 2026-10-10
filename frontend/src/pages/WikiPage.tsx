@@ -6,6 +6,7 @@ import { ListToolbar } from '@/components/common/ListToolbar';
 import { PageHeader } from '@/components/common/PageHeader';
 import { WikiWorkspace } from '@/components/wiki/WikiWorkspace';
 import { useProjects } from '@/hooks/useProjects';
+import { t } from '@/lib/i18n';
 
 /**
  * The wiki.
@@ -45,24 +46,24 @@ export default function WikiPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Wiki"
+        title={t('Wiki')}
         description={
           projectName
-            ? `Written documentation for ${projectName}.`
-            : 'Written documentation everybody can reach and anybody can correct.'
+            ? t('Written documentation for {project}.', { project: projectName })
+            : t('Written documentation everybody can reach and anybody can correct.')
         }
       />
 
       <ListToolbar>
         <div className="w-64">
           <ComboSelect
-            label="Wiki"
+            label={t('Wiki')}
             options={projectOptions}
             value={projectId}
             clearable
             loading={projectsQuery.isLoading}
-            placeholder="Organisation wiki"
-            emptyLabel="No projects match"
+            placeholder={t('Organisation wiki')}
+            emptyLabel={t('No projects match')}
             onChange={(next) => {
               // Switching wiki drops the slug: the page being read belongs to the
               // wiki it was in, and carrying the address across would land on a

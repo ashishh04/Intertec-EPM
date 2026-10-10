@@ -11,6 +11,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 /**
@@ -56,8 +57,8 @@ export function ComboSelect({
   onChange,
   label,
   id,
-  placeholder = 'Select',
-  emptyLabel = 'Nothing matches',
+  placeholder = t('Select'),
+  emptyLabel = t('Nothing matches'),
   clearable = false,
   disabled,
   loading,
@@ -89,13 +90,13 @@ export function ComboSelect({
             aria-label={label}
             aria-expanded={open}
             disabled={disabled || loading}
-            className={cn('w-full justify-between font-normal', showClear && 'pr-14')}
+            className={cn('w-full justify-between font-normal', showClear && 'pe-14')}
           >
             <span className={cn('truncate', !selected && 'text-muted-foreground')}>
               {/* The stored value is shown even when it is not in the list: a task
                   that has since closed, or a project the filter no longer covers,
                   must still read as what was chosen rather than as nothing. */}
-              {loading ? 'Loading…' : (selected?.name ?? (value ? value : placeholder))}
+              {loading ? t('Loading…') : (selected?.name ?? (value ? value : placeholder))}
             </span>
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </Button>
@@ -103,7 +104,7 @@ export function ComboSelect({
 
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command>
-            <CommandInput placeholder={`Search ${label.toLowerCase()}`} />
+            <CommandInput placeholder={t('Search {label}', { label: label.toLowerCase() })} />
             <CommandList>
               <CommandEmpty>{emptyLabel}</CommandEmpty>
               <CommandGroup>
@@ -145,10 +146,10 @@ export function ComboSelect({
       {showClear ? (
         <button
           type="button"
-          aria-label={`Clear ${label}`}
+          aria-label={t('Clear {label}', { label })}
           onClick={() => onChange(undefined)}
           className={cn(
-            'absolute right-8 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground',
+            'absolute end-8 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground',
             'hover:bg-muted hover:text-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           )}

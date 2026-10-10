@@ -28,7 +28,7 @@ export function ScrollProgress() {
       aria-hidden
       // z above the header: the nav pill is z-50 and the rail has to stay
       // visible when the glass fills in on scroll.
-      className="fixed inset-x-0 top-0 z-[60] h-[2px] origin-left bg-brand"
+      className="fixed inset-x-0 top-0 z-[60] h-[2px] origin-left rtl:origin-right bg-brand"
       style={{ scaleX: reduceMotion ? scrollYProgress : smoothed }}
     />
   );

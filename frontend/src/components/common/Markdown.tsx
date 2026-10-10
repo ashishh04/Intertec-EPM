@@ -106,7 +106,7 @@ function renderBlocks(source: string): ReactNode[] {
       const level = heading[1]!.length;
       const Tag = (`h${Math.min(level + 1, 6)}`) as 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
       push(
-        <Tag className={HEADING_CLASS[Math.min(level, HEADING_CLASS.length) - 1]}>
+        <Tag className={HEADING_CLASS[Math.min(level, HEADING_CLASS.length) - 1]} dir="auto">
           {renderInline(heading[2]!)}
         </Tag>,
       );
@@ -127,7 +127,7 @@ function renderBlocks(source: string): ReactNode[] {
         index += 1;
       }
       push(
-        <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">
+        <blockquote className="border-s-2 border-border ps-3 text-muted-foreground">
           {renderBlocks(quoted.join('\n'))}
         </blockquote>,
       );
@@ -162,8 +162,9 @@ function renderBlocks(source: string): ReactNode[] {
       const List = ordered ? 'ol' : 'ul';
       push(
         <List
+          dir="auto"
           className={cn(
-            'space-y-1 pl-5',
+            'space-y-1 ps-5',
             ordered ? 'list-decimal' : 'list-disc',
             'marker:text-muted-foreground',
           )}
@@ -196,7 +197,7 @@ function renderBlocks(source: string): ReactNode[] {
       index += 1;
     }
 
-    push(<p>{renderInline(paragraph.join('\n'))}</p>);
+    push(<p dir="auto">{renderInline(paragraph.join('\n'))}</p>);
   }
 
   return blocks;

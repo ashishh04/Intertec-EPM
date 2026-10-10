@@ -1,5 +1,6 @@
 import { openProject } from '../openproject/client.js';
 import { referenceCache, userScopedKey } from '../lib/cache.js';
+import { type Message, listOf, message } from '../lib/i18n.js';
 
 /**
  * The password rules this instance enforces.
@@ -72,13 +73,15 @@ export async function getPasswordPolicy(signal?: AbortSignal): Promise<PasswordP
  * turn an upstream blip into "your password is wrong", which is both untrue and
  * the least useful thing to tell someone at that moment.
  */
-export async function checkPassword(password: string, signal?: AbortSignal): Promise<string[]> {
+export async function checkPassword(password: string, signal?: AbortSignal): Promise<Message[]> {
   const policy = await getPasswordPolicy(signal).catch(() => PERMISSIVE);
 
-  const failures: string[] = [];
+  // Messages rather than text: the caller writes them into a sentence in the
+  // reader's language.
+  const failures: Message[] = [];
 
   if (password.length < policy.minLength) {
-    failures.push(`at least ${policy.minLength} characters`);
+    failures.push(message('at least {count, plural, one {# character} other {# characters}}', { count: policy.minLength }));
   }
 
   // `minAdheredRules` of the active rules, not all of them — so a policy that
@@ -91,8 +94,8 @@ export async function checkPassword(password: string, signal?: AbortSignal): Pro
     const options = unmet.map((rule) => RULE_TESTS[rule].label);
     failures.push(
       wanted >= unmet.length
-        ? options.join(', ')
-        : `${wanted} more of: ${options.join(', ')}`,
+        ? message('{options}', { options: listOf(options) })
+        : message('{count} more of: {options}', { count: wanted, options: listOf(options) }),
     );
   }
 

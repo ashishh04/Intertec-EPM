@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Minus, ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { t } from '@/lib/i18n';
 import { cn, formatPercent } from '@/lib/utils';
 import {
   HEALTH_META,
@@ -112,7 +113,7 @@ export function PriorityBadge({
   return (
     <span
       className={cn('inline-flex items-center gap-1.5', TONE_TEXT[meta.tone], className)}
-      title={`${text} priority`}
+      title={t('{priority} priority', { priority: text })}
     >
       <span className="flex items-end gap-[2px]" aria-hidden>
         {[0, 1, 2, 3].map((index) => (
@@ -205,7 +206,7 @@ export function TrendChip({
     <span className={cn('inline-flex items-center gap-1 text-2xs font-medium', className)}>
       <span className={cn('inline-flex items-center gap-0.5', TONE_TEXT[tone])}>
         <Icon className="h-3 w-3" aria-hidden />
-        {direction === 'flat' ? 'No change' : formatPercent(Math.abs(changePct))}
+        {direction === 'flat' ? t('No change') : formatPercent(Math.abs(changePct))}
       </span>
       {periodLabel ? <span className="text-muted-foreground">{periodLabel}</span> : null}
     </span>

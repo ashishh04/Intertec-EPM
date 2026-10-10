@@ -39,6 +39,7 @@ import { APP_NAME, featureFlags } from '@/config/env';
 import { shortcutHint } from '@/config/shortcuts';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
+import { t } from '@/lib/i18n';
 
 /*
  * The Create menu's heavier dialogs, loaded on demand.
@@ -87,7 +88,7 @@ export function TopHeader() {
         size="icon"
         className="lg:hidden"
         onClick={() => setMobileNavOpen(true)}
-        aria-label="Open navigation menu"
+        aria-label={t('Open navigation menu')}
       >
         <Menu className="h-4 w-4" />
       </Button>
@@ -106,8 +107,8 @@ export function TopHeader() {
         )}
       >
         <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span className="truncate">Search projects, tasks, people...</span>
-        <kbd className="ml-auto shrink-0 rounded border border-border bg-surface px-1 py-0.5 font-mono text-2xs leading-none text-muted-foreground">
+        <span className="truncate">{t('Search projects, tasks, people...')}</span>
+        <kbd className="ms-auto shrink-0 rounded border border-border bg-surface px-1 py-0.5 font-mono text-2xs leading-none text-muted-foreground">
           {shortcut}
         </kbd>
       </button>
@@ -117,7 +118,7 @@ export function TopHeader() {
         size="icon"
         className="md:hidden"
         onClick={() => setCommandPaletteOpen(true)}
-        aria-label="Search"
+        aria-label={t('Search')}
       >
         <Search className="h-4 w-4" />
       </Button>
@@ -127,17 +128,17 @@ export function TopHeader() {
         <DropdownMenuTrigger asChild>
           <Button size="sm" className="shrink-0">
             <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Create</span>
+            <span className="hidden sm:inline">{t('Create')}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuLabel>Create new</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('Create new')}</DropdownMenuLabel>
           <DropdownMenuItem
             onSelect={() => openTaskDrawer()}
             disabled={!canAnywhere('task:create')}
           >
             <ListPlus />
-            New Task
+            {t('New Task')}
             <DropdownMenuShortcut>C</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -145,11 +146,11 @@ export function TopHeader() {
             onSelect={() => setProjectOpen(true)}
           >
             <FolderPlus />
-            New Project
+            {t('New Project')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setSprintOpen(true)}>
             <Timer />
-            New Sprint
+            {t('New Sprint')}
           </DropdownMenuItem>
 
           {/* The collaboration modules. Meetings and announcements open their own
@@ -160,15 +161,15 @@ export function TopHeader() {
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setMeetingOpen(true)}>
             <CalendarClock />
-            New Meeting
+            {t('New Meeting')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setNewsOpen(true)}>
             <Megaphone />
-            New Announcement
+            {t('New Announcement')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => navigate('/wiki')}>
             <BookOpen />
-            New Wiki page
+            {t('New Wiki page')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -193,35 +194,35 @@ export function TopHeader() {
       {/* Help */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Help and resources" className="hidden sm:inline-flex">
+          <Button variant="ghost" size="icon" aria-label={t('Help and resources')} className="hidden sm:inline-flex">
             <CircleHelp className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>Help</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('Help')}</DropdownMenuLabel>
           <DropdownMenuItem onSelect={() => setCommandPaletteOpen(true)}>
             <Search />
-            Search and commands
+            {t('Search and commands')}
             <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setShortcutsOpen(true)}>
             <Keyboard />
-            Keyboard shortcuts
+            {t('Keyboard shortcuts')}
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />
-          <DropdownMenuLabel>Documentation</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('Documentation')}</DropdownMenuLabel>
           {/* The handbook is a wiki page now that EPM has a wiki, which is what a
               handbook wants to be: editable by the people who know, and linkable
               from a ticket. A page that has not been written yet lands on the
               wiki's own "create this page" state rather than on an error. */}
           <DropdownMenuItem onSelect={() => navigate('/wiki/delivery-handbook')}>
             <BookOpen />
-            Delivery handbook
+            {t('Delivery handbook')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => navigate('/wiki')}>
             <BookOpen />
-            Browse the wiki
+            {t('Browse the wiki')}
           </DropdownMenuItem>
 
           {/* Integration status is administration. Offered only to people who can
@@ -232,7 +233,7 @@ export function TopHeader() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => navigate('/settings/integration')}>
                 <LifeBuoy />
-                Integration status
+                {t('Integration status')}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -240,7 +241,7 @@ export function TopHeader() {
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setAboutOpen(true)}>
             <Info />
-            About {APP_NAME}
+            {t('About {app}', { app: APP_NAME })}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

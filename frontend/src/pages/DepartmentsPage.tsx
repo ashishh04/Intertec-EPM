@@ -26,7 +26,7 @@ import { Switch } from '@/components/ui/switch';
 import { useDeleteDepartment, useDepartments, useSetDepartmentActive } from '@/hooks/useDepartments';
 import { usePagination } from '@/hooks/usePagination';
 import { useUserMap } from '@/hooks/useUsers';
-import { formatNumber, pluralize } from '@/lib/utils';
+import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type { EpmDepartment } from '@/services/api/departments';
 
@@ -76,13 +76,13 @@ export default function DepartmentsPage() {
 
     deleteDepartment.mutate(removing.id, {
       onSuccess: () => {
-        toast.success(`${name} deleted`);
+        toast.success(t('{name} deleted', { name }));
         setRemoving(undefined);
       },
       // The message names what is still in the department, so it is shown
       // rather than replaced with something generic.
       onError: (error) =>
-        toast.error('That could not be deleted', {
+        toast.error(t('That could not be deleted'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -94,9 +94,9 @@ export default function DepartmentsPage() {
     setActive.mutate(
       { id: department.id, active },
       {
-        onSuccess: () => toast.success(active ? 'Department restored' : 'Department archived'),
+        onSuccess: () => toast.success(active ? t('Department restored') : t('Department archived')),
         onError: (error) =>
-          toast.error('That could not be changed', {
+          toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
           }),
       },
@@ -112,26 +112,26 @@ export default function DepartmentsPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Departments"
-        description="Organisational units defined in EPM."
+        title={t('Departments')}
+        description={t('Organisational units defined in EPM.')}
         actions={
           mayManage ? (
             <Button size="sm" onClick={openCreate}>
               <Plus className="h-3.5 w-3.5" />
-              New department
+              {t('New department')}
             </Button>
           ) : null
         }
       />
 
-      <ListToolbar trailing={<ResultCount count={items.length} label="department" />}>
+      <ListToolbar trailing={<ResultCount count={items.length} label={t('department')} plural={t('departments')} />}>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <Switch
             checked={showArchived}
             onCheckedChange={setShowArchived}
-            aria-label="Show archived departments"
+            aria-label={t('Show archived departments')}
           />
-          Show archived
+          {t('Show archived')}
         </label>
       </ListToolbar>
 
@@ -139,17 +139,17 @@ export default function DepartmentsPage() {
         isLoading={departments.isLoading}
         isError={departments.isError}
         onRetry={() => departments.refetch()}
-        errorTitle="Unable to load departments"
+        errorTitle={t('Unable to load departments')}
         skeleton={<ListSkeleton rows={4} height="h-16" />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
             icon={Building2}
-            title={showArchived ? 'No departments' : 'No active departments'}
+            title={showArchived ? t('No departments') : t('No active departments')}
             description={
               mayManage
-                ? 'Create a department to describe how the organisation is structured.'
-                : 'No departments have been set up yet.'
+                ? t('Create a department to describe how the organisation is structured.')
+                : t('No departments have been set up yet.')
             }
           />
         }
@@ -171,6 +171,7 @@ export default function DepartmentsPage() {
                           an anchor, which is invalid and breaks the keyboard. */}
                       <Link
                         to={`/departments/${department.id}`}
+                        dir="auto"
                         className="truncate rounded-sm text-sm font-medium transition-colors after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] group-hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {department.name}
@@ -180,12 +181,12 @@ export default function DepartmentsPage() {
                       </Badge>
                       {!department.active ? (
                         <Badge tone="warning" size="sm">
-                          Archived
+                          {t('Archived')}
                         </Badge>
                       ) : null}
                     </div>
                     {department.description ? (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground" dir="auto">
                         {department.description}
                       </p>
                     ) : null}
@@ -194,9 +195,8 @@ export default function DepartmentsPage() {
                   <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
                     <Users className="h-3.5 w-3.5" aria-hidden />
                     <span className="tabular-nums">
-                      {formatNumber(department.memberCount)}{' '}
-                      {pluralize(department.memberCount, 'member')} ·{' '}
-                      {formatNumber(department.capacityHours)} h/wk
+                      {t('{count, plural, one {# member} other {# members}}', { count: department.memberCount })} ·{' '}
+                      {t('{hours, number} h/wk', { hours: department.capacityHours })}
                     </span>
                   </div>
 
@@ -205,13 +205,13 @@ export default function DepartmentsPage() {
                       {/* The name comes from the backend; the directory is only
                           consulted for the avatar. */}
                       <UserAvatarWithTooltip user={users.get(department.manager.id)} size="xs" />
-                      <span className="hidden text-xs text-muted-foreground sm:inline">
+                      <span className="hidden text-xs text-muted-foreground sm:inline" dir="auto">
                         {department.manager.name}
                       </span>
                     </div>
                   ) : (
                     <span className="hidden text-xs text-muted-foreground sm:inline">
-                      No manager
+                      {t('No manager')}
                     </span>
                   )}
 
@@ -220,7 +220,7 @@ export default function DepartmentsPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Edit ${department.name}`}
+                        aria-label={t('Edit {name}', { name: department.name })}
                         onClick={() => openEdit(department)}
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden />
@@ -231,8 +231,8 @@ export default function DepartmentsPage() {
                         size="icon-sm"
                         aria-label={
                           department.active
-                            ? `Archive ${department.name}`
-                            : `Restore ${department.name}`
+                            ? t('Archive {name}', { name: department.name })
+                            : t('Restore {name}', { name: department.name })
                         }
                         onClick={() => toggleActive(department)}
                       >
@@ -250,7 +250,7 @@ export default function DepartmentsPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={`Delete ${department.name}`}
+                        aria-label={t('Delete {name}', { name: department.name })}
                         className="hover:bg-danger-soft hover:text-danger"
                         onClick={() => setRemoving(department)}
                       >
@@ -271,7 +271,8 @@ export default function DepartmentsPage() {
                 onPageChange={paged.setPage}
                 onPageSizeChange={paged.setPageSize}
                 pageSizeOptions={[12, 24, 48]}
-                itemLabel="department"
+                itemLabel={t('department')}
+                itemLabelPlural={t('departments')}
               />
             </Card>
         </div>
@@ -285,10 +286,11 @@ export default function DepartmentsPage() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {removing?.name}?</DialogTitle>
+            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              This removes the department from EPM permanently. Archiving keeps it and can be
-              undone; deleting cannot. It is refused if any team or person is still in it.
+              {t(
+                'This removes the department from EPM permanently. Archiving keeps it and can be undone; deleting cannot. It is refused if any team or person is still in it.',
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -297,14 +299,14 @@ export default function DepartmentsPage() {
               onClick={() => setRemoving(undefined)}
               disabled={deleteDepartment.isPending}
             >
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button
               variant="danger"
               onClick={confirmRemove}
               disabled={deleteDepartment.isPending}
             >
-              Delete permanently
+              {t('Delete permanently')}
             </Button>
           </DialogFooter>
         </DialogContent>

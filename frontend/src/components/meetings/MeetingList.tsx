@@ -14,7 +14,8 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDeleteMeeting, useMeetings } from '@/hooks/useCollaborationModules';
-import { cn, formatLongDate, formatTime, pluralize } from '@/lib/utils';
+import { intlLocale, t } from '@/lib/i18n';
+import { cn, formatLongDate, formatTime } from '@/lib/utils';
 import type { EpmMeeting, ID, MeetingFilters, MeetingState } from '@/types';
 
 /**
@@ -26,9 +27,9 @@ import type { EpmMeeting, ID, MeetingFilters, MeetingState } from '@/types';
  */
 
 const WINDOWS: { value: NonNullable<MeetingFilters['window']>; label: string }[] = [
-  { value: 'upcoming', label: 'Upcoming' },
-  { value: 'past', label: 'Past' },
-  { value: 'all', label: 'All' },
+  { value: 'upcoming', get label() { return t('Upcoming'); } },
+  { value: 'past', get label() { return t('Past'); } },
+  { value: 'all', get label() { return t('All'); } },
 ];
 
 const STATE_TONE: Record<MeetingState, 'success' | 'neutral' | 'danger'> = {
@@ -80,7 +81,7 @@ export function MeetingList({
 
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="h-3.5 w-3.5" />
-          Schedule
+          {t('Schedule')}
         </Button>
       </div>
 
@@ -89,7 +90,7 @@ export function MeetingList({
         isError={query.isError}
         error={query.error}
         onRetry={() => query.refetch()}
-        errorTitle="Unable to load meetings"
+        errorTitle={t('Unable to load meetings')}
         skeleton={
           <div className="space-y-2">
             {[0, 1, 2].map((index) => (
@@ -102,13 +103,13 @@ export function MeetingList({
           <Card>
             <EmptyState
               icon={CalendarClock}
-              title={window === 'past' ? 'No past meetings' : 'Nothing scheduled'}
+              title={window === 'past' ? t('No past meetings') : t('Nothing scheduled')}
               description={
                 window === 'past'
-                  ? 'Meetings appear here once their start time has passed.'
-                  : 'Schedule one and everybody invited will find it here.'
+                  ? t('Meetings appear here once their start time has passed.')
+                  : t('Schedule one and everybody invited will find it here.')
               }
-              action={{ label: 'Schedule a meeting', onClick: () => setCreating(true) }}
+              action={{ label: t('Schedule a meeting'), onClick: () => setCreating(true) }}
             />
           </Card>
         }
@@ -135,7 +136,8 @@ export function MeetingList({
             setPageSize(next);
             setPage(1);
           }}
-          itemLabel="meeting"
+          itemLabel={t('meeting')}
+          itemLabelPlural={t('meetings')}
         />
       </QueryBoundary>
 
@@ -153,24 +155,24 @@ export function MeetingList({
       <ConfirmDialog
         open={Boolean(deleting)}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title="Delete this meeting?"
+        title={t('Delete this meeting?')}
         description={
           deleting
-            ? `"${deleting.title}" and its agenda, minutes and attendance will be removed. This cannot be undone.`
+            ? t('"{title}" and its agenda, minutes and attendance will be removed. This cannot be undone.', { title: deleting.title })
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={t('Delete')}
         tone="danger"
         pending={remove.isPending}
         onConfirm={() => {
           if (!deleting) return;
           remove.mutate(deleting.id, {
             onSuccess: () => {
-              toast.success('Meeting deleted');
+              toast.success(t('Meeting deleted'));
               setDeleting(null);
             },
             onError: (error) =>
-              toast.error('That meeting could not be deleted', {
+              toast.error(t('That meeting could not be deleted'), {
                 description: error instanceof Error ? error.message : undefined,
               }),
           });
@@ -203,13 +205,13 @@ function MeetingCard({
       {/* The date block, so a column of meetings reads as a calendar. */}
       <div className="w-16 shrink-0 text-center">
         <p className="epm-eyebrow">
-          {new Date(meeting.startsAt).toLocaleDateString('en-US', { month: 'short' })}
+          {new Date(meeting.startsAt).toLocaleDateString(intlLocale(), { month: 'short' })}
         </p>
         <p className="font-display text-xl font-bold leading-none tracking-[-0.03em]">
-          {new Date(meeting.startsAt).getDate()}
+          {new Date(meeting.startsAt).toLocaleDateString(intlLocale(), { day: 'numeric' })}
         </p>
         <p className="mt-0.5 text-2xs text-muted-foreground">
-          {new Date(meeting.startsAt).toLocaleDateString('en-US', { weekday: 'short' })}
+          {new Date(meeting.startsAt).toLocaleDateString(intlLocale(), { weekday: 'short' })}
         </p>
       </div>
 
@@ -217,6 +219,7 @@ function MeetingCard({
         <div className="flex flex-wrap items-center gap-2">
           <Link
             to={`/meetings/${meeting.id}`}
+            dir="auto"
             className={cn(
               'truncate text-sm font-medium hover:underline',
               meeting.state === 'cancelled' && 'line-through',
@@ -225,11 +228,11 @@ function MeetingCard({
             {meeting.title}
           </Link>
           <Badge tone={STATE_TONE[meeting.state]} size="sm">
-            {meeting.state}
+            {t('{state, select, planned {planned} held {held} cancelled {cancelled} other {{state}}}', { state: meeting.state })}
           </Badge>
           {showProject ? (
             <Badge tone="neutral" size="sm">
-              {meeting.projectName ?? (meeting.projectId ? 'Project' : 'Organisation-wide')}
+              {meeting.projectName ?? (meeting.projectId ? t('Project') : t('Organisation-wide'))}
             </Badge>
           ) : null}
         </div>
@@ -251,24 +254,24 @@ function MeetingCard({
             {/* Attendance once it exists, the invite count before: "3 of 6 came"
                 is the useful figure after a meeting and meaningless before one. */}
             {attended > 0
-              ? `${attended} of ${meeting.participants.length} attended`
-              : `${meeting.participants.length} ${pluralize(meeting.participants.length, 'person', 'people')} invited`}
+              ? t('{attended, number} of {total, number} attended', { attended, total: meeting.participants.length })
+              : t('{count, plural, one {# person invited} other {# people invited}}', { count: meeting.participants.length })}
           </span>
         </div>
       </div>
 
       <div className="flex shrink-0 gap-1">
         <Button asChild variant="ghost" size="sm">
-          <Link to={`/meetings/${meeting.id}`}>Open</Link>
+          <Link to={`/meetings/${meeting.id}`}>{t('Open')}</Link>
         </Button>
         {meeting.can.update ? (
           <Button variant="ghost" size="sm" onClick={onEdit}>
-            Edit
+            {t('Edit')}
           </Button>
         ) : null}
         {meeting.can.delete ? (
           <Button variant="ghost" size="sm" onClick={onDelete}>
-            Delete
+            {t('Delete')}
           </Button>
         ) : null}
       </div>

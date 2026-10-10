@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { t } from '@/lib/i18n';
 import { assistantService } from '@/services/api/assistant';
 import type {
   AssistantConversation,
@@ -242,7 +243,7 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
           controller.signal,
         );
       } catch (caught) {
-        outcome.failure = caught instanceof Error ? caught.message : 'Something went wrong.';
+        outcome.failure = caught instanceof Error ? caught.message : t('Something went wrong.');
       }
 
       const aborted = controller.signal.aborted;
@@ -308,7 +309,7 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
       setMessages((previous) =>
         previous.filter((message) => message.id !== placeholderId && message.id !== userMessage.id),
       );
-      setError(outcome.failure ?? 'The assistant did not reply. Try again.');
+      setError(outcome.failure ?? t('The assistant did not reply. Try again.'));
       setFailedPrompt(trimmed);
     },
     [queryClient],

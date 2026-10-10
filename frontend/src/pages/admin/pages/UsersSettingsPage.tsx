@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { useUpdateUsersSettings, useUsersSettings } from '@/hooks/useAdmin';
 import type { UsersSettings, UsersSettingsInput } from '@/services/api/admin';
+import { t } from '@/lib/i18n';
 import { formatDateTime } from '@/lib/utils';
 import { describeError } from './shared-format';
 
@@ -62,7 +63,7 @@ export default function UsersSettingsPage() {
       isError={settings.isError}
       error={settings.error}
       onRetry={() => void settings.refetch()}
-      errorTitle="Users settings could not be loaded"
+      errorTitle={t('Users settings could not be loaded')}
       skeleton={<ListSkeleton rows={4} height="h-40" />}
     >
       {settings.data ? (
@@ -71,9 +72,9 @@ export default function UsersSettingsPage() {
           pending={update.isPending}
           onSave={(input) =>
             update.mutate(input, {
-              onSuccess: () => toast.success('Users settings saved'),
+              onSuccess: () => toast.success(t('Users settings saved')),
               onError: (error) =>
-                toast.error('Users settings were not saved', { description: describeError(error) }),
+                toast.error(t('Users settings were not saved'), { description: describeError(error) }),
             })
           }
         />
@@ -138,15 +139,15 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
 
   return (
     <div className="space-y-4">
-      <Section title="Default preferences">
-        <SettingRow label="Default language" htmlFor="users-default-language">
+      <Section title={t('Default preferences')}>
+        <SettingRow label={t('Default language')} htmlFor="users-default-language">
           <Select
             value={form.defaultLanguage}
             onValueChange={(value) => patch({ defaultLanguage: value })}
             disabled={pending}
           >
             <SelectTrigger id="users-default-language" className="sm:max-w-xs">
-              <SelectValue placeholder="Choose a language" />
+              <SelectValue placeholder={t('Choose a language')} />
             </SelectTrigger>
             <SelectContent>
               {settings.availableLanguages.map((language) => (
@@ -158,7 +159,7 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
           </Select>
         </SettingRow>
 
-        <SettingRow label="Users default time zone" htmlFor="users-default-timezone">
+        <SettingRow label={t('Users default time zone')} htmlFor="users-default-timezone">
           <Select
             value={form.userDefaultTimezone ?? BROWSER_DEFAULT}
             onValueChange={(value) =>
@@ -167,10 +168,10 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
             disabled={pending}
           >
             <SelectTrigger id="users-default-timezone" className="sm:max-w-xs">
-              <SelectValue placeholder="Browser default" />
+              <SelectValue placeholder={t('Browser default')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={BROWSER_DEFAULT}>Browser default</SelectItem>
+              <SelectItem value={BROWSER_DEFAULT}>{t('Browser default')}</SelectItem>
               {settings.availableTimezones.map((zone) => (
                 <SelectItem key={zone} value={zone}>
                   {zone}
@@ -182,22 +183,22 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
 
         <CheckboxRow
           id="users-auto-hide"
-          label="Auto-hide success notifications"
+          label={t('Auto-hide success notifications')}
           checked={form.defaultAutoHidePopups}
           disabled={pending}
           onCheckedChange={(checked) => patch({ defaultAutoHidePopups: checked })}
         />
       </Section>
 
-      <Section title="Display format">
-        <SettingRow label="Users name format" htmlFor="users-name-format">
+      <Section title={t('Display format')}>
+        <SettingRow label={t('Users name format')} htmlFor="users-name-format">
           <Select
             value={form.userFormat}
             onValueChange={(value) => patch({ userFormat: value })}
             disabled={pending}
           >
             <SelectTrigger id="users-name-format" className="sm:max-w-xs">
-              <SelectValue placeholder="Choose a format" />
+              <SelectValue placeholder={t('Choose a format')} />
             </SelectTrigger>
             <SelectContent>
               {settings.userFormatOptions.map((option) => (
@@ -210,37 +211,37 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
         </SettingRow>
       </Section>
 
-      <Section title="Deletion">
+      <Section title={t('Deletion')}>
         <CheckboxRow
           id="users-deletable-by-admins"
-          label="User accounts deletable by admins"
+          label={t('User accounts deletable by admins')}
           checked={form.usersDeletableByAdmins}
           disabled={pending}
           onCheckedChange={(checked) => patch({ usersDeletableByAdmins: checked })}
         />
         <CheckboxRow
           id="users-deletable-by-self"
-          label="Users allowed to delete their accounts"
+          label={t('Users allowed to delete their accounts')}
           checked={form.usersDeletableBySelf}
           disabled={pending}
           onCheckedChange={(checked) => patch({ usersDeletableBySelf: checked })}
         />
       </Section>
 
-      <Section title="User consent">
+      <Section title={t('User consent')}>
         <CheckboxRow
           id="users-consent-required"
-          label="Consent required"
+          label={t('Consent required')}
           checked={form.consentRequired}
           disabled={pending}
           onCheckedChange={(checked) => patch({ consentRequired: checked })}
         />
 
-        <SettingRow label="Consent information text" htmlFor="users-consent-text">
+        <SettingRow label={t('Consent information text')} htmlFor="users-consent-text">
           <div className="space-y-2">
             <Select value={consentLanguage} onValueChange={setConsentLanguage} disabled={pending}>
-              <SelectTrigger className="sm:max-w-xs" aria-label="Consent text language">
-                <SelectValue placeholder="Choose a language" />
+              <SelectTrigger className="sm:max-w-xs" aria-label={t('Consent text language')}>
+                <SelectValue placeholder={t('Choose a language')} />
               </SelectTrigger>
               <SelectContent>
                 {consentLanguages.map((language) => (
@@ -259,14 +260,15 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
               spellCheck={false}
               className="min-h-40 font-mono text-xs"
               aria-describedby="users-consent-text-hint"
+              dir="auto"
             />
             <FieldHint id="users-consent-text-hint">
-              Written in markdown. Shown to every user who has to consent, in their language.
+              {t('Written in markdown. Shown to every user who has to consent, in their language.')}
             </FieldHint>
           </div>
         </SettingRow>
 
-        <SettingRow label="Consent time" htmlFor="users-reset-consent">
+        <SettingRow label={t('Consent time')} htmlFor="users-reset-consent">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <Checkbox
@@ -277,23 +279,24 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
                 aria-describedby="users-reset-consent-hint"
               />
               <Label htmlFor="users-reset-consent" className="font-normal">
-                Force users to consent again
+                {t('Force users to consent again')}
               </Label>
             </div>
             <FieldHint id="users-reset-consent-hint">
-              Check this box to force users to consent again. Enable when you have changed the
-              legal aspect of the consent information above.
+              {t(
+                'Check this box to force users to consent again. Enable when you have changed the legal aspect of the consent information above.',
+              )}
             </FieldHint>
             <p className="text-2xs text-muted-foreground">
-              Last update of consent:{' '}
+              {t('Last update of consent:')}{' '}
               <span className="font-mono">
-                {settings.consentTime ? formatDateTime(settings.consentTime) : 'Never'}
+                {settings.consentTime ? formatDateTime(settings.consentTime) : t('Never')}
               </span>
             </p>
           </div>
         </SettingRow>
 
-        <SettingRow label="Consent contact mail address" htmlFor="users-consent-mail">
+        <SettingRow label={t('Consent contact mail address')} htmlFor="users-consent-mail">
           <div className="space-y-1.5">
             <Input
               id="users-consent-mail"
@@ -305,8 +308,9 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
               aria-describedby="users-consent-mail-hint"
             />
             <FieldHint id="users-consent-mail-hint">
-              Define the mail address that users can reach a data controller to perform data
-              change or removal requests.
+              {t(
+                'Define the mail address that users can reach a data controller to perform data change or removal requests.',
+              )}
             </FieldHint>
           </div>
         </SettingRow>
@@ -314,7 +318,7 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
 
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" onClick={() => onSave(form)} disabled={!dirty} loading={pending}>
-          Save
+          {t('Save')}
         </Button>
         <Button
           size="sm"
@@ -322,11 +326,11 @@ function UsersSettingsForm({ settings, pending, onSave }: UsersSettingsFormProps
           onClick={() => setForm(server)}
           disabled={!dirty || pending}
         >
-          Reset
+          {t('Reset')}
         </Button>
         {dirty ? (
           <span className="text-2xs text-muted-foreground" aria-live="polite">
-            Unsaved changes
+            {t('Unsaved changes')}
           </span>
         ) : null}
       </div>

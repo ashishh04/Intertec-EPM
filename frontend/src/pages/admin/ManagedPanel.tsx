@@ -3,6 +3,7 @@ import { ExternalLink, Lock } from 'lucide-react';
 import { FactList } from '@/components/common/FactList';
 import { Alert } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { t } from '@/lib/i18n';
 
 export interface ManagedFact {
   label: string;
@@ -67,22 +68,23 @@ export function ManagedPanel({
 
       <CardContent className="space-y-3 pt-4">
         {enterprise ? (
-          <Alert tone="neutral" icon={Lock} title="Needs an Enterprise licence">
-            This is part of the OpenProject Enterprise edition, which this instance does not have.
-            It cannot be enabled from EPM, and it cannot be enabled in OpenProject either until the
-            instance is licensed.
+          <Alert tone="neutral" icon={Lock} title={t('Needs an Enterprise licence')}>
+            {t(
+              'This is part of the OpenProject Enterprise edition, which this instance does not have. It cannot be enabled from EPM, and it cannot be enabled in OpenProject either until the instance is licensed.',
+            )}
           </Alert>
         ) : (
-          <Alert tone="neutral" icon={ExternalLink} title="Changed in OpenProject, not here">
-            This setting is available on this instance, but OpenProject publishes no API for it, so
-            EPM has nothing to call. It is not missing from EPM — there is nothing for EPM to send.
+          <Alert tone="neutral" icon={ExternalLink} title={t('Changed in OpenProject, not here')}>
+            {t(
+              'This setting is available on this instance, but OpenProject publishes no API for it, so EPM has nothing to call. It is not missing from EPM — there is nothing for EPM to send.',
+            )}
           </Alert>
         )}
 
         {managedAt ? (
           <p className="text-xs text-muted-foreground">
-            Change it in the OpenProject administration, under{' '}
-            <span className="font-medium text-foreground">{managedAt}</span>.
+            {t('Change it in the OpenProject administration, under:')}{' '}
+            <span className="font-medium text-foreground">{managedAt}</span>
           </p>
         ) : null}
 

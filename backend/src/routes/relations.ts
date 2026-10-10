@@ -8,6 +8,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Relations between work packages.
@@ -230,7 +231,7 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
 
     // Checked against the verified vocabulary so an unknown value fails here
     // with a usable message rather than as an upstream validation error.
-    if (!LABELS.has(type)) throw EpmError.badRequest(`${type} is not a relation type.`);
+    if (!LABELS.has(type)) throw EpmError.badRequest(message('{type} is not a relation type.', { type }));
 
     const projectId = await guard.projectOfWorkPackage(request, id);
     await guard.require(request, 'task:view', projectId);

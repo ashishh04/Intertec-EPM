@@ -15,6 +15,7 @@ import {
 import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCreatePortfolio, useUpdatePortfolio } from '@/hooks/usePortfolios';
+import { t } from '@/lib/i18n';
 import type { EpmPortfolio } from '@/services/api/portfolios';
 
 /**
@@ -67,16 +68,16 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
       description: description.trim() || undefined,
     };
 
-    if (!input.name) return setProblem('A name is required.');
-    if (!input.code) return setProblem('A code is required.');
-    if (!CODE_PATTERN.test(input.code)) return setProblem(CODE_PROBLEM);
+    if (!input.name) return setProblem(t('A name is required.'));
+    if (!input.code) return setProblem(t('A code is required.'));
+    if (!CODE_PATTERN.test(input.code)) return setProblem(t(CODE_PROBLEM));
 
     const onSuccess = () => {
-      toast.success(isEdit ? 'Portfolio updated' : 'Portfolio created');
+      toast.success(isEdit ? t('Portfolio updated') : t('Portfolio created'));
       onOpenChange(false);
     };
     const onError = (error: unknown) =>
-      setProblem(error instanceof Error ? error.message : 'That could not be saved.');
+      setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
     if (isEdit) {
       update.mutate({ id: portfolio!.id, input }, { onSuccess, onError });
@@ -90,16 +91,16 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{isEdit ? 'Edit portfolio' : 'New portfolio'}</DialogTitle>
+            <DialogTitle>{isEdit ? t('Edit portfolio') : t('New portfolio')}</DialogTitle>
             <DialogDescription>
-              Portfolios are defined in EPM. Projects are put into one from the project itself.
+              {t('Portfolios are defined in EPM. Projects are put into one from the project itself.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="portfolio-name" required>
-                Name
+                {t('Name')}
               </Label>
               <Input
                 id="portfolio-name"
@@ -107,21 +108,21 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
                 maxLength={120}
                 autoFocus
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Customer Apps"
+                placeholder={t('Customer Apps')}
               />
             </div>
 
             <CodeField id="portfolio-code" value={code} onChange={setCode} placeholder="CUST" />
 
             <div className="space-y-1.5">
-              <Label htmlFor="portfolio-description">Description</Label>
+              <Label htmlFor="portfolio-description">{t('Description')}</Label>
               <Textarea
                 id="portfolio-description"
                 rows={3}
                 value={description}
                 maxLength={2000}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="What this portfolio covers."
+                placeholder={t('What this portfolio covers.')}
               />
             </div>
 
@@ -130,10 +131,10 @@ export function PortfolioDialog({ open, onOpenChange, portfolio }: PortfolioDial
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             <Button type="submit" loading={create.isPending || update.isPending}>
-              {isEdit ? 'Save changes' : 'Create portfolio'}
+              {isEdit ? t('Save changes') : t('Create portfolio')}
             </Button>
           </DialogFooter>
         </form>

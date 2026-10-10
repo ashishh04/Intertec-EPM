@@ -25,6 +25,7 @@ import { useLogTime, useUpdateTimeEntry } from '@/hooks/useTimeEntries';
 import { useProjects } from '@/hooks/useProjects';
 import { useTasks } from '@/hooks/useTasks';
 import { useSchemaForm } from '@/hooks/useSchemaForm';
+import { t } from '@/lib/i18n';
 import { formService } from '@/services';
 import { allowedValuesOf, schemaField } from '@/services/api/forms';
 import type { EpmTimeEntry, ID } from '@/types';
@@ -164,11 +165,11 @@ export function TimeEntryDialog({
 
     const value = Number(hours);
     if (!Number.isFinite(value) || value <= 0) {
-      setError('Enter the hours worked, e.g. 1.5.');
+      setError(t('Enter the hours worked, e.g. 1.5.'));
       return;
     }
     if (!projectId && !workPackageId) {
-      setError('Choose the project the time was spent on.');
+      setError(t('Choose the project the time was spent on.'));
       return;
     }
 
@@ -180,13 +181,13 @@ export function TimeEntryDialog({
     };
 
     const done = (message: string) => {
-      toast.success(message, { description: `${value}h on ${spentOn}` });
+      toast.success(message, { description: t('{hours}h on {date}', { hours: value, date: spentOn }) });
       onOpenChange(false);
     };
     // Upstream's sentence, not a generic one: "You are not allowed to log time
     // on this project" is the whole answer and the reader needs it verbatim.
     const failed = (failure: unknown) =>
-      setError(failure instanceof Error ? failure.message : 'The entry was refused.');
+      setError(failure instanceof Error ? failure.message : t('The entry was refused.'));
 
     if (entry) {
       // Project and work package are deliberately not sent on an edit. They are
@@ -194,14 +195,14 @@ export function TimeEntryDialog({
       // stale picker move somebody's time to another project by accident.
       update.mutate(
         { id: entry.id, ...body },
-        { onSuccess: () => done('Entry updated'), onError: failed },
+        { onSuccess: () => done(t('Entry updated')), onError: failed },
       );
       return;
     }
 
     log.mutate(
       { ...body, projectId, workPackageId },
-      { onSuccess: () => done('Time logged'), onError: failed },
+      { onSuccess: () => done(t('Time logged')), onError: failed },
     );
   };
 
@@ -209,38 +210,38 @@ export function TimeEntryDialog({
     <Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{editing ? 'Edit entry' : 'Log time'}</DialogTitle>
+          <DialogTitle>{editing ? t('Edit entry') : t('Log time')}</DialogTitle>
           <DialogDescription>
             {editing
-              ? 'The project and task this was logged against cannot be changed.'
-              : 'Against a task, or against a project for work with no task of its own.'}
+              ? t('The project and task this was logged against cannot be changed.')
+              : t('Against a task, or against a project for work with no task of its own.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {editing ? (
             <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-              <p className="text-2xs text-muted-foreground">
-                {entry?.projectName ?? 'Project'}
+              <p className="text-2xs text-muted-foreground" dir="auto">
+                {entry?.projectName ?? t('Project')}
               </p>
-              <p className="truncate text-xs font-medium">
-                {entry?.workPackageSubject ?? 'Logged to the project'}
+              <p className="truncate text-xs font-medium" dir="auto">
+                {entry?.workPackageSubject ?? t('Logged to the project')}
               </p>
             </div>
           ) : (
             <>
               <div className="space-y-1.5">
                 <Label htmlFor="time-project" required>
-                  Project
+                  {t('Project')}
                 </Label>
                 <ComboSelect
                   id="time-project"
-                  label="Project"
+                  label={t('Project')}
                   options={projectOptions}
                   value={projectId}
                   loading={projectsQuery.isLoading}
-                  emptyLabel="No projects match"
-                  placeholder="Choose a project"
+                  emptyLabel={t('No projects match')}
+                  placeholder={t('Choose a project')}
                   onChange={(next) => {
                     setProjectId(next);
                     // The task belonged to the old project, and the activity
@@ -252,21 +253,21 @@ export function TimeEntryDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="time-task">Task</Label>
+                <Label htmlFor="time-task">{t('Task')}</Label>
                 <ComboSelect
                   id="time-task"
-                  label="Task"
+                  label={t('Task')}
                   options={taskOptions}
                   value={workPackageId}
                   clearable
                   disabled={!projectId}
                   loading={tasksQuery.isLoading}
-                  emptyLabel="No open tasks in this project"
-                  placeholder={projectId ? 'Optional' : 'Choose a project first'}
+                  emptyLabel={t('No open tasks in this project')}
+                  placeholder={projectId ? t('Optional') : t('Choose a project first')}
                   onChange={setWorkPackageId}
                 />
                 <FieldHint>
-                  Leave empty to log against the project itself.
+                  {t('Leave empty to log against the project itself.')}
                 </FieldHint>
               </div>
             </>
@@ -275,7 +276,7 @@ export function TimeEntryDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="time-hours" required>
-                Hours
+                {t('Hours')}
               </Label>
               <Input
                 id="time-hours"
@@ -284,12 +285,12 @@ export function TimeEntryDialog({
                 value={hours}
                 onChange={(event) => setHours(event.target.value)}
               />
-              <FieldHint>Quarters are fine.</FieldHint>
+              <FieldHint>{t('Quarters are fine.')}</FieldHint>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="time-date" required>
-                Date
+                {t('Date')}
               </Label>
               <Input
                 id="time-date"
@@ -302,10 +303,10 @@ export function TimeEntryDialog({
 
           {activities.length > 0 ? (
             <div className="space-y-1.5">
-              <Label htmlFor="time-activity">Activity</Label>
+              <Label htmlFor="time-activity">{t('Activity')}</Label>
               <Select value={activityId} onValueChange={setActivityId}>
                 <SelectTrigger id="time-activity">
-                  <SelectValue placeholder="Select an activity" />
+                  <SelectValue placeholder={t('Select an activity')} />
                 </SelectTrigger>
                 <SelectContent>
                   {activities.map((activity) => (
@@ -319,11 +320,11 @@ export function TimeEntryDialog({
           ) : null}
 
           <div className="space-y-1.5">
-            <Label htmlFor="time-comment">Comment</Label>
+            <Label htmlFor="time-comment">{t('Comment')}</Label>
             <Textarea
               id="time-comment"
               rows={3}
-              placeholder="What was done in this time."
+              placeholder={t('What was done in this time.')}
               value={comment}
               onChange={(event) => setComment(event.target.value)}
             />
@@ -331,9 +332,10 @@ export function TimeEntryDialog({
 
           {/* Known before a key is pressed, so it is said before a key is pressed. */}
           {refused ? (
-            <Alert tone="warning" title="You cannot log time on this project">
-              You need to be a member of it with permission to log time. Ask whoever runs the
-              project to add you, or pick a project you are on.
+            <Alert tone="warning" title={t('You cannot log time on this project')}>
+              {t(
+                'You need to be a member of it with permission to log time. Ask whoever runs the project to add you, or pick a project you are on.',
+              )}
             </Alert>
           ) : null}
 
@@ -349,7 +351,9 @@ export function TimeEntryDialog({
           {error ? (
             <FieldError>
               {/^you are not authorized/i.test(error)
-                ? 'You cannot log time on this project. You need to be a member of it with permission to log time — ask whoever runs the project to add you.'
+                ? t(
+                    'You cannot log time on this project. You need to be a member of it with permission to log time — ask whoever runs the project to add you.',
+                  )
                 : error}
             </FieldError>
           ) : null}
@@ -357,15 +361,15 @@ export function TimeEntryDialog({
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             onClick={submit}
             loading={pending}
             disabled={refused}
-            title={refused ? 'You cannot log time on this project' : undefined}
+            title={refused ? t('You cannot log time on this project') : undefined}
           >
-            {editing ? 'Save changes' : 'Log time'}
+            {editing ? t('Save changes') : t('Log time')}
           </Button>
         </DialogFooter>
       </DialogContent>
