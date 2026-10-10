@@ -78,7 +78,7 @@ export default function TimeRulesPage() {
                 <div className="space-y-1.5">
                   <Label htmlFor="ts-period">{t('Period')}</Label>
                   <Select value={draft.timesheets.period} disabled={!configure} onValueChange={(value) => set((next) => void (next.timesheets.period = value as 'week' | 'month'))}>
-                    <SelectTrigger id="ts-period" className="w-48">
+                    <SelectTrigger id="ts-period" className="w-80">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -95,7 +95,7 @@ export default function TimeRulesPage() {
                       disabled={!configure}
                       onValueChange={(value) => set((next) => void (next.timesheets.minimum.basis = value as 'available' | 'fixed' | 'none'))}
                     >
-                      <SelectTrigger id="ts-minimum" className="w-56">
+                      <SelectTrigger id="ts-minimum" className="w-80">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -124,7 +124,7 @@ export default function TimeRulesPage() {
                       disabled={!configure}
                       onValueChange={(value) => set((next) => void (next.timesheets.maximum.basis = value as 'fixed' | 'none'))}
                     >
-                      <SelectTrigger id="ts-maximum" className="w-56">
+                      <SelectTrigger id="ts-maximum" className="w-80">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
