@@ -87,6 +87,7 @@ async function captured(captureId: number, facts: ModelFacts): Promise<WorkFact[
       typeCategory: type?.category ?? 'task',
       priorityCategory: 'medium',
       estimatedHours: row.estimated_hours,
+      remainingHours: null,
       spentHours: 0,
       doneRatio: row.done_ratio,
       storyPoints: null,

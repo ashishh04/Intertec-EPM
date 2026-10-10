@@ -12,13 +12,14 @@ import {
 import { useDepartments } from '@/hooks/useDepartments';
 import { usePortfolios } from '@/hooks/usePortfolios';
 import { useProjects } from '@/hooks/useProjects';
+import { useResourceRoles } from '@/hooks/useResources';
 import { useTeams } from '@/hooks/useTeams';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 
 /**
- * Instance, a portfolio, a project, a department or a team; a person only as
- * drilled into. The value is the scope string the dashboards and scheduled
+ * Instance, a portfolio, a project, a department, a team or a role; a person
+ * only as drilled into. The value is the scope string the dashboards and scheduled
  * reports carry: `instance`, `portfolio:<id>`, `project:<id>`, …
  */
 export function ScopePicker({
@@ -38,6 +39,7 @@ export function ScopePicker({
   const projects = useProjects();
   const departments = useDepartments();
   const teams = useTeams();
+  const roles = useResourceRoles();
 
   return (
     <div className="space-y-1.5">
@@ -98,6 +100,19 @@ export function ScopePicker({
                 {(teams.data ?? []).map((team) => (
                   <SelectItem key={team.id} value={`team:${team.id}`}>
                     {team.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </>
+          ) : null}
+          {(roles.data ?? []).length > 0 ? (
+            <>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel>{t('Roles')}</SelectLabel>
+                {(roles.data ?? []).map((role) => (
+                  <SelectItem key={role.id} value={`role:${role.id}`}>
+                    {role.name}
                   </SelectItem>
                 ))}
               </SelectGroup>

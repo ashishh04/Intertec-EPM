@@ -10,6 +10,7 @@ import { floatBand, floatLabel } from '@/lib/critical-path';
 import { formatRelative, formatShortDate } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { ID, ScheduleLink } from '@/types';
+import { TaskPin } from './TaskPin';
 
 /**
  * Where this work package sits in the schedule (BR-101, BR-103): its early
@@ -107,6 +108,7 @@ export function TaskSchedule({ workPackageId }: { workPackageId: ID }) {
               : t('Computed {when}, in working days.', { when: formatRelative(data.computedAt) })}
           </p>
         ) : null}
+        <TaskPin workPackageId={workPackageId} />
       </CardContent>
     </Card>
   );

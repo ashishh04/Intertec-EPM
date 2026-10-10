@@ -55,6 +55,11 @@ model PlaceholderPerson {
   team          Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// Weekly capacity in hours, matching UserProfile so the two sum together.
   hoursCapacity Float       @default(40)
+  /// The kind of work the role to be filled does (BR-313, BR-314).
+  resourceRoleId String?
+  resourceRole   ResourceRole? @relation(fields: [resourceRoleId], references: [id], onDelete: SetNull)
+  /// Planned work booked to this placeholder (BR-313).
+  allocations    ResourceAllocation[]
   /// Set when the placeholder has been turned into a real account, with the
   /// OpenProject id it became. Kept rather than deleted so the planning history
   /// still resolves, and excluded from the active list.
@@ -65,6 +70,7 @@ model PlaceholderPerson {
 
   @@index([departmentId])
   @@index([teamId])
+  @@index([resourceRoleId])
   @@map("placeholder_people")
 }
 
@@ -88,7 +94,15 @@ model UserProfile {
   teamId             String?
   team               Team?       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   /// Weekly capacity in hours, backing TeamMemberWorkload.hoursCapacity.
+  ///
+  /// With a work schedule (BR-312) this follows it: the schedule in force
+  /// today, its hours times its employment fraction. Without one, it is the
+  /// whole of the model, spread evenly over the instance's working days.
   hoursCapacity      Float       @default(40)
+  /// The kind of work this person does: "Backend developer". EPM's own, for
+  /// reading capacity, demand and utilisation by role (BR-313 to BR-315).
+  resourceRoleId     String?
+  resourceRole       ResourceRole? @relation(fields: [resourceRoleId], references: [id], onDelete: SetNull)
   /// Internal cost of an hour of this person's time, in the instance currency.
   ///
   /// EPM's own field. OpenProject keeps hourly rates in its costs module, which
@@ -111,6 +125,7 @@ model UserProfile {
 
   @@index([departmentId])
   @@index([teamId])
+  @@index([resourceRoleId])
   @@map("user_profiles")
 }
 
@@ -148,6 +163,9 @@ model ProjectProfile {
   /// every project read as "Unassigned" and there was nothing to assign. An
   /// OpenProject user id, never a foreign key — people live upstream.
   ownerId            String?
+  /// Whether time logged here is billable (BR-315); null follows the
+  /// instance's default in the resource settings.
+  billable           Boolean?
   lastNotifiedHealth String?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
@@ -546,6 +564,180 @@ model EvmBaselineItem {
   @@id([baselineId, workPackageId])
   @@map("evm_baseline_items")
 }
+/// A kind of work people do — "Backend developer", "Business analyst" — so
+/// capacity, demand and utilisation can be read by role (BR-313 to BR-315).
+/// EPM's own: OpenProject's roles are project permissions, not jobs. A person
+/// or a placeholder holds at most one.
+model ResourceRole {
+  id           String               @id @default(cuid())
+  /// Unique regardless of case, by a functional index on LOWER(name).
+  name         String
+  description  String?
+  archivedAt   DateTime?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  people       UserProfile[]
+  placeholders PlaceholderPerson[]
+  allocations  ResourceAllocation[]
+
+  @@map("resource_roles")
+}
+
+/// A person's working pattern from a date on (BR-312): the hours of each
+/// weekday at full time, and the fraction of it they are employed for.
+/// Available hours on a day are that weekday's hours times the fraction —
+/// none on the instance's non-working days — less time off. The row in force
+/// on a day is the latest whose `effectiveFrom` is not after it. Before the
+/// first, or with none, a person works the instance's working week with their
+/// weekly capacity spread evenly over it.
+model WorkSchedule {
+  id            String   @id @default(cuid())
+  openProjectId String
+  effectiveFrom DateTime @db.Date
+  /// Monday to Sunday: seven numbers, hours at full time.
+  hours         Json
+  /// The employment fraction: 1 full time, 0.5 half time.
+  fraction      Float    @default(1)
+  /// "epm" when entered here, "hr" when it came from the HR source.
+  source        String   @default("epm")
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@unique([openProjectId, effectiveFrom])
+  @@map("work_schedules")
+}
+
+/// Time off (BR-312): whole days, or some hours of each working day.
+model TimeOff {
+  id            String   @id @default(cuid())
+  openProjectId String
+  startsOn      DateTime @db.Date
+  endsOn        DateTime @db.Date
+  /// Hours off on each day of the stretch; null for whole days.
+  hoursPerDay   Float?
+  /// leave, sick, training or other. Shown only to whoever manages people.
+  kind          String   @default("leave")
+  note          String?
+  /// "epm" when entered here, "hr" when it came from the HR source.
+  source        String   @default("epm")
+  /// The HR source's own id for it, so a second import updates, not duplicates.
+  externalId    String?
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([source, externalId])
+  @@index([openProjectId, startsOn])
+  @@map("time_off")
+}
+
+/// Planned demand (BR-313): a person, a placeholder or a role booked to a
+/// project for some hours a week over a stretch — work committed in principle
+/// that is not yet work packages assigned to anyone.
+model ResourceAllocation {
+  id            String             @id @default(cuid())
+  projectId     Int
+  /// Exactly one is the one booked: a person (an OpenProject id), a
+  /// placeholder, or — when nobody is named yet — a role alone.
+  personId      String?
+  placeholderId String?
+  placeholder   PlaceholderPerson? @relation(fields: [placeholderId], references: [id], onDelete: Cascade)
+  roleId        String?
+  role          ResourceRole?      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  startsOn      DateTime           @db.Date
+  endsOn        DateTime           @db.Date
+  hoursPerWeek  Float
+  note          String?
+  createdBy     String
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([projectId])
+  @@index([personId])
+  @@index([placeholderId])
+  @@index([roleId])
+  @@map("resource_allocations")
+}
+
+/// Resource settings (BR-110, BR-314, BR-315): the heatmap's thresholds, what
+/// counts as billable, the length of a working day. Each save is a version.
+model ResourceSettingSet {
+  id        String   @id @default(cuid())
+  version   Int      @unique
+  settings  Json
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@map("resource_setting_sets")
+}
+
+/// A work package levelling must not move (BR-111): a contractual milestone,
+/// typically. Pinning also switches it to manual scheduling in OpenProject, so
+/// its predecessors cannot push it either; unpinning puts back the mode it had.
+model WorkPackagePin {
+  workPackageId            Int      @id
+  projectId                Int
+  reason                   String?
+  previousScheduleManually Boolean
+  pinnedBy                 String
+  pinnedAt                 DateTime @default(now())
+
+  @@index([projectId])
+  @@map("work_package_pins")
+}
+
+/// A levelling run (BR-111, BR-112): the proposal, what was applied, and its
+/// undoing. Kept, so each step can be shown and undone exactly.
+model LevellingRun {
+  id        String          @id @default(cuid())
+  /// proposed, then applied, then undone; or discarded, stale or failed.
+  status    String          @default("proposed")
+  scope     Json
+  options   Json
+  summary   Json
+  createdBy String
+  createdAt DateTime        @default(now())
+  appliedAt DateTime?
+  appliedBy String?
+  undoneAt  DateTime?
+  undoneBy  String?
+  error     String?
+  items     LevellingItem[]
+
+  @@index([createdAt])
+  @@map("levelling_runs")
+}
+
+/// One work package a levelling run moves, with its dates before and after.
+model LevellingItem {
+  runId         String
+  run           LevellingRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  workPackageId Int
+  projectId     Int
+  subject       String
+  assigneeId    Int?
+  /// The work it carries, in hours: what had to fit.
+  hours         Float
+  beforeStart   DateTime     @db.Date
+  beforeDue     DateTime     @db.Date
+  afterStart    DateTime     @db.Date
+  afterDue      DateTime     @db.Date
+  /// Its scheduling mode before. OpenProject keeps the dates of manually
+  /// scheduled work only, so moved work is switched to manual and undo puts
+  /// this back.
+  beforeManual  Boolean
+  /// capacity (moved to fit its assignee), dependency (after a predecessor
+  /// that moved) or stretched (its work cannot fit its span at any start).
+  reason        String
+  /// pending, applied, undone; failed when a write was refused.
+  state         String       @default("pending")
+  /// The order the moves are written in: predecessors first.
+  position      Int
+
+  @@id([runId, workPackageId])
+  @@map("levelling_items")
+}
+
 
 /// A message for one person about something they should know and would not
 /// otherwise see.

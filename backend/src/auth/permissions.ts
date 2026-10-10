@@ -70,6 +70,8 @@ export const PERMISSIONS = [
   'rates:view',
   'audit:view',
   'evm:configure',
+  'resources:plan',
+  'resources:configure',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -170,6 +172,16 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // like the health rules: granted, not implied by a project role.
   'evm:configure':
     'The earned value rules are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Planning people's time across every project — the heatmap, over-allocation,
+  // levelling — reads work in projects the planner may not belong to, so it is
+  // a responsibility granted, not implied by any project role. Levelling still
+  // moves only work the planner may edit.
+  'resources:plan':
+    'Resource planning is EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // The heatmap's thresholds and what counts as billable are policy for every
+  // utilisation figure, like the health rules.
+  'resources:configure':
+    'The resource settings are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

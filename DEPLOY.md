@@ -230,6 +230,36 @@ by month, for the instance, every portfolio and every project. The analytics
 role reads it like the rest of the schema. `analytics.dim_date.is_working_day`
 holds OpenProject's working calendar.
 
+## Resources and capacity
+
+EPM works out people's available hours, demand, over-allocation and levelling
+itself — Delivery → Resources — and adds nothing to OpenProject but the dates
+a planner applies. Nothing needs starting. Seeing everyone's load, booking
+planned work and levelling need the `resources:plan` permission; the heatmap's
+thresholds, the length of a working day and what counts as billable
+(Administration → Users → Resource rules) need `resources:configure`. The
+administrators in `EPM_ADMIN_USER_IDS` hold both, and the Permissions page can
+grant them. Schedules, time off, HR imports and resource roles go with
+`employees:manage`.
+
+Until a person has a work schedule, their available hours are their weekly
+capacity (Employees) spread over OpenProject's working days, less its
+non-working days — what EPM showed before. Schedules and time off can be
+entered on the Availability tab or imported from an HR extract, as a CSV there
+or as JSON to `POST /api/resources/hr/import`; importing the same extract again
+updates it. `POST /api/resources/hr/reconcile` compares the HR system's
+available hours with EPM's.
+
+Levelling writes dates through OpenProject's API as the person applying it, and
+switches the work it delays to manual scheduling so OpenProject keeps the new
+dates; undo puts both back. A pinned work package is switched to manual too, and
+unpinning restores its mode.
+
+Capacity, demand and logged time by person and week are rewritten into
+`analytics.fact_capacity_week` (with `analytics.dim_resource_role`) at the same
+times as `analytics.fact_evm_period`, for the 26 weeks before the current one to
+25 after. The analytics role reads them like the rest of the schema.
+
 ## Analytics
 
 Reports and dashboards read EPM's analytics model, a schema of its own

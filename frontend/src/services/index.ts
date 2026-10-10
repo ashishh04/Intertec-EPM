@@ -32,6 +32,7 @@ import { ApiScheduledReportRepository } from './api/scheduled-reports';
 import { ApiPortfolioViewRepository } from './api/portfolio-views';
 import { ApiScheduleRepository } from './api/schedule';
 import { ApiEarnedValueRepository } from './api/earned-value';
+import { ApiResourceRepository } from './api/resources';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
 import { ApiApprovalRepository } from './api/approvals';
@@ -119,6 +120,7 @@ export const portfolioViewService = new ApiPortfolioViewRepository();
 export const scheduleService = new ApiScheduleRepository();
 /** Earned value's rules, baselines and one work package's figures (BRQ-12). */
 export const earnedValueService = new ApiEarnedValueRepository();
+export const resourceService = new ApiResourceRepository();
 
 /** Instance administration. Reads OpenProject's admin resources through the backend. */
 export const adminService = new ApiAdminRepository();

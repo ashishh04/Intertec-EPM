@@ -18,6 +18,10 @@ import {
   type Shared,
 } from '../measures.js';
 import { OVERDUE_DUE_FILTER, isDelivered, isDueSoon, isOpen, isOverdue } from '../work-definitions.js';
+import { AvailabilityModel } from '../resource-model.js';
+import { DEFAULT_RESOURCE_SETTINGS } from '../resources-store.js';
+
+const resourceCalendar = { workingWeekdays: new Set([0, 1, 2, 3, 4]), holidays: new Set<number>() };
 
 /**
  * Worked examples for the semantic layer and the analytics model (BR-401 to
@@ -68,6 +72,7 @@ const work = (id: number, values: Partial<WorkFact>): WorkFact => ({
   typeCategory: 'task',
   priorityCategory: 'medium',
   estimatedHours: null,
+  remainingHours: null,
   spentHours: 0,
   doneRatio: null,
   storyPoints: null,
@@ -110,6 +115,7 @@ const entry = (id: number, values: Partial<TimeFact>): TimeFact => ({
   workPackageId: null,
   hours: 1,
   cost: 100,
+  activityId: null,
   ...values,
 });
 
@@ -140,7 +146,7 @@ const WORK: WorkFact[] = [
 const facts: ModelFacts = {
   runId: '1',
   asOf: '2026-10-06T08:00:00.000Z',
-  calendar: { nonWorking: new Set(), from: 0, to: -1 },
+  calendar: { nonWorking: new Set(), from: 0, to: -1, workingWeekdays: new Set([0, 1, 2, 3, 4]) },
   projects: new Map(
     [
       project(1, { portfolioId: 'A', budget: 10_000, plannedStart: '2026-09-01', plannedFinish: '2026-10-30' }),
@@ -209,6 +215,26 @@ const shared: Shared = {
   risk: { typeIds: new Set([9]), highPriorityIds: new Set([8]), configured: true },
   // No baselines or rates: earned value reads each project's plan, unpriced.
   evm: { settings: [], baselines: new Map(), rates: new Map(), days: workingDaysOf(facts.calendar) },
+  // No schedules or time off: each person's weekly capacity over Monday to
+  // Friday, no holidays; every hour billable.
+  resources: {
+    at: 0,
+    facts,
+    settings: DEFAULT_RESOURCE_SETTINGS,
+    calendar: resourceCalendar,
+    availability: new AvailabilityModel(
+      resourceCalendar,
+      new Map([...facts.people.values()].map((person) => [String(person.id), { weeklyHours: person.weeklyCapacityHours, schedules: [], timeOff: [] }])),
+    ),
+    carriers: new Map(),
+    roles: new Map(),
+    teams: new Map(),
+    departments: new Map(),
+    allocations: [],
+    billable: () => true,
+    demand: [],
+    undated: { items: 0, hours: 0 },
+  },
 };
 
 const PERIOD = { from: '2026-09-07', to: TODAY }; // four weeks and two days
@@ -364,11 +390,14 @@ await check('cost and budget: actual at the rate, phased plan, variance and cons
   });
 });
 
-await check('utilisation: hours logged in the period over capacity for the period', async () => {
-  // Team two: person 11 (20h a week) and 12 (40h): 60h × 30/7 weeks; 4h logged.
-  assert.deepEqual(await value(['utilisation', 'capacity.weeklyHours', 'time.logged'], { kind: 'team', id: 't2' }), {
-    utilisation: 1.6,
+await check('utilisation: hours logged in the period over the hours available in it', async () => {
+  // Team two: person 11 (20h a week: 4 a working day) and 12 (40h: 8 a day),
+  // over the 22 working days from Monday 7 September to Tuesday 6 October:
+  // 88 + 176 = 264 hours available; 4h logged.
+  assert.deepEqual(await value(['utilisation', 'capacity.weeklyHours', 'capacity.availableHours', 'time.logged'], { kind: 'team', id: 't2' }), {
+    utilisation: 1.5,
     'capacity.weeklyHours': 60,
+    'capacity.availableHours': 264,
     'time.logged': 4,
   });
 });

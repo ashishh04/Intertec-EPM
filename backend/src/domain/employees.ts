@@ -36,6 +36,8 @@ export interface EpmEmployee {
   hoursCapacity: number;
   /** Internal cost of an hour. Absent when nobody has costed this person. */
   hourlyRate?: number;
+  /** The kind of work they do (BR-313 to BR-315); absent when none is set. */
+  resourceRoleId?: string;
 }
 
 export interface MappingInput {
@@ -102,6 +104,7 @@ function toEpmEmployee(user: EpmUser, profile: ProfileWithRefs | undefined): Epm
     // Nullable upstream of here, and stays absent rather than becoming 0: a
     // person nobody has costed is not a person who works for nothing.
     hourlyRate: profile?.hourlyRate ?? undefined,
+    resourceRoleId: profile?.resourceRoleId ?? undefined,
   };
 }
 
@@ -340,6 +343,14 @@ export async function setCapacity(
           before: { hoursCapacity: previous },
           after: { hoursCapacity },
         });
+
+  // A person whose availability comes from a work schedule (BR-312) keeps it in
+  // step: the schedule, not this number, decides the hours they have.
+  if (previous !== hoursCapacity) {
+    const { alignScheduleToCapacity } = await import('./resources-store.js');
+    const { currentAuth } = await import('../auth/context.js');
+    await alignScheduleToCapacity(id, hoursCapacity, currentAuth()?.userId ?? 'system');
+  }
 
   // Only on a real change. Values are already quarter-hour rounded, so there is
   // no float noise to threshold against and a no-op write notifies nobody.

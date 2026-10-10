@@ -106,6 +106,18 @@ export const ADMIN_AREAS: AdminArea[] = [
         description: 'Named stand-ins that hold assignments before a real person is known.',
       },
       {
+        id: 'resource-roles',
+        label: 'Resource roles',
+        kind: 'live',
+        description: 'The kinds of work people do, for reading capacity, demand and utilisation by role.',
+      },
+      {
+        id: 'resource-rules',
+        label: 'Resource rules',
+        kind: 'live',
+        description: 'Heatmap thresholds, what counts as billable time, and the length of a working day.',
+      },
+      {
         id: 'groups',
         label: 'Groups',
         kind: 'live',

@@ -120,6 +120,7 @@ export interface ProjectOverlay {
   ownerId?: string | null;
   plannedStart?: Date | null;
   plannedFinish?: Date | null;
+  billable?: boolean | null;
 }
 
 /**
@@ -227,6 +228,7 @@ export function toEpmProject(
     budgetUsed: health.cost?.cost ?? 0,
     uncostedHours: health.cost?.uncostedHours ?? 0,
     budgetTotal: options.overlay?.budgetTotal ?? 0,
+    billable: options.overlay?.billable ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };

@@ -19,6 +19,7 @@ import {
   SquareKanban,
   Timer,
   Users,
+  UsersRound,
 } from 'lucide-react';
 import {
   CommandDialog,
@@ -174,6 +175,10 @@ export function CommandPalette() {
           >
             <Coins />
             {t('Open time and costs')}
+          </CommandItem>
+          <CommandItem value="resources capacity heatmap levelling over-allocation" onSelect={() => run(() => navigate('/resources'))}>
+            <UsersRound />
+            {t('Open resources')}
           </CommandItem>
           <CommandItem value="analytics insights" onSelect={() => run(() => navigate('/analytics'))}>
             <BarChart3 />

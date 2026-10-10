@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Alert } from '@/components/ui/alert';
@@ -13,7 +14,9 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { FieldHint, Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSetCapacity, useSetRate } from '@/hooks/useEmployees';
+import { useResourceRoles, useSetPersonRole } from '@/hooks/useResources';
 import { env } from '@/config/env';
 import { t } from '@/lib/i18n';
 import type { EpmEmployee } from '@/services/api/employees';
@@ -37,6 +40,7 @@ import type { EpmEmployee } from '@/services/api/employees';
 
 const MAX_HOURS = 168;
 const MAX_RATE = 100_000;
+const NO_ROLE = '__none__';
 
 interface StaffingDialogProps {
   open: boolean;
@@ -47,10 +51,13 @@ interface StaffingDialogProps {
 export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogProps) {
   const setCapacity = useSetCapacity();
   const setRate = useSetRate();
-  const pending = setCapacity.isPending || setRate.isPending;
+  const setRole = useSetPersonRole();
+  const roles = useResourceRoles();
+  const pending = setCapacity.isPending || setRate.isPending || setRole.isPending;
 
   const [hours, setHours] = useState('');
   const [rate, setRate_] = useState('');
+  const [roleId, setRoleId] = useState(NO_ROLE);
   const [problem, setProblem] = useState<string>();
 
   // Keyed on the id, not the object: the record is a fresh object on every
@@ -60,6 +67,7 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
     if (!open) return;
     setHours(String(employee?.hoursCapacity ?? ''));
     setRate_(employee?.hourlyRate === undefined ? '' : String(employee.hourlyRate));
+    setRoleId(employee?.resourceRoleId ?? NO_ROLE);
     setProblem(undefined);
   }, [open, employee?.id]);
 
@@ -86,8 +94,10 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
 
     const capacityChanged = capacityValue !== employee.hoursCapacity;
     const rateChanged = rateValue !== (employee.hourlyRate ?? null);
+    const nextRole = roleId === NO_ROLE ? null : roleId;
+    const roleChanged = nextRole !== (employee.resourceRoleId ?? null);
 
-    if (!capacityChanged && !rateChanged) return onOpenChange(false);
+    if (!capacityChanged && !rateChanged && !roleChanged) return onOpenChange(false);
 
     try {
       // Sequential rather than parallel: both upsert the same profile row, and
@@ -97,6 +107,9 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
       }
       if (rateChanged) {
         await setRate.mutateAsync({ id: employee.id, hourlyRate: rateValue });
+      }
+      if (roleChanged) {
+        await setRole.mutateAsync({ personId: employee.id, roleId: nextRole });
       }
       toast.success(t('Staffing saved for {name}', { name: employee.name }));
       onOpenChange(false);
@@ -155,6 +168,31 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
                 {t(
                   'Used by Time & Costs. Leave it empty and their hours are reported as uncosted rather than as free.',
                 )}
+              </FieldHint>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="staffing-role">{t('Role')}</Label>
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger id="staffing-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_ROLE}>{t('No role')}</SelectItem>
+                  {(roles.data ?? []).map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint>
+                {t('The kind of work they do, for capacity and demand by role.')}{' '}
+                {employee ? (
+                  <Link to={`/resources?tab=availability&person=${employee.id}`} className="text-foreground underline-offset-2 hover:underline">
+                    {t('Work schedule and time off')}
+                  </Link>
+                ) : null}
               </FieldHint>
             </div>
 

@@ -44,7 +44,7 @@ export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'bud
 
 export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk'];
 
-export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
+export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person' | 'work_package';
 
 export interface DashboardColumn {
   key: string;
@@ -111,7 +111,7 @@ const TITLES: Record<DashboardId, { title: string; description: string }> = {
   },
   utilisation: {
     title: 'Resource utilisation',
-    description: 'Hours logged against the capacity of the people in scope.',
+    description: 'Hours logged against the hours the people in scope were available, billable and not.',
   },
   budget: {
     title: 'Budget',
@@ -145,6 +145,8 @@ function scopeName(shared: Shared, scope: Scope): string {
       return facts.departments.get(scope.id ?? '')?.name ?? 'Department';
     case 'team':
       return facts.teams.get(scope.id ?? '')?.name ?? 'Team';
+    case 'role':
+      return shared.resources.roles.get(scope.id ?? '')?.name ?? 'Role';
     case 'person':
       return facts.people.get(Number(scope.id))?.name ?? 'Person';
     case 'set':
@@ -279,6 +281,7 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
     'sprint.velocity',
     'schedule.drift',
     'work.churn',
+    'work.onTime',
   ];
   const { facts, period, today } = context;
 
@@ -350,7 +353,7 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
         title: 'Projects',
         firstColumn: 'Project',
         rows: projectRows(context),
-        measures: ['work.completed', 'work.throughput', 'milestones.onTime', 'work.leadTime', 'work.overdue'],
+        measures: ['work.completed', 'work.throughput', 'work.onTime', 'milestones.onTime', 'work.leadTime', 'work.overdue'],
         period,
         today,
       }),
@@ -365,16 +368,17 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
       await series(context, 'work.completed', 'Delivered', bucket),
       await series(context, 'work.created', 'Created', bucket),
       await series(context, 'work.open', 'Open work', bucket),
+      await series(context, 'work.onTime', 'Completed on time', bucket),
     ],
     measures: await evaluateInContext(tiles, context),
   };
 }
 
 async function utilisation(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
-  const tiles = ['utilisation', 'capacity.weeklyHours', 'time.logged', 'time.uncosted'];
+  const tiles = ['utilisation', 'utilisation.billable', 'capacity.availableHours', 'time.logged', 'time.billable', 'time.uncosted'];
   const { facts, period, today } = context;
   const tables: DashboardTable[] = [];
-  const measures = ['capacity.weeklyHours', 'time.logged', 'utilisation'];
+  const measures = ['capacity.availableHours', 'time.logged', 'time.billable', 'utilisation', 'utilisation.billable'];
 
   if (context.scope.kind === 'instance') {
     const departments = [...facts.departments.values()].filter((item) => item.active).sort((a, b) => a.name.localeCompare(b.name));
@@ -409,6 +413,27 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
         today,
       }),
     );
+    const roles = [...shared.resources.roles.entries()]
+      .filter(([, role]) => !role.archived)
+      .sort((a, b) => a[1].name.localeCompare(b[1].name));
+    if (roles.length > 0) {
+      tables.push(
+        await measureTable(shared, {
+          id: 'roles',
+          title: 'Roles',
+          firstColumn: 'Role',
+          rows: roles.map(([id, role]) => ({
+            key: `role:${id}`,
+            label: role.name,
+            scope: { kind: 'role', id },
+            link: { kind: 'role', id },
+          })),
+          measures,
+          period,
+          today,
+        }),
+      );
+    }
   }
 
   tables.push(
@@ -436,6 +461,7 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
     tables,
     series: [
       await series(context, 'utilisation', 'Utilisation', bucket),
+      await series(context, 'utilisation.billable', 'Billable utilisation', bucket),
       await series(context, 'time.logged', 'Hours logged', bucket),
     ],
     measures: await evaluateInContext(tiles, context),
