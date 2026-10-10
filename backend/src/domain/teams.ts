@@ -279,7 +279,7 @@ export async function createTeam(input: TeamInput, signal: AbortSignal): Promise
       entityType: 'team',
       entityId: created.id,
       action: 'team.created',
-      summary: `Created team ${created.name}`,
+      summary: message('Created team {name}', { name: created.name }),
       after: teamRecord(created),
     }),
   );
@@ -326,7 +326,7 @@ export async function updateTeam(
       entityType: 'team',
       entityId: id,
       action: 'team.updated',
-      summary: `Changed team ${updated.name}`,
+      summary: message('Changed team {name}', { name: updated.name }),
       before: teamRecord(existing),
       after: teamRecord(updated),
     }),
@@ -357,7 +357,9 @@ export async function setTeamActive(
       entityType: 'team',
       entityId: id,
       action: active ? 'team.restored' : 'team.archived',
-      summary: `${active ? 'Restored' : 'Archived'} team ${updated.name}`,
+      summary: active
+        ? message('Restored team {name}', { name: updated.name })
+        : message('Archived team {name}', { name: updated.name }),
       before: { active: existing.active },
       after: { active: updated.active },
     }),
@@ -392,7 +394,7 @@ export async function deleteTeam(id: string): Promise<void> {
     entityType: 'team',
     entityId: id,
     action: 'team.deleted',
-    summary: `Deleted team ${existing.name}`,
+    summary: message('Deleted team {name}', { name: existing.name }),
     before: teamRecord(existing),
   });
 }

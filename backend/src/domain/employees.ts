@@ -8,7 +8,7 @@ import { withAudit } from './audit.js';
 import { invalidateAllProjectCosts } from './costs.js';
 import { requestHealthRecalc } from './health.js';
 import type { EpmUser } from '../types/epm.js';
-import { message } from '../lib/i18n.js';
+import { message, type Message } from '../lib/i18n.js';
 
 /**
  * Employee mapping — where a person sits in EPM's org structure.
@@ -255,8 +255,9 @@ export async function setMapping(
 
   // Journalled (BRL-02): where a person sits decides whose capacity, workload
   // and escalations they count in. Re-saving the same placement records nothing.
-  const placement = (department?: string | null, team?: string | null) =>
-    [department, team].filter(Boolean).join(' / ') || 'unplaced';
+  // "Engineering / Platform": names, joined as data; "unplaced" is a phrase.
+  const placement = (department?: string | null, team?: string | null): string | Message =>
+    [department, team].filter(Boolean).join(' / ') || message('unplaced');
   const unchanged = (previous?.departmentId ?? null) === departmentId && (previous?.teamId ?? null) === teamId;
   const profile = unchanged
     ? await write(prisma)
@@ -264,7 +265,11 @@ export async function setMapping(
         entityType: 'employee',
         entityId: id,
         action: 'employee.placement.changed',
-        summary: `Placement for ${user.name}: ${placement(previous?.departmentRef?.name, previous?.team?.name)} → ${placement(written.departmentRef?.name, written.team?.name)}.`,
+        summary: message('Placement for {name}: {from} → {to}.', {
+          name: user.name,
+          from: placement(previous?.departmentRef?.name, previous?.team?.name),
+          to: placement(written.departmentRef?.name, written.team?.name),
+        }),
         before: { departmentId: previous?.departmentId ?? null, teamId: previous?.teamId ?? null },
         after: { departmentId, teamId },
       }));
@@ -336,7 +341,7 @@ export async function setCapacity(
           entityType: 'employee',
           entityId: id,
           action: 'employee.capacity.changed',
-          summary: `Weekly capacity for ${user.name}: ${previous} h → ${hoursCapacity} h.`,
+          summary: message('Weekly capacity for {name}: {from} h → {to} h.', { name: user.name, from: previous, to: hoursCapacity }),
           before: { hoursCapacity: previous },
           after: { hoursCapacity },
         });
@@ -407,8 +412,8 @@ export async function setRate(
     select: { hourlyRate: true },
   });
 
-  const describe = (rate: number | null | undefined) =>
-    rate === null || rate === undefined ? 'not costed' : `${rate}/h`;
+  const describe = (rate: number | null | undefined): Message =>
+    rate === null || rate === undefined ? message('not costed') : message('{rate}/h', { rate });
 
   // Journalled: a rate prices every hour this person has logged, so it moves
   // the spend, and the budget variance, of every project they worked on. A
@@ -429,7 +434,11 @@ export async function setRate(
         entityType: 'employee',
         entityId: id,
         action: 'employee.rate.changed',
-        summary: `Hourly rate for ${user.name}: ${describe(previous?.hourlyRate)} → ${describe(hourlyRate)}.`,
+        summary: message('Hourly rate for {name}: {from} → {to}.', {
+          name: user.name,
+          from: describe(previous?.hourlyRate),
+          to: describe(hourlyRate),
+        }),
         before: { hourlyRate: previous?.hourlyRate ?? null },
         after: { hourlyRate: hourlyRate ?? null },
       });

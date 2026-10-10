@@ -1,4 +1,5 @@
 import { addDays, daysBetween, startOfIsoWeek } from '../lib/dates.js';
+import { contextConventions, contextLanguage, dateOf, msg, t, type Language, type ParamValue } from '../lib/i18n.js';
 import type { HealthLevel } from '../types/epm.js';
 import { roundMoney } from './costs.js';
 import { budgetVariancePct, healthViews, plannedBudgetToDate } from './health.js';
@@ -37,7 +38,22 @@ import { isDelivered, isDueSoon, isOpen, isOverdue } from './work-definitions.js
  * A measure whose members are things — work packages, projects, people —
  * lists them as well as counting them, which is the drill-through: the number
  * on a dashboard opens on exactly the items behind it.
+ *
+ * A measure's name, definition and notes are written here in English, as the
+ * catalogue published to BI keeps them, and each is a translation catalogue
+ * entry (BR-605): an evaluation writes them in the language of the request
+ * being served (`contextLanguage()`), or of the reader a scheduled report is
+ * rendered for.
  */
+
+/** A note in the reader's language, calendar and digits: the request's, or English outside one. */
+const tr = (source: string, params?: Record<string, ParamValue>) => t(contextLanguage(), source, params, contextConventions());
+
+/**
+ * A day inside a note: as English has always written it there (`2026-09-01`),
+ * and in the reader's own format in any other language.
+ */
+const noteDay = (iso: string): ParamValue => (contextLanguage() === 'en' ? iso.slice(0, 10) : dateOf(iso.slice(0, 10)));
 
 /* -------------------------------------------------------------------------- */
 /* Scope, period, viewer                                                      */
@@ -131,7 +147,7 @@ export interface Rollup {
 
 const sumRollup: Rollup = {
   rule: 'sum',
-  describe: 'The projects’ figures added together.',
+  describe: msg('The projects’ figures added together.'),
   from: (values) => {
     const present = values.filter((value) => value.value !== null);
     return present.length === 0 ? null : roundMoney(present.reduce((sum, value) => sum + (value.value ?? 0), 0));
@@ -140,7 +156,7 @@ const sumRollup: Rollup = {
 
 const maxRollup: Rollup = {
   rule: 'max',
-  describe: 'The largest of the projects’ figures.',
+  describe: msg('The largest of the projects’ figures.'),
   from: (values) => {
     const present = values.map((value) => value.value).filter((value): value is number => value !== null);
     return present.length === 0 ? null : Math.max(...present);
@@ -235,20 +251,25 @@ function evmNote(result: ScopeEvaluation, against: boolean): string | undefined 
     const against = measured[0]!.measuredAgainst;
     notes.push(
       against.kind === 'baseline'
-        ? `Measured against baseline ${against.number}, set ${against.setAt.slice(0, 10)}.`
-        : 'Measured against the current plan: no baseline has been set.',
+        ? tr('Measured against baseline {number}, set {date}.', { number: against.number, date: noteDay(against.setAt) })
+        : tr('Measured against the current plan: no baseline has been set.'),
     );
   } else if (measured.length > 1) {
     notes.push(
       baselined.length === measured.length
-        ? 'Every project measured against its baseline.'
-        : `${baselined.length} of ${measured.length} projects measured against a baseline; the rest against their current plans.`,
+        ? tr('Every project measured against its baseline.')
+        : tr('{baselined} of {measured} projects measured against a baseline; the rest against their current plans.', {
+            baselined: baselined.length,
+            measured: measured.length,
+          }),
     );
   }
   const { counts, uncostedHours } = result.totals;
-  if (counts.unpriced > 0) notes.push(`${counts.unpriced} work packages have hours but no rate to price them, and are left out.`);
-  if (counts.undated > 0) notes.push(`${counts.undated} work packages have no planned dates, so nothing of theirs is planned for any day.`);
-  if (uncostedHours > 0) notes.push(`${uncostedHours} hours logged by people with no hourly rate are not costed.`);
+  if (counts.unpriced > 0) notes.push(tr('{count} work packages have hours but no rate to price them, and are left out.', { count: counts.unpriced }));
+  if (counts.undated > 0) {
+    notes.push(tr('{count} work packages have no planned dates, so nothing of theirs is planned for any day.', { count: counts.undated }));
+  }
+  if (uncostedHours > 0) notes.push(tr('{hours} hours logged by people with no hourly rate are not costed.', { hours: uncostedHours }));
   return notes.length > 0 ? notes.join(' ') : undefined;
 }
 
@@ -294,7 +315,7 @@ function evmMeasure(spec: {
       const result = evmOf(context);
       const { totals } = result;
       if (totals.bac === 0 && totals.ac === 0) {
-        return { value: null, note: 'Nothing in scope to measure: no estimates to price, and no time logged.' };
+        return { value: null, note: tr('Nothing in scope to measure: no estimates to price, and no time logged.') };
       }
       return {
         value: spec.pick(totals),
@@ -392,9 +413,9 @@ export const MEASURES: MeasureDefinition[] = [
   /* ------------------------------------------------------------------ work */
   {
     id: 'work.total',
-    label: 'Work packages',
+    label: msg('Work packages'),
     unit: 'count',
-    definition: 'Work packages in scope, in any status.',
+    definition: msg('Work packages in scope, in any status.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -405,9 +426,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.open',
-    label: 'Open work',
+    label: msg('Open work'),
     unit: 'count',
-    definition: 'Work packages not in a closed status.',
+    definition: msg('Work packages not in a closed status.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -421,9 +442,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.overdue',
-    label: 'Overdue',
+    label: msg('Overdue'),
     unit: 'count',
-    definition: 'Open work packages due before today (UTC). Work due today is due, not overdue.',
+    definition: msg('Open work packages due before today (UTC). Work due today is due, not overdue.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -437,9 +458,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.dueSoon',
-    label: 'Due in the next 7 days',
+    label: msg('Due in the next 7 days'),
     unit: 'count',
-    definition: 'Open work packages due today or in the next six days.',
+    definition: msg('Open work packages due today or in the next six days.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -452,14 +473,14 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.progress',
-    label: 'Progress',
+    label: msg('Progress'),
     unit: 'percent',
     definition:
-      'Share of work packages in a closed status, of all in scope. Rejected work counts as closed: it is no longer to be done.',
+      msg('Share of work packages in a closed status, of all in scope. Rejected work counts as closed: it is no longer to be done.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     version: 1,
-    rollup: ratioRollup(['closed'], ['total'], 'Closed work of all work, both added across the projects.'),
+    rollup: ratioRollup(['closed'], ['total'], msg('Closed work of all work, both added across the projects.')),
     compute: ({ work }) => {
       const closed = work.filter((item) => item.isClosed).length;
       return { value: pct(closed, work.length), parts: { closed, total: work.length } };
@@ -467,10 +488,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.completed',
-    label: 'Delivered',
+    label: msg('Delivered'),
     unit: 'count',
     definition:
-      'Work packages delivered in the period: closed in a status EPM reads as done — not Rejected — counted on the day they were closed.',
+      msg('Work packages delivered in the period: closed in a status EPM reads as done — not Rejected — counted on the day they were closed.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'work_package',
@@ -484,9 +505,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.created',
-    label: 'Created',
+    label: msg('Created'),
     unit: 'count',
-    definition: 'Work packages created in the period.',
+    definition: msg('Work packages created in the period.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'work_package',
@@ -500,9 +521,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.pointsDelivered',
-    label: 'Points delivered',
+    label: msg('Points delivered'),
     unit: 'points',
-    definition: 'Story points of the work delivered in the period.',
+    definition: msg('Story points of the work delivered in the period.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -513,9 +534,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.throughput',
-    label: 'Throughput',
+    label: msg('Throughput'),
     unit: 'perWeek',
-    definition: 'Work packages delivered per week in the period: those delivered, over the days in the period divided by seven.',
+    definition: msg('Work packages delivered per week in the period: those delivered, over the days in the period divided by seven.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -527,9 +548,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'work.leadTime',
-    label: 'Lead time',
+    label: msg('Lead time'),
     unit: 'days',
-    definition: 'Median days from creation to closing, for work delivered in the period.',
+    definition: msg('Median days from creation to closing, for work delivered in the period.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -538,16 +559,16 @@ export const MEASURES: MeasureDefinition[] = [
       const delivered = work.filter((item) => deliveredIn(item, period) && item.createdAt && item.closedAt);
       const value = median(delivered.map((item) => daysBetweenInstants(item.createdAt!, item.closedAt!)));
       return value === null
-        ? { value: null, note: 'Nothing was delivered in the period.' }
+        ? { value: null, note: tr('Nothing was delivered in the period.') }
         : { value: round1(value), parts: { delivered: delivered.length } };
     },
   },
   {
     id: 'work.cycleTime',
-    label: 'Cycle time',
+    label: msg('Cycle time'),
     unit: 'days',
     definition:
-      'Median days from first leaving a not-started status to closing, for work delivered in the period, from each work package’s history.',
+      msg('Median days from first leaving a not-started status to closing, for work delivered in the period, from each work package’s history.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -559,15 +580,15 @@ export const MEASURES: MeasureDefinition[] = [
         delivered.map((item) => daysBetweenInstants(started.get(item.id) ?? item.closedAt!, item.closedAt!)),
       );
       return value === null
-        ? { value: null, note: 'Nothing was delivered in the period.' }
+        ? { value: null, note: tr('Nothing was delivered in the period.') }
         : { value: round1(value), parts: { delivered: delivered.length } };
     },
   },
   {
     id: 'work.churn',
-    label: 'Date changes',
+    label: msg('Date changes'),
     unit: 'count',
-    definition: 'Changes made to work packages’ due dates during the period, from their history.',
+    definition: msg('Changes made to work packages’ due dates during the period, from their history.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'work_package',
@@ -581,10 +602,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'schedule.drift',
-    label: 'Date drift',
+    label: msg('Date drift'),
     unit: 'days',
     definition:
-      'Average days the due dates of open work moved during the period: the due date now, minus the due date at the start of the period, over open work that had a due date at both times. Positive is later.',
+      msg('Average days the due dates of open work moved during the period: the due date now, minus the due date at the start of the period, over open work that had a due date at both times. Positive is later.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'work_package',
@@ -603,7 +624,7 @@ export const MEASURES: MeasureDefinition[] = [
         if (shift !== 0) members.push(item.id);
       }
       return moved.length === 0
-        ? { value: null, note: 'No open work had a due date at both times.' }
+        ? { value: null, note: tr('No open work had a due date at both times.') }
         : { value: round1(moved.reduce((sum, shift) => sum + shift, 0) / moved.length), members, parts: { compared: moved.length } };
     },
   },
@@ -611,31 +632,33 @@ export const MEASURES: MeasureDefinition[] = [
   /* ------------------------------------------------------------ milestones */
   {
     id: 'milestones.onTime',
-    label: 'Milestones on time',
+    label: msg('Milestones on time'),
     unit: 'percent',
     definition:
-      'Of the milestones due in the period that are decided — delivered, or still open past their date — the share delivered on or before their date. Milestones not yet due, and rejected ones, are left out.',
+      msg('Of the milestones due in the period that are decided — delivered, or still open past their date — the share delivered on or before their date. Milestones not yet due, and rejected ones, are left out.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'work_package',
     trend: 'period',
     version: 1,
-    rollup: ratioRollup(['met'], ['met', 'missed'], 'Milestones met of those decided, both added across the projects.'),
+    rollup: ratioRollup(['met'], ['met', 'missed'], msg('Milestones met of those decided, both added across the projects.')),
     compute: ({ work, period, today }) => {
       const due = work.filter((item) => item.isMilestone && inPeriod(item.dueDate, period));
       const met = due.filter((item) => milestoneOutcome(item, today) === 'met');
       const missed = due.filter((item) => milestoneOutcome(item, today) === 'missed');
       const decided = met.length + missed.length;
       return decided === 0
-        ? { value: null, note: 'No milestone due in the period has been decided yet.', members: workIds(due) }
+        ? { value: null, note: tr('No milestone due in the period has been decided yet.'), members: workIds(due) }
         : { value: pct(met.length, decided), members: workIds([...met, ...missed]), parts: { met: met.length, missed: missed.length } };
     },
   },
   {
     id: 'milestones.upcoming',
-    label: 'Milestones coming up',
+    label: msg('Milestones coming up'),
     unit: 'count',
-    definition: `Open milestones due today or in the next ${MILESTONE_HORIZON_DAYS - 1} days.`,
+    // 29: the days after today that MILESTONE_HORIZON_DAYS (30) covers. Written
+    // out so the sentence is one catalogue entry.
+    definition: msg('Open milestones due today or in the next 29 days.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -651,9 +674,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'milestones.missed',
-    label: 'Milestones missed',
+    label: msg('Milestones missed'),
     unit: 'count',
-    definition: 'Milestones due in the period that were delivered after their date, or are still open past it.',
+    definition: msg('Milestones due in the period that were delivered after their date, or are still open past it.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'work_package',
@@ -671,10 +694,10 @@ export const MEASURES: MeasureDefinition[] = [
   /* -------------------------------------------------------------- schedule */
   {
     id: 'schedule.varianceDays',
-    label: 'Schedule variance',
+    label: msg('Schedule variance'),
     unit: 'days',
     definition:
-      'Calendar days from the planned finish to the forecast finish, from each project’s stored health; positive is late. For more than one project, the latest of them.',
+      msg('Calendar days from the planned finish to the forecast finish, from each project’s stored health; positive is late. For more than one project, the latest of them.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     memberKind: 'project',
@@ -684,16 +707,16 @@ export const MEASURES: MeasureDefinition[] = [
       const measured = projects
         .map((project) => ({ project, days: health.get(project.id)?.scheduleVarianceDays ?? null }))
         .filter((entry): entry is { project: ProjectFact; days: number } => entry.days !== null);
-      if (measured.length === 0) return { value: null, note: 'No project in scope has a measured schedule variance.' };
+      if (measured.length === 0) return { value: null, note: tr('No project in scope has a measured schedule variance.') };
       const worst = measured.reduce((a, b) => (b.days > a.days ? b : a));
       return { value: worst.days, members: measured.map((entry) => entry.project.id), parts: { measured: measured.length } };
     },
   },
   {
     id: 'schedule.slipping',
-    label: 'Projects slipping',
+    label: msg('Projects slipping'),
     unit: 'count',
-    definition: 'Active projects whose forecast finish is after their planned finish, from each project’s stored health.',
+    definition: msg('Active projects whose forecast finish is after their planned finish, from each project’s stored health.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     memberKind: 'project',
@@ -708,9 +731,9 @@ export const MEASURES: MeasureDefinition[] = [
   /* ---------------------------------------------------------------- health */
   {
     id: 'projects.active',
-    label: 'Active projects',
+    label: msg('Active projects'),
     unit: 'count',
-    definition: 'Active projects in scope.',
+    definition: msg('Active projects in scope.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     memberKind: 'project',
@@ -724,11 +747,14 @@ export const MEASURES: MeasureDefinition[] = [
   ...(['healthy', 'warning', 'critical'] as const).map(
     (level): MeasureDefinition => ({
       id: `health.${level === 'healthy' ? 'green' : level === 'warning' ? 'amber' : 'red'}`,
-      label: `Projects ${level === 'healthy' ? 'green' : level === 'warning' ? 'amber' : 'red'}`,
+      label: level === 'healthy' ? msg('Projects green') : level === 'warning' ? msg('Projects amber') : msg('Projects red'),
       unit: 'count',
-      definition: `Active projects whose effective overall health — calculated by the health rules, with any override in force — is ${
-        level === 'healthy' ? 'green' : level === 'warning' ? 'amber' : 'red'
-      }.`,
+      definition:
+        level === 'healthy'
+          ? msg('Active projects whose effective overall health — calculated by the health rules, with any override in force — is green.')
+          : level === 'warning'
+            ? msg('Active projects whose effective overall health — calculated by the health rules, with any override in force — is amber.')
+            : msg('Active projects whose effective overall health — calculated by the health rules, with any override in force — is red.'),
       scopes: PROJECT_SCOPES,
       usesPeriod: false,
       memberKind: 'project',
@@ -744,26 +770,26 @@ export const MEASURES: MeasureDefinition[] = [
   ),
   {
     id: 'health.greenPct',
-    label: 'Portfolio health',
+    label: msg('Portfolio health'),
     unit: 'percent',
-    definition: 'Share of active, assessed projects whose effective overall health is green.',
+    definition: msg('Share of active, assessed projects whose effective overall health is green.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
-    rollup: ratioRollup(['green'], ['assessed'], 'Green projects of assessed ones, both added across the projects.'),
+    rollup: ratioRollup(['green'], ['assessed'], msg('Green projects of assessed ones, both added across the projects.')),
     compute: ({ projects, health }) => {
       const assessed = projects.filter((project) => project.active && health.get(project.id)?.assessed);
       const green = assessed.filter((project) => health.get(project.id)?.overall === 'healthy').length;
       return assessed.length === 0
-        ? { value: null, note: 'No active project in scope has been assessed.' }
+        ? { value: null, note: tr('No active project in scope has been assessed.') }
         : { value: pct(green, assessed.length), parts: { green, assessed: assessed.length } };
     },
   },
   {
     id: 'projects.atRisk',
-    label: 'Projects at risk',
+    label: msg('Projects at risk'),
     unit: 'count',
-    definition: 'Active projects whose effective overall health is amber or red.',
+    definition: msg('Active projects whose effective overall health is amber or red.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     memberKind: 'project',
@@ -781,10 +807,10 @@ export const MEASURES: MeasureDefinition[] = [
   /* ---------------------------------------------------------------- risks */
   {
     id: 'risk.open',
-    label: 'Open risks',
+    label: msg('Open risks'),
     unit: 'count',
     definition:
-      'Open work packages of a risk type — the types chosen in the health rules, or any type named Risk.',
+      msg('Open work packages of a risk type — the types chosen in the health rules, or any type named Risk.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -792,17 +818,17 @@ export const MEASURES: MeasureDefinition[] = [
     version: 1,
     rollup: sumRollup,
     compute: (context) => {
-      if (!context.risk.configured) return { value: null, note: 'No type on this instance is a risk type.' };
+      if (!context.risk.configured) return { value: null, note: tr('No type on this instance is a risk type.') };
       const open = context.work.filter((item) => isOpen(item) && isRisk(item, context));
       return { value: open.length, members: workIds(open) };
     },
   },
   {
     id: 'risk.high',
-    label: 'High risks',
+    label: msg('High risks'),
     unit: 'count',
     definition:
-      'Open risks at a high priority — the priorities chosen in the health rules, or High and above. What the health risk criterion counts.',
+      msg('Open risks at a high priority — the priorities chosen in the health rules, or High and above. What the health risk criterion counts.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
@@ -810,23 +836,23 @@ export const MEASURES: MeasureDefinition[] = [
     version: 1,
     rollup: sumRollup,
     compute: (context) => {
-      if (!context.risk.configured) return { value: null, note: 'No type on this instance is a risk type.' };
+      if (!context.risk.configured) return { value: null, note: tr('No type on this instance is a risk type.') };
       const high = context.work.filter((item) => isOpen(item) && isHighRisk(item, context));
       return { value: high.length, members: workIds(high) };
     },
   },
   {
     id: 'risk.overdue',
-    label: 'Risks past their date',
+    label: msg('Risks past their date'),
     unit: 'count',
-    definition: 'Open risks due before today: mitigations that have not happened when they were meant to.',
+    definition: msg('Open risks due before today: mitigations that have not happened when they were meant to.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'work_package',
     version: 1,
     rollup: sumRollup,
     compute: (context) => {
-      if (!context.risk.configured) return { value: null, note: 'No type on this instance is a risk type.' };
+      if (!context.risk.configured) return { value: null, note: tr('No type on this instance is a risk type.') };
       const late = context.work.filter((item) => isRisk(item, context) && isOverdue(item, context.today));
       return { value: late.length, members: workIds(late) };
     },
@@ -835,9 +861,9 @@ export const MEASURES: MeasureDefinition[] = [
   /* ----------------------------------------------------------- budget/cost */
   {
     id: 'budget.total',
-    label: 'Budget',
+    label: msg('Budget'),
     unit: 'money',
-    definition: 'The approved budgets of the active projects in scope that have one, added together.',
+    definition: msg('The approved budgets of the active projects in scope that have one, added together.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     memberKind: 'project',
@@ -853,10 +879,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'cost.actual',
-    label: 'Actual cost',
+    label: msg('Actual cost'),
     unit: 'money',
     definition:
-      'Labour cost to date: every hour logged on the projects in scope, at the hourly rate of the person who logged it. Hours from people without a rate are not costed, and are counted separately.',
+      msg('Labour cost to date: every hour logged on the projects in scope, at the hourly rate of the person who logged it. Hours from people without a rate are not costed, and are counted separately.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
@@ -867,16 +893,19 @@ export const MEASURES: MeasureDefinition[] = [
       return {
         value: spent.cost,
         parts: { costedHours: spent.costedHours, uncostedHours: spent.uncostedHours },
-        note: spent.uncostedHours > 0 ? `${spent.uncostedHours} hours logged by people with no hourly rate are not costed.` : undefined,
+        note:
+          spent.uncostedHours > 0
+            ? tr('{hours} hours logged by people with no hourly rate are not costed.', { hours: spent.uncostedHours })
+            : undefined,
       };
     },
   },
   {
     id: 'cost.spent',
-    label: 'Spent in period',
+    label: msg('Spent in period'),
     unit: 'money',
     definition:
-      'Labour cost of the hours logged in the period on the projects in scope, at the hourly rate of the person who logged them.',
+      msg('Labour cost of the hours logged in the period on the projects in scope, at the hourly rate of the person who logged them.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -890,10 +919,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'cost.plannedToDate',
-    label: 'Planned to date',
+    label: msg('Planned to date'),
     unit: 'money',
     definition:
-      'Budget planned to be spent by today: each budgeted project’s budget phased evenly from its planned start to its planned finish — all of it where no plan is set.',
+      msg('Budget planned to be spent by today: each budgeted project’s budget phased evenly from its planned start to its planned finish — all of it where no plan is set.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
@@ -901,16 +930,16 @@ export const MEASURES: MeasureDefinition[] = [
     compute: (context) => {
       const position = budgetPosition(context);
       return position.projects.length === 0
-        ? { value: null, note: 'No active project in scope has a budget.' }
+        ? { value: null, note: tr('No active project in scope has a budget.') }
         : { value: position.planned, parts: { budget: roundMoney(position.budget) } };
     },
   },
   {
     id: 'cost.variance',
-    label: 'Cost variance',
+    label: msg('Cost variance'),
     unit: 'money',
     definition:
-      'Planned to date minus actual cost, over the budgeted projects in scope: positive is under plan, negative over.',
+      msg('Planned to date minus actual cost, over the budgeted projects in scope: positive is under plan, negative over.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
@@ -919,7 +948,7 @@ export const MEASURES: MeasureDefinition[] = [
     compute: (context) => {
       const position = budgetPosition(context);
       return position.projects.length === 0
-        ? { value: null, note: 'No active project in scope has a budget.' }
+        ? { value: null, note: tr('No active project in scope has a budget.') }
         : {
             value: roundMoney(position.planned - position.cost),
             parts: { planned: position.planned, actual: position.cost, uncostedHours: position.uncostedHours },
@@ -928,16 +957,16 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'budget.variancePct',
-    label: 'Budget variance',
+    label: msg('Budget variance'),
     unit: 'percent',
     definition:
-      'Actual cost minus planned to date, as a share of the budget, over the budgeted projects in scope — the figure the health budget criterion judges. Positive is over plan.',
+      msg('Actual cost minus planned to date, as a share of the budget, over the budgeted projects in scope — the figure the health budget criterion judges. Positive is over plan.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
     rollup: {
       rule: 'ratio',
-      describe: 'Actual cost minus planned to date, of the budgets — each added across the projects.',
+      describe: msg('Actual cost minus planned to date, of the budgets — each added across the projects.'),
       from: (values) => {
         const sum = (name: string) => values.reduce((total, value) => total + (value.parts?.[name] ?? 0), 0);
         return sum('budget') > 0 ? budgetVariancePct(roundMoney(sum('actual')), roundMoney(sum('planned')), roundMoney(sum('budget'))) : null;
@@ -947,7 +976,7 @@ export const MEASURES: MeasureDefinition[] = [
     compute: (context) => {
       const position = budgetPosition(context);
       return position.budget <= 0
-        ? { value: null, note: 'No active project in scope has a budget.' }
+        ? { value: null, note: tr('No active project in scope has a budget.') }
         : {
             value: budgetVariancePct(position.cost, position.planned, position.budget),
             parts: { actual: position.cost, planned: position.planned, budget: position.budget },
@@ -956,19 +985,19 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'budget.consumed',
-    label: 'Budget consumed',
+    label: msg('Budget consumed'),
     unit: 'percent',
-    definition: 'Actual cost of the budgeted projects in scope as a share of their budgets.',
+    definition: msg('Actual cost of the budgeted projects in scope as a share of their budgets.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     memberKind: 'project',
     version: 1,
-    rollup: ratioRollup(['actual'], ['budget'], 'Actual cost of the budgets, both added across the projects.'),
+    rollup: ratioRollup(['actual'], ['budget'], msg('Actual cost of the budgets, both added across the projects.')),
     entries: 'to-date',
     compute: (context) => {
       const position = budgetPosition(context);
       return position.budget <= 0
-        ? { value: null, note: 'No active project in scope has a budget.' }
+        ? { value: null, note: tr('No active project in scope has a budget.') }
         : {
             value: pct(position.cost, position.budget),
             members: position.projects.map((project) => project.id),
@@ -981,10 +1010,10 @@ export const MEASURES: MeasureDefinition[] = [
   evmMeasure({
     id: 'evm.bac',
     note: 'against',
-    label: 'Budget at completion (BAC)',
+    label: msg('Budget at completion (BAC)'),
     unit: 'money',
     definition:
-      'Each work package’s estimated hours at its assignee’s hourly rate, as the baseline in force priced them — or, for a project with no baseline, as its plan stands — added up. Work with no rate to price it is left out and counted.',
+      msg('Each work package’s estimated hours at its assignee’s hourly rate, as the baseline in force priced them — or, for a project with no baseline, as its plan stands — added up. Work with no rate to price it is left out and counted.'),
     pick: (totals) => totals.bac,
     rollup: sumRollup,
     members: true,
@@ -992,10 +1021,10 @@ export const MEASURES: MeasureDefinition[] = [
   evmMeasure({
     id: 'evm.pv',
     note: 'exceptions',
-    label: 'Planned value (PV)',
+    label: msg('Planned value (PV)'),
     unit: 'money',
     definition:
-      'Each work package’s budget spread evenly over the working days from its planned start to its planned finish, as far as the day measured, added up: the work that should have been done by then, priced.',
+      msg('Each work package’s budget spread evenly over the working days from its planned start to its planned finish, as far as the day measured, added up: the work that should have been done by then, priced.'),
     pick: (totals) => totals.pv,
     rollup: sumRollup,
     members: true,
@@ -1003,10 +1032,10 @@ export const MEASURES: MeasureDefinition[] = [
   evmMeasure({
     id: 'evm.ev',
     note: 'exceptions',
-    label: 'Earned value (EV)',
+    label: msg('Earned value (EV)'),
     unit: 'money',
     definition:
-      'Each work package’s budget times the share its type’s earning rule credits it with by the day measured — percent complete, 0/100, 50/50, milestone weighted or level of effort — added up. Delivered work has earned all of it.',
+      msg('Each work package’s budget times the share its type’s earning rule credits it with by the day measured — percent complete, 0/100, 50/50, milestone weighted or level of effort — added up. Delivered work has earned all of it.'),
     pick: (totals) => totals.ev,
     rollup: sumRollup,
     members: true,
@@ -1014,10 +1043,10 @@ export const MEASURES: MeasureDefinition[] = [
   evmMeasure({
     id: 'evm.ac',
     note: 'exceptions',
-    label: 'Actual cost (AC)',
+    label: msg('Actual cost (AC)'),
     unit: 'money',
     definition:
-      'Every hour logged on the projects in scope up to the day measured, at the hourly rate of the person who logged it — work outside the plan included. Hours from people without a rate are not costed, and are counted separately.',
+      msg('Every hour logged on the projects in scope up to the day measured, at the hourly rate of the person who logged it — work outside the plan included. Hours from people without a rate are not costed, and are counted separately.'),
     pick: (totals) => totals.ac,
     rollup: sumRollup,
     entries: 'to-date',
@@ -1025,75 +1054,75 @@ export const MEASURES: MeasureDefinition[] = [
   evmMeasure({
     id: 'evm.sv',
     note: 'none',
-    label: 'Schedule variance (SV)',
+    label: msg('Schedule variance (SV)'),
     unit: 'money',
-    definition: 'Earned value minus planned value: what was done, priced, against what should have been. Negative is behind plan.',
+    definition: msg('Earned value minus planned value: what was done, priced, against what should have been. Negative is behind plan.'),
     pick: (totals) => totals.sv,
     rollup: sumRollup,
   }),
   evmMeasure({
     id: 'evm.cv',
     note: 'none',
-    label: 'Cost variance (CV)',
+    label: msg('Cost variance (CV)'),
     unit: 'money',
-    definition: 'Earned value minus actual cost: what was done, priced, against what it cost. Negative is over cost.',
+    definition: msg('Earned value minus actual cost: what was done, priced, against what it cost. Negative is over cost.'),
     pick: (totals) => totals.cv,
     rollup: sumRollup,
   }),
   evmMeasure({
     id: 'evm.spi',
     note: 'none',
-    label: 'Schedule performance (SPI)',
+    label: msg('Schedule performance (SPI)'),
     unit: 'index',
-    definition: 'Earned value over planned value. Below 1 is behind plan; 0.9 is nine-tenths of the planned work done.',
+    definition: msg('Earned value over planned value. Below 1 is behind plan; 0.9 is nine-tenths of the planned work done.'),
     pick: (totals) => totals.spi,
-    rollup: evmRollup('Earned value over planned value, each added across the projects.', (bac, pv, ev) => (pv > 0 ? round3(ev / pv) : null)),
+    rollup: evmRollup(msg('Earned value over planned value, each added across the projects.'), (bac, pv, ev) => (pv > 0 ? round3(ev / pv) : null)),
   }),
   evmMeasure({
     id: 'evm.cpi',
     note: 'none',
-    label: 'Cost performance (CPI)',
+    label: msg('Cost performance (CPI)'),
     unit: 'index',
-    definition: 'Earned value over actual cost. Below 1 is over cost; 0.9 is ninety of value earned for each hundred spent.',
+    definition: msg('Earned value over actual cost. Below 1 is over cost; 0.9 is ninety of value earned for each hundred spent.'),
     pick: (totals) => totals.cpi,
-    rollup: evmRollup('Earned value over actual cost, each added across the projects.', (bac, pv, ev, ac) => (ac > 0 ? round3(ev / ac) : null)),
+    rollup: evmRollup(msg('Earned value over actual cost, each added across the projects.'), (bac, pv, ev, ac) => (ac > 0 ? round3(ev / ac) : null)),
   }),
   evmMeasure({
     id: 'evm.eac',
     note: 'none',
-    label: 'Estimate at completion (EAC)',
+    label: msg('Estimate at completion (EAC)'),
     unit: 'money',
     definition:
-      'Budget at completion over the cost performance index: what the work will cost if the rest goes as the work so far has. The budget itself while nothing has been spent.',
+      msg('Budget at completion over the cost performance index: what the work will cost if the rest goes as the work so far has. The budget itself while nothing has been spent.'),
     pick: (totals) => totals.eac,
-    rollup: evmRollup('From the budgets, earned values and actual costs, each added across the projects.', (bac, pv, ev, ac) => forecasts(bac, ev, ac).eac),
+    rollup: evmRollup(msg('From the budgets, earned values and actual costs, each added across the projects.'), (bac, pv, ev, ac) => forecasts(bac, ev, ac).eac),
   }),
   evmMeasure({
     id: 'evm.vac',
     note: 'none',
-    label: 'Variance at completion (VAC)',
+    label: msg('Variance at completion (VAC)'),
     unit: 'money',
-    definition: 'Budget at completion minus the estimate at completion. Negative is the overrun forecast.',
+    definition: msg('Budget at completion minus the estimate at completion. Negative is the overrun forecast.'),
     pick: (totals) => totals.vac,
-    rollup: evmRollup('From the budgets, earned values and actual costs, each added across the projects.', (bac, pv, ev, ac) => forecasts(bac, ev, ac).vac),
+    rollup: evmRollup(msg('From the budgets, earned values and actual costs, each added across the projects.'), (bac, pv, ev, ac) => forecasts(bac, ev, ac).vac),
   }),
   evmMeasure({
     id: 'evm.tcpi',
     note: 'none',
-    label: 'To-complete performance (TCPI)',
+    label: msg('To-complete performance (TCPI)'),
     unit: 'index',
     definition:
-      'The budget still to earn over the budget still to spend, (BAC − EV) / (BAC − AC): the efficiency the remaining work needs to finish on budget. Above 1 is harder than planned.',
+      msg('The budget still to earn over the budget still to spend, (BAC − EV) / (BAC − AC): the efficiency the remaining work needs to finish on budget. Above 1 is harder than planned.'),
     pick: (totals) => totals.tcpi,
-    rollup: evmRollup('From the budgets, earned values and actual costs, each added across the projects.', (bac, pv, ev, ac) => forecasts(bac, ev, ac).tcpi),
+    rollup: evmRollup(msg('From the budgets, earned values and actual costs, each added across the projects.'), (bac, pv, ev, ac) => forecasts(bac, ev, ac).tcpi),
   }),
 
   /* --------------------------------------------------------- people, time */
   {
     id: 'capacity.weeklyHours',
-    label: 'Weekly capacity',
+    label: msg('Weekly capacity'),
     unit: 'hours',
-    definition: `Hours a week the people in scope can work: each person’s capacity, ${40} where none is set.`,
+    definition: msg('Hours a week the people in scope can work: each person’s capacity, 40 where none is set.'),
     scopes: ALL_SCOPES,
     usesPeriod: false,
     memberKind: 'person',
@@ -1105,10 +1134,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'time.logged',
-    label: 'Hours logged',
+    label: msg('Hours logged'),
     unit: 'hours',
     definition:
-      'Hours logged in the period on the projects in scope — or, for a department, team or person, by the people in scope.',
+      msg('Hours logged in the period on the projects in scope — or, for a department, team or person, by the people in scope.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -1119,9 +1148,9 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'time.uncosted',
-    label: 'Uncosted hours',
+    label: msg('Uncosted hours'),
     unit: 'hours',
-    definition: 'Hours logged in the period by people with no hourly rate, which no cost figure includes.',
+    definition: msg('Hours logged in the period by people with no hourly rate, which no cost figure includes.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     version: 1,
@@ -1133,10 +1162,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'utilisation',
-    label: 'Utilisation',
+    label: msg('Utilisation'),
     unit: 'percent',
     definition:
-      'Hours the people in scope logged in the period, on projects you can see, as a share of their capacity for the period: weekly capacity times the days in the period divided by seven.',
+      msg('Hours the people in scope logged in the period, on projects you can see, as a share of their capacity for the period: weekly capacity times the days in the period divided by seven.'),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'person',
@@ -1148,7 +1177,7 @@ export const MEASURES: MeasureDefinition[] = [
         .filter((entry) => inPeriod(entry.spentOn, period))
         .reduce((sum, entry) => sum + entry.hours, 0);
       return capacity <= 0
-        ? { value: null, note: 'Nobody in scope has capacity.' }
+        ? { value: null, note: tr('Nobody in scope has capacity.') }
         : {
             value: pct(logged, capacity),
             members: people.map((person) => person.id),
@@ -1160,10 +1189,10 @@ export const MEASURES: MeasureDefinition[] = [
   /* ---------------------------------------------------------------- agile */
   {
     id: 'sprint.velocity',
-    label: 'Velocity',
+    label: msg('Velocity'),
     unit: 'points',
     definition:
-      'Average story points delivered per sprint, over the sprints in scope that ended in the period: the points of each sprint’s delivered work.',
+      msg('Average story points delivered per sprint, over the sprints in scope that ended in the period: the points of each sprint’s delivered work.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: true,
     trend: 'period',
@@ -1173,7 +1202,7 @@ export const MEASURES: MeasureDefinition[] = [
       const sprints = [...facts.versions.values()].filter(
         (version) => version.projectId !== null && inScope.has(version.projectId) && inPeriod(version.endDate, period),
       );
-      if (sprints.length === 0) return { value: null, note: 'No sprint in scope ended in the period.' };
+      if (sprints.length === 0) return { value: null, note: tr('No sprint in scope ended in the period.') };
       const points = sprints.map((sprint) =>
         work
           .filter((item) => item.versionId === sprint.id && isDelivered(item))
@@ -1187,10 +1216,10 @@ export const MEASURES: MeasureDefinition[] = [
   },
   {
     id: 'sprint.progress',
-    label: 'Sprint progress',
+    label: msg('Sprint progress'),
     unit: 'percent',
     definition:
-      'For the sprints in scope under way today: delivered story points as a share of committed points — the figure recorded when the sprint started, or the sprint’s total points where none was.',
+      msg('For the sprints in scope under way today: delivered story points as a share of committed points — the figure recorded when the sprint started, or the sprint’s total points where none was.'),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
     version: 1,
@@ -1206,7 +1235,7 @@ export const MEASURES: MeasureDefinition[] = [
           version.startDate <= today &&
           version.endDate >= today,
       );
-      if (running.length === 0) return { value: null, note: 'No sprint in scope is under way.' };
+      if (running.length === 0) return { value: null, note: tr('No sprint in scope is under way.') };
       let delivered = 0;
       let committed = 0;
       for (const sprint of running) {
@@ -1215,7 +1244,7 @@ export const MEASURES: MeasureDefinition[] = [
         committed += sprint.committedPoints ?? items.reduce((sum, item) => sum + (item.storyPoints ?? 0), 0);
       }
       return committed <= 0
-        ? { value: null, note: 'The sprints under way have no points.' }
+        ? { value: null, note: tr('The sprints under way have no points.') }
         : { value: pct(delivered, committed), parts: { delivered, committed, sprints: running.length } };
     },
   },
@@ -1227,11 +1256,17 @@ export function measureById(id: string): MeasureDefinition | undefined {
   return BY_ID.get(id);
 }
 
-/** The catalogue as data: what the API and the BI catalogue publish. */
-export function catalogue() {
+/**
+ * The catalogue as data: what the API and the BI catalogue publish. In
+ * English unless asked otherwise — what BI reads is the definition of record;
+ * the API asks for the reader's language.
+ */
+export function catalogue(language: Language = 'en') {
   return MEASURES.map(({ compute: _compute, rollup, ...definition }) => ({
     ...definition,
-    ...(rollup ? { rollup: { rule: rollup.rule, describe: rollup.describe } } : {}),
+    label: t(language, definition.label),
+    definition: t(language, definition.definition),
+    ...(rollup ? { rollup: { rule: rollup.rule, describe: t(language, rollup.describe) } } : {}),
   }));
 }
 
@@ -1420,21 +1455,27 @@ export interface Evaluation {
   measures: Record<string, EvaluatedMeasure>;
 }
 
+/**
+ * Evaluates measures in a context. The name, definition and notes are in the
+ * language of the request being served — or of the reader a scheduled report
+ * is being rendered for — so what is cached from this must be keyed by it.
+ */
 export async function evaluateInContext(ids: string[], context: MeasureContext): Promise<Record<string, EvaluatedMeasure>> {
+  const language = contextLanguage();
   const result: Record<string, EvaluatedMeasure> = {};
   for (const id of ids) {
     const measure = BY_ID.get(id);
     if (!measure) continue;
     const base = {
       id,
-      label: measure.label,
+      label: t(language, measure.label),
       unit: measure.unit,
-      definition: measure.definition,
+      definition: t(language, measure.definition),
       memberKind: measure.memberKind,
     };
     const kind = context.scope.kind === 'set' ? 'portfolio' : context.scope.kind;
     if (!measure.scopes.includes(kind)) {
-      result[id] = { ...base, value: null, applicable: false, note: `Not measured for a ${context.scope.kind}.` };
+      result[id] = { ...base, value: null, applicable: false, note: t(language, 'Not measured for a {kind}.', { kind: context.scope.kind }) };
       continue;
     }
     result[id] = { ...base, ...(await measure.compute(context)), applicable: true };
@@ -1532,7 +1573,7 @@ export async function measureMembers(
           id: item.id,
           subject: item.subject,
           projectId: item.projectId,
-          projectName: facts.projects.get(item.projectId)?.name ?? `Project ${item.projectId}`,
+          projectName: facts.projects.get(item.projectId)?.name ?? tr('Project {id}', { id: item.projectId }),
           type: facts.types.get(item.typeId)?.name ?? '',
           status: facts.statuses.get(item.statusId)?.name ?? '',
           statusCategory: item.statusCategory,
@@ -1658,6 +1699,13 @@ export async function measureTrend(
   const measure = BY_ID.get(id);
   if (!measure?.trend) return null;
   const { compute: _compute, ...definition } = measure;
+  const language = contextLanguage();
+  const words = {
+    ...definition,
+    label: t(language, definition.label),
+    definition: t(language, definition.definition),
+    ...(definition.rollup ? { rollup: { ...definition.rollup, describe: t(language, definition.rollup.describe) } } : {}),
+  };
   const context = await buildContext(scope, period, viewer, today);
-  return { measure: definition, asOf: context.facts.asOf, points: await measureSeries(context, id, bucket) };
+  return { measure: words, asOf: context.facts.asOf, points: await measureSeries(context, id, bucket) };
 }

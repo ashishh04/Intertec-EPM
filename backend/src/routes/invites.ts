@@ -140,7 +140,7 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'invitation',
           entityId: invite.id,
           action: 'invitation.accepted',
-          summary: `Invitation for ${invite.email} accepted; the person set their own password`,
+          summary: message('Invitation for {email} accepted; the person set their own password', { email: invite.email }),
         },
       ]);
 

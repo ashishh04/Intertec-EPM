@@ -26,7 +26,7 @@ import { describeEmailProvider, useEmailLogger } from './email/index.js';
 import { useAppLogger } from './lib/log.js';
 import { disconnectPrisma, prismaReady } from './db/prisma.js';
 import { EpmError } from './lib/errors.js';
-import { issueMessage, requestLanguage, runWithLanguage, t } from './lib/i18n.js';
+import { issueMessage, requestConventions, requestLanguage, runWithLanguage, t } from './lib/i18n.js';
 import { forgetPermissions } from './auth/capabilities.js';
 import { registerAuth } from './auth/hook.js';
 import { SESSION_COOKIE } from './auth/oauth.js';
@@ -141,10 +141,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     }),
   });
 
-  // The request's language, for code that writes stored English out for a
-  // reader without being handed the request (`contextLanguage()`).
+  // The request's language, calendar and digits, for code that writes for a
+  // reader without being handed the request (`contextLanguage()`,
+  // `contextConventions()`).
   app.addHook('onRequest', (request, _reply, done) => {
-    runWithLanguage(requestLanguage(request), () => done());
+    runWithLanguage(requestLanguage(request), () => done(), requestConventions(request));
   });
 
   // Every message leaves in the language the request asked for (BR-605); the

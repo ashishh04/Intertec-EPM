@@ -96,6 +96,13 @@ jobs:
         working-directory: backend
         run: npm run types:check
 
+      # Every message the screens, the server and its email can show has an
+      # Arabic translation with the same arguments (BR-605). Reads the source
+      # and the catalogues only; needs no database or configuration.
+      - name: Every message is translated
+        working-directory: backend
+        run: npm run i18n:check
+
       # A high or critical advisory against a production dependency that has
       # been neither patched nor assessed stops the release. See the script.
       - name: Production dependencies carry no unassessed advisory

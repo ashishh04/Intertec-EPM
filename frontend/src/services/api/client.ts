@@ -1,5 +1,5 @@
 import { env } from '@/config/env';
-import { currentLanguage, t } from '@/lib/i18n';
+import { intlLocale, t } from '@/lib/i18n';
 
 /**
  * Thin HTTP client for the EPM backend (BFF).
@@ -86,8 +86,8 @@ export class ApiClient {
         credentials: 'include',
         headers: {
           Accept: 'application/json',
-          // The backend answers in the language this page is showing (BR-605).
-          'Accept-Language': currentLanguage(),
+          // The backend answers in the language this page is showing, with its calendar and digits (BR-605, BR-607).
+          'Accept-Language': intlLocale(),
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...headers,
         },
@@ -158,7 +158,7 @@ export class ApiClient {
         credentials: 'include',
         signal: controller.signal,
         // A report comes back in the reader's language and direction (BR-604).
-        headers: { 'Accept-Language': currentLanguage() },
+        headers: { 'Accept-Language': intlLocale() },
       });
       if (!response.ok) throw await parseError(response);
       return await response.blob();

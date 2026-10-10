@@ -5,6 +5,7 @@ import https from 'node:https';
 import net from 'node:net';
 
 import { env } from '../config/env.js';
+import { message, msg, render, type Message } from './i18n.js';
 
 /**
  * A rule's call to an outside endpoint (BR-217): POST JSON to a URL somebody
@@ -67,13 +68,13 @@ export function endpointProblem(raw: string): string | undefined {
   try {
     url = new URL(raw);
   } catch {
-    return 'That is not a URL.';
+    return msg('That is not a URL.');
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'Endpoints are called over https.';
-  if (url.username || url.password) return 'Keep credentials out of the URL; have the receiver check the signature.';
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return msg('Endpoints are called over https.');
+  if (url.username || url.password) return msg('Keep credentials out of the URL; have the receiver check the signature.');
   const host = hostOf(url);
   if (allowlisted(host)) return undefined;
-  if (url.protocol === 'http:') return 'Endpoints are called over https.';
+  if (url.protocol === 'http:') return msg('Endpoints are called over https.');
   if (
     host === 'localhost' ||
     host.endsWith('.localhost') ||
@@ -81,7 +82,7 @@ export function endpointProblem(raw: string): string | undefined {
     host.endsWith('.internal') ||
     (net.isIP(host) !== 0 && isPrivateAddress(host))
   ) {
-    return 'That address is inside the network. Rules can only call public endpoints.';
+    return msg('That address is inside the network. Rules can only call public endpoints.');
   }
   return undefined;
 }
@@ -89,8 +90,18 @@ export function endpointProblem(raw: string): string | undefined {
 export interface OutboundResult {
   ok: boolean;
   status?: number;
+  /** Why it failed, in English: EPM's words, or the network's own. */
   error?: string;
+  /** EPM's words as a message, so a log can show them in its reader's language (BR-605). */
+  errorMessage?: Message;
   durationMs: number;
+}
+
+/** A failure in EPM's own words, carrying its message through Node's error events. */
+class OutboundProblem extends Error {
+  constructor(readonly source: Message) {
+    super(render('en', source));
+  }
 }
 
 type LookupCallback = (error: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void;
@@ -119,7 +130,11 @@ export function postJson(raw: string, payload: unknown, timeoutMs = 5000): Promi
       if (error) return callback(error, address, family);
       const addresses = Array.isArray(address) ? address.map((one) => one.address) : [String(address)];
       if (!trusted && addresses.some(isPrivateAddress)) {
-        return callback(new Error(`${hostname} resolves to an address inside the network.`), address, family);
+        return callback(
+          new OutboundProblem(message('{host} resolves to an address inside the network.', { host: hostname })),
+          address,
+          family,
+        );
       }
       callback(null, address, family);
     }) as LookupCallback);
@@ -135,17 +150,28 @@ export function postJson(raw: string, payload: unknown, timeoutMs = 5000): Promi
         response.resume();
         response.on('end', () => {
           const status = response.statusCode ?? 0;
+          const ok = status >= 200 && status < 300;
+          const problem = ok ? undefined : message('The endpoint answered {status}.', { status });
           resolve({
-            ok: status >= 200 && status < 300,
+            ok,
             status,
-            error: status >= 200 && status < 300 ? undefined : `The endpoint answered ${status}.`,
+            ...(problem ? { error: render('en', problem), errorMessage: problem } : {}),
             durationMs: Date.now() - started,
           });
         });
       },
     );
-    request.on('timeout', () => request.destroy(new Error(`No answer within ${Math.round(timeoutMs / 1000)} seconds.`)));
-    request.on('error', (error) => resolve({ ok: false, error: error.message, durationMs: Date.now() - started }));
+    request.on('timeout', () =>
+      request.destroy(new OutboundProblem(message('No answer within {seconds} seconds.', { seconds: Math.round(timeoutMs / 1000) }))),
+    );
+    request.on('error', (error) =>
+      resolve({
+        ok: false,
+        error: error.message,
+        ...(error instanceof OutboundProblem ? { errorMessage: error.source } : {}),
+        durationMs: Date.now() - started,
+      }),
+    );
     request.end(body);
   });
 }

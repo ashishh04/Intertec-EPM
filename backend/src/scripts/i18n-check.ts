@@ -147,7 +147,29 @@ const grantBlock = grantSource.slice(grantSource.indexOf('GRANT_CATALOGUE'), gra
 const grantWords = [...grantBlock.matchAll(/\b(?:label|description):\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)].map((match) =>
   unquote(match[1]!, match[2]!),
 );
-const dataWords = [...grantWords, ...PHRASES].filter((word) => serverCatalogue[word] === undefined);
+// The field descriptors EPM's OpenProject add-on serves for the administration
+// catalogues and settings sections, translated as they pass through
+// (lib/i18n.ts translateDescriptors).
+const descriptorWords = ['zzz_epm_admin_catalog.rb', 'zzz_epm_admin_settings.rb'].flatMap((file) => {
+  const ruby = readFileSync(join(repo, 'backend/openproject', file), 'utf8');
+  return [...ruby.matchAll(/\b(?:label|description|help|title):\s*"((?:\\.|[^"\\])*)"/g)].map((match) => match[1]!.replace(/\\"/g, '"'));
+});
+// …and the settings fields, declared as tuples — [key, type, options, "Label", "Help"] —
+// where a long help may be split across adjacent literals.
+const RUBY_STRING = String.raw`"(?:[^"\\]|\\.)*"`;
+const settingsRuby = readFileSync(join(repo, 'backend/openproject/zzz_epm_admin_settings.rb'), 'utf8');
+const FIELD = new RegExp(
+  String.raw`\[\s*"[\w/]+",\s*:\w+,\s*(?::\w+|nil),\s*((?:${RUBY_STRING}\s*)+),\s*((?:${RUBY_STRING}\s*)+)\]`,
+  'g',
+);
+const fieldWords = [...settingsRuby.matchAll(FIELD)].flatMap((match) =>
+  [match[1]!, match[2]!].map((literals) =>
+    [...literals.matchAll(new RegExp(RUBY_STRING, 'g'))].map((one) => JSON.parse(one[0]) as string).join(''),
+  ),
+);
+const dataWords = [...new Set([...grantWords, ...descriptorWords, ...fieldWords, ...PHRASES])].filter(
+  (word) => serverCatalogue[word] === undefined,
+);
 if (scope.size === 0) {
   console.log('');
   console.log(`Backend data words: ${dataWords.length} missing`);

@@ -13,7 +13,7 @@ import { modelFacts, type ModelFacts } from './measure-facts.js';
 import type { Period, Viewer } from './measures.js';
 import { DEFAULT_COLUMNS, OVERVIEW_COLUMNS, portfolioOverview, type PortfolioOverview } from './portfolio-overview.js';
 import { PERIOD_PRESETS, periodFor, type PeriodPreset } from './report-schedule.js';
-import { listOf, message } from '../lib/i18n.js';
+import { listOf, message, type Message } from '../lib/i18n.js';
 
 /**
  * Saved portfolio views (BR-203).
@@ -281,7 +281,8 @@ async function checkReferences(input: ViewInput): Promise<void> {
   }
 }
 
-function journal(viewId: string, action: string, summary: string, actorId: string, extra: { before?: unknown; after?: unknown } = {}) {
+/** A journal entry; its summary is a message, so it reads in each reader's language (BR-605). */
+function journal(viewId: string, action: string, summary: Message, actorId: string, extra: { before?: unknown; after?: unknown } = {}) {
   return recordAuditQuietly([{ actorId, entityType: 'portfolio_view', entityId: viewId, action, summary, ...extra }]);
 }
 
@@ -298,7 +299,16 @@ export async function createView(raw: unknown, ownerId: string): Promise<Portfol
       definition: input.definition as unknown as Prisma.InputJsonValue,
     },
   });
-  await journal(row.id, 'portfolio_view.created', `Portfolio view "${row.name}" created (${row.visibility})`, ownerId, { after: input });
+  await journal(
+    row.id,
+    'portfolio_view.created',
+    message('Portfolio view "{name}" created ({visibility, select, private {private} roles {roles} public {public} other {{visibility}}})', {
+      name: row.name,
+      visibility: row.visibility,
+    }),
+    ownerId,
+    { after: input },
+  );
   return summarise(row, ownerId, false);
 }
 
@@ -326,8 +336,11 @@ export async function updateView(id: string, raw: unknown, actorId: string, mana
       version: { increment: 1 },
     },
   });
-  const shared = existing.visibility !== row.visibility ? ` — now ${row.visibility}` : '';
-  await journal(id, 'portfolio_view.updated', `Portfolio view "${row.name}" changed${shared}`, actorId, {
+  const summary = message(
+    'Portfolio view "{name}" changed{now, select, same {} private { — now private} roles { — now roles} public { — now public} other { — now {now}}}',
+    { name: row.name, now: existing.visibility !== row.visibility ? row.visibility : 'same' },
+  );
+  await journal(id, 'portfolio_view.updated', summary, actorId, {
     before: { name: existing.name, visibility: existing.visibility, roleIds: existing.roleIds, definition: existing.definition },
     after: input,
   });
@@ -337,7 +350,7 @@ export async function updateView(id: string, raw: unknown, actorId: string, mana
 export async function deleteView(id: string, actorId: string, manager: boolean): Promise<void> {
   const existing = await editable(id, actorId, manager);
   await prisma.portfolioView.delete({ where: { id } });
-  await journal(id, 'portfolio_view.deleted', `Portfolio view "${existing.name}" deleted`, actorId, {
+  await journal(id, 'portfolio_view.deleted', message('Portfolio view "{name}" deleted', { name: existing.name }), actorId, {
     before: { name: existing.name, visibility: existing.visibility, roleIds: existing.roleIds, definition: existing.definition },
   });
 }

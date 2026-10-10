@@ -37,6 +37,7 @@ import { useProject } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { useSprints } from '@/hooks/useSprints';
+import { t } from '@/lib/i18n';
 import { formatDateTime, formatHours, formatLongDate, formatRelative } from '@/lib/utils';
 import {
   usePriorities,
@@ -86,8 +87,8 @@ export default function TaskDetailPage() {
   if (isError) {
     return (
       <ErrorState
-        title="Unable to load task"
-        description="Something went wrong while loading this work package."
+        title={t('Unable to load task')}
+        description={t('Something went wrong while loading this work package.')}
         onRetry={() => refetch()}
       />
     );
@@ -134,13 +135,13 @@ export default function TaskDetailPage() {
 
   const patch = (values: Parameters<typeof updateTask.mutate>[0]) =>
     updateTask.mutate(values, {
-      onSuccess: () => toast.success('Task updated'),
+      onSuccess: () => toast.success(t('Task updated')),
       // OpenProject refuses a change for reasons only it knows — a workflow
       // that does not allow the transition, a required field the new status
       // brings with it. Its sentence is the useful one; a flat "Unable to save
       // changes" was indistinguishable from the control doing nothing at all.
       onError: (error) =>
-        toast.error('Unable to save changes', {
+        toast.error(t('Unable to save changes'), {
           description: error instanceof Error ? error.message : undefined,
         }),
     });
@@ -157,7 +158,7 @@ export default function TaskDetailPage() {
               {project ? (
                 <>
                   <span aria-hidden>·</span>
-                  <Link to={`/projects/${project.id}`} className="hover:text-foreground">
+                  <Link to={`/projects/${project.id}`} dir="auto" className="hover:text-foreground">
                     {project.name}
                   </Link>
                 </>
@@ -189,18 +190,18 @@ export default function TaskDetailPage() {
               disabled={!canInProject(task.projectId, 'task:edit')}
             >
               <Pencil className="h-3.5 w-3.5" />
-              Edit all fields
+              {t('Edit all fields')}
             </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm">
                   <UserPlus className="h-3.5 w-3.5" />
-                  Assign
+                  {t('Assign')}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
-                <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('Assign to')}</DropdownMenuLabel>
                 {(assignees ?? []).map((person) => (
                   <DropdownMenuItem
                     key={person.id}
@@ -223,11 +224,12 @@ export default function TaskDetailPage() {
                 {(assignees ?? []).length === 0 ? (
                   <div className="px-2 py-1.5">
                     <p className="text-2xs text-muted-foreground">
-                      Nobody can be assigned yet — this project has no members. Add people on the
-                      project&rsquo;s Team tab first.
+                      {t(
+                        'Nobody can be assigned yet — this project has no members. Add people on the project’s Team tab first.',
+                      )}
                     </p>
                     <Button asChild variant="ghost" size="sm" className="mt-1.5 w-full text-2xs">
-                      <Link to={`/projects/${task.projectId}/team`}>Open the Team tab</Link>
+                      <Link to={`/projects/${task.projectId}/team`}>{t('Open the Team tab')}</Link>
                     </Button>
                   </div>
                 ) : null}
@@ -239,17 +241,17 @@ export default function TaskDetailPage() {
               size="sm"
               onClick={() =>
                 toast.success(
-                  task.watcherIds.length > 0 ? 'You are watching this task' : 'Watching this task',
+                  task.watcherIds.length > 0 ? t('You are watching this task') : t('Watching this task'),
                 )
               }
             >
               <Eye className="h-3.5 w-3.5" />
-              Watch
+              {t('Watch')}
             </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="More task actions">
+                <Button variant="ghost" size="icon" aria-label={t('More task actions')}>
                   <Ellipsis className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -257,24 +259,24 @@ export default function TaskDetailPage() {
                 <DropdownMenuItem
                   onSelect={() => {
                     navigator.clipboard?.writeText(window.location.href);
-                    toast.success('Link copied');
+                    toast.success(t('Link copied'));
                   }}
                 >
-                  Copy link
+                  {t('Copy link')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => patch({ id: task.id, status: 'done' })}>
-                  Mark as done
+                  {t('Mark as done')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   destructive
                   onSelect={() =>
-                    toast('Deleting is not enabled from this view', {
-                      description: 'Use bulk actions in the task list to remove work packages.',
+                    toast(t('Deleting is not enabled from this view'), {
+                      description: t('Use bulk actions in the task list to remove work packages.'),
                     })
                   }
                 >
-                  Delete task
+                  {t('Delete task')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -300,18 +302,18 @@ export default function TaskDetailPage() {
         <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader className="border-b border-border">
-              <CardTitle>Description</CardTitle>
+              <CardTitle>{t('Description')}</CardTitle>
             </CardHeader>
             <CardContent className="pt-4">
               {task.description ? (
-                <p className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
+                <p dir="auto" className="whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
                   {task.description}
                 </p>
               ) : (
                 <EmptyState
                   size="inline"
-                  title="No description yet"
-                  description="Add one in the delivery system and it will appear here."
+                  title={t('No description yet')}
+                  description={t('Add one in the delivery system and it will appear here.')}
                 />
               )}
 
@@ -360,13 +362,13 @@ export default function TaskDetailPage() {
               <div className="border-b border-border px-4 pt-3">
                 <TabsList variant="underline">
                   <TabsTrigger value="comments" variant="underline">
-                    Comments{' '}
+                    {t('Comments')}{' '}
                     <span className="font-mono text-2xs text-muted-foreground">
                       {comments.data?.length ?? 0}
                     </span>
                   </TabsTrigger>
                   <TabsTrigger value="activity" variant="underline">
-                    Activity
+                    {t('Activity')}
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -385,7 +387,7 @@ export default function TaskDetailPage() {
                   isLoading={activityQuery.isLoading}
                   isError={activityQuery.isError}
                   onRetry={() => activityQuery.refetch()}
-                  errorTitle="Unable to load activity"
+                  errorTitle={t('Unable to load activity')}
                   skeleton={<ActivityTimelineSkeleton rows={5} />}
                 >
                   <ActivityTimeline entries={activityQuery.data ?? []} users={users} limit={10} />
@@ -398,11 +400,11 @@ export default function TaskDetailPage() {
         {/* Properties panel */}
         <Card className="h-fit lg:sticky lg:top-20">
           <CardHeader className="border-b border-border">
-            <CardTitle>Details</CardTitle>
+            <CardTitle>{t('Details')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 pt-4">
             <div className="space-y-1.5">
-              <p className="epm-eyebrow">Status</p>
+              <p className="epm-eyebrow">{t('Status')}</p>
               {/*
                 * Offers the transitions this work package actually permits.
                 *
@@ -421,7 +423,7 @@ export default function TaskDetailPage() {
                 // link — the browser has no business knowing that shape.
                 onValueChange={(statusId) => patch({ id: task.id, statusId })}
               >
-                <SelectTrigger className="h-8 text-xs" aria-label="Task status">
+                <SelectTrigger className="h-8 text-xs" aria-label={t('Task status')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -435,7 +437,7 @@ export default function TaskDetailPage() {
             </div>
 
             <div className="space-y-1.5">
-              <p className="epm-eyebrow">Priority</p>
+              <p className="epm-eyebrow">{t('Priority')}</p>
               {/*
                 * The instance's real priorities, for the same reason as status
                 * above. EPM's four categories are a grouping, not the list: an
@@ -447,7 +449,7 @@ export default function TaskDetailPage() {
                 value={task.priorityRef.id}
                 onValueChange={(priorityId) => patch({ id: task.id, priorityId })}
               >
-                <SelectTrigger className="h-8 text-xs" aria-label="Task priority">
+                <SelectTrigger className="h-8 text-xs" aria-label={t('Task priority')}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -463,9 +465,9 @@ export default function TaskDetailPage() {
             <Separator />
 
             <div className="space-y-1.5">
-              <p className="epm-eyebrow">Progress</p>
+              <p className="epm-eyebrow">{t('Progress')}</p>
               <div className="flex items-center gap-2">
-                <ProgressBar value={task.progress} size="sm" label="Task progress" className="flex-1" />
+                <ProgressBar value={task.progress} size="sm" label={t('Task progress')} className="flex-1" />
                 <span className="font-mono text-2xs tabular-nums">{task.progress}%</span>
               </div>
             </div>
@@ -473,23 +475,23 @@ export default function TaskDetailPage() {
             <Separator />
 
             <dl className="space-y-3">
-              <PropertyRow label="Assignee">
+              <PropertyRow label={t('Assignee')}>
                 <span className="flex items-center gap-2">
                   <UserAvatar user={assignee} size="xs" />
-                  <span className="truncate text-xs">{assignee?.name ?? 'Unassigned'}</span>
+                  <span className="truncate text-xs">{assignee?.name ?? t('Unassigned')}</span>
                 </span>
               </PropertyRow>
 
-              <PropertyRow label="Author">
+              <PropertyRow label={t('Author')}>
                 <span className="flex items-center gap-2">
                   <UserAvatar user={author} size="xs" />
-                  <span className="truncate text-xs">{author?.name ?? 'Unknown'}</span>
+                  <span className="truncate text-xs">{author?.name ?? t('Unknown')}</span>
                 </span>
               </PropertyRow>
 
-              <PropertyRow label="Project">
+              <PropertyRow label={t('Project')}>
                 {project ? (
-                  <Link to={`/projects/${project.id}`} className="text-xs text-primary hover:underline">
+                  <Link to={`/projects/${project.id}`} dir="auto" className="text-xs text-primary hover:underline">
                     {project.name}
                   </Link>
                 ) : (
@@ -497,28 +499,28 @@ export default function TaskDetailPage() {
                 )}
               </PropertyRow>
 
-              <PropertyRow label="Type">
+              <PropertyRow label={t('Type')}>
                 <TypeBadge type={task.type} label={task.typeRef.name} />
               </PropertyRow>
 
-              <PropertyRow label="Priority">
+              <PropertyRow label={t('Priority')}>
                 {/* The instance's name, coloured by EPM's grouping of it. */}
                 <PriorityBadge priority={task.priority} label={task.priorityRef.name} />
               </PropertyRow>
 
-              <PropertyRow label="Start date">
+              <PropertyRow label={t('Start date')}>
                 <span className="font-mono text-2xs">{formatLongDate(task.startDate)}</span>
               </PropertyRow>
 
-              <PropertyRow label="Due date">
+              <PropertyRow label={t('Due date')}>
                 <span className="font-mono text-2xs">{formatLongDate(task.dueDate)}</span>
               </PropertyRow>
 
-              <PropertyRow label="Estimated">
+              <PropertyRow label={t('Estimated')}>
                 <span className="font-mono text-2xs">{formatHours(task.estimatedHours)}</span>
               </PropertyRow>
 
-              <PropertyRow label="Spent">
+              <PropertyRow label={t('Spent')}>
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-2xs">{formatHours(task.spentHours)}</span>
                   {/* Whether this person may log time is OpenProject's answer,
@@ -532,20 +534,20 @@ export default function TaskDetailPage() {
                     onClick={() => setLoggingTime(true)}
                   >
                     <Timer className="h-3 w-3" />
-                    Log
+                    {t('Log time')}
                   </Button>
                 </span>
               </PropertyRow>
 
-              <PropertyRow label="Story points">
+              <PropertyRow label={t('Story points')}>
                 <span className="font-mono text-2xs">{task.storyPoints ?? '—'}</span>
               </PropertyRow>
 
-              <PropertyRow label="Sprint">
-                <span className="text-xs">{sprint?.name ?? 'Backlog'}</span>
+              <PropertyRow label={t('Sprint')}>
+                <span className="text-xs">{sprint?.name ?? t('Backlog')}</span>
               </PropertyRow>
 
-              <PropertyRow label="Version">
+              <PropertyRow label={t('Version')}>
                 <span className="font-mono text-2xs">{task.version ?? '—'}</span>
               </PropertyRow>
             </dl>
@@ -553,9 +555,9 @@ export default function TaskDetailPage() {
             <Separator />
 
             <p className="text-2xs text-muted-foreground">
-              Created {formatDateTime(task.createdAt)}
+              {t('Created {when}', { when: formatDateTime(task.createdAt) })}
               <br />
-              Updated {formatRelative(task.updatedAt)}
+              {t('Updated {when}', { when: formatRelative(task.updatedAt) })}
             </p>
           </CardContent>
         </Card>
@@ -568,7 +570,7 @@ function PropertyRow({ label, children }: { label: string; children: React.React
   return (
     <div className="flex items-center justify-between gap-3">
       <dt className="shrink-0 text-2xs text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-right">{children}</dd>
+      <dd className="min-w-0 text-end">{children}</dd>
     </div>
   );
 }

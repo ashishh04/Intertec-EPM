@@ -100,7 +100,8 @@ export const permissionGrantRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'permission_grant',
         entityId: `${created.openProjectId}:${created.permission}`,
         action: 'grant.created',
-        summary: `Granted "${LABEL.get(permission) ?? permission}" to ${person.name}`,
+        // The permission's label is a catalogue entry, so it reads in the reader's language too.
+        summary: message('Granted "{permission}" to {name}', { permission: LABEL.get(permission) ?? permission, name: person.name }),
         after: { userId: created.openProjectId, permission: created.permission },
       }),
     );
@@ -129,7 +130,7 @@ export const permissionGrantRoutes: FastifyPluginAsync = async (app) => {
       if (!existing) throw EpmError.notFound('That grant');
 
       const users = await getUsers(requestSignal(request)).catch(() => []);
-      const name = users.find((user) => user.id === userId)?.name ?? `User ${userId}`;
+      const name = users.find((user) => user.id === userId)?.name ?? message('User {id}', { id: userId });
 
       await withAudit(
         (tx) =>
@@ -140,7 +141,10 @@ export const permissionGrantRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'permission_grant',
           entityId: `${userId}:${permission}`,
           action: 'grant.removed',
-          summary: `Removed "${LABEL.get(permission as Permission) ?? permission}" from ${name}`,
+          summary: message('Removed "{permission}" from {name}', {
+            permission: LABEL.get(permission as Permission) ?? permission,
+            name,
+          }),
           before: { userId, permission, grantedAt: existing.grantedAt.toISOString(), grantedBy: existing.grantedBy },
         },
       );

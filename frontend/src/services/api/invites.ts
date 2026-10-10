@@ -1,7 +1,7 @@
 import { ApiError } from './client';
 import type { InviteRepository } from '../repositories';
 import { env } from '@/config/env';
-import { currentLanguage, t } from '@/lib/i18n';
+import { intlLocale, t } from '@/lib/i18n';
 import type { InviteInfo } from '@/types';
 
 /**
@@ -28,7 +28,7 @@ async function publicRequest<T>(
       headers: {
         Accept: 'application/json',
         // The backend answers in the language this page is showing (BR-605).
-        'Accept-Language': currentLanguage(),
+        'Accept-Language': intlLocale(),
         ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,

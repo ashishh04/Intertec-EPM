@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 import { env } from '@/config/env';
-import { currentLanguage, t } from '@/lib/i18n';
+import { intlLocale, t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -44,7 +44,7 @@ export class ApiAttachmentRepository {
       method: 'POST',
       credentials: 'include',
       // The backend answers in the language this page is showing (BR-605).
-      headers: { 'Accept-Language': currentLanguage() },
+      headers: { 'Accept-Language': intlLocale() },
       body,
     });
 

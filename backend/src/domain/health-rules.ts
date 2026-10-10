@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
+import { message, type Message } from '../lib/i18n.js';
 import { getCatalog } from '../mapping/catalog.js';
 import type { HealthCriterion, HealthRuleOptions, HealthRules } from '../types/epm.js';
+import { clauses } from './notifications.js';
 import { withAudit } from './audit.js';
 
 /**
@@ -21,6 +23,18 @@ import { withAudit } from './audit.js';
  */
 
 export const HEALTH_CRITERIA: HealthCriterion[] = ['schedule', 'budget', 'risks', 'overdue'];
+
+/**
+ * A criterion — or the overall — as a sentence names it, in lower case:
+ * "schedule variance". One message, so the journal, the explanation and the
+ * override all say it alike in every language.
+ */
+export function criterionName(criterion: HealthCriterion | 'overall'): Message {
+  return message(
+    '{criterion, select, overall {overall} schedule {schedule variance} budget {budget variance} risks {open high risks} other {overdue items}}',
+    { criterion },
+  );
+}
 
 export const DEFAULT_HEALTH_RULES: HealthRules = {
   version: 0,
@@ -146,33 +160,45 @@ export function forgetHealthRules(): void {
 /* Writing                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** "amber at 5, red at 15 days" — for the journal's summary of a change. */
-function describeChanges(before: HealthRules, after: Omit<HealthRules, 'version'>): string[] {
-  const labels: Record<HealthCriterion, string> = {
-    schedule: 'schedule variance',
-    budget: 'budget variance',
-    risks: 'open high risks',
-    overdue: 'overdue items',
-  };
-
-  const changes: string[] = [];
+/**
+ * "amber at 5, red at 15 days" — for the journal's summary of a change. As
+ * messages, so the journal reads in each reader's language; the figures are
+ * written as they always were.
+ */
+function describeChanges(before: HealthRules, after: Omit<HealthRules, 'version'>): Message[] {
+  const changes: Message[] = [];
   for (const key of HEALTH_CRITERIA) {
     const was = before.criteria[key];
     const now = after.criteria[key];
-    if (was.enabled !== now.enabled) changes.push(`${labels[key]} ${now.enabled ? 'turned on' : 'turned off'}`);
-    if (was.weight !== now.weight) changes.push(`${labels[key]} weight ${was.weight} → ${now.weight}`);
+    const criterion = criterionName(key);
+    if (was.enabled !== now.enabled) {
+      changes.push(message('{criterion} {on, select, yes {turned on} other {turned off}}', { criterion, on: now.enabled ? 'yes' : 'no' }));
+    }
+    if (was.weight !== now.weight) {
+      changes.push(message('{criterion} weight {from} → {to}', { criterion, from: was.weight, to: now.weight }));
+    }
     if (was.amberAt !== now.amberAt || was.redAt !== now.redAt) {
-      changes.push(`${labels[key]} amber/red ${was.amberAt}/${was.redAt} → ${now.amberAt}/${now.redAt}`);
+      changes.push(
+        message('{criterion} amber/red {fromAmber}/{fromRed} → {toAmber}/{toRed}', {
+          criterion,
+          fromAmber: was.amberAt,
+          fromRed: was.redAt,
+          toAmber: now.amberAt,
+          toRed: now.redAt,
+        }),
+      );
     }
   }
 
   const wasRisks = before.criteria.risks;
   const nowRisks = after.criteria.risks;
-  if (wasRisks.typeIds.join() !== nowRisks.typeIds.join()) changes.push('risk types changed');
-  if (wasRisks.priorityIds.join() !== nowRisks.priorityIds.join()) changes.push('high priorities changed');
-  if (before.redShare !== after.redShare) changes.push(`red share ${before.redShare}% → ${after.redShare}%`);
+  if (wasRisks.typeIds.join() !== nowRisks.typeIds.join()) changes.push(message('risk types changed'));
+  if (wasRisks.priorityIds.join() !== nowRisks.priorityIds.join()) changes.push(message('high priorities changed'));
+  if (before.redShare !== after.redShare) {
+    changes.push(message('red share {from}% → {to}%', { from: before.redShare, to: after.redShare }));
+  }
   if (before.amberShare !== after.amberShare) {
-    changes.push(`amber share ${before.amberShare}% → ${after.amberShare}%`);
+    changes.push(message('amber share {from}% → {to}%', { from: before.amberShare, to: after.amberShare }));
   }
   return changes;
 }
@@ -204,7 +230,7 @@ export async function saveHealthRules(input: unknown, actorId: string): Promise<
       entityType: 'health-rules',
       entityId: String(row.version),
       action: 'health.rules.updated',
-      summary: `Health rules version ${row.version}: ${changes.join('; ')}.`,
+      summary: message('Health rules version {version}: {changes}.', { version: row.version, changes: clauses(changes) }),
       before: { version: current.version, ...stripMeta(current) },
       after: { version: row.version, ...next },
     }),

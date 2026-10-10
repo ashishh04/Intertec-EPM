@@ -37,7 +37,7 @@ export function operationsPeople(): string[] {
   return env.EPM_OPS_ALERT_USER_IDS.length > 0 ? env.EPM_OPS_ALERT_USER_IDS : env.EPM_ADMIN_USER_IDS;
 }
 
-/** A title or body in English, for monitoring, the journal and the webhook. Plain text is as given. */
+/** A title or body in English, for monitoring, the journal's record and the webhook. Plain text is as given. */
 const english = (value: string | Message): string => (typeof value === 'string' ? value : render('en', value));
 
 export async function raiseOperationsAlert(alert: OperationsAlert): Promise<void> {
@@ -62,7 +62,9 @@ export async function raiseOperationsAlert(alert: OperationsAlert): Promise<void
         entityType: 'operations',
         entityId: alert.kind,
         action: 'operations.alert',
-        summary: title,
+        // The title's message, when it has one, so the journal reads in its
+        // reader's language; its English is the same as `title`.
+        summary: alert.title,
         reason: body,
         metadata: { kind: alert.kind, dedupeKey: alert.dedupeKey, ...alert.details },
       },

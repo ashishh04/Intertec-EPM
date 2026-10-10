@@ -12,7 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAdminConfiguration, useUpdateWeekDays, useWeekDays } from '@/hooks/useAdmin';
 import { t } from '@/lib/i18n';
 import type { AdminWeekDay } from '@/services/api/admin';
-import { describeError, isNotImplementedUpstream, valueOr } from './shared-format';
+import { describeError, isNotImplementedUpstream, valueOr, weekDayName } from './shared-format';
 import { ManagedUpstreamNotice } from './shared-notices';
 
 /**
@@ -92,7 +92,7 @@ export default function WorkingDaysPage() {
                 return (
                   <li key={day.day} className="flex items-center justify-between gap-3 px-3 py-2.5">
                     <Label htmlFor={id} className="text-xs font-normal">
-                      {day.name}
+                      {weekDayName(day.day) ?? day.name}
                     </Label>
                     <div className="flex items-center gap-2">
                       <span className="text-2xs text-muted-foreground">

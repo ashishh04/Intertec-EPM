@@ -31,12 +31,12 @@ import { assertStatusChangeAllowed } from './approvals.js';
 import { recordAuditQuietly, withAudit } from './audit.js';
 import { automationConfigured, automationIdentity, ensureAutomationMembership } from './automation-account.js';
 import { healthViews } from './health.js';
-import { notifyPeople } from './notifications.js';
+import { clauses, notifyPeople } from './notifications.js';
 import { resolvePeople, type PersonContext } from './people.js';
 import { markSelfCaused, unmarkSelfCaused } from './rule-events.js';
 import { PERSON_WORDS, renderTemplate, resolveDate, ruleMatches, validateRule, type RuleFacts } from './rule-model.js';
 import { customFieldFacts } from './work-package-facts.js';
-import { message } from '../lib/i18n.js';
+import { contextLanguage, listOf, message, msg, render, renderStored, translator, type Message } from '../lib/i18n.js';
 
 /**
  * Automation rules (BRQ-10: BR-216, BR-217, BR-219).
@@ -148,7 +148,10 @@ export async function createRule(input: unknown, actorId: string): Promise<Autom
       entityType: 'automation-rule',
       entityId: created.id,
       action: 'automation.rule.created',
-      summary: `Rule "${created.name}" created${created.active ? '' : ', switched off'}.`,
+      summary: message('Rule "{name}" created{active, select, no {, switched off} other {}}.', {
+        name: created.name,
+        active: created.active ? 'yes' : 'no',
+      }),
       after: rule,
     }),
   );
@@ -179,8 +182,11 @@ export async function updateRule(id: string, input: unknown, actorId: string): P
       entityId: id,
       action: onlySwitched ? (updated.active ? 'automation.rule.enabled' : 'automation.rule.disabled') : 'automation.rule.updated',
       summary: onlySwitched
-        ? `Rule "${updated.name}" switched ${updated.active ? 'on' : 'off'}.`
-        : `Rule "${updated.name}" changed (now version ${updated.version}).`,
+        ? message('Rule "{name}" switched {active, select, yes {on} other {off}}.', {
+            name: updated.name,
+            active: updated.active ? 'yes' : 'no',
+          })
+        : message('Rule "{name}" changed (now version {version}).', { name: updated.name, version: updated.version }),
       before: onlySwitched ? { active: existing.active } : before,
       after: onlySwitched ? { active: updated.active } : rule,
     }),
@@ -211,7 +217,7 @@ export async function deleteRule(id: string, actorId: string): Promise<void> {
       entityType: 'automation-rule',
       entityId: id,
       action: 'automation.rule.deleted',
-      summary: `Rule "${existing.name}" deleted.`,
+      summary: message('Rule "{name}" deleted.', { name: existing.name }),
       before: toRule(existing),
     },
   );
@@ -490,27 +496,60 @@ interface ActionContext {
   names: Names;
 }
 
+/** A name from the instance, or — for an id it no longer has, or none — a phrase in the reader's language. */
+type Name = string | Message;
+
 /** Names for ids, for summaries a person reads. */
 interface Names {
-  user: (id?: string | null) => string;
-  status: (id?: string) => string;
-  priority: (id?: string) => string;
-  type: (id?: string) => string;
+  user: (id?: string | null) => Name;
+  status: (id?: string) => Name;
+  priority: (id?: string) => Name;
+  type: (id?: string) => Name;
 }
 
 async function loadNames(): Promise<Names> {
   const [users, catalog] = await Promise.all([runAsSystem(() => getUsers()).catch(() => []), runAsSystem(() => getCatalog())]);
   const byId = new Map(users.map((user) => [user.id, user.name]));
   return {
-    user: (id) => (id ? byId.get(id) ?? `user ${id}` : 'nobody'),
-    status: (id) => (id ? catalog.statusById.get(id)?.name ?? `status ${id}` : 'none'),
-    priority: (id) => (id ? catalog.priorityById.get(id)?.name ?? `priority ${id}` : 'none'),
-    type: (id) => (id ? catalog.typeById.get(id)?.name ?? `type ${id}` : 'work package'),
+    user: (id) => (id ? byId.get(id) ?? message('user {id}', { id }) : message('nobody')),
+    status: (id) => (id ? catalog.statusById.get(id)?.name ?? message('status {id}', { id }) : message('none')),
+    priority: (id) => (id ? catalog.priorityById.get(id)?.name ?? message('priority {id}', { id }) : message('none')),
+    type: (id) => (id ? catalog.typeById.get(id)?.name ?? message('type {id}', { id }) : message('work package')),
   };
 }
 
-const listNames = (names: string[]) =>
-  names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+/** A name as English text: for a rule's own wording, which is filled in as written. */
+const asText = (name: Name): string => (typeof name === 'string' ? name : render('en', name));
+
+/** Names as one message argument — "A, B and C" — joined the way the reader's language joins them. */
+const nameList = (names: Name[]) =>
+  names.length <= 2 ? listOf(names, 'and') : listOf([listOf(names.slice(0, -1)), names.at(-1)], 'and');
+
+/**
+ * What an action did, as a firing keeps it: the summary in English, which is
+ * the record, and the message it was written from, so the log reads in each
+ * reader's language (BR-605). The message never leaves the server.
+ */
+interface RecordedOutcome extends RuleActionOutcome {
+  summaryMessage: Message;
+  errorMessage?: Message;
+}
+
+function recordOutcome(
+  type: RuleAction['type'],
+  outcome: RuleActionOutcome['outcome'],
+  summary: Message,
+  error?: string | Message,
+): RecordedOutcome {
+  return {
+    type,
+    outcome,
+    summary: render('en', summary),
+    summaryMessage: summary,
+    // An error in EPM's own words keeps its message too; anyone else's is data.
+    ...(error === undefined ? {} : typeof error === 'string' ? { error } : { error: render('en', error), errorMessage: error }),
+  };
+}
 
 /**
  * Writes to a work package as the automation account. The change it is about
@@ -535,30 +574,37 @@ async function writeWorkPackage(context: ActionContext, body: Record<string, unk
   });
 }
 
-const DATE_LABEL: Record<string, string> = { startDate: 'Start date', dueDate: 'Due date' };
-
 const FIELD_LABEL: Record<string, string> = {
-  priority: 'priority',
-  dueDate: 'due date',
-  startDate: 'start date',
-  responsible: 'accountable',
-  version: 'version',
-  percentageDone: '% complete',
-  estimatedHours: 'estimate',
+  priority: msg('priority'),
+  dueDate: msg('due date'),
+  startDate: msg('start date'),
+  responsible: msg('accountable'),
+  version: msg('version'),
+  percentageDone: msg('% complete'),
+  estimatedHours: msg('estimate'),
 };
 
 /** `customField3` reads as "custom field 3": the rule does not carry the field's name. */
 const fieldLabel = (field: string) => FIELD_LABEL[field] ?? field.replace(/^customField(\d+)$/, 'custom field $1');
 
-async function runAction(action: RuleAction, context: ActionContext): Promise<RuleActionOutcome> {
+/**
+ * A field a rule sets that has no wording of its own — a custom field — as a
+ * message argument. Every other field a rule may set has its own summary.
+ */
+function fieldName(field: string): Name {
+  const custom = /^customField(\d+)$/.exec(field);
+  return custom ? message('custom field {number}', { number: custom[1] }) : fieldLabel(field);
+}
+
+async function runAction(action: RuleAction, context: ActionContext): Promise<RecordedOutcome> {
   const { subject, names, placeholders } = context;
-  const done = (summary: string): RuleActionOutcome => ({ type: action.type, outcome: 'done', summary });
-  const skipped = (summary: string): RuleActionOutcome => ({ type: action.type, outcome: 'skipped', summary });
+  const done = (summary: Message) => recordOutcome(action.type, 'done', summary);
+  const skipped = (summary: Message) => recordOutcome(action.type, 'skipped', summary);
 
   switch (action.type) {
     case 'notify': {
       const recipients = await resolvePeople(action.recipients, subject.people);
-      if (recipients.length === 0) return skipped('Notified nobody: the people named are not set on this item');
+      if (recipients.length === 0) return skipped(message('Notified nobody: the people named are not set on this item'));
       await notifyPeople({
         recipients,
         category: 'project_update',
@@ -568,23 +614,29 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Ru
         severity: action.severity ?? 'info',
         dedupeKey: `rule:${context.firingId}:${context.index}`,
       });
-      return done(`Notified ${listNames(recipients.map(names.user))}`);
+      return done(message('Notified {people}', { people: nameList(recipients.map((id) => names.user(id))) }));
     }
 
     case 'assign': {
       const target = action.to.kind === 'nobody' ? null : (await resolvePeople([action.to as PersonSpec], subject.people))[0];
       if (action.to.kind !== 'nobody' && !target) {
-        return skipped(`Assigned nobody: ${PERSON_WORDS[(action.to as PersonSpec).kind]} is not set`);
+        // The words are PERSON_WORDS', so the summary reads as it always has.
+        return skipped(
+          message(
+            "Assigned nobody: {who, select, user {a named person} assignee {the assignee} responsible {the accountable person} author {the author} project_owner {the project owner} team_lead {the assignee's team lead} department_manager {the assignee's department manager} project_role {everyone in a project role} other {the approvers}} is not set",
+            { who: (action.to as PersonSpec).kind },
+          ),
+        );
       }
       if ((subject.people.assigneeId ?? null) === (target ?? null)) {
-        return skipped(target ? `Already assigned to ${names.user(target)}` : 'Already unassigned');
+        return skipped(target ? message('Already assigned to {name}', { name: names.user(target) }) : message('Already unassigned'));
       }
       await writeWorkPackage(context, { _links: { assignee: { href: target ? `/api/v3/users/${target}` : null } } });
       // The actions after this one see the item as this one left it: "assign,
       // then notify the assignee" tells the new assignee.
       subject.people.assigneeId = target ?? undefined;
       subject.facts.values.assignee = target ?? undefined;
-      placeholders.assignee = target ? names.user(target) : 'nobody';
+      placeholders.assignee = target ? asText(names.user(target)) : 'nobody';
       if (target) {
         await notifyPeople({
           recipients: [target],
@@ -596,11 +648,13 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Ru
           dedupeKey: `rule:${context.firingId}:assigned`,
         });
       }
-      return done(target ? `Assigned to ${names.user(target)}` : 'Unassigned');
+      return done(target ? message('Assigned to {name}', { name: names.user(target) }) : message('Unassigned'));
     }
 
     case 'set_status': {
-      if (subject.statusId === action.statusId) return skipped(`Status already ${names.status(action.statusId)}`);
+      if (subject.statusId === action.statusId) {
+        return skipped(message('Status already {status}', { status: names.status(action.statusId) }));
+      }
       // The statuses an approval chain owns are reached through it, by rules too.
       await assertStatusChangeAllowed({
         workPackageId: subject.id,
@@ -612,47 +666,57 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Ru
       await writeWorkPackage(context, { _links: { status: { href: `/api/v3/statuses/${action.statusId}` } } });
       subject.statusId = action.statusId;
       subject.facts.values.status = action.statusId;
-      placeholders.status = names.status(action.statusId);
-      return done(`Status set to ${names.status(action.statusId)}`);
+      placeholders.status = asText(names.status(action.statusId));
+      return done(message('Status set to {status}', { status: names.status(action.statusId) }));
     }
 
     case 'set_field': {
       const { field, value } = action;
       let body: Record<string, unknown>;
-      let shown: string;
+      let shown: Message;
       if (field === 'priority') {
         body = { _links: { priority: { href: `/api/v3/priorities/${value}` } } };
-        shown = `Priority set to ${names.priority(String(value))}`;
+        shown = message('Priority set to {priority}', { priority: names.priority(String(value)) });
       } else if (field === 'responsible' || field === 'version') {
         const href = value ? `/api/v3/${field === 'responsible' ? 'users' : 'versions'}/${value}` : null;
         body = { _links: { [field]: { href } } };
         shown =
           field === 'responsible'
             ? value
-              ? `Accountable set to ${names.user(String(value))}`
-              : 'Accountable cleared'
+              ? message('Accountable set to {name}', { name: names.user(String(value)) })
+              : message('Accountable cleared')
             : value
-              ? `Version set to ${value}`
-              : 'Version cleared';
+              ? message('Version set to {version}', { version: String(value) })
+              : message('Version cleared');
       } else if (field === 'startDate' || field === 'dueDate') {
         const date = resolveDate(value, subject.facts, new Date());
-        if (date === undefined) return skipped(`${DATE_LABEL[field]} not set: the date it counts from is empty`);
+        if (date === undefined) {
+          return skipped(
+            message('{field, select, startDate {Start date} other {Due date}} not set: the date it counts from is empty', { field }),
+          );
+        }
         body = { [field]: date };
-        shown = date ? `${DATE_LABEL[field]} set to ${date}` : `${DATE_LABEL[field]} cleared`;
+        // The day as written to the item, YYYY-MM-DD.
+        shown = date
+          ? message('{field, select, startDate {Start date} other {Due date}} set to {date}', { field, date })
+          : message('{field, select, startDate {Start date} other {Due date}} cleared', { field });
       } else if (field === 'percentageDone') {
         body = { percentageDone: value };
-        shown = `% complete set to ${value}`;
+        shown = message('% complete set to {value}', { value: String(value) });
       } else if (field === 'estimatedHours') {
         body = { estimatedTime: hoursToDuration(typeof value === 'number' ? value : Number(value)) ?? null };
-        shown = `Estimate set to ${value} h`;
+        shown = message('Estimate set to {value} h', { value: String(value) });
       } else {
         body = { [field]: value };
-        shown = value === null ? `Cleared ${fieldLabel(field)}` : `Set ${fieldLabel(field)} to ${String(value)}`;
+        shown =
+          value === null
+            ? message('Cleared {field}', { field: fieldName(field) })
+            : message('Set {field} to {value}', { field: fieldName(field), value: String(value) });
       }
       await writeWorkPackage(context, body);
       if (field === 'priority') {
         subject.facts.values.priority = String(value);
-        placeholders.priority = names.priority(String(value));
+        placeholders.priority = asText(names.priority(String(value)));
       } else if (field === 'responsible') {
         subject.people.responsibleId = value ? String(value) : undefined;
         subject.facts.values.responsible = value ? String(value) : undefined;
@@ -707,8 +771,19 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Ru
           }),
         );
       }
-      const how = action.relation === 'child' ? ' as a child' : related ? ` (${action.relation})` : '';
-      return done(`Created ${names.type(action.typeId)} #${created.id} "${title}"${how}${assignee ? `, assigned to ${names.user(assignee)}` : ''}`);
+      return done(
+        message(
+          'Created {type} #{id} "{title}"{how, select, child { as a child} relates { (relates)} blocks { (blocks)} blocked { (blocked)} follows { (follows)} precedes { (precedes)} other {}}{assigned, select, yes {, assigned to {assignee}} other {}}',
+          {
+            type: names.type(action.typeId),
+            id: created.id,
+            title,
+            how: action.relation === 'child' ? 'child' : related ? action.relation : 'none',
+            assigned: assignee ? 'yes' : 'no',
+            assignee: assignee ? names.user(assignee) : undefined,
+          },
+        ),
+      );
     }
 
     case 'call_endpoint': {
@@ -738,9 +813,14 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Ru
         }
       })();
       if (!result.ok) {
-        return { type: action.type, outcome: 'failed', summary: `Called ${where}`, error: result.error ?? 'The call failed.' };
+        return recordOutcome(
+          action.type,
+          'failed',
+          message('Called {where}', { where }),
+          result.errorMessage ?? result.error ?? msg('The call failed.'),
+        );
       }
-      return done(`Called ${where} (${result.status})`);
+      return done(message('Called {where} ({status})', { where, status: String(result.status) }));
     }
   }
 }
@@ -753,7 +833,12 @@ function outcomeOf(outcomes: RuleActionOutcome[]): RuleFiringView['outcome'] {
   return 'partial';
 }
 
+/** A firing as a reader sees it: what each action did, in the language of the request. */
 function toFiring(row: RuleFiring): RuleFiringView {
+  const stored = (Array.isArray(row.actions) ? row.actions : []) as unknown as (RuleActionOutcome & {
+    summaryMessage?: unknown;
+    errorMessage?: unknown;
+  })[];
   return {
     id: row.id,
     ruleId: row.ruleId,
@@ -765,7 +850,12 @@ function toFiring(row: RuleFiring): RuleFiringView {
     subjectTitle: row.subjectTitle ?? undefined,
     projectId: row.projectId ?? undefined,
     outcome: row.outcome as RuleFiringView['outcome'],
-    actions: row.actions as unknown as RuleActionOutcome[],
+    // A firing logged before summaries were kept as messages reads as stored.
+    actions: stored.map(({ summaryMessage, errorMessage, ...outcome }) => ({
+      ...outcome,
+      summary: renderStored(outcome.summary, summaryMessage),
+      ...(outcome.error === undefined ? {} : { error: renderStored(outcome.error, errorMessage) }),
+    })),
     firedAt: row.firedAt.toISOString(),
     durationMs: row.durationMs ?? undefined,
   };
@@ -790,7 +880,7 @@ async function fireRule(
     },
   });
 
-  const outcomes: RuleActionOutcome[] = [];
+  const outcomes: RecordedOutcome[] = [];
   let outcome: RuleFiringView['outcome'];
   if (recent >= RATE_LIMIT) {
     // Something is changing this item as fast as the rule acts on it; holding
@@ -811,20 +901,24 @@ async function fireRule(
         names,
       };
       outcomes.push(
-        await runAction(action, actionContext).catch((error: unknown): RuleActionOutcome => {
+        await runAction(action, actionContext).catch((error: unknown): RecordedOutcome => {
           if (error instanceof NotConfigured) {
-            return {
-              type: action.type,
-              outcome: 'skipped',
-              summary: 'Not done: no automation account is configured, so rules change nothing in OpenProject',
-            };
+            return recordOutcome(
+              action.type,
+              'skipped',
+              message('Not done: no automation account is configured, so rules change nothing in OpenProject'),
+            );
           }
-          return {
-            type: action.type,
-            outcome: 'failed',
-            summary: `${action.type.replace('_', ' ')} failed`,
-            error: error instanceof Error ? error.message : String(error),
-          };
+          // "set status failed" — the action's type with its first underscore a space, as it always read.
+          return recordOutcome(
+            action.type,
+            'failed',
+            message(
+              '{action, select, notify {notify} assign {assign} set_status {set status} set_field {set field} create_work_package {create work_package} other {call endpoint}} failed',
+              { action: action.type },
+            ),
+            error instanceof Error ? error.message : String(error),
+          );
         }),
       );
     }
@@ -861,9 +955,20 @@ async function fireRule(
         entityType: subject.type === 'project' ? 'project' : 'work-package',
         entityId: subject.id,
         action: 'automation.rule.fired',
-        summary: `Rule "${rule.name}" acted on ${subject.title}: ${outcomes
-          .map((one) => (one.outcome === 'failed' ? `${one.summary} (${one.error ?? 'failed'})` : one.summary))
-          .join('; ')}.`,
+        summary: message('Rule "{rule}" acted on {subject}: {actions}.', {
+          rule: rule.name,
+          subject: subject.title,
+          // The error's own words are data, inserted as they came.
+          actions: outcomes.length
+            ? clauses(
+                outcomes.map((one) =>
+                  one.outcome === 'failed'
+                    ? message('{action} ({error})', { action: one.summaryMessage, error: one.errorMessage ?? one.error ?? message('failed') })
+                    : one.summaryMessage,
+                ),
+              )
+            : '',
+        }),
         metadata: { ruleId: rule.id, ruleVersion: rule.version, firingId, outcome, trigger: context.trigger },
       },
     ]);
@@ -895,35 +1000,51 @@ export async function listFirings(query: {
 }
 
 /** What an action would do to one item, in words — nothing resolved that needs a write. */
-function describeAction(action: RuleAction, subject: Subject, names: Names): string {
-  const person = (spec: PersonSpec) => {
+function describeAction(action: RuleAction, subject: Subject, names: Names): Message {
+  const person = (spec: PersonSpec): Name => {
     if (spec.kind === 'user') return names.user(spec.userId);
-    if (spec.kind === 'assignee') return subject.people.assigneeId ? names.user(subject.people.assigneeId) : 'the assignee (nobody)';
-    if (spec.kind === 'responsible') return subject.people.responsibleId ? names.user(subject.people.responsibleId) : 'the accountable person (nobody)';
-    if (spec.kind === 'author') return subject.people.authorId ? names.user(subject.people.authorId) : 'the author';
+    if (spec.kind === 'assignee') return subject.people.assigneeId ? names.user(subject.people.assigneeId) : msg('the assignee (nobody)');
+    if (spec.kind === 'responsible') {
+      return subject.people.responsibleId ? names.user(subject.people.responsibleId) : msg('the accountable person (nobody)');
+    }
+    if (spec.kind === 'author') return subject.people.authorId ? names.user(subject.people.authorId) : msg('the author');
     return PERSON_WORDS[spec.kind];
   };
   switch (action.type) {
     case 'notify':
-      return `Notify ${listNames(action.recipients.map(person))}: "${renderTemplate(action.title, subject.placeholders)}"`;
+      return message('Notify {people}: "{title}"', {
+        people: nameList(action.recipients.map(person)),
+        title: renderTemplate(action.title, subject.placeholders),
+      });
     case 'assign':
-      return action.to.kind === 'nobody' ? 'Unassign' : `Assign to ${person(action.to as PersonSpec)}`;
+      return action.to.kind === 'nobody' ? message('Unassign') : message('Assign to {person}', { person: person(action.to as PersonSpec) });
     case 'set_status':
-      return `Set the status to ${names.status(action.statusId)}`;
+      return message('Set the status to {status}', { status: names.status(action.statusId) });
     case 'set_field': {
       const { field, value } = action;
-      if (value === null) return `Clear the ${fieldLabel(field)}`;
+      if (value === null) return message('Clear the {field}', { field: fieldName(field) });
       if (typeof value === 'object') {
-        const from = value.from === 'startDate' ? 'its start date' : value.from === 'dueDate' ? 'its due date' : 'today';
-        return `Set the ${fieldLabel(field)} to ${value.relativeDays} days from ${from}`;
+        return message(
+          'Set the {field} to {days} days from {from, select, startDate {its start date} dueDate {its due date} other {today}}',
+          { field: fieldName(field), days: value.relativeDays, from: value.from ?? 'today' },
+        );
       }
-      const shown = field === 'priority' ? names.priority(String(value)) : field === 'responsible' ? names.user(String(value)) : String(value);
-      return `Set the ${fieldLabel(field)} to ${shown}`;
+      const shown: Name =
+        field === 'priority'
+          ? names.priority(String(value))
+          : field === 'responsible'
+            ? names.user(String(value))
+            : String(value);
+      return message('Set the {field} to {value}', { field: fieldName(field), value: shown });
     }
     case 'create_work_package':
-      return `Create a ${names.type(action.typeId)} "${renderTemplate(action.subject, subject.placeholders)}"${action.relation === 'none' ? '' : action.relation === 'child' ? ' as a child' : ` (${action.relation})`}`;
+      return message('Create a {type} "{subject}"{relation, select, none {} child { as a child} other { ({relation})}}', {
+        type: names.type(action.typeId),
+        subject: renderTemplate(action.subject, subject.placeholders),
+        relation: action.relation,
+      });
     case 'call_endpoint':
-      return `Call ${action.url}`;
+      return message('Call {url}', { url: action.url });
   }
 }
 
@@ -937,6 +1058,9 @@ export async function dryRunRule(input: unknown, windowDays: number): Promise<Ru
   const rule = parse(input);
   const days = Math.min(Math.max(Math.round(Number.isFinite(windowDays) ? windowDays : 7), 1), 90);
   const now = new Date();
+  // Written for the person running it, in their language (BR-605).
+  const language = contextLanguage();
+  const tr = translator(language);
   const notes: string[] = [];
 
   const subjects = await runAsSystem(async (): Promise<{ list: Subject[]; truncated: boolean }> => {
@@ -944,7 +1068,7 @@ export async function dryRunRule(input: unknown, windowDays: number): Promise<Ru
       const projects = (await listProjects()).filter(
         (project) => project.active && (rule.projectIds.length === 0 || rule.projectIds.includes(String(project.id))),
       );
-      notes.push('Projects are tested as they are now; project events are not replayed.');
+      notes.push(tr('Projects are tested as they are now; project events are not replayed.'));
       return { list: await projectSubjects(projects), truncated: false };
     }
 
@@ -964,7 +1088,12 @@ export async function dryRunRule(input: unknown, windowDays: number): Promise<Ru
       prisma.projectProfile.findMany({ select: { openProjectId: true, portfolioId: true } }).catch(() => []),
     ]);
     const portfolio = new Map(profiles.map((profile) => [profile.openProjectId, profile.portfolioId ?? undefined]));
-    notes.push(`Work packages ${onlyCreated ? 'created' : 'changed'} in the last ${days} ${days === 1 ? 'day' : 'days'}, tested as they are now.`);
+    notes.push(
+      tr(
+        'Work packages {kind, select, created {created} other {changed}} in the last {days, plural, one {# day} other {# days}}, tested as they are now.',
+        { kind: onlyCreated ? 'created' : 'changed', days },
+      ),
+    );
     return {
       list: items.map((wp) => workPackageSubject(wp, catalog, identifiers, (id) => portfolio.get(id))),
       truncated,
@@ -972,11 +1101,11 @@ export async function dryRunRule(input: unknown, windowDays: number): Promise<Ru
   });
 
   const matched = subjects.list.filter((subject) => ruleMatches(rule.conditions, subject.facts, now));
-  if (rule.fireMode === 'enter') notes.push('As written, the rule acts on each item once as it starts to match.');
+  if (rule.fireMode === 'enter') notes.push(tr('As written, the rule acts on each item once as it starts to match.'));
   if (!automationConfigured() && rule.actions.some((action) => WRITES.has(action.type))) {
-    notes.push('No automation account is configured: changes to OpenProject would be skipped.');
+    notes.push(tr('No automation account is configured: changes to OpenProject would be skipped.'));
   }
-  notes.push('Nothing was changed, sent or logged.');
+  notes.push(tr('Nothing was changed, sent or logged.'));
 
   const names = await loadNames();
   const items: RuleDryRunItem[] = matched.slice(0, 200).map((subject) => ({
@@ -985,7 +1114,7 @@ export async function dryRunRule(input: unknown, windowDays: number): Promise<Ru
     title: subject.title,
     projectId: subject.projectId,
     projectName: subject.projectName,
-    actions: rule.actions.map((action) => describeAction(action, subject, names)),
+    actions: rule.actions.map((action) => render(language, describeAction(action, subject, names))),
   }));
 
   return {

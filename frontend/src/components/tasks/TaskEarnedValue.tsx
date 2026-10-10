@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEvmSettings, useWorkPackageEarnedValue } from '@/hooks/useEarnedValue';
+import { t } from '@/lib/i18n';
 import { formatRelative } from '@/lib/utils';
 import type { ID } from '@/types';
 
@@ -30,9 +31,9 @@ export function TaskEarnedValue({ workPackageId }: { workPackageId: ID }) {
       <CardHeader className="flex-row items-center justify-between gap-2 border-b border-border">
         <CardTitle className="flex items-center gap-2">
           <Coins className="h-4 w-4 text-muted-foreground" aria-hidden />
-          Earned value
+          {t('Earned value')}
         </CardTitle>
-        {methodLabel ? <Badge tone="neutral">Earns by {methodLabel}</Badge> : null}
+        {methodLabel ? <Badge tone="neutral">{t('Earns by {method}', { method: methodLabel })}</Badge> : null}
       </CardHeader>
       <CardContent className="space-y-3 pt-4">
         {figures.isLoading ? (
@@ -40,33 +41,33 @@ export function TaskEarnedValue({ workPackageId }: { workPackageId: ID }) {
         ) : !item || item.bac === null || (item.bac === 0 && item.ac === 0) ? (
           <p className="text-xs text-muted-foreground">
             {data?.note ??
-              (item?.bac === 0 ? 'It has no estimate, so it carries no budget to plan or earn.' : 'Not measured.')}
+              (item?.bac === 0 ? t('It has no estimate, so it carries no budget to plan or earn.') : t('Not measured.'))}
           </p>
         ) : (
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:grid-cols-4">
-            <Figure label="Budget (BAC)" value={formatMeasure(item.bac, 'money')} />
-            <Figure label="Planned (PV)" value={formatMeasure(item.pv, 'money')} />
-            <Figure label="Earned (EV)" value={formatMeasure(item.ev, 'money')} />
-            <Figure label="Actual cost (AC)" value={formatMeasure(item.ac, 'money')} />
-            <Figure label="Schedule (SPI)" value={formatMeasure(item.spi, 'index')} tone={tone(item.spi)} />
-            <Figure label="Cost (CPI)" value={formatMeasure(item.cpi, 'index')} tone={tone(item.cpi)} />
-            <Figure label="Schedule variance" value={formatMeasure(item.sv, 'money')} />
-            <Figure label="Cost variance" value={formatMeasure(item.cv, 'money')} />
+            <Figure label={t('Budget (BAC)')} value={formatMeasure(item.bac, 'money')} />
+            <Figure label={t('Planned (PV)')} value={formatMeasure(item.pv, 'money')} />
+            <Figure label={t('Earned (EV)')} value={formatMeasure(item.ev, 'money')} />
+            <Figure label={t('Actual cost (AC)')} value={formatMeasure(item.ac, 'money')} />
+            <Figure label={t('Schedule (SPI)')} value={formatMeasure(item.spi, 'index')} tone={tone(item.spi)} />
+            <Figure label={t('Cost (CPI)')} value={formatMeasure(item.cpi, 'index')} tone={tone(item.cpi)} />
+            <Figure label={t('Schedule variance')} value={formatMeasure(item.sv, 'money')} />
+            <Figure label={t('Cost variance')} value={formatMeasure(item.cv, 'money')} />
           </dl>
         )}
         {data ? (
           <p className="text-2xs text-muted-foreground">
             {against?.kind === 'baseline'
-              ? `Against baseline ${against.number}, set ${formatRelative(against.setAt)}.`
+              ? t('Against baseline {number, number}, set {when}.', { number: against.number, when: formatRelative(against.setAt) })
               : against
-                ? 'Against the current plan: the project has no baseline.'
+                ? t('Against the current plan: the project has no baseline.')
                 : ''}{' '}
-            {data.asOf ? `Data read ${formatRelative(data.asOf)}. ` : ''}
+            {data.asOf ? `${t('Data read {when}.', { when: formatRelative(data.asOf) })} ` : ''}
             <Link
               to={`/insights/earned-value?scope=project:${data.projectId}`}
               className="text-foreground underline-offset-2 hover:underline"
             >
-              The project’s earned value
+              {t('The project’s earned value')}
             </Link>
           </p>
         ) : null}

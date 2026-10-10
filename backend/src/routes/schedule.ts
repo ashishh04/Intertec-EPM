@@ -12,6 +12,7 @@ import {
   workPackageSchedule,
 } from '../domain/schedule.js';
 import { EpmError } from '../lib/errors.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Critical path and float (BRQ-01).
@@ -76,7 +77,7 @@ export const scheduleRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'schedule',
         entityId: 'network',
         action: 'schedule.recalculated',
-        summary: 'Asked for the critical path and float to be recalculated now.',
+        summary: message('Asked for the critical path and float to be recalculated now.'),
       },
     ]);
     if ((last?.workPackages ?? 0) > env.EPM_SCHEDULE_SYNC_LIMIT) {

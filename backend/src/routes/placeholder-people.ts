@@ -182,7 +182,7 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'placeholder',
         entityId: row.id,
         action: 'placeholder.created',
-        summary: `Created placeholder ${row.name}`,
+        summary: message('Created placeholder {name}', { name: row.name }),
         after: placeholderRecord(row),
       }),
     );
@@ -231,7 +231,7 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'placeholder',
           entityId: row.id,
           action: 'placeholder.updated',
-          summary: `Changed placeholder ${row.name}`,
+          summary: message('Changed placeholder {name}', { name: row.name }),
           before: placeholderRecord(existing),
           after: placeholderRecord(row),
         }),
@@ -294,7 +294,10 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
           entityType: 'placeholder',
           entityId: row.id,
           action: 'placeholder.converted',
-          summary: `Placeholder ${row.name} filled by user ${userId}, who takes on its team, department and capacity`,
+          summary: message('Placeholder {name} filled by user {id}, who takes on its team, department and capacity', {
+            name: row.name,
+            id: userId,
+          }),
           before: placeholderRecord(existing),
           after: placeholderRecord(row),
         }),
@@ -312,7 +315,7 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
       entityType: 'placeholder',
       entityId: request.params.id,
       action: 'placeholder.deleted',
-      summary: `Deleted placeholder ${existing.name}`,
+      summary: message('Deleted placeholder {name}', { name: existing.name }),
       before: placeholderRecord(existing),
     });
     reply.code(204);

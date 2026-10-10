@@ -1,4 +1,5 @@
 import { dayOf } from './critical-path.js';
+import { msg, t, type Language } from '../lib/i18n.js';
 import { roundMoney } from '../lib/money.js';
 
 /**
@@ -35,29 +36,44 @@ export type EarningMethod = 'percent_complete' | 'zero_hundred' | 'fifty_fifty' 
 
 export const DEFAULT_METHOD: EarningMethod = 'percent_complete';
 
+/**
+ * In English, as the journal and the BI tables keep them; each is a catalogue
+ * entry, written out in the reader's language where it is shown
+ * (`earningMethodsIn`, and the Earned value dashboard's "Earns by" column).
+ */
 export const EARNING_METHODS: Record<EarningMethod, { label: string; describe: string }> = {
   percent_complete: {
-    label: '% complete',
-    describe: 'Earns its % complete of its budget.',
+    label: msg('% complete'),
+    describe: msg('Earns its % complete of its budget.'),
   },
   zero_hundred: {
-    label: '0/100',
-    describe: 'Earns nothing until it is delivered, then all of its budget.',
+    label: msg('0/100'),
+    describe: msg('Earns nothing until it is delivered, then all of its budget.'),
   },
   fifty_fifty: {
-    label: '50/50',
-    describe: 'Earns half its budget when work starts on it, the rest when it is delivered.',
+    label: msg('50/50'),
+    describe: msg('Earns half its budget when work starts on it, the rest when it is delivered.'),
   },
   milestone_weighted: {
-    label: 'Milestone weighted',
-    describe:
+    label: msg('Milestone weighted'),
+    describe: msg(
       'Earns as the milestones under it are reached, each worth its estimated hours (or an equal share where none are set). With no milestones under it, all when delivered.',
+    ),
   },
   level_of_effort: {
-    label: 'Level of effort',
-    describe: 'Earns with the passage of time, exactly as planned: its earned value is its planned value.',
+    label: msg('Level of effort'),
+    describe: msg('Earns with the passage of time, exactly as planned: its earned value is its planned value.'),
   },
 };
+
+/** The earning rules, with their words in `language`. */
+export function earningMethodsIn(language: Language): { id: EarningMethod; label: string; describe: string }[] {
+  return (Object.entries(EARNING_METHODS) as [EarningMethod, { label: string; describe: string }][]).map(([id, method]) => ({
+    id,
+    label: t(language, method.label),
+    describe: t(language, method.describe),
+  }));
+}
 
 export const isEarningMethod = (value: unknown): value is EarningMethod =>
   typeof value === 'string' && Object.hasOwn(EARNING_METHODS, value);

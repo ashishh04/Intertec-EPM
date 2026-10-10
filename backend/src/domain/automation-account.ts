@@ -1,5 +1,6 @@
 import { runAsAutomation, runAsSystem } from '../auth/context.js';
 import { env } from '../config/env.js';
+import { message } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import { openProject } from '../openproject/client.js';
 import { recordAuditQuietly } from './audit.js';
@@ -119,7 +120,10 @@ export async function ensureAutomationMembership(projectId: string): Promise<voi
         entityType: 'project',
         entityId: projectId,
         action: 'automation.membership.added',
-        summary: `${me.name} was made a member of this project, with the ${AUTOMATION_ROLE_NAME} role, so a rule could act here.`,
+        summary: message('{name} was made a member of this project, with the {role} role, so a rule could act here.', {
+          name: me.name,
+          role: AUTOMATION_ROLE_NAME,
+        }),
       },
     ]);
   });

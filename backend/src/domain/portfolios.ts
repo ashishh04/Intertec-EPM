@@ -385,7 +385,7 @@ export async function createPortfolio(
       entityType: 'portfolio',
       entityId: created.id,
       action: 'portfolio.created',
-      summary: `Created portfolio ${created.name}`,
+      summary: message('Created portfolio {name}', { name: created.name }),
       after: portfolioRecord(created),
     }),
   );
@@ -422,7 +422,7 @@ export async function updatePortfolio(
       entityType: 'portfolio',
       entityId: id,
       action: 'portfolio.updated',
-      summary: `Changed portfolio ${updated.name}`,
+      summary: message('Changed portfolio {name}', { name: updated.name }),
       before: portfolioRecord(existing),
       after: portfolioRecord(updated),
     }),
@@ -452,7 +452,9 @@ export async function setPortfolioActive(
       entityType: 'portfolio',
       entityId: id,
       action: active ? 'portfolio.restored' : 'portfolio.archived',
-      summary: `${active ? 'Restored' : 'Archived'} portfolio ${updated.name}`,
+      summary: active
+        ? message('Restored portfolio {name}', { name: updated.name })
+        : message('Archived portfolio {name}', { name: updated.name }),
       before: { active: existing.active },
       after: { active: updated.active },
     }),
@@ -524,7 +526,7 @@ export async function deletePortfolio(id: string): Promise<void> {
     entityType: 'portfolio',
     entityId: id,
     action: 'portfolio.deleted',
-    summary: `Deleted portfolio ${existing.name}`,
+    summary: message('Deleted portfolio {name}', { name: existing.name }),
     before: portfolioRecord(existing),
   });
 }

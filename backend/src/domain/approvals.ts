@@ -28,11 +28,11 @@ import type {
 } from '../types/epm.js';
 import { auditRow, recordAuditQuietly, type AuditInput } from './audit.js';
 import { automationConfigured, ensureAutomationMembership } from './automation-account.js';
-import { activeChains, conditionHolds, describeCondition, pickChain, type SubjectFacts } from './approval-chains.js';
+import { activeChains, conditionHolds, conditionMessage, pickChain, type SubjectFacts } from './approval-chains.js';
 import { notifyPeople, sentences } from './notifications.js';
 import { noteRuleEvent } from './rule-events.js';
 import { customFieldFacts } from './work-package-facts.js';
-import { listOf, message } from '../lib/i18n.js';
+import { listOf, message, msg, render, renderStored, type Message } from '../lib/i18n.js';
 
 /**
  * The approval engine (BRQ-09: BR-211 to BR-215).
@@ -252,7 +252,10 @@ export async function resolveApprovers(
 
 interface SnapshotStep extends ApprovalStep {
   applies: boolean;
+  /** Why the step applies or not, in English: the record. */
   conditionText?: string;
+  /** The same as a message, shown in each viewer's language (BR-605). */
+  conditionMessage?: Message;
   approverIds: string[];
 }
 
@@ -292,7 +295,8 @@ async function plan(chain: ApprovalChain, subject: LoadedSubject): Promise<{ sna
     runAsSystem(() => listProjects()),
     prisma.portfolio.findMany({ select: { id: true, name: true } }).catch(() => []),
   ]);
-  const valueLabel = chain.valueField ? names.get(chain.valueField) ?? 'Value' : undefined;
+  // "Value" is a phrase: in a journal entry it reads in the reader's language.
+  const valueLabel = chain.valueField ? names.get(chain.valueField) ?? msg('Value') : undefined;
   const valueName = (field: string, id: string): string | undefined => {
     if (field === 'type') return catalog.typeById.get(id)?.name;
     if (field === 'priority') return catalog.priorityById.get(id)?.name;
@@ -304,21 +308,32 @@ async function plan(chain: ApprovalChain, subject: LoadedSubject): Promise<{ sna
   const steps: SnapshotStep[] = chain.steps.map((step) => {
     const applies = conditionHolds(step.condition, facts);
     let conditionText: string | undefined;
+    let condition: Message | undefined;
     if (step.condition) {
-      const rule = describeCondition(step.condition, {
+      const rule = conditionMessage(step.condition, {
         valueLabel,
         field: (field) => names.get(field),
         value: valueName,
       });
-      const shown =
-        step.condition.field === 'value'
-          ? value === null
-            ? ` (no ${valueLabel ?? 'value'} is set)`
-            : ` (it is ${formatNumber(value)})`
-          : '';
-      conditionText = `${applies ? 'Applies' : 'Skipped'}: only when ${rule}${shown}.`;
+      const verdict = applies ? 'yes' : 'no';
+      condition =
+        step.condition.field !== 'value'
+          ? message('{applies, select, yes {Applies} other {Skipped}}: only when {rule}.', { applies: verdict, rule })
+          : value === null
+            ? message('{applies, select, yes {Applies} other {Skipped}}: only when {rule} (no {label} is set).', {
+                applies: verdict,
+                rule,
+                label: valueLabel ?? msg('value'),
+              })
+            : // At most two decimals, as the amount has always been shown.
+              message('{applies, select, yes {Applies} other {Skipped}}: only when {rule} (it is {value, number}).', {
+                applies: verdict,
+                rule,
+                value: Number(value.toFixed(2)),
+              });
+      conditionText = render('en', condition);
     }
-    return { ...step, applies, conditionText, approverIds: [] };
+    return { ...step, applies, conditionText, conditionMessage: condition, approverIds: [] };
   });
 
   return {
@@ -421,17 +436,25 @@ async function activateStep(
 /* Names                                                                       */
 /* -------------------------------------------------------------------------- */
 
-async function nameIndex(): Promise<(id: string | null | undefined) => string> {
+/** A person's name, or — for an id the directory no longer has, or none — a phrase in the reader's language. */
+type Name = string | Message;
+
+/**
+ * Names for ids, as message arguments: "user 42" for someone the directory no
+ * longer has and "nobody" for no one are messages, so a journal entry or a
+ * notification reads them in its reader's language.
+ */
+async function nameIndex(): Promise<(id: string | null | undefined) => Name> {
   const users = await runAsSystem(() => getUsers()).catch(() => []);
   const byId = new Map(users.map((user) => [user.id, user.name]));
-  return (id) => (id ? byId.get(id) ?? `user ${id}` : 'nobody');
+  return (id) => (id ? byId.get(id) ?? message('user {id}', { id }) : message('nobody'));
 }
 
-const listNames = (names: string[]) =>
-  names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+/** A name as English text, for an email's payload, which carries data rather than messages. */
+const asText = (name: Name): string => (typeof name === 'string' ? name : render('en', name));
 
-/** The same, as a message argument: joined the way the reader's language joins names. */
-const nameList = (names: string[]) =>
+/** Names as one message argument — "A, B and C" — joined the way the reader's language joins them. */
+const nameList = (names: Name[]) =>
   names.length <= 2 ? listOf(names, 'and') : listOf([listOf(names.slice(0, -1)), names.at(-1)], 'and');
 
 /* -------------------------------------------------------------------------- */
@@ -512,7 +535,10 @@ export async function submitForApproval(subjectId: string, requesterId: string):
     });
     const activated = await activateStep(tx, request, snapshot, first, now);
 
-    const route = appliedSteps.map((step) => `"${step.name}" (${listNames(step.approverIds.map(names))})`).join(', then ');
+    // '"Review" (A and B), then "Sign-off" (C)'. At least one step applies.
+    const route = appliedSteps
+      .map((step) => message('"{step}" ({people})', { step: step.name, people: nameList(step.approverIds.map(names)) }))
+      .reduce((first, next) => message('{first}, then {next}', { first, next }));
     await tx.auditEvent.create({
       data: auditRow({
         actorId: requesterId,
@@ -520,7 +546,17 @@ export async function submitForApproval(subjectId: string, requesterId: string):
         entityType: 'approval-request',
         entityId: request.id,
         action: 'approval.submitted',
-        summary: `${subject.key} submitted to ${chain.name}${value !== null ? ` with ${snapshot.valueLabel ?? 'value'} ${formatNumber(value)}` : ''}: ${route}.`,
+        summary:
+          value !== null
+            ? message('{key} submitted to {chain} with {label} {value}: {route}.', {
+                key: subject.key,
+                chain: chain.name,
+                label: snapshot.valueLabel ?? message('value'),
+                // To the cent, as it has always been written.
+                value: formatNumber(value),
+                route,
+              })
+            : message('{key} submitted to {chain}: {route}.', { key: subject.key, chain: chain.name, route }),
         after: {
           chain: chain.name,
           value,
@@ -544,7 +580,7 @@ function stepStarted(
   snapshot: ChainSnapshot,
   stepIndex: number,
   tasks: ApprovalTask[],
-  names: (id: string | null | undefined) => string,
+  names: (id: string | null | undefined) => Name,
 ): AuditInput {
   const step = snapshot.steps[stepIndex]!;
   const delegated = tasks.filter((task) => task.delegateId);
@@ -554,11 +590,20 @@ function stepStarted(
     entityType: 'approval-request',
     entityId: request.id,
     action: 'approval.step.started',
-    summary:
-      `Step ${stepIndex + 1} "${step.name}" started: ${step.mode === 'all' ? 'all of' : 'any one of'} ` +
-      `${listNames(tasks.map((task) => names(task.approverId)))}` +
-      `${step.slaHours ? `, within ${step.slaHours} ${step.slaHours === 1 ? 'hour' : 'hours'}` : ''}` +
-      `${delegated.length ? `; delegated: ${delegated.map((task) => `${names(task.approverId)} to ${names(task.delegateId)}`).join(', ')}` : ''}.`,
+    summary: message(
+      'Step {number} "{step}" started: {mode, select, all {all of} other {any one of}} {people}{hours, plural, =0 {} one {, within {hours} hour} other {, within {hours} hours}}{delegated, select, yes {; delegated: {delegations}} other {}}.',
+      {
+        number: stepIndex + 1,
+        step: step.name,
+        mode: step.mode,
+        people: nameList(tasks.map((task) => names(task.approverId))),
+        hours: step.slaHours || 0,
+        delegated: delegated.length ? 'yes' : 'no',
+        delegations: listOf(
+          delegated.map((task) => message('{from} to {to}', { from: names(task.approverId), to: names(task.delegateId) })),
+        ),
+      },
+    ),
     after: { stepIndex, tasks: tasks.map((task) => ({ approver: task.approverId, delegate: task.delegateId, dueAt: task.dueAt })) },
   };
 }
@@ -642,15 +687,23 @@ export async function decideTask(input: {
         entityType: 'approval-request',
         entityId: request.id,
         action: 'approval.decided',
-        summary:
-          `${decided === 'approved' ? 'Approved' : 'Rejected'} at step ${task.stepIndex + 1} "${step.name}"` +
-          `${onBehalfOf ? ` on behalf of ${names(onBehalfOf)}` : ''}${input.via === 'email' ? ', from the email' : ''}.`,
+        summary: message(
+          '{decision, select, approved {Approved} other {Rejected}} at step {number} "{step}"{behalf, select, yes { on behalf of {approver}} other {}}{via, select, email {, from the email} other {}}.',
+          {
+            decision: decided,
+            number: task.stepIndex + 1,
+            step: step.name,
+            behalf: onBehalfOf ? 'yes' : 'no',
+            approver: onBehalfOf ? names(onBehalfOf) : undefined,
+            via: input.via,
+          },
+        ),
         reason: comment ?? null,
         after: { stepIndex: task.stepIndex, step: step.name, decision: decided, onBehalfOf, via: input.via },
       }),
     });
 
-    const finish = async (status: 'approved' | 'rejected', summary: string) => {
+    const finish = async (status: 'approved' | 'rejected', summary: Message) => {
       await tx.approvalTask.updateMany({
         where: { requestId: request.id, status: { in: ['pending', 'waiting'] } },
         data: { status: 'skipped' },
@@ -671,7 +724,10 @@ export async function decideTask(input: {
     };
 
     if (decided === 'rejected') {
-      return finish('rejected', `${snapshot.subjectKey} rejected at step ${task.stepIndex + 1} "${step.name}".`);
+      return finish(
+        'rejected',
+        message('{key} rejected at step {number} "{step}".', { key: snapshot.subjectKey, number: task.stepIndex + 1, step: step.name }),
+      );
     }
 
     const stepTasks = request.tasks
@@ -689,7 +745,7 @@ export async function decideTask(input: {
 
     const next = snapshot.steps.findIndex((candidate, index) => index > task.stepIndex && candidate.applies);
     if (next < 0) {
-      return finish('approved', `${snapshot.subjectKey} approved: every step agreed.`);
+      return finish('approved', message('{key} approved: every step agreed.', { key: snapshot.subjectKey }));
     }
 
     await tx.approvalRequest.update({ where: { id: request.id }, data: { currentStep: next } });
@@ -728,7 +784,7 @@ async function moveSubjectStatus(
   why: 'submission' | 'approved' | 'rejected' | 'withdrawn',
 ): Promise<void> {
   const catalog = await runAsSystem(() => getCatalog()).catch(() => undefined);
-  const statusName = catalog?.statusById.get(statusId)?.name ?? `status ${statusId}`;
+  const statusName: Name = catalog?.statusById.get(statusId)?.name ?? message('status {id}', { id: statusId });
   try {
     await setWorkPackageStatus(subjectId, statusId, projectId);
     if (why === 'approved' || why === 'rejected') {
@@ -741,15 +797,19 @@ async function moveSubjectStatus(
         entityType: 'approval-request',
         entityId: requestId,
         action: 'approval.status.moved',
-        summary: `Work package moved to ${statusName} (${why}).`,
+        summary: message(
+          'Work package moved to {status} ({why, select, submission {submission} approved {approved} rejected {rejected} other {withdrawn}}).',
+          { status: statusName, why },
+        ),
         after: { statusId, why },
       },
     ]);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'The status could not be changed.';
+    // The error's own words are data; only the fallback is ours to translate.
+    const problem: Name = error instanceof Error ? error.message : message('The status could not be changed.');
     appLog.warn({ err: error, requestId, statusId }, 'Could not move an approval subject');
     await prisma.approvalRequest
-      .update({ where: { id: requestId }, data: { outcomeError: `Could not move it to ${statusName}: ${message}` } })
+      .update({ where: { id: requestId }, data: { outcomeError: `Could not move it to ${asText(statusName)}: ${asText(problem)}` } })
       .catch(() => undefined);
     await recordAuditQuietly([
       {
@@ -758,7 +818,10 @@ async function moveSubjectStatus(
         entityType: 'approval-request',
         entityId: requestId,
         action: 'approval.status.failed',
-        summary: `Could not move the work package to ${statusName} (${why}): ${message}`,
+        summary: message(
+          'Could not move the work package to {status} ({why, select, submission {submission} approved {approved} rejected {rejected} other {withdrawn}}): {error}',
+          { status: statusName, why, error: problem },
+        ),
         after: { statusId, why },
       },
     ]);
@@ -803,7 +866,7 @@ export async function cancelRequest(input: {
         entityType: 'approval-request',
         entityId: request.id,
         action: 'approval.cancelled',
-        summary: `${snapshotOf(request.chainSnapshot).subjectKey} withdrawn from approval.`,
+        summary: message('{key} withdrawn from approval.', { key: snapshotOf(request.chainSnapshot).subjectKey }),
         reason,
       }),
     });
@@ -887,10 +950,10 @@ async function announceTasks(
             title: request.title,
             projectName,
             stepName: task.stepName,
-            requesterName: names(request.requestedBy),
+            requesterName: asText(names(request.requestedBy)),
             value,
             valueLabel: value !== undefined ? snapshot.valueLabel : undefined,
-            onBehalfOfName: asDelegate ? names(task.approverId) : undefined,
+            onBehalfOfName: asDelegate ? asText(names(task.approverId)) : undefined,
             dueAt: task.dueAt?.toISOString(),
             approveUrl: `${decideUrl}?decision=approve`,
             rejectUrl: `${decideUrl}?decision=reject`,
@@ -955,8 +1018,8 @@ async function announceOutcome(
         title: request.title,
         projectName,
         outcome,
-        decidedBy,
-        onBehalfOf,
+        decidedBy: asText(decidedBy),
+        onBehalfOf: onBehalfOf === undefined ? undefined : asText(onBehalfOf),
         comment,
         openUrl: `${env.APP_BASE_URL}/tasks/${request.subjectId}`,
       },
@@ -1063,7 +1126,15 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
       const owner = await prisma.projectProfile.findUnique({ where: { openProjectId: request.projectId }, select: { ownerId: true } });
       if (owner?.ownerId) targets = [owner.ownerId];
     }
-    const waitingOn = listNames(tasks.map((task) => names(task.approverId)));
+    const waitingOn = nameList(tasks.map((task) => names(task.approverId)));
+    // Kept in English, the record, and as its message, so each reader of the
+    // escalation is shown it in their own language.
+    const why = message('Step "{step}" of {key} passed its {hours}-hour SLA waiting on {people}.', {
+      step: step.name,
+      key: snapshot.subjectKey,
+      hours: step.slaHours,
+      people: waitingOn,
+    });
 
     const raised = await prisma.$transaction(async (tx) => {
       const claimed = await tx.approvalTask.updateMany({
@@ -1079,7 +1150,8 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
           projectId: request.projectId,
           level: 1,
           raisedFor: targets,
-          reason: `Step "${step.name}" of ${snapshot.subjectKey} passed its ${step.slaHours}-hour SLA waiting on ${waitingOn}.`,
+          reason: render('en', why),
+          reasonMessage: why as unknown as Prisma.InputJsonValue,
           dedupeKey: `approval.sla:${key}`,
           metadata: { requestId: request.id, stepIndex: tasks[0]!.stepIndex, dueAt: tasks[0]!.dueAt, taskIds: tasks.map((task) => task.id) },
         },
@@ -1091,7 +1163,13 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
           entityType: 'approval-request',
           entityId: request.id,
           action: 'approval.sla.breached',
-          summary: `Step ${tasks[0]!.stepIndex + 1} "${step.name}" passed its ${step.slaHours}-hour SLA waiting on ${waitingOn}; escalated to ${targets.length ? listNames(targets.map(names)) : 'nobody (the project has no owner)'}.`,
+          summary: message('Step {number} "{step}" passed its {hours}-hour SLA waiting on {people}; escalated to {targets}.', {
+            number: tasks[0]!.stepIndex + 1,
+            step: step.name,
+            hours: step.slaHours,
+            people: waitingOn,
+            targets: targets.length ? nameList(targets.map(names)) : message('nobody (the project has no owner)'),
+          }),
           after: { stepIndex: tasks[0]!.stepIndex, raisedFor: targets },
         }),
       });
@@ -1246,7 +1324,13 @@ export async function createDelegation(
         entityType: 'approval-delegation',
         entityId: created.id,
         action: 'approval.delegation.created',
-        summary: `${names(delegatorId)} delegated approvals to ${names(input.delegateId)} from ${input.startsOn} to ${input.endsOn}.`,
+        // The days as they were given, YYYY-MM-DD, as the journal has always written them.
+        summary: message('{delegator} delegated approvals to {delegate} from {start} to {end}.', {
+          delegator: names(delegatorId),
+          delegate: names(input.delegateId),
+          start: input.startsOn,
+          end: input.endsOn,
+        }),
         reason,
         after: { delegatorId, delegateId: input.delegateId, startsOn: input.startsOn, endsOn: input.endsOn },
       }),
@@ -1295,7 +1379,10 @@ export async function revokeDelegation(id: string, actorId: string, mayActForOth
         entityType: 'approval-delegation',
         entityId: id,
         action: 'approval.delegation.revoked',
-        summary: `Delegation from ${names(existing.delegatorId)} to ${names(existing.delegateId)} revoked.`,
+        summary: message('Delegation from {delegator} to {delegate} revoked.', {
+          delegator: names(existing.delegatorId),
+          delegate: names(existing.delegateId),
+        }),
       }),
     });
     return updated;
@@ -1362,7 +1449,7 @@ export async function toRequestViews(
         name: step.name,
         mode: step.mode,
         applies: step.applies,
-        conditionText: step.conditionText,
+        conditionText: step.conditionText === undefined ? undefined : renderStored(step.conditionText, step.conditionMessage),
         slaHours: step.slaHours,
         status,
         tasks: taskViews,
@@ -1418,7 +1505,11 @@ export async function subjectState(input: {
       ? {
           id: preview.chainId,
           name: preview.name,
-          steps: preview.steps.map((step) => ({ name: step.name, applies: step.applies, conditionText: step.conditionText })),
+          steps: preview.steps.map((step) => ({
+            name: step.name,
+            applies: step.applies,
+            conditionText: step.conditionText === undefined ? undefined : renderStored(step.conditionText, step.conditionMessage),
+          })),
         }
       : undefined,
     canSubmit: Boolean(chain) && !pending && input.canEdit,
