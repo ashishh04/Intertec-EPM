@@ -32,6 +32,8 @@ import { ApiScheduledReportRepository } from './api/scheduled-reports';
 import { ApiPortfolioViewRepository } from './api/portfolio-views';
 import { ApiScheduleRepository } from './api/schedule';
 import { ApiEarnedValueRepository } from './api/earned-value';
+import { ApiCalculatedFieldRepository } from './api/calculated-fields';
+import { ApiTaskSeriesRepository } from './api/task-series';
 import { ApiPortfolioRepository } from './api/portfolios';
 import { ApiHealthRepository } from './api/health';
 import { ApiApprovalRepository } from './api/approvals';
@@ -119,6 +121,10 @@ export const portfolioViewService = new ApiPortfolioViewRepository();
 export const scheduleService = new ApiScheduleRepository();
 /** Earned value's rules, baselines and one work package's figures (BRQ-12). */
 export const earnedValueService = new ApiEarnedValueRepository();
+/** Calculated fields: their definitions, values and passes (BRQ-04). */
+export const calculatedFieldService = new ApiCalculatedFieldRepository();
+/** Recurring tasks: series, their lifecycle and the tasks they make (BRQ-02). */
+export const taskSeriesService = new ApiTaskSeriesRepository();
 
 /** Instance administration. Reads OpenProject's admin resources through the backend. */
 export const adminService = new ApiAdminRepository();

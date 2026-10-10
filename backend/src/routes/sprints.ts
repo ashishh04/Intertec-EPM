@@ -7,25 +7,13 @@ import { openProject, linkId } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import type { OpVersion, OpWorkPackage } from '../openproject/types.js';
-import type { BurndownPoint, EpmSprint, SprintState } from '../types/epm.js';
+import type { BurndownPoint, EpmSprint } from '../types/epm.js';
+import { sprintStateOf as stateOf } from '../domain/burndown.js';
 
 /**
- * Sprints are OpenProject versions.
- *
- * This instance defines none and the API token cannot create them, so these
- * endpoints return empty. The mapping below is complete and will start
- * producing sprints the moment versions exist.
+ * Sprints are OpenProject versions. The daily samples behind each burndown
+ * are written by the burndown sampler (`domain/burndown.ts`).
  */
-
-function stateOf(version: OpVersion, today: string): SprintState {
-  if (version.status === 'closed') return 'completed';
-  // A version with no dates is a backlog, not a sprint that is running. It
-  // reads as planned until someone starts it, which gives it a start date.
-  if (!version.startDate && !version.endDate) return 'planned';
-  if (version.startDate && version.startDate > today) return 'planned';
-  if (version.endDate && version.endDate < today) return 'completed';
-  return 'active';
-}
 
 function eachDay(start: string, end: string): string[] {
   const days: string[] = [];

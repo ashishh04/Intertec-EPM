@@ -5,6 +5,7 @@ import * as guard from '../auth/guard.js';
 import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
+import { refuseCalculatedWrites, requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -254,6 +255,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     if (!projectId) throw EpmError.badRequest('A project is required to create a task.');
 
     await guard.require(request, 'task:create', projectId);
+    await refuseCalculatedWrites(input);
 
     const [catalog, identifiers] = await Promise.all([
       getCatalog(signal),
@@ -273,6 +275,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     // New work moves the project's counts, and perhaps its forecast finish.
     requestHealthRecalc(projectId);
     requestScheduleRecalc();
+    requestCalculatedRecalc();
     await noteRuleEvent({
       source: 'epm',
       kind: 'work_package.created',
@@ -291,6 +294,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const projectId = await guard.projectOfWorkPackage(request, request.params.id);
       await guard.require(request, 'task:edit', projectId);
+      await refuseCalculatedWrites(request.body);
 
       const signal = requestSignal(request);
       const [catalog, identifiers] = await Promise.all([
@@ -303,6 +307,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       // recalculation decides whether one did.
       requestHealthRecalc(projectId);
       requestScheduleRecalc();
+      requestCalculatedRecalc();
       await noteRuleEvent({
         source: 'epm',
         kind: 'work_package.updated',
@@ -321,6 +326,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const { ids = [], patch = {} } = request.body ?? {};
       if (ids.length === 0) return [];
+      await refuseCalculatedWrites(patch);
 
       const signal = requestSignal(request);
       const [catalog, identifiers] = await Promise.all([
@@ -356,6 +362,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         // Whatever part of the batch landed has moved those projects.
         requestHealthRecalc([...projects]);
         requestScheduleRecalc();
+        requestCalculatedRecalc();
       }
       return updated;
     },
@@ -385,6 +392,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     } finally {
       requestHealthRecalc([...projects]);
       requestScheduleRecalc();
+      requestCalculatedRecalc();
     }
 
     reply.status(204);

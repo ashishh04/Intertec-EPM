@@ -486,6 +486,115 @@ model ScheduleRun {
   @@map("schedule_runs")
 }
 
+/// A calculated field (BR-406 to BR-408): a formula over a work package — its
+/// own fields, its custom fields, other calculated fields, its children — that
+/// EPM evaluates whenever the work changes and mirrors into an OpenProject
+/// custom field of its own, so views show, filter, group and sum it through
+/// OpenProject's query engine. Defined under Administration → Calculated
+/// fields, by whoever holds `fields:configure`.
+model CalculatedField {
+  id            String            @id @default(cuid())
+  /// How formulas name it: a lower-case identifier, unique, fixed once made.
+  key           String            @unique
+  /// Its name, which its OpenProject custom field carries too.
+  name          String
+  description   String?
+  /// number | date | text | boolean
+  resultType    String
+  expression    String
+  /// What the formula reads, worked out when it was saved (`References` in
+  /// domain/expression.ts).
+  references    Json              @default("{}")
+  /// How a value is shown and mirrored: `{ decimals }` for a number.
+  format        Json              @default("{}")
+  /// The OpenProject custom field the values are written into.
+  customFieldId Int?              @unique
+  /// The projects and types it applies to; empty for all of them.
+  projectIds    Int[]             @default([])
+  typeIds       Int[]             @default([])
+  active        Boolean           @default(true)
+  /// Bumped on every change to the formula, its format or its scope.
+  version       Int               @default(1)
+  createdBy     String
+  createdAt     DateTime          @default(now())
+  updatedBy     String
+  updatedAt     DateTime          @updatedAt
+  values        CalculatedValue[]
+
+  @@index([active])
+  @@map("calculated_fields")
+}
+
+/// A calculated field's last value on one work package — evaluated on write
+/// and kept here (BR-408). A work package outside the field's scope has no
+/// row; one with no value keeps the reason it has none.
+model CalculatedValue {
+  fieldId       String
+  workPackageId Int
+  projectId     Int
+  numberValue   Float?
+  dateValue     DateTime?       @db.Date
+  textValue     String?
+  booleanValue  Boolean?
+  /// Why there is no value, when there is none: the English, and the message
+  /// that writes it in each reader's language.
+  reason        String?
+  reasonMessage Json?
+  /// The definition version, and the pass, that computed it.
+  fieldVersion  Int
+  runId         String
+  updatedAt     DateTime        @updatedAt
+  field         CalculatedField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@id([fieldId, workPackageId])
+  @@index([workPackageId])
+  @@index([fieldId, projectId])
+  @@map("calculated_values")
+}
+
+/// One pass over every calculated field: what started it, what it read, how
+/// long each step took and what it changed. Like `ScheduleRun`; a check that
+/// finds nothing moved leaves no row.
+model CalculatedRun {
+  id                     String    @id @default(cuid())
+  /// change | check | manual | startup | definition | day
+  trigger                String
+  /// running | completed | failed
+  status                 String    @default("running")
+  startedAt              DateTime  @default(now())
+  finishedAt             DateTime?
+  /// OpenProject's digests of the inputs read and of the values its fields
+  /// held once the mirror had written, and EPM's of the definitions in force.
+  inputsFingerprint      String?
+  valuesFingerprint      String?
+  definitionsFingerprint String?
+  /// The day `TODAY()` answered, `YYYY-MM-DD`.
+  day                    String?
+  fields                 Int       @default(0)
+  workPackages           Int       @default(0)
+  /// Values computed, and how many of them are empty.
+  evaluated              Int       @default(0)
+  empty                  Int       @default(0)
+  /// Rows of `calculated_values` written and removed.
+  changed                Int       @default(0)
+  removed                Int       @default(0)
+  /// Work packages whose fields the mirror rewrote; values it could not write
+  /// because the work package cannot hold the field.
+  mirrored               Int       @default(0)
+  mirrorSkipped          Int       @default(0)
+  mirrorError            String?
+  readMs                 Int?
+  computeMs              Int?
+  storeMs                Int?
+  mirrorMs               Int?
+  durationMs             Int?
+  error                  String?
+
+  @@index([startedAt])
+  @@index([status, startedAt])
+  @@map("calculated_runs")
+}
+
 /// How each work package type earns value (BR-302), and the rate that prices
 /// work nobody's rate covers. Versioned like the health rules: every save
 /// inserts a row, the highest version is in force, and a figure for a past
@@ -545,6 +654,72 @@ model EvmBaselineItem {
 
   @@id([baselineId, workPackageId])
   @@map("evm_baseline_items")
+}
+
+/// A recurring task (BR-105 to BR-107): a template work package, the rule its
+/// occurrences follow, how early each occurrence's work package is made and
+/// how long each runs. The work packages are OpenProject's; EPM keeps the
+/// series and which occurrence each was made for. One series per template.
+model TaskSeries {
+  id                    String               @id @default(cuid())
+  /// The OpenProject work package every task in the series is copied from.
+  templateWorkPackageId Int                  @unique
+  projectId             Int
+  /// The rule as `validateRule` (domain/recurrence.ts) stores it.
+  rule                  Json
+  /// Days before an occurrence its work package is made.
+  leadDays              Int                  @default(0)
+  /// Days from each task's start to its due date.
+  durationDays          Int                  @default(0)
+  /// active | paused | cancelled. Cancelled is final.
+  state                 String               @default("active")
+  /// Raised by every change to the rule, the lead time or the duration.
+  version               Int                  @default(1)
+  /// No occurrence before this day is made: the day the series was made, last
+  /// resumed or last changed.
+  generateFrom          DateTime             @db.Date
+  /// The next occurrence with no work package yet; null once the rule has no more.
+  nextOccurrence        DateTime?            @db.Date
+  lastGeneratedAt       DateTime?
+  /// Why the last generation made nothing: English, and the message it was written from.
+  lastError             String?
+  lastErrorMessage      Json?
+  lastErrorAt           DateTime?
+  createdBy             String
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  cancelledBy           String?
+  cancelledAt           DateTime?
+  instances             TaskSeriesInstance[]
+
+  @@index([projectId])
+  @@index([state, nextOccurrence])
+  @@map("task_series")
+}
+
+/// One occurrence of a series and the work package made for it (BR-106).
+///
+/// The row is the claim: inserted before the work package is made, so two
+/// servers — or the timer and someone pressing "generate now" — cannot both
+/// make the same occurrence, and filled in once the work package exists. A
+/// claim still empty after a few minutes is a crashed attempt and may be retried.
+model TaskSeriesInstance {
+  id            String     @id @default(cuid())
+  seriesId      String
+  series        TaskSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  occurrence    DateTime   @db.Date
+  /// Null while its work package is being made.
+  workPackageId Int?       @unique
+  /// The series' version it was made under.
+  seriesVersion Int
+  /// The server making it, and since when.
+  claimedBy     String
+  claimedAt     DateTime   @default(now())
+  /// When its work package was made.
+  generatedAt   DateTime?
+
+  @@unique([seriesId, occurrence])
+  @@map("task_series_instances")
 }
 
 /// A message for one person about something they should know and would not

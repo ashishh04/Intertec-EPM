@@ -47,6 +47,7 @@ export const PHRASES: readonly string[] = [
   msg('audits'),
   msg('roles'),
   msg('systems'),
+  msg('calculated fields'),
 
   // guard.requireLink(…, description): what the caller may not do.
   msg('edit this comment'),

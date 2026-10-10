@@ -7305,6 +7305,22 @@ async function main() {
     console.log('\n  SKIP  surfaces: the private project was not created');
   }
 
+  // --- Recurring tasks (BR-105 to BR-107) -------------------------------------
+  // In a project of its own, removed with its series however far the run got:
+  // authz-recurring.ts.
+  {
+    const { recurringChecks } = await import('./authz-recurring.js');
+    await recurringChecks({ call, status, check, admin, restricted, adminId, cleanup: { onCleanup: (fn) => surfaceCleanups.push(fn) } });
+  }
+
+  // --- Calculated fields (BR-406 to BR-408) -----------------------------------
+  // In a project of its own; every field, its OpenProject field and the work
+  // removed however far the run got: authz-calculated.ts.
+  {
+    const { calculatedChecks } = await import('./authz-calculated.js');
+    await calculatedChecks({ call, status, check, admin, restricted, cleanup: { onCleanup: (fn) => surfaceCleanups.push(fn) } });
+  }
+
   // --- Critical path (BR-101 to BR-104) ---------------------------------------
   console.log('\nCritical path');
   {

@@ -188,6 +188,14 @@ export const ADMIN_AREAS: AdminArea[] = [
         },
       },
       {
+        id: 'calculated-fields',
+        get label() { return t('Calculated fields'); },
+        kind: 'live',
+        get description() {
+          return t('Formulas EPM works out on every work package — remaining effort, days late, roll-ups of the children — that every view can show, filter, group and sum.');
+        },
+      },
+      {
         id: 'custom-actions',
         get label() { return t('Custom actions'); },
         enterprise: true,

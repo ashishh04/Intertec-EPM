@@ -72,27 +72,46 @@ function automationRoleId(): Promise<string | null> {
 /** Projects the account is known to be a member of, so each is asked about once. */
 const memberOf = new Set<string>();
 
+/** Joins under way in this process, so callers acting at once share one. */
+const joining = new Map<string, Promise<void>>();
+
 /**
  * Makes the automation account a member of a project before a rule acts there.
  *
  * Done with the system key, which can manage memberships everywhere; the
  * account itself cannot, by design. Silent to the account (no "you were added"
  * mail) and journalled on the project, because a new member is a change to it.
+ *
+ * Callers in this process acting on the same project at once (a rule and a
+ * recurring series, say) share one attempt. A second server may still race this
+ * one to the same project; whichever loses finds the membership the other made
+ * and carries on.
  */
 export async function ensureAutomationMembership(projectId: string): Promise<void> {
   const me = await automationIdentity();
   if (!me) throw new Error('The automation account is not configured.');
   if (me.admin || memberOf.has(projectId)) return;
 
+  const underway = joining.get(projectId);
+  if (underway) return underway;
+  const attempt = joinProject(me, projectId).finally(() => joining.delete(projectId));
+  joining.set(projectId, attempt);
+  return attempt;
+}
+
+async function joinProject(me: { id: string; name: string }, projectId: string): Promise<void> {
   await runAsSystem(async () => {
-    const existing = await openProject.getCollection<unknown>('/memberships', {
-      filters: [
-        { field: 'project', operator: '=', values: [projectId] },
-        { field: 'principal', operator: '=', values: [me.id] },
-      ],
-      pageSize: 1,
-    });
-    if ((existing.total ?? 0) > 0) {
+    const isMember = async () => {
+      const existing = await openProject.getCollection<unknown>('/memberships', {
+        filters: [
+          { field: 'project', operator: '=', values: [projectId] },
+          { field: 'principal', operator: '=', values: [me.id] },
+        ],
+        pageSize: 1,
+      });
+      return (existing.total ?? 0) > 0;
+    };
+    if (await isMember()) {
       memberOf.add(projectId);
       return;
     }
@@ -101,17 +120,26 @@ export async function ensureAutomationMembership(projectId: string): Promise<voi
     if (!role) {
       throw new Error(`There is no "${AUTOMATION_ROLE_NAME}" role on the instance. Run automation-account.rb.`);
     }
-    await openProject.request('/memberships', {
-      method: 'POST',
-      body: {
-        _links: {
-          project: { href: `/api/v3/projects/${projectId}` },
-          principal: { href: `/api/v3/users/${me.id}` },
-          roles: [{ href: `/api/v3/roles/${role}` }],
+    try {
+      await openProject.request('/memberships', {
+        method: 'POST',
+        body: {
+          _links: {
+            project: { href: `/api/v3/projects/${projectId}` },
+            principal: { href: `/api/v3/users/${me.id}` },
+            roles: [{ href: `/api/v3/roles/${role}` }],
+          },
+          _meta: { sendNotifications: false },
         },
-        _meta: { sendNotifications: false },
-      },
-    });
+      });
+    } catch (error) {
+      // Another server made the membership between the check and the POST.
+      if (await isMember().catch(() => false)) {
+        memberOf.add(projectId);
+        return;
+      }
+      throw error;
+    }
     memberOf.add(projectId);
     await recordAuditQuietly([
       {

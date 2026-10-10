@@ -17,7 +17,10 @@ import { publishCatalogue } from './domain/measures-store.js';
 import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
+import { createBurndownSampler } from './scheduler/burndown-sampler.js';
 import { createScheduleCheck } from './scheduler/schedule-check.js';
+import { createCalculatedCheck } from './scheduler/calculated-check.js';
+import { createRecurrenceScheduler } from './scheduler/recurrence.js';
 import { createApprovalSweep } from './scheduler/approval-sweep.js';
 import { createEscalationSweep } from './scheduler/escalation-sweep.js';
 import { createRuleWorker } from './scheduler/rule-worker.js';
@@ -345,6 +348,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Health sweep disabled; health is recalculated on change only');
   }
 
+  // The burndown sampler. On by default: without it every burndown chart is
+  // empty.
+  const burndownSampler = createBurndownSampler({ log: app.log });
+  if (env.EPM_BURNDOWN_SAMPLER_ENABLED) {
+    burndownSampler.start();
+  } else {
+    app.log.info('Burndown sampler disabled; burndown charts show today only');
+  }
+
   // SLA escalations and delegation upkeep for approvals, on the same terms.
   const approvalSweep = createApprovalSweep({ log: app.log });
   if (env.EPM_APPROVAL_SWEEP_ENABLED) {
@@ -397,14 +409,35 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Critical path disabled; float is neither computed nor shown');
   }
 
+  // The calculated field check (BR-408): values recalculated when what their
+  // formulas read moves under EPM, or the day turns. On unless switched off.
+  const calculatedCheck = createCalculatedCheck({ log: app.log });
+  if (env.EPM_CALCULATED_ENABLED) {
+    calculatedCheck.start();
+  } else {
+    app.log.info('Calculated fields disabled; their values are not recalculated');
+  }
+
+  // Recurring tasks (BR-106): each series' tasks made at their lead time, as
+  // the automation account. On unless switched off.
+  const recurrence = createRecurrenceScheduler({ log: app.log });
+  if (env.EPM_RECURRENCE_ENABLED) {
+    recurrence.start();
+  } else {
+    app.log.info('Recurring task generation disabled; tasks are made only when asked for');
+  }
+
   app.addHook('onClose', async () => {
+    recurrence.stop();
     scheduleCheck.stop();
+    calculatedCheck.stop();
     reportScheduler.stop();
     analyticsRefresh.stop();
     ruleWorker.stop();
     escalationSweep.stop();
     approvalSweep.stop();
     healthSweep.stop();
+    burndownSampler.stop();
     dueReminders.stop();
     snapshots.stop();
     emailWorker.stop();

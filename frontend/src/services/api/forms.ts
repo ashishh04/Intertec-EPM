@@ -46,6 +46,19 @@ export interface SchemaField {
   _links?: {
     allowedValues?: { href: string; title?: string }[] | { href: string };
   };
+  /**
+   * Set by EPM on a calculated field (BR-406): EPM works its value out, so a
+   * form shows it read-only, with its formula, and never writes it.
+   */
+  calculated?: { key: string; expression: string; resultType: string; value: unknown };
+}
+
+/** The calculated fields of a schema: shown, never written. */
+export function calculatedFields(schema: Record<string, SchemaField | unknown>): [string, SchemaField][] {
+  return Object.entries(schema).filter(
+    (entry): entry is [string, SchemaField] =>
+      typeof entry[1] === 'object' && entry[1] !== null && typeof (entry[1] as SchemaField).calculated === 'object',
+  );
 }
 
 export interface FormResult {

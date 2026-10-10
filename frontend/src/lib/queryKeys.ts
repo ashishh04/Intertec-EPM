@@ -82,6 +82,12 @@ export const queryKeys = {
   evmBaselines: (projectId: string) => ['earned-value', 'baselines', projectId] as const,
   workPackageEarnedValue: (id: string) => ['earned-value', 'work-package', id] as const,
 
+  // Recurring tasks, under one root: a change to a series refreshes its card, its project's list and its tasks' links.
+  projectTaskSeries: (projectId: string) => ['task-series', 'project', projectId] as const,
+  taskSeries: (id: string) => ['task-series', 'detail', id] as const,
+  workPackageSeries: (workPackageId: string) => ['task-series', 'work-package', workPackageId] as const,
+  recurrencePreview: (rule: object) => ['task-series', 'preview', rule] as const,
+
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   taskTimeline: (projectId: string) => ['tasks', 'timeline', projectId] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,

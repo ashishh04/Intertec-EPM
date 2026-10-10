@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
+import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { addDays, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
@@ -118,6 +119,8 @@ function spendChanged(...projectIds: (string | undefined)[]): void {
   const ids = [...new Set(projectIds.filter((id): id is string => Boolean(id)))];
   for (const id of ids) invalidateProjectCost(id);
   if (ids.length > 0) requestHealthRecalc(ids);
+  // Spent time is a calculated field input (`spentHours`).
+  requestCalculatedRecalc();
 }
 
 function toEpmTimeEntry(entry: OpTimeEntry): EpmTimeEntry {

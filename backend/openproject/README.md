@@ -49,6 +49,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_admin_catalog.rb` | Create, edit and delete for types, statuses, priorities, custom fields, webhooks and OAuth applications. |
 | `zzz_epm_analytics_api.rb` | Read-only export of every work package version (the journals) and of unit costs, for EPM's analytics model (below). |
 | `zzz_epm_schedule.rb` | The schedule bridge (below): the scheduling network out for EPM's critical path pass, and the float it computes back into three work package fields, kept out of the journal. |
+| `zzz_epm_calculated.rb` | The calculated-field bridge (BR-406 to BR-408): what EPM's formulas read — each work package's own fields, time, custom values and place in the tree — out in one query, and the values EPM computes back into the custom fields it made for them (marked `editable = false`), written only where changed and kept out of the journal, like float. |
 | `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
 | `setup/automation-account.rb` | Not an initializer: run by hand, like the one below. Creates EPM's automation account — the service principal rules act as — and its minimal "EPM Automation" project role with a complete workflow, and prints the account's API key once (`ROTATE=1` issues a new one). Not an administrator; EPM adds it to a project when a rule first acts there. |
 | `setup/schedule-fields.rb` | Not an initializer: run by hand. Creates the Total float (days), Free float (days) and On critical path work package fields, for all projects and usable as filters, and activates them on every type. Run it again after adding a type. Copied to `/app/epm-setup/` in the image. |
@@ -194,6 +195,43 @@ then confirm the journal patch still applies: in `rails runner`,
 `Journals::CreateService::Customizable.ancestors.include?(EpmSchedule::Unjournaled)`
 should be true, and editing a work package's subject should add no float
 change to its Activity.
+
+## The calculated-field bridge (`zzz_epm_calculated.rb`)
+
+A calculated field (BR-406 to BR-408) is a formula defined in EPM (Administration
+→ Work packages → Calculated fields). EPM evaluates it on every work package it
+applies to and keeps the values as its own records; so that OpenProject's query
+engine can show, filter, group and sum them (BR-407), each field also has a work
+package custom field of its own, which EPM makes through the administration
+catalogue when the field is defined, and deletes with it.
+
+| Method | Path | Does |
+| --- | --- | --- |
+| GET | `/epm_admin/calculated/fields` | Every work package custom field: format, scope (types, projects), options, and whether EPM computes it |
+| POST | `/epm_admin/calculated/fields/:id` | Makes a custom field one EPM computes, for `{ typeIds, projectIds }` (empty: all); usable as a filter, never required |
+| GET | `/epm_admin/calculated/inputs` | What formulas read, for every work package of an active project (`?root=` one work package and everything under it): its own fields, spent time (its own and its descendants', as OpenProject shows it), the custom values named in `?fields=`, its place in the tree, the computed fields it can hold and their values now; the calendar; two digests |
+| GET | `/epm_admin/calculated/fingerprint` | The two digests alone — of the inputs, and of the computed values stored |
+| POST | `/epm_admin/calculated/values` | Writes `{ values: [{ id, values: { customFieldId: value } }] }`; a null clears. Only computed fields; only what differs |
+
+**Which fields are computed.** A custom field EPM computes carries
+`editable = false`, a flag OpenProject reads for user custom fields only; on a
+work package field it is otherwise unused and its form does not show it, so it
+survives an administrator editing the field. The values write refuses any field
+without it.
+
+Values are written, and kept out of the journal, exactly as the schedule bridge
+writes float (above); the two journal patches are independent and both apply. A
+value typed over by hand — in OpenProject's own screens — changes the values
+digest, and EPM's next check (every `EPM_CALCULATED_CHECK_SECONDS`, 60 by
+default) puts it back. After an upgrade:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/epm_admin/calculated/fingerprint   # 403
+curl -s -u apikey:<key> http://localhost:8080/epm_admin/calculated/fields                           # the field list
+```
+
+and `Journals::CreateService::Customizable.ancestors.include?(EpmCalculated::Unjournaled)`
+should be true in `rails runner`.
 
 ## Running it
 

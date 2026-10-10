@@ -77,3 +77,7 @@ services:
       # out for EPM's critical path pass, and the float it computes back into
       # the three schedule fields, kept out of the journal.
       - ./zzz_epm_schedule.rb:/app/config/initializers/zzz_epm_schedule.rb:ro
+      # The EPM calculated-field bridge (/epm_admin/calculated/*): what the
+      # formulas read, out, and the values EPM computes back into the custom
+      # fields it made for them, kept out of the journal.
+      - ./zzz_epm_calculated.rb:/app/config/initializers/zzz_epm_calculated.rb:ro

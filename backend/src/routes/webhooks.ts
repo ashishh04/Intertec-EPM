@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
+import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
@@ -224,6 +225,8 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
     // A work package created or changed upstream can move float anywhere its
     // relations reach; the pass works out whether it did.
     if (action.startsWith('work_package:')) requestScheduleRecalc();
+    // Calculated fields read work packages and the time logged on them.
+    if (action.startsWith('work_package:') || action.startsWith('time_entry:')) requestCalculatedRecalc();
 
     if (HANDLED_ACTIONS.has(action)) {
       try {

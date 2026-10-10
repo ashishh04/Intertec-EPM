@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Ellipsis, Eye, Pencil, Timer, UserPlus } from 'lucide-react';
+import { Ellipsis, Eye, Pencil, Repeat, Timer, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ErrorState } from '@/components/common/ErrorState';
@@ -50,11 +50,14 @@ import { TaskAttachments } from '@/components/tasks/TaskAttachments';
 import { TaskComments } from '@/components/tasks/TaskComments';
 import { TaskRelations } from '@/components/tasks/TaskRelations';
 import { TaskEarnedValue } from '@/components/tasks/TaskEarnedValue';
+import { TaskCalculatedValues } from '@/components/tasks/TaskCalculatedValues';
 import { TaskSchedule } from '@/components/tasks/TaskSchedule';
 import { TaskWatchers } from '@/components/tasks/TaskWatchers';
 import { HierarchyTrail, TaskSubItems } from '@/components/tasks/TaskHierarchy';
 import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
 import { LogTimeDialog } from '@/components/tasks/LogTimeDialog';
+import { RecurrenceDialog, TaskSeriesPanel } from '@/components/tasks/TaskSeries';
+import { useWorkPackageSeries } from '@/hooks/useTaskSeries';
 import { useAuth } from '@/providers/AuthProvider';
 
 /** Work-package detail. Content on the left, the full metadata panel on the right. */
@@ -79,6 +82,9 @@ export default function TaskDetailPage() {
   const { data: allowed } = useWorkPackageOptions(taskId);
   const [editingAllFields, setEditingAllFields] = useState(false);
   const [loggingTime, setLoggingTime] = useState(false);
+  // Recurring tasks (BR-105): whether this one already is a template or a task a series made.
+  const [makingRecurring, setMakingRecurring] = useState(false);
+  const seriesLink = useWorkPackageSeries(taskId);
   // The project's members, not the directory: OpenProject refuses an assignee
   // who is not one with "The chosen user is not allowed to be 'Assignee' for
   // this work package".
@@ -267,6 +273,13 @@ export default function TaskDetailPage() {
                 <DropdownMenuItem onSelect={() => patch({ id: task.id, status: 'done' })}>
                   {t('Mark as done')}
                 </DropdownMenuItem>
+                {/* Only where the person may edit, and only for a task in no series yet. */}
+                {canInProject(task.projectId, 'task:edit') && seriesLink.data?.role === 'none' ? (
+                  <DropdownMenuItem onSelect={() => setMakingRecurring(true)}>
+                    <Repeat />
+                    {t('Make recurring…')}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   destructive
@@ -296,6 +309,8 @@ export default function TaskDetailPage() {
         workPackageId={task.id}
         projectId={task.projectId}
       />
+
+      <RecurrenceDialog open={makingRecurring} onOpenChange={setMakingRecurring} task={task} />
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* Main */}
@@ -332,6 +347,9 @@ export default function TaskDetailPage() {
           {/* Renders nothing unless an approval chain covers this work package. */}
           <ApprovalPanel workPackageId={task.id} />
 
+          {/* The series this task is the template of, or the one that made it; nothing otherwise. */}
+          <TaskSeriesPanel task={task} />
+
           <TaskAttachments
             workPackageId={task.id}
             // Attaching is an edit of the work package, so it follows the same
@@ -350,6 +368,9 @@ export default function TaskDetailPage() {
 
           {/* Its budget, what was planned and earned by now, and what it cost. */}
           <TaskEarnedValue workPackageId={task.id} />
+
+          {/* Its calculated fields, and why any is empty: read-only, EPM's. */}
+          <TaskCalculatedValues workPackageId={task.id} />
 
           {/* Both are affordance-gated inside: what a user may do is decided by
               what OpenProject offered on this record, not by a role check. */}

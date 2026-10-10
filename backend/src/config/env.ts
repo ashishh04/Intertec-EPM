@@ -113,6 +113,24 @@ const schema = z.object({
       .default(60),
   ),
 
+  // The burndown sampler: each sprint's daily burndown figures, and the past
+  // days rebuilt from journal history. On unless set to "false" — without it
+  // every burndown chart stays empty. Hourly by default; the last pass of a
+  // day leaves that day's figure.
+  EPM_BURNDOWN_SAMPLER_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_BURNDOWN_SAMPLER_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(5, 'EPM_BURNDOWN_SAMPLER_INTERVAL_MINUTES must be at least 5.')
+      .max(60 * 24, 'EPM_BURNDOWN_SAMPLER_INTERVAL_MINUTES cannot exceed a day.')
+      .default(60),
+  ),
+
   // The approval sweep: SLA escalations and delegation upkeep. On unless set
   // to "false", for the same reason as the health sweep — an SLA nobody checks
   // is not an SLA. Every 5 minutes by default.
@@ -377,6 +395,40 @@ const schema = z.object({
     z.coerce.number().int().min(1).max(3650).default(30),
   ),
 
+  // --- Calculated fields (BRQ-04) -------------------------------------------
+  // Values are computed as soon as EPM sees work change, and a check catches
+  // what it does not see: every EPM_CALCULATED_CHECK_SECONDS OpenProject is
+  // asked for a digest of everything formulas read — one small query there —
+  // and a pass runs only when it has moved, or the day has and a formula reads
+  // TODAY(). On unless "false".
+  EPM_CALCULATED_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_CALCULATED_CHECK_SECONDS: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce.number().int().min(10).max(3600).default(60),
+  ),
+
+  // --- Recurring tasks (BRQ-02) ---------------------------------------------
+  // Each series' tasks are made at their lead time, as the automation account,
+  // by a timer every EPM_RECURRENCE_INTERVAL_MINUTES (and soon after a series
+  // is made, resumed or changed). On unless "false": a recurring task that
+  // never recurs is not one. "Generate due tasks now" works either way.
+  EPM_RECURRENCE_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => value !== 'false'),
+  EPM_RECURRENCE_INTERVAL_MINUTES: z.preprocess(
+    (value) => (value === undefined || value === '' ? undefined : value),
+    z.coerce
+      .number()
+      .int()
+      .min(1, 'EPM_RECURRENCE_INTERVAL_MINUTES must be at least 1.')
+      .max(1440, 'EPM_RECURRENCE_INTERVAL_MINUTES cannot exceed a day.')
+      .default(60),
+  ),
+
   /*
    * The currency internal hourly rates are quoted in.
    *
@@ -556,6 +608,8 @@ export function describeEnv() {
     criticalPath: env.EPM_SCHEDULE_ENABLED
       ? `on change and checked every ${env.EPM_SCHEDULE_CHECK_SECONDS} seconds; mirror ${env.EPM_SCHEDULE_MIRROR_ENABLED ? 'on' : 'off'}`
       : 'disabled',
+    calculatedFields: env.EPM_CALCULATED_ENABLED ? `on change and checked every ${env.EPM_CALCULATED_CHECK_SECONDS} seconds` : 'disabled',
+    recurrence: env.EPM_RECURRENCE_ENABLED ? `every ${env.EPM_RECURRENCE_INTERVAL_MINUTES} minutes` : 'disabled',
     opsAlerts: env.EPM_OPS_ALERT_WEBHOOK_URL ? 'in-app and webhook' : 'in-app',
   };
 }

@@ -5,6 +5,7 @@ import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import { message } from '../lib/i18n.js';
+import { markCalculatedInForm } from '../domain/calculated-fields.js';
 
 /**
  * OpenProject Form endpoints, proxied.
@@ -97,7 +98,8 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
         body._links = { ...(body._links as object), type: { href: `/api/v3/types/${typeId}` } };
       }
 
-      return requestForm(`/projects/${projectId}/work_packages/form`, body, requestSignal(request));
+      // Calculated fields are shown read-only and never echoed back as a write.
+      return markCalculatedInForm(await requestForm(`/projects/${projectId}/work_packages/form`, body, requestSignal(request)));
     },
   );
 
@@ -120,10 +122,12 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
         .catch(() => null);
       if (!current) throw EpmError.notFound(message('Work package {id}', { id }));
 
-      return requestForm(
-        `/work_packages/${id}/form`,
-        { lockVersion: current.lockVersion, ...(request.body?.payload ?? {}) },
-        requestSignal(request),
+      return markCalculatedInForm(
+        await requestForm(
+          `/work_packages/${id}/form`,
+          { lockVersion: current.lockVersion, ...(request.body?.payload ?? {}) },
+          requestSignal(request),
+        ),
       );
     },
   );

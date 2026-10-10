@@ -201,6 +201,7 @@ export type Permission =
   | 'rates:view'
   | 'audit:view'
   | 'evm:configure'
+  | 'fields:configure'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -2904,6 +2905,135 @@ export interface ScheduleStatus {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Recurring tasks (BRQ-02: BR-105 to BR-107)                                 */
+/* -------------------------------------------------------------------------- */
+
+/** How often a series repeats. `custom` is every `interval` days. */
+export type RecurrenceFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'custom';
+
+/** An occurrence on a non-working day stays there, is left out, or moves to the next working day. */
+export type NonWorkingDayPolicy = 'keep' | 'skip' | 'next';
+
+/** When a series' work recurs (BR-105). Dates are calendar days, `YYYY-MM-DD`. */
+export interface RecurrenceRule {
+  frequency: RecurrenceFrequency;
+  /** Every `interval` days, weeks, months or quarters. */
+  interval: number;
+  /** Weekly: ISO weekdays, 1 Monday … 7 Sunday. */
+  weekdays?: number[];
+  /** Monthly and quarterly: the day of the month, or its last day. A day a month lacks is its last. */
+  dayOfMonth?: number | 'last';
+  /** The first day it can occur. */
+  startDate: ISODate;
+  /** It ends on this day, inclusive… */
+  endDate?: ISODate;
+  /** …or after this many occurrences. With neither it does not end. */
+  count?: number;
+  nonWorkingDays?: NonWorkingDayPolicy;
+}
+
+export type TaskSeriesState = 'active' | 'paused' | 'cancelled';
+
+/** What a series is defined by. Changing any of it makes a new version. */
+export interface TaskSeriesInput {
+  rule: RecurrenceRule;
+  /** Days before each occurrence its task is created, 0 to 365. */
+  leadDays: number;
+  /** Days from each task's start to its due date; from the template's own dates when left out. */
+  durationDays?: number;
+}
+
+/** A generated task as its reader may see it. */
+export interface TaskSeriesInstanceTask {
+  id: ID;
+  key: string;
+  subject: string;
+  status: string;
+  closed: boolean;
+  startDate?: ISODate;
+  dueDate?: ISODate;
+  assigneeId?: ID;
+}
+
+/** One occurrence and the work package made for it (BR-106). */
+export interface TaskSeriesInstance {
+  occurrence: ISODate;
+  /** Absent while it is being made. */
+  workPackageId?: ID;
+  seriesVersion: number;
+  createdAt?: ISODate;
+  /** Absent when the work package was deleted or is out of the reader's reach. */
+  task?: TaskSeriesInstanceTask;
+}
+
+export interface TaskSeries {
+  id: ID;
+  templateWorkPackageId: ID;
+  templateSubject?: string;
+  projectId: ID;
+  rule: RecurrenceRule;
+  /** The rule in words, in the reader's language. */
+  ruleText: string;
+  leadDays: number;
+  durationDays: number;
+  state: TaskSeriesState;
+  version: number;
+  /** The next occurrence with no task yet; null once the rule has no more. */
+  nextOccurrence: ISODate | null;
+  /** When that task is due to be made: the occurrence less the lead time. */
+  nextGenerationOn: ISODate | null;
+  instanceCount: number;
+  lastGeneratedAt?: ISODate;
+  /** Why the last generation made nothing, in the reader's language. */
+  problem?: string;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+  cancelledBy?: ID;
+  cancelledAt?: ISODate;
+}
+
+export interface TaskSeriesDetail extends TaskSeries {
+  /** Newest occurrence first. */
+  instances: TaskSeriesInstance[];
+  /** The occurrences still to come, soonest first. */
+  upcoming: ISODate[];
+  /** The caller may change it: `task:edit` in its project. */
+  canEdit: boolean;
+}
+
+/** What a work package is to a series: its template, one of its tasks, or neither. */
+export interface WorkPackageSeriesLink {
+  role: 'template' | 'instance' | 'none';
+  series?: TaskSeriesDetail;
+  /** For a task the series made: the occurrence it was made for. */
+  occurrence?: ISODate;
+}
+
+/** A rule's next dates, with nothing saved. */
+export interface RecurrencePreview {
+  dates: ISODate[];
+  ruleText: string;
+  /** Occurrences in all; null when the rule does not end. */
+  total: number | null;
+  /** The last occurrence; null when the rule does not end. */
+  last: ISODate | null;
+  /** Why the rule is not valid, in the reader's language; dates and words are then empty. */
+  problem?: string;
+}
+
+/** What one run of generation did (BR-106). */
+export interface SeriesGenerationResult {
+  /** False when another server was already generating. */
+  ran: boolean;
+  series: number;
+  generated: number;
+  failed: number;
+  /** In the reader's language. */
+  notes: string[];
+}
+
+/* -------------------------------------------------------------------------- */
 /* Earned value (BRQ-12)                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -2971,4 +3101,155 @@ export interface WorkPackageEarnedValue {
   /** Absent when the work is not in the plan being measured against. */
   item: EvmItemFigures | null;
   note?: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Calculated fields (BRQ-04: BR-406 to BR-408)                               */
+/* -------------------------------------------------------------------------- */
+
+/** What a calculated field holds. */
+export type CalculatedResultType = 'number' | 'date' | 'text' | 'boolean';
+
+/** What a formula reads, worked out when it is saved. */
+export interface CalculatedFieldReferences {
+  /** Built-in fields: `estimatedHours`, `dueDate`… */
+  attributes: string[];
+  /** OpenProject custom field ids it reads as `cf_<id>`. */
+  customFields: number[];
+  /** Calculated fields read on the same work package. */
+  calculated: string[];
+  /** Calculated fields read on its children. */
+  childCalculated: string[];
+  children: boolean;
+  /** Reads TODAY(): recalculated when the day changes. */
+  today: boolean;
+  /** Reads the working calendar. */
+  calendar: boolean;
+}
+
+/**
+ * A calculated field: a formula EPM evaluates on every work package it
+ * applies to and mirrors into an OpenProject custom field (`column`), so views
+ * show, filter, group and sum it like any field.
+ */
+export interface CalculatedField {
+  id: ID;
+  /** How formulas refer to it. Fixed once made. */
+  key: string;
+  name: string;
+  description?: string;
+  /** Fixed once made. */
+  resultType: CalculatedResultType;
+  expression: string;
+  references: CalculatedFieldReferences;
+  /** Decimal places, for a number. */
+  format: { decimals?: number };
+  /** Its OpenProject custom field. */
+  customFieldId?: ID;
+  /** The column and filter id views use for it: `customField12`. */
+  column?: string;
+  /** Empty: every project. */
+  projectIds: ID[];
+  /** Empty: every type. */
+  typeIds: ID[];
+  active: boolean;
+  version: number;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedBy: ID;
+  updatedAt: ISODate;
+  /** Values held now, and how many of them are empty. */
+  stats?: { values: number; empty: number };
+}
+
+export interface CalculatedFieldInput {
+  key: string;
+  name: string;
+  description?: string | null;
+  resultType: CalculatedResultType;
+  expression: string;
+  format?: { decimals?: number };
+  projectIds?: ID[];
+  typeIds?: ID[];
+}
+
+/** What is wrong with a formula, and where: character offsets into it. */
+export interface FormulaProblem {
+  message: string;
+  start: number;
+  end: number;
+}
+
+/** A formula checked as it is typed, and its value on a chosen work package. */
+export interface CalculatedFieldValidation {
+  ok: boolean;
+  error?: FormulaProblem;
+  type?: CalculatedResultType;
+  references?: CalculatedFieldReferences;
+  complexity?: { nodes: number; depth: number; aggregations: number };
+  limits: { length: number; nodes: number; depth: number; aggregations: number };
+  preview?: {
+    workPackageId: ID;
+    /** A date as YYYY-MM-DD. */
+    value: number | string | boolean | null;
+    /** Why there is no value, when there is none. */
+    reason?: string;
+    /** Whether the field, as scoped, applies to that work package. */
+    inScope: boolean;
+  };
+}
+
+/** One calculated value on one work package. */
+export interface CalculatedValue {
+  fieldId: ID;
+  key: string;
+  name: string;
+  resultType: CalculatedResultType;
+  column?: string;
+  /** A date as YYYY-MM-DD. */
+  value: number | string | boolean | null;
+  reason?: string;
+  updatedAt: ISODate;
+}
+
+/** One pass over every calculated field. */
+export interface CalculatedRun {
+  id: ID;
+  trigger: string;
+  status: string;
+  startedAt: ISODate;
+  finishedAt?: ISODate;
+  day?: string;
+  fields: number;
+  workPackages: number;
+  evaluated: number;
+  empty: number;
+  changed: number;
+  removed: number;
+  mirrored: number;
+  mirrorSkipped: number;
+  mirrorError?: string;
+  readMs?: number;
+  computeMs?: number;
+  storeMs?: number;
+  mirrorMs?: number;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface CalculatedStatus {
+  enabled: boolean;
+  checkSeconds: number;
+  pending: boolean;
+  lastRun?: CalculatedRun;
+  lastCompleted?: CalculatedRun;
+}
+
+/** The reference beside the formula editor. */
+export interface FormulaReference {
+  attributes: { name: string; type: CalculatedResultType; description: string }[];
+  functions: { name: string; signature: string; description: string; aggregate: boolean }[];
+  customFields: { name: string; label: string; format: string; type: CalculatedResultType | null }[];
+  calculated: { key: string; name: string; type: CalculatedResultType; active: boolean }[];
+  limits: { length: number; nodes: number; depth: number; aggregations: number };
 }

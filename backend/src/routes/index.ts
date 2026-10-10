@@ -35,10 +35,12 @@ import { queryRoutes } from './queries.js';
 import { relationRoutes } from './relations.js';
 import { scheduleRoutes } from './schedule.js';
 import { earnedValueRoutes } from './earned-value.js';
+import { calculatedFieldRoutes } from './calculated-fields.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
+import { taskSeriesRoutes } from './task-series.js';
 import { timeEntryRoutes } from './time-entries.js';
 import { teamRoutes } from './teams.js';
 import { userRoutes } from './users.js';
@@ -62,6 +64,8 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(approvalRoutes);
   await app.register(automationRoutes);
   await app.register(taskRoutes);
+  // Recurring tasks (BRQ-02): series, their lifecycle and generation.
+  await app.register(taskSeriesRoutes);
   await app.register(timeEntryRoutes);
   await app.register(teamRoutes);
   await app.register(sprintRoutes);
@@ -79,6 +83,8 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(relationRoutes);
   await app.register(scheduleRoutes);
   await app.register(earnedValueRoutes);
+  // Calculated fields (BRQ-04): definitions, their values, and the passes.
+  await app.register(calculatedFieldRoutes);
   await app.register(commentRoutes);
   await app.register(memberRoutes);
   await app.register(accountRoutes);

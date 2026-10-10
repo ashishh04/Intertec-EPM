@@ -29,6 +29,7 @@ import { automationUserId } from '../domain/automation-account.js';
 import { clauses } from '../domain/notifications.js';
 import { contextLanguage, contextReader, dateOf, listOf, message, type Message } from '../lib/i18n.js';
 import { forgetProjectBaselines } from '../domain/earned-value-store.js';
+import { forgetProjectSeries } from '../domain/task-series.js';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -947,6 +948,8 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     await prisma.projectHealthState.deleteMany({ where: { projectId: id } }).catch(() => undefined);
     await prisma.projectHealthOverride.deleteMany({ where: { projectId: id } }).catch(() => undefined);
     await forgetProjectBaselines(Number(id)).catch(() => undefined);
+    // Its recurring series too: their templates went with it.
+    await forgetProjectSeries(id).catch(() => undefined);
     await recordAudit({
       projectId: id,
       entityType: 'project',

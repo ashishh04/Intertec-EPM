@@ -4,6 +4,7 @@ import * as guard from '../auth/guard.js';
 import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
+import { refuseCalculatedWrites, requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { idFromHref, openProject } from '../openproject/client.js';
@@ -42,6 +43,8 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       }
 
       await guard.require(request, 'task:create', projectId);
+      // A calculated field's value is EPM's to work out, not anybody's to type.
+      await refuseCalculatedWrites(payload);
 
       // The type is chosen outside the schema form, because it decides which
       // fields the schema has. Taken as an id and linked here so the browser
@@ -66,6 +69,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
 
       requestHealthRecalc(projectId);
       requestScheduleRecalc();
+      requestCalculatedRecalc();
       await noteRuleEvent({
         source: 'epm',
         kind: 'work_package.created',
@@ -100,6 +104,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
       // The work package's own project decides this, not the caller.
       const projectId = await guard.projectOfWorkPackage(request, id);
       await guard.require(request, 'task:edit', projectId);
+      await refuseCalculatedWrites(payload);
 
       const signal = requestSignal(request);
       const current = await openProject
@@ -128,6 +133,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
 
       requestHealthRecalc(projectId);
       requestScheduleRecalc();
+      requestCalculatedRecalc();
       await noteRuleEvent({
         source: 'epm',
         kind: 'work_package.updated',
@@ -156,6 +162,7 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
     });
     requestHealthRecalc(projectId);
     requestScheduleRecalc();
+    requestCalculatedRecalc();
     reply.code(204);
   });
 };

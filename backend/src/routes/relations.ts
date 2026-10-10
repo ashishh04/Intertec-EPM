@@ -4,6 +4,7 @@ import { anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
+import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
@@ -260,6 +261,8 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
     const relatedProject = await guard.projectOfWorkPackage(request, relatedId).catch(() => undefined);
     requestHealthRecalc([projectId, ...(relatedProject ? [relatedProject] : [])]);
     requestScheduleRecalc();
+    // OpenProject may have moved the successors' dates, which formulas read.
+    requestCalculatedRecalc();
 
     reply.code(201);
     // Normalized back to the caller's point of view, so a reverse alias reads
@@ -283,6 +286,7 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
     // rather than guessing.
     requestHealthRecalc('all');
     requestScheduleRecalc();
+    requestCalculatedRecalc();
     reply.code(204);
   });
 };

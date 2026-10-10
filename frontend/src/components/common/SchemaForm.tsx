@@ -16,12 +16,14 @@ import { durationToNumber, durationUnitFor, numberToDuration } from '@/lib/durat
 import {
   allowedValuesHref,
   allowedValuesOf,
+  calculatedFields,
   idFromHref,
   writableFields,
   type SchemaField,
   type FormResult,
 } from '@/services/api/forms';
 import { useAllowedValues } from '@/hooks/useCatalog';
+import { formatCalculatedValue } from '@/components/calculated/format';
 
 /** Sentinel for "no value", since a select cannot hold an empty string. */
 const NONE = '__none__';
@@ -229,6 +231,31 @@ function FieldRow({
   );
 }
 
+/**
+ * A calculated field (BR-406): its value and formula, read-only. EPM works it
+ * out after every change, and refuses a value typed for it.
+ */
+function CalculatedRow({ name, field }: { name: string; field: SchemaField }) {
+  const calculated = field.calculated!;
+  return (
+    <FieldRow name={name} field={{ ...field, required: false }}>
+      <Input
+        id={`schema-${name}`}
+        readOnly
+        dir="auto"
+        value={formatCalculatedValue(calculated.resultType, calculated.value)}
+        className="text-muted-foreground"
+      />
+      <FieldHint>
+        {t('Calculated by EPM from its formula; it cannot be set by hand.')}{' '}
+        <span className="font-mono" dir="ltr">
+          {calculated.expression}
+        </span>
+      </FieldHint>
+    </FieldRow>
+  );
+}
+
 export function SchemaForm({
   form,
   values,
@@ -242,7 +269,8 @@ export function SchemaForm({
 }: SchemaFormProps) {
   const fields = useMemo(() => {
     if (!form) return [];
-    let entries = writableFields(form.schema);
+    // Calculated fields too, read-only: EPM works them out (BR-406).
+    let entries = [...writableFields(form.schema), ...calculatedFields(form.schema)];
 
     if (only?.length) {
       const order = new Map(only.map((key, index) => [key, index]));
@@ -271,6 +299,7 @@ export function SchemaForm({
   if (!form) return null;
 
   const renderField = ([name, field]: [string, SchemaField]) => {
+    if (field.calculated) return <CalculatedRow key={name} name={name} field={field} />;
     const error = errors[name];
     const links = values._links as Record<string, unknown> | undefined;
     const raw = values[name] ?? links?.[name];

@@ -70,6 +70,7 @@ export const PERMISSIONS = [
   'rates:view',
   'audit:view',
   'evm:configure',
+  'fields:configure',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -170,6 +171,11 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // like the health rules: granted, not implied by a project role.
   'evm:configure':
     'The earned value rules are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // A calculated field's formula sets figures on every project's work, and
+  // EPM makes and owns the OpenProject field behind it: a definition for the
+  // whole instance, granted rather than implied by a project role.
+  'fields:configure':
+    'Calculated fields are EPM-owned definitions; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };
