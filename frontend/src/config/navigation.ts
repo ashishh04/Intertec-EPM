@@ -72,6 +72,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { get label() { return t('My Work'); }, to: '/my-work', icon: ListTodo },
       { get label() { return t('My Time'); }, to: '/my-time', icon: Timer },
+      { get label() { return t('Timesheets'); }, to: '/timesheets', icon: CalendarClock, matchNested: true },
+      { get label() { return t('Expenses'); }, to: '/expenses', icon: Coins, matchNested: true },
       { get label() { return t('Approvals'); }, to: '/approvals', icon: ClipboardCheck, matchNested: true, badge: 'approvals' },
       { get label() { return t('Projects'); }, to: '/projects', icon: FolderKanban, matchNested: true },
       { get label() { return t('Tasks'); }, to: '/tasks', icon: SquareKanban },

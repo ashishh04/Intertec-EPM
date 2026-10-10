@@ -524,6 +524,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('Hours per day and days per month used to convert durations.'); },
       },
       {
+        id: 'rules',
+        get label() { return t('Timesheets, policies and expenses'); },
+        kind: 'live',
+        get description() { return t('The timesheet period and its hours, the time logging policies, and the receipt threshold for claims.'); },
+      },
+      {
         id: 'activities',
         get label() { return t('Time tracking activities'); },
         kind: 'managed',
@@ -532,8 +538,8 @@ export const ADMIN_AREAS: AdminArea[] = [
       {
         id: 'cost-types',
         get label() { return t('Cost types'); },
-        kind: 'managed',
-        get description() { return t('Units of non-labour cost and their rates.'); },
+        kind: 'live',
+        get description() { return t('Units of non-labour cost and their rates; expense claims are made under them.'); },
       },
     ],
   },

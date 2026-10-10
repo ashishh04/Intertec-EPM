@@ -11,7 +11,9 @@ import { evaluateMeasures, measureById, type Period, type Viewer } from './measu
 /**
  * The priced time entries behind a cost figure, for one project (BR-202): the
  * last step of the drill from a portfolio's budget variance, through its
- * projects, to the entries that made the cost.
+ * projects, to the entries that made the cost — with every other cost recorded
+ * on the project beside them, OpenProject unit costs and approved expense
+ * claims (Module 10), as the analytics model holds them.
  *
  * Read with the caller's own session, so OpenProject decides which entries
  * they may see — as the Time & Costs report does — and priced by the one
@@ -21,6 +23,7 @@ import { evaluateMeasures, measureById, type Period, type Viewer } from './measu
 
 export interface CostEntry {
   id: string;
+  kind: 'time' | 'cost';
   spentOn: string;
   hours: number;
   userId: string;
@@ -41,8 +44,8 @@ export interface CostEntries {
   total: number;
   page: number;
   pageSize: number;
-  totals: { hours: number; costedHours: number; uncostedHours: number; cost: number };
-  /** The labour cost the figure was made from, for this project, and whether these entries add up to it. */
+  totals: { hours: number; costedHours: number; uncostedHours: number; cost: number; otherCost: number };
+  /** The cost the figure was made from, for this project, and whether these entries add up to it. */
   figure: { actual: number | null; matches: boolean };
 }
 
@@ -75,13 +78,14 @@ export async function costEntries(
   ]);
   const rateOf = new Map(rates.map((row) => [row.openProjectId, row.hourlyRate ?? 0]));
 
-  const entries: CostEntry[] = collection.items.map((entry) => {
+  const logged: CostEntry[] = collection.items.map((entry) => {
     const links = entry._links ?? {};
     const userId = linkId(links, 'user') ?? '';
     const hours = durationToHours(entry.hours) ?? 0;
     const rate = rateOf.get(userId);
     return {
       id: String(entry.id),
+      kind: 'time' as const,
       spentOn: entry.spentOn,
       hours,
       userId,
@@ -93,11 +97,35 @@ export async function costEntries(
     };
   });
 
+  // Every other cost on the project, in the window: OpenProject unit costs,
+  // approved expense claims among them.
+  const subjects = new Map(facts.workPackages.map((work) => [work.id, work.subject]));
+  const others: CostEntry[] = facts.costs
+    .filter((entry) => entry.projectId === Number(projectId) && (!inPeriod || (entry.spentOn >= period.from && entry.spentOn <= period.to)))
+    .map((entry) => ({
+      id: `cost-${entry.id}`,
+      kind: 'cost' as const,
+      spentOn: entry.spentOn,
+      hours: 0,
+      userId: entry.userId === null ? '' : String(entry.userId),
+      userName: entry.userId === null ? '' : facts.users.get(entry.userId)?.name ?? `User ${entry.userId}`,
+      workPackageId: entry.workPackageId === null ? undefined : String(entry.workPackageId),
+      workPackageSubject: entry.workPackageId === null ? undefined : subjects.get(entry.workPackageId),
+      activity: entry.costType ?? undefined,
+      cost: roundMoney(entry.amount),
+    }));
+  const entries = [...logged, ...others].sort((a, b) => b.spentOn.localeCompare(a.spentOn));
+
   let hours = 0;
   let costedHours = 0;
   let uncostedHours = 0;
   let cost = 0;
+  let otherCost = 0;
   for (const entry of entries) {
+    if (entry.kind === 'cost') {
+      otherCost += entry.cost ?? 0;
+      continue;
+    }
     if (entry.hours <= 0) continue;
     hours += entry.hours;
     if (entry.cost === null) uncostedHours += entry.hours;
@@ -122,8 +150,9 @@ export async function costEntries(
       hours: roundMoney(hours),
       costedHours: roundMoney(costedHours),
       uncostedHours: roundMoney(uncostedHours),
-      cost: roundMoney(cost),
+      cost: roundMoney(cost + otherCost),
+      otherCost: roundMoney(otherCost),
     },
-    figure: { actual, matches: actual !== null && Math.abs(actual - roundMoney(cost)) < 0.005 },
+    figure: { actual, matches: actual !== null && Math.abs(actual - roundMoney(cost + otherCost)) < 0.005 },
   };
 }

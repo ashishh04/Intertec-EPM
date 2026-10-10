@@ -166,6 +166,9 @@ model ProjectProfile {
   /// Whether time logged here is billable (BR-315); null follows the
   /// instance's default in the resource settings.
   billable           Boolean?
+  /// Whether the project's owner approves the time people log here, after
+  /// their line manager (BR-305); null means yes.
+  timesheetApproval  Boolean?
   lastNotifiedHealth String?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
@@ -1585,4 +1588,102 @@ model ReportArtifact {
   @@index([deliveryId])
   @@index([createdAt])
   @@map("report_artifacts")
+}
+
+/// Time and expense settings (Module 10: BR-304 to BR-309, BR-317): the
+/// timesheet period and its bounds, the time logging policies, the receipt
+/// threshold. Each save is a version.
+model TimeSettingSet {
+  id        String   @id @default(cuid())
+  version   Int      @unique
+  settings  Json
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@map("time_setting_sets")
+}
+
+/// One person's time for one period, submitted for approval (BR-304 to
+/// BR-306). Created when it is first submitted; until then a period simply has
+/// no timesheet. Submitted or approved, the time it covers is locked.
+model Timesheet {
+  id              String    @id @default(cuid())
+  personId        String
+  periodStart     DateTime  @db.Date
+  periodEnd       DateTime  @db.Date
+  /// draft | submitted | approved. A rejection returns it to draft.
+  status          String    @default("draft")
+  /// What was submitted, as it stood.
+  hours           Float?
+  entries         Int?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  /// The approval request in flight, or the last one.
+  requestId       String?
+  /// The last rejection, shown to the person until they submit again.
+  rejectedAt      DateTime?
+  rejectedBy      String?
+  rejectionReason String?
+  /// Opened again after approval, by someone allowed to, and why.
+  reopenedAt      DateTime?
+  reopenedBy      String?
+  reopenReason    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([personId, periodStart])
+  @@index([periodStart, status])
+  @@map("timesheets")
+}
+
+/// An expense claim (BR-307 to BR-309): a cost a person paid for a project,
+/// with its receipts, through approval to an OpenProject cost entry.
+model ExpenseClaim {
+  id              String           @id @default(cuid())
+  claimantId      String
+  projectId       Int
+  workPackageId   Int
+  /// The OpenProject cost type it is claimed under: its category.
+  costTypeId      Int
+  amount          Decimal          @db.Decimal(14, 2)
+  currency        String
+  spentOn         DateTime         @db.Date
+  description     String
+  /// draft | submitted | approved | posted. A rejection returns it to draft.
+  status          String           @default("draft")
+  requestId       String?
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  rejectedBy      String?
+  rejectionReason String?
+  /// The OpenProject cost entry it became, once approved.
+  costEntryId     Int?
+  postedAt        DateTime?
+  /// Why posting failed, if it did; it is tried again.
+  postError       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  receipts        ExpenseReceipt[]
+
+  @@index([claimantId, status])
+  @@index([projectId, status])
+  @@index([status, spentOn])
+  @@map("expense_claims")
+}
+
+/// A receipt for a claim, kept in EPM's own database.
+model ExpenseReceipt {
+  id          String       @id @default(cuid())
+  claimId     String
+  claim       ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  fileName    String
+  contentType String
+  size        Int
+  content     Bytes
+  uploadedBy  String
+  createdAt   DateTime     @default(now())
+
+  @@index([claimId])
+  @@map("expense_receipts")
 }

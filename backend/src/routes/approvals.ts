@@ -59,8 +59,20 @@ async function assertMayRead(request: FastifyRequest, id: string) {
     row.requestedBy === viewer || row.tasks.some((task) => task.approverId === viewer || task.delegateId === viewer);
   if (involved || (await mayConfigure(request))) return row;
 
+  // A timesheet or an expense claim is personal: those involved, and whoever
+  // manages timesheets or claims, read it — not everyone on the project.
+  const permissions = await guard.permissionsFor(request);
+  if (row.subjectType === 'timesheet') {
+    if (allows(permissions, 'timesheets:manage')) return row;
+    throw EpmError.notFound('That approval request');
+  }
+  if (row.subjectType === 'expense_claim') {
+    if (allows(permissions, 'expenses:manage')) return row;
+    throw EpmError.notFound('That approval request');
+  }
+
   const visible = (await loadProjects(requestSignal(request))).some((project) => project.id === row.projectId);
-  if (visible && allows(await guard.permissionsFor(request), 'task:view', row.projectId)) return row;
+  if (visible && allows(permissions, 'task:view', row.projectId)) return row;
   throw EpmError.notFound('That approval request');
 }
 
@@ -153,7 +165,8 @@ export const approvalRoutes: FastifyPluginAsync = async (app) => {
       const projectIds = (await loadProjects(requestSignal(request)))
         .filter((project) => allows(permissions, 'task:view', project.id))
         .map((project) => project.id);
-      return listRequests({ viewerId, mayCancelAny: configure, projectIds, status: query.status });
+      // Work packages only: a project's members do not read each other's timesheets or claims.
+      return listRequests({ viewerId, mayCancelAny: configure, projectIds, subjectType: 'work_package', status: query.status });
     }
     return listRequests({ viewerId, mayCancelAny: configure, requestedBy: viewerId, status: query.status });
   });

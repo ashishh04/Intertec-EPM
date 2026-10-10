@@ -203,6 +203,9 @@ export type Permission =
   | 'evm:configure'
   | 'resources:plan'
   | 'resources:configure'
+  | 'timesheets:manage'
+  | 'expenses:manage'
+  | 'time:configure'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -346,6 +349,8 @@ export interface ProjectPlanInput {
   budgetTotal?: number | null;
   /** Whether time logged here is billable (BR-315); null follows the instance default. */
   billable?: boolean | null;
+  /** Whether the project's owner approves time logged here (BR-305); null means yes. */
+  timesheetApproval?: boolean | null;
 }
 
 /**
@@ -500,6 +505,8 @@ export interface EpmProject {
   budgetTotal: number;
   /** Whether time logged here is billable (BR-315); null follows the instance default. */
   billable: boolean | null;
+  /** Whether the project's owner approves time logged here (BR-305); null means yes. */
+  timesheetApproval: boolean | null;
   /**
    * What the caller may do to the project itself, read from the resource's own
    * links rather than inferred. Deleting is published only where the instance
@@ -916,6 +923,8 @@ export interface EpmTimeEntry {
   createdAt: ISODate;
   updatedAt: ISODate;
   can: { update: boolean; delete: boolean };
+  /** On a submitted or approved timesheet: nobody may change it until that is withdrawn or reopened (BR-304). */
+  locked?: boolean;
 }
 
 export interface TimeEntryFilters {
@@ -1774,6 +1783,9 @@ export type ApprovalApproverSpec =
 
 export type ApprovalConditionOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'in' | 'not_in';
 
+/** What a chain decides: a work package, a timesheet (BR-305) or an expense claim (BR-308). */
+export type ApprovalSubjectType = 'work_package' | 'timesheet' | 'expense_claim';
+
 /**
  * When a step applies (BR-211). `field` is `value` (the chain's value field),
  * `type`, `priority`, `project`, `portfolio`, or a custom field such as
@@ -1800,6 +1812,8 @@ export interface ApprovalStep {
   slaHours?: number;
   /** Who is told when the SLA is breached. Absent or empty: the project owner. */
   escalateTo?: ApprovalApproverSpec[];
+  /** When nobody is found to approve it, skip the step rather than refuse the submission. */
+  skipIfNobody?: boolean;
 }
 
 /** A chain as an administrator defines it (BR-211). */
@@ -1807,7 +1821,7 @@ export interface ApprovalChain {
   id: ID;
   name: string;
   description?: string;
-  subjectType: 'work_package';
+  subjectType: ApprovalSubjectType;
   /** Work package types it covers; empty means every type. */
   typeIds: ID[];
   /** Projects it covers; empty means every project. */
@@ -1832,6 +1846,7 @@ export type ApprovalChainInput = Pick<
   ApprovalChain,
   | 'name'
   | 'description'
+  | 'subjectType'
   | 'typeIds'
   | 'projectIds'
   | 'valueField'
@@ -1895,12 +1910,15 @@ export interface ApprovalRequestView {
   id: ID;
   chainId: ID;
   chainName: string;
-  subjectType: 'work_package';
+  subjectType: ApprovalSubjectType;
   subjectId: ID;
+  /** Empty for a timesheet, whose time can be on several projects. */
   projectId: ID;
   projectName?: string;
-  /** The work package's key and subject. */
+  /** The subject's key and title. */
   title: string;
+  /** Where the subject opens in EPM. */
+  link: string;
   value?: number;
   /** The value field's name, e.g. "Change value". */
   valueLabel?: string;
@@ -2725,10 +2743,17 @@ export interface PortfolioOverview {
   reconciled: boolean;
 }
 
-/** A time entry behind a cost figure, priced by the labour cost rule (BR-202). */
+/**
+ * What a cost figure is made of (BR-202): a time entry priced by the labour cost
+ * rule, or another cost recorded on the project — an OpenProject unit cost, an
+ * approved expense claim among them (BR-309).
+ */
 export interface CostEntry {
   id: ID;
+  /** Absent on rows from before Module 10: a time entry. */
+  kind?: 'time' | 'cost';
   spentOn: ISODate;
+  /** Nought for a cost that is not time. */
   hours: number;
   userId: ID;
   userName: string;
@@ -2755,8 +2780,9 @@ export interface CostEntries {
    * the project is.
    */
   costHidden?: boolean;
-  totals: { hours: number; costedHours: number; uncostedHours: number; cost: number };
-  /** The labour cost the figure was made from, for this project, and whether these entries add up to it. */
+  /** `cost` is everything; `otherCost` the part that is not labour. */
+  totals: { hours: number; costedHours: number; uncostedHours: number; cost: number; otherCost?: number };
+  /** The cost the figure was made from, for this project, and whether these entries add up to it. */
   figure: { actual: number | null; matches: boolean };
 }
 
@@ -3319,4 +3345,191 @@ export interface WorkPackagePin {
   pinnedBy: string;
   pinnedAt: string;
   previousScheduleManually: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Time and expense (Module 10: BR-304 to BR-309, BR-317)                      */
+/* -------------------------------------------------------------------------- */
+
+export type TimesheetPeriodKind = 'week' | 'month';
+
+/** A time logging policy (BR-317): on or off, and its figure where it has one. */
+export interface TimePolicies {
+  /** No more than this many hours in one day, all entries together. */
+  maxDailyHours: { active: boolean; hours: number };
+  /** No time logged for a day more than this many days ago. */
+  backdating: { active: boolean; days: number };
+  /** Every entry names an activity. */
+  mandatoryActivity: { active: boolean };
+  /** No time logged on a work package that is closed. */
+  closedWorkPackages: { active: boolean };
+}
+
+export interface TimeSettings {
+  version: number;
+  timesheets: {
+    period: TimesheetPeriodKind;
+    /** The fewest hours a timesheet may be submitted with: the person's available hours (Module 6), a fixed figure, or none. */
+    minimum: { basis: 'available' | 'fixed' | 'none'; hours: number | null };
+    /** The most: a fixed figure, or none. */
+    maximum: { basis: 'fixed' | 'none'; hours: number | null };
+    /** Every hour on a submitted timesheet is on a work package, not just a project. */
+    requireWorkPackage: boolean;
+    /** Remind people whose timesheet for a closed period is not in. */
+    reminders: boolean;
+  };
+  policies: TimePolicies;
+  expenses: {
+    /** A claim above this needs a receipt (BR-307). */
+    receiptThreshold: number;
+    currency: string;
+  };
+  updatedBy?: ID;
+  updatedAt?: ISODate;
+}
+
+export type TimesheetStatus = 'draft' | 'submitted' | 'approved';
+
+export interface TimesheetRejection {
+  at: ISODate;
+  by: ID;
+  byName?: string;
+  reason: string;
+}
+
+/** One person's timesheet for one period, as they or an approver see it. */
+export interface TimesheetView {
+  /** Absent until it is first submitted. */
+  id?: ID;
+  personId: ID;
+  personName: string;
+  periodStart: ISODate;
+  periodEnd: ISODate;
+  /** Whether the period has ended. */
+  closed: boolean;
+  status: TimesheetStatus;
+  /** Time logged in the period now, or as submitted once it is locked. */
+  hours: number;
+  entries: number;
+  /** Hours on no work package, when every hour must be on one. */
+  unattributedHours: number;
+  /** The person's available hours in the period (BR-312). */
+  available: number;
+  bounds: { minimum: number | null; maximum: number | null };
+  /** Time in each project. */
+  projects: { projectId: ID; projectName: string; hours: number }[];
+  /** What stops it being submitted now, if anything. */
+  problems: string[];
+  locked: boolean;
+  submittedAt?: ISODate;
+  approvedAt?: ISODate;
+  /** The last rejection, until it is submitted again (BR-305). */
+  rejection?: TimesheetRejection;
+  reopened?: { at: ISODate; by: ID; byName?: string; reason: string };
+  request?: ApprovalRequestView;
+  can: { submit: boolean; withdraw: boolean; reopen: boolean };
+}
+
+/** One of a person's own timesheets, in their history. */
+export interface TimesheetSummary {
+  id: ID;
+  periodStart: ISODate;
+  periodEnd: ISODate;
+  status: TimesheetStatus;
+  /** Rejected and not yet submitted again. */
+  rejected: boolean;
+  /** As submitted. */
+  hours: number | null;
+  submittedAt?: ISODate;
+  approvedAt?: ISODate;
+  rejectedAt?: ISODate;
+}
+
+/** One person in the timesheet overview (BR-306). */
+export interface TimesheetRow {
+  personId: ID;
+  personName: string;
+  teamId?: ID;
+  departmentId?: ID;
+  timesheetId?: ID;
+  /** `missing`: no timesheet has been submitted for the period. */
+  status: TimesheetStatus | 'missing';
+  /** Rejected and not yet submitted again. */
+  rejected: boolean;
+  hours: number;
+  available: number;
+  submittedAt?: ISODate;
+  approvedAt?: ISODate;
+  rejectedAt?: ISODate;
+  /** Expected to submit for a closed period, and has not. */
+  outstanding: boolean;
+}
+
+export interface TimesheetOverview {
+  periodStart: ISODate;
+  periodEnd: ISODate;
+  closed: boolean;
+  rows: TimesheetRow[];
+  counts: { submitted: number; approved: number; rejected: number; outstanding: number };
+}
+
+/** A category to claim under: an OpenProject cost type. */
+export interface ExpenseCategory {
+  id: ID;
+  name: string;
+  unit: string;
+  unitPlural: string;
+  /** The cost of one unit today; 1 for an amount in the currency. */
+  rate: number | null;
+  /** Whether a unit is the currency itself, so units are the amount. */
+  isAmount: boolean;
+}
+
+export type ExpenseClaimStatus = 'draft' | 'submitted' | 'approved' | 'posted';
+
+export interface ExpenseReceiptView {
+  id: ID;
+  fileName: string;
+  contentType: string;
+  size: number;
+  uploadedAt: ISODate;
+}
+
+export interface ExpenseClaimView {
+  id: ID;
+  claimantId: ID;
+  claimantName: string;
+  projectId: ID;
+  projectName: string;
+  workPackageId: ID;
+  workPackageSubject?: string;
+  categoryId: ID;
+  categoryName: string;
+  amount: number;
+  currency: string;
+  spentOn: ISODate;
+  description: string;
+  status: ExpenseClaimStatus;
+  receipts: ExpenseReceiptView[];
+  /** Whether its amount needs a receipt (BR-307). */
+  receiptRequired: boolean;
+  submittedAt?: ISODate;
+  approvedAt?: ISODate;
+  postedAt?: ISODate;
+  /** The OpenProject cost entry it became (BR-309). */
+  costEntryId?: ID;
+  /** Why posting it failed, while it has not been posted. */
+  postError?: string;
+  rejection?: TimesheetRejection;
+  request?: ApprovalRequestView;
+  can: { edit: boolean; submit: boolean; withdraw: boolean; delete: boolean; post: boolean };
+}
+
+export interface ExpenseClaimInput {
+  projectId: ID;
+  workPackageId: ID;
+  categoryId: ID;
+  amount: number;
+  spentOn: ISODate;
+  description: string;
 }

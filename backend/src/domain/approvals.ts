@@ -24,6 +24,7 @@ import type {
   ApprovalStep,
   ApprovalStepView,
   ApprovalSubjectState,
+  ApprovalSubjectType,
   ApprovalTaskView,
 } from '../types/epm.js';
 import { auditRow, recordAuditQuietly, type AuditInput } from './audit.js';
@@ -70,18 +71,56 @@ interface OpWorkPackage {
   [field: string]: unknown;
 }
 
-/** A work package, as the engine needs it. */
+/** A subject — a work package, a timesheet, an expense claim — as the engine needs it. */
 export interface LoadedSubject {
   id: string;
   key: string;
   title: string;
+  /** Empty for a timesheet, whose time can be on several projects. */
   projectId: string;
   projectName: string;
   typeId?: string;
   statusId?: string;
   priorityId?: string;
   facts: SubjectFacts;
+  /** Its own value, where it has one: a claim's amount, a timesheet's hours. A work package's comes from the chain's value field. */
+  value?: number | null;
+  /** What that value is called: "Amount", "Hours". */
+  valueLabel?: string;
+  /** The projects a "project owner" step asks, when there are several: a timesheet's. */
+  projectIds?: string[];
 }
+
+/**
+ * What the engine needs from a subject other than a work package (Module 10):
+ * how to read it, where it opens, and what an outcome does to it. Registered
+ * by the module that owns the subject, so the engine imports none of them.
+ */
+export interface SubjectAdapter {
+  type: Exclude<ApprovalSubjectType, 'work_package'>;
+  load(id: string): Promise<LoadedSubject>;
+  link(id: string): string;
+  /** An outcome: approved, rejected with the reason, or withdrawn. A failure is recorded on the request, never thrown. */
+  onOutcome(
+    outcome: 'approved' | 'rejected' | 'withdrawn',
+    request: ApprovalRequest,
+    detail: { actorId: string | null; comment?: string },
+  ): Promise<void>;
+}
+
+const adapters = new Map<string, SubjectAdapter>();
+
+export function registerSubjectAdapter(adapter: SubjectAdapter): void {
+  adapters.set(adapter.type, adapter);
+}
+
+/** Where a subject opens in EPM. */
+export function subjectLink(type: string, id: string): string {
+  return adapters.get(type)?.link(id) ?? `/tasks/${id}`;
+}
+
+/** The project an approval's journal entries belong to: none for a timesheet. */
+const journalProject = (projectId: string) => projectId || null;
 
 /**
  * Reads a work package with the service key.
@@ -214,7 +253,7 @@ async function projectMembers(projectId: string): Promise<{ userId: string; role
 /** The people a list of approver specs names, for one project and requester. */
 export async function resolveApprovers(
   specs: ApprovalApproverSpec[],
-  context: { projectId: string; requesterId: string },
+  context: { projectId: string; projectIds?: string[]; requesterId: string },
 ): Promise<string[]> {
   return runAsSystem(async () => {
     const people = new Set<string>();
@@ -225,13 +264,13 @@ export async function resolveApprovers(
       if (spec.kind === 'user') {
         if (known.has(spec.userId)) people.add(spec.userId);
       } else if (spec.kind === 'project_owner') {
-        const profile = await prisma.projectProfile.findUnique({
-          where: { openProjectId: context.projectId },
-          select: { ownerId: true },
-        });
-        if (profile?.ownerId) people.add(profile.ownerId);
+        const projectIds = (context.projectIds ?? [context.projectId]).filter(Boolean);
+        const profiles = projectIds.length
+          ? await prisma.projectProfile.findMany({ where: { openProjectId: { in: projectIds } }, select: { ownerId: true } })
+          : [];
+        for (const profile of profiles) if (profile.ownerId) people.add(profile.ownerId);
       } else if (spec.kind === 'project_role') {
-        members ??= await projectMembers(context.projectId).catch(() => []);
+        members ??= context.projectId ? await projectMembers(context.projectId).catch(() => []) : [];
         for (const member of members) if (member.roleIds.includes(spec.roleId)) people.add(member.userId);
       } else {
         const profile = await prisma.userProfile.findUnique({
@@ -286,7 +325,8 @@ const formatNumber = (value: number) => value.toLocaleString('en-US', { maximumF
  * person is shown before submitting is exactly what then happens.
  */
 async function plan(chain: ApprovalChain, subject: LoadedSubject): Promise<{ snapshot: ChainSnapshot; value: number | null }> {
-  const value = chain.valueField ? subject.facts.customFields[chain.valueField]?.number ?? null : null;
+  const value =
+    subject.value !== undefined ? subject.value : chain.valueField ? subject.facts.customFields[chain.valueField]?.number ?? null : null;
   const facts: SubjectFacts = { ...subject.facts, value };
 
   const [names, catalog, projects, portfolios] = await Promise.all([
@@ -296,7 +336,7 @@ async function plan(chain: ApprovalChain, subject: LoadedSubject): Promise<{ sna
     prisma.portfolio.findMany({ select: { id: true, name: true } }).catch(() => []),
   ]);
   // "Value" is a phrase: in a journal entry it reads in the reader's language.
-  const valueLabel = chain.valueField ? names.get(chain.valueField) ?? msg('Value') : undefined;
+  const valueLabel = subject.valueLabel ?? (chain.valueField ? names.get(chain.valueField) ?? msg('Value') : undefined);
   const valueName = (field: string, id: string): string | undefined => {
     if (field === 'type') return catalog.typeById.get(id)?.name;
     if (field === 'priority') return catalog.priorityById.get(id)?.name;
@@ -471,23 +511,51 @@ type RequestWithTasks = ApprovalRequest & { tasks: ApprovalTask[] };
  * approve it — each with a sentence saying which.
  */
 export async function submitForApproval(subjectId: string, requesterId: string): Promise<string> {
-  const subject = await loadWorkPackage(subjectId);
+  return submitSubject('work_package', subjectId, requesterId);
+}
+
+/**
+ * Submits any subject: a work package, or one an adapter reads (Module 10).
+ * The subject's owner records the request id it returns.
+ */
+export async function submitSubject(type: ApprovalSubjectType, subjectId: string, requesterId: string): Promise<string> {
+  const workPackage = type === 'work_package';
+  const adapter = adapters.get(type);
+  if (!workPackage && !adapter) throw new Error(`No approval adapter is registered for ${type}.`);
+  const subject = adapter ? await adapter.load(subjectId) : await loadWorkPackage(subjectId);
 
   const pending = await prisma.approvalRequest.findFirst({
-    where: { subjectType: 'work_package', subjectId, status: 'pending' },
+    where: { subjectType: type, subjectId, status: 'pending' },
   });
-  if (pending) throw EpmError.conflict('This work package is already waiting for approval.');
+  if (pending) {
+    throw EpmError.conflict(workPackage ? 'This work package is already waiting for approval.' : 'It is already waiting for approval.');
+  }
 
-  const chain = pickChain(await activeChains(), subject);
-  if (!chain) throw EpmError.badRequest('No approval chain applies to this work package.');
+  const chain = pickChain(await activeChains(), { subjectType: type, typeId: subject.typeId, projectId: subject.projectId });
+  if (!chain) {
+    throw EpmError.badRequest(
+      workPackage
+        ? 'No approval chain applies to this work package.'
+        : message(
+            'No approval chain is set up for {kind, select, timesheet {timesheets} other {expense claims}}. Ask an administrator to add one under Approval chains.',
+            { kind: type },
+          ),
+    );
+  }
 
   const { snapshot, value } = await plan(chain, subject);
   const names = await nameIndex();
 
   for (const step of snapshot.steps) {
     if (!step.applies) continue;
-    let approvers = await resolveApprovers(step.approvers, { projectId: subject.projectId, requesterId });
+    let approvers = await resolveApprovers(step.approvers, { projectId: subject.projectId, projectIds: subject.projectIds, requesterId });
     if (!chain.allowSelfApproval) approvers = approvers.filter((id) => id !== requesterId);
+    if (approvers.length === 0 && step.skipIfNobody) {
+      step.applies = false;
+      step.conditionMessage = message('Skipped: nobody to approve it.');
+      step.conditionText = render('en', step.conditionMessage);
+      continue;
+    }
     if (approvers.length === 0) {
       throw EpmError.validation(
         message(
@@ -502,10 +570,14 @@ export async function submitForApproval(subjectId: string, requesterId: string):
   const first = snapshot.steps.findIndex((step) => step.applies);
   if (first < 0) {
     throw EpmError.validation(
-      message(
-        'No step of {chain} applies to this work package, so nobody would decide it. Check its values, or ask an administrator to adjust the chain.',
-        { chain: chain.name },
-      ),
+      workPackage
+        ? message(
+            'No step of {chain} applies to this work package, so nobody would decide it. Check its values, or ask an administrator to adjust the chain.',
+            { chain: chain.name },
+          )
+        : message('No step of {chain} applies here, so nobody would decide it. Ask an administrator to adjust the chain.', {
+            chain: chain.name,
+          }),
     );
   }
 
@@ -516,7 +588,7 @@ export async function submitForApproval(subjectId: string, requesterId: string):
       data: {
         chainId: chain.id,
         chainSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-        subjectType: 'work_package',
+        subjectType: type,
         subjectId,
         projectId: subject.projectId,
         title: subject.title,
@@ -542,7 +614,7 @@ export async function submitForApproval(subjectId: string, requesterId: string):
     await tx.auditEvent.create({
       data: auditRow({
         actorId: requesterId,
-        projectId: subject.projectId,
+        projectId: journalProject(subject.projectId),
         entityType: 'approval-request',
         entityId: request.id,
         action: 'approval.submitted',
@@ -568,7 +640,7 @@ export async function submitForApproval(subjectId: string, requesterId: string):
     return { request, activated };
   });
 
-  if (snapshot.onSubmitStatusId) {
+  if (workPackage && snapshot.onSubmitStatusId) {
     await moveSubjectStatus(request.id, subjectId, subject.projectId, snapshot.onSubmitStatusId, 'submission');
   }
   await announceTasks(request, snapshot, activated);
@@ -586,7 +658,7 @@ function stepStarted(
   const delegated = tasks.filter((task) => task.delegateId);
   return {
     actorId: null,
-    projectId: request.projectId,
+    projectId: journalProject(request.projectId),
     entityType: 'approval-request',
     entityId: request.id,
     action: 'approval.step.started',
@@ -683,7 +755,7 @@ export async function decideTask(input: {
     await tx.auditEvent.create({
       data: auditRow({
         actorId: input.actorId,
-        projectId: request.projectId,
+        projectId: journalProject(request.projectId),
         entityType: 'approval-request',
         entityId: request.id,
         action: 'approval.decided',
@@ -712,7 +784,7 @@ export async function decideTask(input: {
       await tx.auditEvent.create({
         data: auditRow({
           actorId: null,
-          projectId: request.projectId,
+          projectId: journalProject(request.projectId),
           entityType: 'approval-request',
           entityId: request.id,
           action: 'approval.completed',
@@ -761,14 +833,42 @@ export async function decideTask(input: {
   const snapshot = snapshotOf(request.chainSnapshot);
 
   if (outcome.status === 'approved' || outcome.status === 'rejected') {
-    const target = outcome.status === 'approved' ? snapshot.onApproveStatusId : snapshot.onRejectStatusId;
-    if (target) await moveSubjectStatus(request.id, request.subjectId, request.projectId, target, outcome.status);
-    else await prisma.approvalRequest.update({ where: { id: request.id }, data: { outcomeAppliedAt: new Date() } });
+    const adapter = adapters.get(request.subjectType);
+    if (adapter) {
+      await applyOutcome(adapter, outcome.status, request, { actorId: input.actorId, comment });
+    } else {
+      const target = outcome.status === 'approved' ? snapshot.onApproveStatusId : snapshot.onRejectStatusId;
+      if (target) await moveSubjectStatus(request.id, request.subjectId, request.projectId, target, outcome.status);
+      else await prisma.approvalRequest.update({ where: { id: request.id }, data: { outcomeAppliedAt: new Date() } });
+    }
     await announceOutcome(request, snapshot, input.actorId, comment);
   }
   if (outcome.activated.length > 0) await announceTasks(request, snapshot, outcome.activated);
 
   return request.id;
+}
+
+/**
+ * Tells a subject's owner what was decided. Recorded on the request whichever
+ * way it goes; the decision stands either way.
+ */
+async function applyOutcome(
+  adapter: SubjectAdapter,
+  outcome: 'approved' | 'rejected' | 'withdrawn',
+  request: ApprovalRequest,
+  detail: { actorId: string | null; comment?: string },
+): Promise<void> {
+  try {
+    await adapter.onOutcome(outcome, request, detail);
+    if (outcome !== 'withdrawn') {
+      await prisma.approvalRequest.update({ where: { id: request.id }, data: { outcomeAppliedAt: new Date(), outcomeError: null } });
+    }
+  } catch (error) {
+    appLog.warn({ err: error, requestId: request.id, outcome }, 'Could not apply an approval outcome');
+    await prisma.approvalRequest
+      .update({ where: { id: request.id }, data: { outcomeError: error instanceof Error ? error.message : String(error) } })
+      .catch(() => undefined);
+  }
 }
 
 /**
@@ -862,7 +962,7 @@ export async function cancelRequest(input: {
     await tx.auditEvent.create({
       data: auditRow({
         actorId: input.actorId,
-        projectId: request.projectId,
+        projectId: journalProject(request.projectId),
         entityType: 'approval-request',
         entityId: request.id,
         action: 'approval.cancelled',
@@ -872,6 +972,12 @@ export async function cancelRequest(input: {
     });
     return updated;
   });
+
+  const adapter = adapters.get(request.subjectType);
+  if (adapter) {
+    await applyOutcome(adapter, 'withdrawn', request, { actorId: input.actorId, comment: reason ?? undefined });
+    return;
+  }
 
   // Only put the status back if the work package is still where submission
   // left it: anything else is somebody's later decision, not ours to undo.
@@ -932,7 +1038,7 @@ async function announceTasks(
                 requester: names(request.requestedBy),
                 step: task.stepName,
               }),
-          link: `/tasks/${request.subjectId}`,
+          link: subjectLink(request.subjectType, request.subjectId),
           severity: 'info',
           dedupeKey: `approval-task:${task.id}:${recipientId}`,
         });
@@ -957,7 +1063,8 @@ async function announceTasks(
             dueAt: task.dueAt?.toISOString(),
             approveUrl: `${decideUrl}?decision=approve`,
             rejectUrl: `${decideUrl}?decision=reject`,
-            openUrl: `${env.APP_BASE_URL}/tasks/${request.subjectId}`,
+            openUrl: `${env.APP_BASE_URL}${subjectLink(request.subjectType, request.subjectId)}`,
+            subjectKind: request.subjectType as ApprovalSubjectType,
           },
           channel: 'immediate',
           dedupeKey: `approval-link:${task.id}:${recipientId}`,
@@ -1000,7 +1107,7 @@ async function announceOutcome(
           : message('Decided by {name}.', { name: decidedBy }),
         comment ? message('“{comment}”', { comment }) : undefined,
       ),
-      link: `/tasks/${request.subjectId}`,
+      link: subjectLink(request.subjectType, request.subjectId),
       severity: outcome === 'approved' ? 'info' : 'warning',
       dedupeKey: `approval-outcome:${request.id}`,
     });
@@ -1021,7 +1128,8 @@ async function announceOutcome(
         decidedBy: asText(decidedBy),
         onBehalfOf: onBehalfOf === undefined ? undefined : asText(onBehalfOf),
         comment,
-        openUrl: `${env.APP_BASE_URL}/tasks/${request.subjectId}`,
+        openUrl: `${env.APP_BASE_URL}${subjectLink(request.subjectType, request.subjectId)}`,
+        subjectKind: request.subjectType as ApprovalSubjectType,
       },
       channel: 'immediate',
       dedupeKey: `approval-decided:${request.id}`,
@@ -1122,7 +1230,7 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
     let targets = step.escalateTo?.length
       ? await resolveApprovers(step.escalateTo, { projectId: request.projectId, requesterId: request.requestedBy }).catch(() => [])
       : [];
-    if (targets.length === 0) {
+    if (targets.length === 0 && request.projectId) {
       const owner = await prisma.projectProfile.findUnique({ where: { openProjectId: request.projectId }, select: { ownerId: true } });
       if (owner?.ownerId) targets = [owner.ownerId];
     }
@@ -1147,7 +1255,7 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
           source: 'approval.sla',
           subjectType: 'approval-request',
           subjectId: request.id,
-          projectId: request.projectId,
+          projectId: journalProject(request.projectId),
           level: 1,
           raisedFor: targets,
           reason: render('en', why),
@@ -1159,7 +1267,7 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
       await tx.auditEvent.create({
         data: auditRow({
           actorId: null,
-          projectId: request.projectId,
+          projectId: journalProject(request.projectId),
           entityType: 'approval-request',
           entityId: request.id,
           action: 'approval.sla.breached',
@@ -1195,7 +1303,7 @@ export async function sweepApprovals(now = new Date()): Promise<{ breached: numb
           hours: step.slaHours,
           people: nameList(tasks.map((task) => names(task.approverId))),
         }),
-        link: `/tasks/${request.subjectId}`,
+        link: subjectLink(request.subjectType, request.subjectId),
         severity: 'warning',
         dedupeKey: `approval-breach:${key}:${recipient}`,
       }).catch(() => undefined);
@@ -1460,11 +1568,12 @@ export async function toRequestViews(
       id: row.id,
       chainId: row.chainId,
       chainName: snapshot.name,
-      subjectType: 'work_package',
+      subjectType: row.subjectType as ApprovalSubjectType,
       subjectId: row.subjectId,
       projectId: row.projectId,
       projectName: projects.find((project) => String(project.id) === row.projectId)?.name,
       title: `${snapshot.subjectKey} ${row.title}`,
+      link: subjectLink(row.subjectType, row.subjectId),
       value: row.value ?? undefined,
       valueLabel: snapshot.valueLabel,
       requestedBy: row.requestedBy,
@@ -1496,7 +1605,7 @@ export async function subjectState(input: {
     }),
   ]);
   const views = await toRequestViews(rows, input.viewerId, input.mayCancelAny);
-  const chain = pickChain(await activeChains(), subject);
+  const chain = pickChain(await activeChains(), { subjectType: 'work_package', typeId: subject.typeId, projectId: subject.projectId });
   const preview = chain ? (await plan(chain, subject)).snapshot : undefined;
   const pending = rows.some((row) => row.status === 'pending');
 
@@ -1551,11 +1660,13 @@ export async function listRequests(input: {
   mayCancelAny: boolean;
   requestedBy?: string;
   projectIds?: string[];
+  subjectType?: ApprovalSubjectType;
   status?: string;
 }): Promise<ApprovalRequestView[]> {
   const rows = await prisma.approvalRequest.findMany({
     where: {
       ...(input.requestedBy ? { requestedBy: input.requestedBy } : {}),
+      ...(input.subjectType ? { subjectType: input.subjectType } : {}),
       ...(input.projectIds ? { projectId: { in: input.projectIds } } : {}),
       ...(input.status ? { status: input.status } : {}),
     },
@@ -1564,6 +1675,22 @@ export async function listRequests(input: {
     take: 100,
   });
   return toRequestViews(rows, input.viewerId, input.mayCancelAny);
+}
+
+/** Every request for one subject, newest first, as the viewer sees them. */
+export async function requestsFor(
+  type: ApprovalSubjectType,
+  subjectId: string,
+  viewerId: string,
+  mayCancelAny: boolean,
+): Promise<ApprovalRequestView[]> {
+  const rows = await prisma.approvalRequest.findMany({
+    where: { subjectType: type, subjectId },
+    include: { tasks: true },
+    orderBy: { requestedAt: 'desc' },
+    take: 20,
+  });
+  return toRequestViews(rows, viewerId, mayCancelAny);
 }
 
 export async function requestById(id: string) {
@@ -1598,7 +1725,7 @@ export async function assertStatusChangeAllowed(input: {
     throw EpmError.conflict('This is waiting for approval: its status moves when the approval chain decides. Withdraw the request to change it by hand.');
   }
 
-  const chain = pickChain(await activeChains(), { typeId: input.typeId, projectId: input.projectId });
+  const chain = pickChain(await activeChains(), { subjectType: 'work_package', typeId: input.typeId, projectId: input.projectId });
   if (!chain) return;
   const owned = [chain.onSubmitStatusId, chain.onApproveStatusId, chain.onRejectStatusId].filter(Boolean);
   if (owned.includes(input.nextStatusId)) {

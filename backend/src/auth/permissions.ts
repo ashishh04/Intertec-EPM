@@ -72,6 +72,9 @@ export const PERMISSIONS = [
   'evm:configure',
   'resources:plan',
   'resources:configure',
+  'timesheets:manage',
+  'expenses:manage',
+  'time:configure',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -182,6 +185,17 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // utilisation figure, like the health rules.
   'resources:configure':
     'The resource settings are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Every timesheet, the outstanding list for everyone, reopening an approved
+  // one: an oversight role (payroll, the PMO), not implied by a project role.
+  'timesheets:manage':
+    'Timesheets are EPM-owned; OpenProject has no submission or approval of time. Granted from EPM permission grants instead.',
+  // Every claim, its receipts, and the finance export: finance's role.
+  'expenses:manage':
+    'Expense claims are EPM-owned; OpenProject has cost entries but no claims. Granted from EPM permission grants instead.',
+  // The timesheet bounds, the time logging policies and the receipt threshold
+  // are policy for everyone, like the health rules.
+  'time:configure':
+    'The time and expense rules are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

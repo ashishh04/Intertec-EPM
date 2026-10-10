@@ -81,7 +81,13 @@ export default function ApprovalDecidePage() {
         </Alert>
         <div className="flex gap-2">
           <Button asChild>
-            <Link to={`/tasks/${request.subjectId}`}>{t('Open the work package')}</Link>
+            <Link to={request.link ?? `/tasks/${request.subjectId}`}>
+              {request.subjectType === 'timesheet'
+                ? t('Open the timesheet')
+                : request.subjectType === 'expense_claim'
+                  ? t('Open the claim')
+                  : t('Open the work package')}
+            </Link>
           </Button>
           <Button asChild variant="secondary">
             <Link to="/approvals">{t('Back to Approvals')}</Link>

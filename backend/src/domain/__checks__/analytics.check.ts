@@ -156,6 +156,7 @@ const facts: ModelFacts = {
     ].map((item) => [item.id, item]),
   ),
   workPackages: WORK,
+  costs: [],
   time: [
     entry(1, { hours: 8, cost: 800, spentOn: '2026-10-01' }),
     entry(2, { hours: 4, cost: null, spentOn: '2026-10-02', userId: 11, projectId: 2 }),

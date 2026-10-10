@@ -8,6 +8,7 @@ import type {
   ApprovalChainInput,
   ApprovalCondition,
   ApprovalStep,
+  ApprovalSubjectType,
 } from '../types/epm.js';
 import { withAudit } from './audit.js';
 import { listOf, message, msg, render, type Message, type ParamValue } from '../lib/i18n.js';
@@ -70,12 +71,19 @@ const step = z.object({
   // A quarter of an hour at least: anything shorter breaches before anyone could read the email.
   slaHours: z.number().min(0.25, 'An SLA is at least a quarter of an hour.').max(24 * 365).optional(),
   escalateTo: z.array(approverSpec).max(10).optional(),
+  // A step that finds nobody is skipped rather than refusing the submission:
+  // the project owners of a timesheet whose projects have none.
+  skipIfNobody: z.boolean().optional(),
 });
+
+/** What a chain can decide (Module 10 adds timesheets and expense claims). */
+export const SUBJECT_TYPES = ['work_package', 'timesheet', 'expense_claim'] as const satisfies readonly ApprovalSubjectType[];
 
 const chainSchema = z
   .object({
     name: z.string().trim().min(1, 'A chain needs a name.').max(120),
     description: z.string().trim().max(1000).optional(),
+    subjectType: z.enum(SUBJECT_TYPES).default('work_package'),
     typeIds: z.array(digits).max(50).default([]),
     projectIds: z.array(digits).max(500).default([]),
     valueField: z
@@ -91,11 +99,20 @@ const chainSchema = z
     active: z.boolean().default(true),
   })
   .superRefine((chain, context) => {
+    // A timesheet's value is its hours and a claim's its amount: only a work
+    // package takes its value, and its type, from the work package itself.
+    const workPackage = chain.subjectType === 'work_package';
+    if (!workPackage && (chain.typeIds.length > 0 || chain.valueField)) {
+      context.addIssue({ code: 'custom', message: 'Only a chain for work packages names types or a value field.' });
+    }
+    if (!workPackage && (chain.onSubmitStatusId || chain.onApproveStatusId || chain.onRejectStatusId)) {
+      context.addIssue({ code: 'custom', message: 'Only a chain for work packages moves a status.' });
+    }
     const ids = new Set<string>();
     for (const one of chain.steps) {
       if (ids.has(one.id)) context.addIssue({ code: 'custom', message: 'Step ids must be different from each other.' });
       ids.add(one.id);
-      if (one.condition?.field === 'value' && !chain.valueField) {
+      if (workPackage && one.condition?.field === 'value' && !chain.valueField) {
         context.addIssue({
           code: 'custom',
           message: `Step "${one.name}" compares the value, so the chain needs a value field.`,
@@ -249,7 +266,7 @@ export function toApprovalChain(row: ChainRow, requestCount = 0): ApprovalChain 
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    subjectType: 'work_package',
+    subjectType: (SUBJECT_TYPES as readonly string[]).includes(row.subjectType) ? (row.subjectType as ApprovalSubjectType) : 'work_package',
     typeIds: row.typeIds,
     projectIds: row.projectIds,
     valueField: row.valueField ?? undefined,
@@ -279,6 +296,7 @@ function rowData(input: ApprovalChainInput) {
   return {
     name: input.name,
     description: input.description ?? null,
+    subjectType: input.subjectType ?? 'work_package',
     typeIds: input.typeIds,
     projectIds: input.projectIds,
     valueField: input.valueField ?? null,
@@ -374,11 +392,12 @@ export async function deleteChain(id: string, actorId: string): Promise<void> {
  */
 export function pickChain(
   chains: ApprovalChain[],
-  subject: { typeId?: string; projectId: string },
+  subject: { subjectType?: ApprovalSubjectType; typeId?: string; projectId: string },
 ): ApprovalChain | undefined {
   const matching = chains.filter(
     (chain) =>
       chain.active &&
+      chain.subjectType === (subject.subjectType ?? 'work_package') &&
       (chain.typeIds.length === 0 || (subject.typeId !== undefined && chain.typeIds.includes(subject.typeId))) &&
       (chain.projectIds.length === 0 || chain.projectIds.includes(subject.projectId)),
   );

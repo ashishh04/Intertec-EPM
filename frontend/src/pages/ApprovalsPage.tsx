@@ -227,7 +227,7 @@ function RequestCard({
       <CardContent className="space-y-3 p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <Link to={`/tasks/${request.subjectId}`} dir="auto" className="text-sm font-semibold hover:text-primary">
+            <Link to={request.link ?? `/tasks/${request.subjectId}`} dir="auto" className="text-sm font-semibold hover:text-primary">
               {request.title}
             </Link>
             <p className="mt-0.5 text-2xs text-muted-foreground">

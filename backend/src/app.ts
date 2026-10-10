@@ -16,6 +16,7 @@ import { createReportScheduler } from './scheduler/report-scheduler.js';
 import { publishCatalogue } from './domain/measures-store.js';
 import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
+import { createTimesheetReminders } from './scheduler/timesheet-reminders.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createScheduleCheck } from './scheduler/schedule-check.js';
 import { createApprovalSweep } from './scheduler/approval-sweep.js';
@@ -336,6 +337,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     app.log.info('Due reminder scheduler disabled');
   }
 
+  // Outstanding timesheet reminders (BR-306). Started always, inert until the
+  // time and expense settings switch reminders on — an administrator's choice.
+  const timesheetReminders = createTimesheetReminders({ log: app.log });
+  timesheetReminders.start();
+
   // The health sweep. On by default, unlike the schedulers above: it is what
   // keeps stored health true when changes happen where EPM cannot see them.
   const healthSweep = createHealthSweep({ log: app.log });
@@ -406,6 +412,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     approvalSweep.stop();
     healthSweep.stop();
     dueReminders.stop();
+    timesheetReminders.stop();
     snapshots.stop();
     emailWorker.stop();
     await disconnectPrisma();

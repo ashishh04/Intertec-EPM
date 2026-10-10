@@ -58,6 +58,20 @@ export interface TimeFact {
   activityId: number | null;
 }
 
+/**
+ * A cost that is not labour (Module 10): an OpenProject unit cost, an approved
+ * expense claim among them (BR-309).
+ */
+export interface CostFact {
+  id: number;
+  spentOn: string;
+  userId: number | null;
+  projectId: number;
+  workPackageId: number | null;
+  costType: string | null;
+  amount: number;
+}
+
 export interface ProjectFact {
   id: number;
   name: string;
@@ -114,6 +128,8 @@ export interface ModelFacts {
   projects: Map<number, ProjectFact>;
   workPackages: WorkFact[];
   time: TimeFact[];
+  /** Costs other than labour. */
+  costs: CostFact[];
   people: Map<number, PersonFact>;
   /** Project → its members (people only). */
   members: Map<number, Set<number>>;
@@ -300,6 +316,19 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
         'SELECT time_entry_id, spent_on, user_id, project_id, work_package_id, hours, cost, activity_id FROM analytics.fact_time_entry',
       ),
     ]);
+  const otherCosts = await prisma
+    .$queryRawUnsafe<
+      {
+        cost_entry_id: number;
+        spent_on: Date;
+        user_id: number | null;
+        project_id: number;
+        work_package_id: number | null;
+        cost_type_name: string | null;
+        amount: number | null;
+      }[]
+    >('SELECT cost_entry_id, spent_on, user_id, project_id, work_package_id, cost_type_name, amount FROM analytics.fact_cost_entry')
+    .catch(() => []);
   const calendar = await readCalendarFacts();
 
   const statusMap = new Map(
@@ -425,6 +454,15 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
       hours: Number(row.hours),
       cost: numberOrNull(row.cost),
       activityId: row.activity_id === null ? null : Number(row.activity_id),
+    })),
+    costs: otherCosts.map((row) => ({
+      id: row.cost_entry_id,
+      spentOn: row.spent_on.toISOString().slice(0, 10),
+      userId: row.user_id,
+      projectId: row.project_id,
+      workPackageId: row.work_package_id,
+      costType: row.cost_type_name,
+      amount: Number(row.amount ?? 0),
     })),
   };
 }

@@ -41,6 +41,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
   const [finish, setFinish] = useState('');
   const [budget, setBudget] = useState('');
   const [billable, setBillable] = useState('default');
+  const [ownerApproves, setOwnerApproves] = useState('yes');
   const [problem, setProblem] = useState<string>();
 
   // Keyed on the id for the same reason as the override dialog: a refetch must
@@ -52,6 +53,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
     setFinish(project.dueDate?.slice(0, 10) ?? '');
     setBudget(project.budgetTotal > 0 ? String(project.budgetTotal) : '');
     setBillable(project.billable === true ? 'yes' : project.billable === false ? 'no' : 'default');
+    setOwnerApproves(project.timesheetApproval === false ? 'no' : 'yes');
     setProblem(undefined);
   }, [open, project.id]);
 
@@ -68,6 +70,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
       plannedFinish: finish || null,
       budgetTotal: budgetValue,
       billable: billable === 'yes' ? true : billable === 'no' ? false : null,
+      timesheetApproval: ownerApproves === 'no' ? false : null,
     };
 
     updatePlan.mutate(
@@ -156,6 +159,20 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
               </SelectContent>
             </Select>
             <FieldHint>{t('Billable utilisation counts the time logged on billable projects, less any activity the resource rules call non-billable.')}</FieldHint>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="plan-timesheets">{t('Timesheets with time here')}</Label>
+            <Select value={ownerApproves} onValueChange={setOwnerApproves}>
+              <SelectTrigger id="plan-timesheets">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">{t('Are approved by the project owner too')}</SelectItem>
+                <SelectItem value="no">{t('Are approved by the line manager alone')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldHint>{t('After a person’s line manager, the owners of the projects their time is on approve their timesheet.')}</FieldHint>
           </div>
 
           {problem ? <Alert tone="danger">{problem}</Alert> : null}

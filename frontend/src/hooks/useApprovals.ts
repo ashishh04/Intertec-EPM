@@ -14,6 +14,10 @@ function refreshAfterDecision(client: QueryClient) {
   void client.invalidateQueries({ queryKey: ['approvals'] });
   void client.invalidateQueries({ queryKey: ['tasks'] });
   void client.invalidateQueries({ queryKey: ['notifications'] });
+  // A timesheet or a claim decided changes its own page, its time's locks and, posted, the project's cost.
+  void client.invalidateQueries({ queryKey: ['timesheets'] });
+  void client.invalidateQueries({ queryKey: ['expenses'] });
+  void client.invalidateQueries({ queryKey: ['time-entries'] });
   for (const key of invalidationGroups.projectWrite) void client.invalidateQueries({ queryKey: key });
 }
 
