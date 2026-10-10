@@ -202,6 +202,29 @@ float of at most `EPM_SCHEDULE_NEAR_CRITICAL_DAYS` working days unless a view
 chooses otherwise. `EPM_SCHEDULE_MIRROR_ENABLED=false` keeps the figures in EPM
 only.
 
+## Earned value
+
+EPM computes earned value itself — Insights → Earned value, each task's Earned
+value card, `GET /api/earned-value` — and adds nothing to OpenProject. Nothing
+needs starting. A work package's budget is its estimate at its assignee's
+hourly rate, so people need rates (Employees); work with no assignee or no rate
+is priced at the rate for unpriced work, if one is set, and otherwise left out
+and counted. That rate and each work package type's earning rule are set under
+Administration → Projects → Earned value; until rules are saved, every type
+earns by % complete. Changing them needs the `evm:configure` permission, which
+the administrators in `EPM_ADMIN_USER_IDS` hold and the Permissions page can
+grant.
+
+A project is measured against its latest baseline once one is set, from its
+Earned value dashboard by anyone who may edit the project. A baseline cannot be
+changed afterwards — the database refuses — and goes with its project.
+
+The figures period by period are rewritten into `analytics.fact_evm_period` after
+the nightly full analytics refresh and the first refresh of each day: by week and
+by month, for the instance, every portfolio and every project. The analytics
+role reads it like the rest of the schema. `analytics.dim_date.is_working_day`
+holds OpenProject's working calendar.
+
 ## Analytics
 
 Reports and dashboards read EPM's analytics model, a schema of its own

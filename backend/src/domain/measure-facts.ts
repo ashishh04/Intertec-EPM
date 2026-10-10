@@ -99,6 +99,12 @@ export interface NamedFact {
 export interface ModelFacts {
   /** The refresh these came from; null for an empty model. */
   runId: string | null;
+  /**
+   * The instance's non-working days, as day numbers (days since 1970-01-01),
+   * over the date dimension's range: weekends off its working week, and its
+   * holidays. Outside that range, Monday to Friday is assumed.
+   */
+  calendar: { nonWorking: Set<number>; from: number; to: number };
   /** When the data was read: the start of that refresh. */
   asOf: string | null;
   projects: Map<number, ProjectFact>;
@@ -134,6 +140,22 @@ async function latestRun(): Promise<{ runId: string; asOf: string } | null> {
   );
   const row = rows[0];
   return row ? { runId: String(row.run_id), asOf: row.started_at.toISOString() } : null;
+}
+
+const DAY_MS = 86_400_000;
+const dayNumber = (value: Date) => Math.round(value.getTime() / DAY_MS);
+
+/** The non-working days of the date dimension, and the range it covers. */
+async function readCalendarFacts(): Promise<ModelFacts['calendar']> {
+  const [range, rows] = await Promise.all([
+    prisma.$queryRawUnsafe<{ first: Date; last: Date }[]>('SELECT min(date) AS first, max(date) AS last FROM analytics.dim_date'),
+    prisma.$queryRawUnsafe<{ date: Date }[]>('SELECT date FROM analytics.dim_date WHERE NOT is_working_day'),
+  ]);
+  return {
+    nonWorking: new Set(rows.map((row) => dayNumber(row.date))),
+    from: range[0]?.first ? dayNumber(range[0].first) : 0,
+    to: range[0]?.last ? dayNumber(range[0].last) : -1,
+  };
 }
 
 async function readModel(runId: string | null, asOf: string | null): Promise<ModelFacts> {
@@ -252,6 +274,7 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
         }[]
       >('SELECT time_entry_id, spent_on, user_id, project_id, work_package_id, hours, cost FROM analytics.fact_time_entry'),
     ]);
+  const calendar = await readCalendarFacts();
 
   const statusMap = new Map(
     statuses.map((row) => [row.status_id, { name: row.name, isClosed: row.is_closed, category: row.category }]),
@@ -273,6 +296,7 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
   return {
     runId,
     asOf,
+    calendar,
     statuses: statusMap,
     types: typeMap,
     priorities: priorityMap,

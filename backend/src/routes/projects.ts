@@ -26,6 +26,7 @@ import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js
 import type { HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
 import { automationUserId } from '../domain/automation-account.js';
+import { forgetProjectBaselines } from '../domain/earned-value-store.js';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -935,6 +936,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     await prisma.projectProfile.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
     await prisma.projectHealthState.deleteMany({ where: { projectId: id } }).catch(() => undefined);
     await prisma.projectHealthOverride.deleteMany({ where: { projectId: id } }).catch(() => undefined);
+    await forgetProjectBaselines(Number(id)).catch(() => undefined);
     await recordAudit({
       projectId: id,
       entityType: 'project',

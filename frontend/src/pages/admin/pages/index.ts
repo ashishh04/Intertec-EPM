@@ -48,6 +48,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'projects/list': lazy(() => import('./ProjectsListPage')),
   'projects/settings': settingsSection('projects'),
   'projects/health-rules': lazy(() => import('./HealthRulesPage')),
+  'projects/earned-value': lazy(() => import('./EarnedValuePage')),
   'automation/rules': lazy(() => import('./RulesPage')),
   'automation/escalation': lazy(() => import('./EscalationPage')),
   analytics: lazy(() => import('./AnalyticsModelPage')),

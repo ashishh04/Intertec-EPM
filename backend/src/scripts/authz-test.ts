@@ -177,6 +177,10 @@ async function main() {
   // saved view they make. Removed however far a run got.
   let criticalPathProjectId: string | undefined;
   let criticalPathQueryId: string | undefined;
+  // The earned value tests' own project (baselines and work go with it), and
+  // the earning rules as they were, put back if the section stopped part-way.
+  let earnedValueProjectId: string | undefined;
+  let evmRulesBefore: { defaultMethod: string; methods: Record<string, string>; unpricedRate: number | null } | undefined;
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -6754,7 +6758,7 @@ async function main() {
     check('high risks: the risk dashboard agrees with the measure', riskBoard.measures['risk.high'].value, direct.measures['risk.high'].value);
 
     // BR-405: every dashboard, within the response target.
-    for (const id of ['portfolio-health', 'delivery', 'utilisation', 'budget', 'risk']) {
+    for (const id of ['portfolio-health', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk']) {
       const response = await call(`/dashboards/${id}`, { cookie: admin });
       const body = (await response.json()) as { timing?: { withinTarget: boolean; serverMs: number }; tiles?: string[] };
       check(`the ${id} dashboard answers`, response.status, 200);
@@ -7444,11 +7448,21 @@ async function main() {
     check('no float figure is, in any version', details.some((detail) => /Total float \(days\)|Free float \(days\)|On critical path/.test(detail)), false);
 
     // BR-104: a change is recalculated without the change waiting for it.
-    const movedAt = performance.now();
-    const moved = await call(`/tasks/${ids.B}`, { method: 'PATCH', cookie: admin, body: { startDate: day(5), dueDate: day(6) } });
-    const movedMs = Math.round(performance.now() - movedAt);
-    check('BR-104: a date moves and the request answers', moved.status, 200);
-    check('before the recalculation it started has run', (await json('/schedule/status')).pending, true);
+    // Seen as the pass still pending when the change has answered. When
+    // OpenProject is busy the answer can be slow enough for the pass, started
+    // part-way through it, to have finished first — which shows nothing either
+    // way — so then, with nothing pending, the same change is made again.
+    let moved: Response | undefined;
+    let movedMs = 0;
+    let pendingAfterAnswer = false;
+    for (let attempt = 0; attempt < 3 && !pendingAfterAnswer; attempt += 1) {
+      const movedAt = performance.now();
+      moved = await call(`/tasks/${ids.B}`, { method: 'PATCH', cookie: admin, body: { startDate: day(5), dueDate: day(6) } });
+      movedMs = Math.round(performance.now() - movedAt);
+      pendingAfterAnswer = (await json('/schedule/status')).pending === true;
+    }
+    check('BR-104: a date moves and the request answers', moved?.status, 200);
+    check('before the recalculation it started has run', pendingAfterAnswer, true);
     let movedItem: Json | undefined;
     for (let attempt = 0; attempt < 40; attempt += 1) {
       movedItem = ((await json(`/projects/${cpProject}/critical-path`)).items as Json[] | undefined)?.find((entry) => entry.id === ids.B);
@@ -7480,6 +7494,303 @@ async function main() {
     }
     check('the project is removed, with its work', await status(`/projects/${cpProject}`, { method: 'DELETE', cookie: admin }), 204);
     criticalPathProjectId = undefined;
+  }
+
+  // --- Earned value (BR-301 to BR-303) ---------------------------------------
+  console.log('\nEarned value');
+  {
+    type Json = Record<string, any>;
+    const { prisma: evDb } = await import('../db/prisma.js');
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json;
+    const DAY = 86_400_000;
+    const isoOf = (time: number) => new Date(time).toISOString().slice(0, 10);
+    const round2 = (value: number) => Math.round(value * 100) / 100;
+    const round3 = (value: number) => Math.round(value * 1000) / 1000;
+    const refreshModel = () => json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'incremental', wait: true } });
+    const stamp = Date.now();
+
+    // A project of its own, with the administrator a member so work can be assigned to it.
+    const madeProject = await call('/projects', {
+      method: 'POST',
+      cookie: admin,
+      body: { payload: { name: `Earned Value Test ${stamp}`, identifier: `ev-test-${stamp}` } },
+    });
+    check('a project is made for the earned value tests', madeProject.status, 201);
+    earnedValueProjectId = ((await madeProject.json()) as Json).id as string | undefined;
+    const evProject = String(earnedValueProjectId);
+
+    // Roles chosen by what they allow, not by name: one whose holders can be
+    // given work, for the administrator, and one that edits work but not the
+    // project, to lend the restricted account (not the automation account's).
+    const adminRoles = (await json('/admin/roles')) as unknown as { id: string; name: string; kind: string; builtin: boolean; permissions: string[] }[];
+    const projectRoleList = adminRoles.filter((role) => role.kind === 'project' && !role.builtin);
+    const assigneeRole = projectRoleList.find((role) => role.permissions.includes('work_package_assigned'));
+    const editorRole = projectRoleList.find(
+      (role) =>
+        role.name !== 'EPM Automation' &&
+        role.permissions.includes('view_work_packages') &&
+        role.permissions.includes('edit_work_packages') &&
+        !role.permissions.includes('edit_project'),
+    );
+    check('there is a role whose holders can be given work', Boolean(assigneeRole), true);
+    check('and one that edits work but not the project', Boolean(editorRole), true);
+    const adminMember = await call(`/projects/${evProject}/members`, {
+      method: 'POST',
+      cookie: admin,
+      body: { userId: adminId, roleIds: [assigneeRole?.id ?? memberRoleId] },
+    });
+    check('the administrator joins it, to be given work', adminMember.status, 201);
+
+    // The plan is priced at the administrator's rate.
+    const rate = (await evDb.userProfile.findUnique({ where: { openProjectId: adminId } }))?.hourlyRate ?? null;
+    check('the administrator has an hourly rate to price the plan', rate !== null && rate > 0, true);
+    const r = rate ?? 0;
+
+    const settingsView = await json('/earned-value/settings');
+    // Two types the project has: Task, and another that is no milestone —
+    // Bug where new projects get it, else Summary task, else any but the
+    // governance types, whose work starts approvals and counts as risk.
+    const enabledTypes = ((await asSystem(() => upstream.request<Json>(`/projects/${evProject}/types`)))._embedded?.elements ?? []) as Json[];
+    const workTypes = enabledTypes.filter((type) => !type.isMilestone).map((type) => ({ id: String(type.id), name: String(type.name) }));
+    const taskType = workTypes.find((type) => type.name === 'Task')?.id;
+    const bugType = (
+      workTypes.find((type) => type.name === 'Bug') ??
+      workTypes.find((type) => type.name === 'Summary task') ??
+      workTypes.find((type) => type.id !== taskType && !['Change Request', 'Risk'].includes(type.name))
+    )?.id;
+    check('the project has Task and another type of work to tell apart', Boolean(taskType && bugType && taskType !== bugType), true);
+    const rules = {
+      defaultMethod: settingsView.settings.defaultMethod as string,
+      methods: { ...settingsView.settings.methods } as Record<string, string>,
+      unpricedRate: settingsView.settings.unpricedRate as number | null,
+    };
+    evmRulesBefore = rules;
+    const ruleOf = (methods: Record<string, string>, type: string) => methods[type] ?? rules.defaultMethod;
+
+    // The calendar: the instance's non-working days across the dates used.
+    const today = new Date().toISOString().slice(0, 10);
+    const todayMs = Date.parse(`${today}T00:00:00Z`);
+    const monday = todayMs - ((new Date(todayMs).getUTCDay() + 6) % 7) * DAY;
+    const holidays = new Set(
+      (
+        await asSystem(() =>
+          upstream.getCollection<Json>('/days/non_working', {
+            filters: [{ field: 'date', operator: '<>d', values: [isoOf(monday - 7 * DAY), isoOf(monday + 14 * DAY)] }],
+          }),
+        )
+      )._embedded?.elements?.map((element: Json) => element.date as string) ?? [],
+    );
+    const week = await asSystem(() => upstream.request<Json>('/days/week'));
+    const workingDays = new Set(((week._embedded?.elements ?? []) as Json[]).filter((day) => day.working).map((day) => day.day as number));
+    const isWorking = (time: number) => {
+      const weekday = ((new Date(time).getUTCDay() + 6) % 7) + 1;
+      return workingDays.has(weekday) && !holidays.has(isoOf(time));
+    };
+    const workingBetween = (from: number, to: number) => {
+      let count = 0;
+      for (let at = from; at <= to; at += DAY) if (isWorking(at)) count += 1;
+      return count;
+    };
+
+    /*
+     * The plan, priced at the administrator's rate r:
+     *   A  Task  40 h  last Monday – last Friday    50%  BAC 40r  planned in full
+     *   B  other 20 h  this Monday – next Friday    30%  BAC 20r  planned as far as today
+     *   C  Task   8 h  no dates                     25%  BAC 8r   planned for no day
+     * and time: 10 h on A last Wednesday, 4 h on B today.
+     */
+    const made = async (subject: string, type: string, hours: number, done: number, start?: number, finish?: number) => {
+      const response = await call('/work-packages', {
+        method: 'POST',
+        cookie: admin,
+        body: {
+          projectId: evProject,
+          typeId: type,
+          payload: {
+            subject,
+            estimatedTime: `PT${hours}H`,
+            percentageDone: done,
+            ...(start !== undefined ? { startDate: isoOf(start), dueDate: isoOf(finish!) } : {}),
+            _links: { assignee: { href: `/api/v3/users/${adminId}` } },
+          },
+        },
+      });
+      return ((await response.json()) as Json).id as string | undefined;
+    };
+    const ids = {
+      A: await made('Earned value A', taskType!, 40, 50, monday - 7 * DAY, monday - 3 * DAY),
+      B: await made('Earned value B', bugType!, 20, 30, monday, monday + 11 * DAY),
+      C: await made('Earned value C', taskType!, 8, 25),
+    };
+    check('three work packages are made, two of them dated', Object.values(ids).every(Boolean), true);
+    let activityId: string | undefined;
+    const logTime = async (workPackageId: string | undefined, hours: number, spentOn: string) => {
+      const entry = (activity?: string) =>
+        call('/time-entries', {
+          method: 'POST',
+          cookie: admin,
+          body: { projectId: evProject, workPackageId, hours, spentOn, comment: 'Earned value probe', ...(activity ? { activityId: activity } : {}) },
+        });
+      let response = await entry(activityId);
+      if (response.status !== 201 && !activityId) {
+        // The instance wants an activity; take the first it offers this project.
+        const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: evProject } }));
+        activityId = /time_entries\/activities\/(\d+)/.exec(form)?.[1];
+        response = await entry(activityId);
+      }
+      return response.status;
+    };
+    const logged = [await logTime(ids.A, 10, isoOf(monday - 5 * DAY)), await logTime(ids.B, 4, today)];
+    check('time is logged on A and B', logged.every((code) => code === 201), true);
+
+    // What the figures must be, worked out here, for any rules.
+    const bShare = workingBetween(monday, Math.min(todayMs, monday + 11 * DAY)) / workingBetween(monday, monday + 11 * DAY);
+    const expected = (methods: Record<string, string>, aDone: number) => {
+      // None of them is closed, so 0/100 credits nothing and none has milestones under it.
+      const earn = (method: string, done: number, started: boolean, planned: number) =>
+        method === 'percent_complete' ? done / 100 : method === 'fifty_fifty' ? (started ? 0.5 : 0) : method === 'level_of_effort' ? planned : 0;
+      const item = (hours: number, share: number, method: string, done: number) => {
+        const bac = round2(hours * r);
+        return { bac, pv: round2(bac * share), ev: round2(bac * earn(method, done, done > 0, share)) };
+      };
+      const a = item(40, 1, ruleOf(methods, taskType!), aDone);
+      const b = item(20, bShare, ruleOf(methods, bugType!), 30);
+      const c = item(8, 0, ruleOf(methods, taskType!), 25);
+      const bac = round2(a.bac + b.bac + c.bac);
+      const pv = round2(a.pv + b.pv + c.pv);
+      const ev = round2(a.ev + b.ev + c.ev);
+      const ac = round2(14 * r);
+      return { a, b, c, totals: { bac, pv, ev, ac, spi: round3(ev / pv), cpi: round3(ev / ac), eac: round2(bac / (ev / ac)), tcpi: round3((bac - ev) / (bac - ac)) } };
+    };
+    const itemOf = (body: Json, id?: string) => ((body.projects?.[0]?.items ?? []) as Json[]).find((item) => item.workPackageId === id);
+
+    await refreshModel();
+    let now = await json(`/earned-value?scope=project:${evProject}`);
+    const want = expected(rules.methods, 50);
+    check('BR-301: each work package’s budget is its estimate at the rate', `${itemOf(now, ids.A)?.bac}/${itemOf(now, ids.B)?.bac}/${itemOf(now, ids.C)?.bac}`, `${want.a.bac}/${want.b.bac}/${want.c.bac}`);
+    check('its planned value is its budget spread over the working days to today', `${itemOf(now, ids.A)?.pv}/${itemOf(now, ids.B)?.pv}/${itemOf(now, ids.C)?.pv}`, `${want.a.pv}/${want.b.pv}/${want.c.pv}`);
+    check('and its earned value what its rule credits', `${itemOf(now, ids.A)?.ev}/${itemOf(now, ids.B)?.ev}/${itemOf(now, ids.C)?.ev}`, `${want.a.ev}/${want.b.ev}/${want.c.ev}`);
+    check('actual cost is the time logged, at the rate', `${itemOf(now, ids.A)?.ac}/${itemOf(now, ids.B)?.ac}`, `${round2(10 * r)}/${round2(4 * r)}`);
+    const t = now.totals as Json;
+    check(
+      'the project’s BAC, PV, EV and AC are its work packages’',
+      `${t.bac}/${t.pv}/${t.ev}/${t.ac}`,
+      `${want.totals.bac}/${want.totals.pv}/${want.totals.ev}/${want.totals.ac}`,
+    );
+    check('and SPI, CPI, EAC and TCPI follow from them', `${t.spi}/${t.cpi}/${t.eac}/${t.tcpi}`, `${want.totals.spi}/${want.totals.cpi}/${want.totals.eac}/${want.totals.tcpi}`);
+    check('the undated item is counted', t.counts?.undated, 1);
+    check('it is measured against the current plan until a baseline is set', now.projects?.[0]?.measuredAgainst?.kind, 'plan');
+    const one = await json(`/work-packages/${ids.A}/earned-value`);
+    check('a work package’s own figures are in the API', `${one.item?.bac}/${one.item?.ev}`, `${want.a.bac}/${want.a.ev}`);
+    const board = await json(`/dashboards/earned-value?scope=project:${evProject}`);
+    check('the Earned value dashboard shows the same figures', `${board.measures?.['evm.ev']?.value}/${board.measures?.['evm.cpi']?.value}`, `${want.totals.ev}/${want.totals.cpi}`);
+    check(
+      'with planned value, earned value and actual cost drawn together over time',
+      ((board.series ?? []) as Json[]).find((series) => series.id === 'evm.curve')?.lines?.length,
+      2,
+    );
+    const instanceBefore = await json('/earned-value');
+    check('the instance’s figures add this project’s in', (instanceBefore.totals?.bac ?? 0) >= want.totals.bac, true);
+
+    // Baselines.
+    check('someone who cannot see the project cannot see its baselines', await status(`/projects/${evProject}/baselines`, { cookie: restricted }), 403);
+    check('nor its earned value', await status(`/earned-value?scope=project:${evProject}`, { cookie: restricted }), 404);
+    check('nor a work package’s', await status(`/work-packages/${ids.A}/earned-value`, { cookie: restricted }), 404);
+    const baseline = await call(`/projects/${evProject}/baselines`, { method: 'POST', cookie: admin, body: { reason: 'Earned value suite baseline' } });
+    check('a baseline is set', baseline.status, 201);
+    const set = (await baseline.json()) as Json;
+    check('holding the plan priced', `${set.number}/${set.bac}/${set.items}`, `1/${want.totals.bac}/3`);
+    now = await json(`/earned-value?scope=project:${evProject}`);
+    check('from then on the project is measured against it', `${now.projects?.[0]?.measuredAgainst?.kind}/${now.projects?.[0]?.measuredAgainst?.number}`, 'baseline/1');
+    check('with the same figures, as nothing has moved', now.totals?.ev, want.totals.ev);
+
+    // BR-302: an earning rule changed for one type changes that type's earned value and nobody else's.
+    const bugRule = ruleOf(rules.methods, bugType!);
+    const otherRule = bugRule === 'zero_hundred' ? 'fifty_fifty' : 'zero_hundred';
+    const bugsChanged = { ...rules, methods: { ...rules.methods, [bugType!]: otherRule } };
+    check('BR-302: someone without the permission cannot change the rules', await status('/earned-value/settings', { method: 'PUT', cookie: restricted, body: bugsChanged }), 403);
+    const changed = await call('/earned-value/settings', { method: 'PUT', cookie: admin, body: bugsChanged });
+    check('an administrator changes how B’s type earns', changed.status, 200);
+    const after = await json(`/earned-value?scope=project:${evProject}`);
+    const wantAfter = expected(bugsChanged.methods, 50);
+    check('B now earns by its type’s new rule', itemOf(after, ids.B)?.ev, wantAfter.b.ev);
+    check('while A and C, Tasks, earn exactly as before', `${itemOf(after, ids.A)?.ev}/${itemOf(after, ids.C)?.ev}`, `${want.a.ev}/${want.c.ev}`);
+    check('and the project’s earned value moves by B’s change alone', round2(after.totals.ev - now.totals.ev), round2(wantAfter.b.ev - want.b.ev));
+    const restored = await call('/earned-value/settings', { method: 'PUT', cookie: admin, body: rules });
+    check('the rules are put back', restored.status, 200);
+    evmRulesBefore = undefined;
+    check('and B earns as it did', itemOf(await json(`/earned-value?scope=project:${evProject}`), ids.B)?.ev, want.b.ev);
+
+    // BR-303: the figures as at a moment are rebuilt for that moment.
+    const asAt = new Date().toISOString();
+    const before = await json(`/earned-value?scope=project:${evProject}`);
+    check('BR-303: the figures at that moment are the ones worked out above', `${before.totals?.ev}/${itemOf(before, ids.A)?.ev}`, `${want.totals.ev}/${want.a.ev}`);
+    // Someone else moves A on: another person's change is a version of its
+    // own, never merged into the administrator's earlier one.
+    const lent = (await (
+      await call(`/projects/${evProject}/members`, { method: 'POST', cookie: admin, body: { userId: restrictedId, roleIds: [editorRole?.id ?? memberRoleId] } })
+    ).json()) as Json;
+    check('the restricted account is lent a role that edits work on the project', Boolean(lent.membershipId), true);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const progress = () => call(`/work-packages/${ids.A}`, { method: 'PATCH', cookie: restricted, body: { payload: { percentageDone: 100 } } });
+    let progressed = await progress();
+    if (progressed.status === 403) {
+      // Permissions are cached for a minute, and a role given by someone else
+      // is felt when that runs out.
+      await new Promise((resolve) => setTimeout(resolve, 61_000));
+      progressed = await progress();
+    }
+    check('and moves A to 100%', progressed.status, 200);
+    check(
+      'a member who edits work but not the project still cannot set a baseline',
+      await status(`/projects/${evProject}/baselines`, { method: 'POST', cookie: restricted, body: { reason: 'no' } }),
+      403,
+    );
+    await refreshModel();
+    const later = await json(`/earned-value?scope=project:${evProject}`);
+    check('now A earns what its rule credits at 100%', itemOf(later, ids.A)?.ev, expected(rules.methods, 100).a.ev);
+    const rebuilt = await json(`/earned-value?scope=project:${evProject}&asAt=${encodeURIComponent(asAt)}`);
+    check(
+      'asked as at the moment before, the figures are rebuilt exactly as they were',
+      `${rebuilt.totals?.ev}/${rebuilt.totals?.pv}/${rebuilt.totals?.ac}/${itemOf(rebuilt, ids.A)?.ev}`,
+      `${before.totals?.ev}/${before.totals?.pv}/${before.totals?.ac}/${itemOf(before, ids.A)?.ev}`,
+    );
+    check('a moment in the future is refused', await status(`/earned-value?scope=project:${evProject}&asAt=2999-01-01T00:00:00Z`, { cookie: admin }), 400);
+
+    // BR-303: exposed to the BI layer, by the same definitions.
+    const { materialiseEarnedValue } = await import('../domain/measures-store.js');
+    const rows = await materialiseEarnedValue();
+    check('the BI table of earned value over time is written', rows > 0, true);
+    const bi = await evDb.$queryRawUnsafe<{ pv: unknown; ev: unknown; ac: unknown }[]>(
+      `SELECT pv, ev, ac FROM analytics.fact_evm_period
+        WHERE scope_type = 'project' AND scope_id = $1 AND bucket = 'week' AND period_start <= $2::date AND period_end >= $2::date`,
+      evProject,
+      today,
+    );
+    check(
+      'and its row for this week carries the figures the API reports now',
+      bi[0] ? `${Number(bi[0].pv)}/${Number(bi[0].ev)}/${Number(bi[0].ac)}` : 'none',
+      `${later.totals?.pv}/${later.totals?.ev}/${later.totals?.ac}`,
+    );
+
+    // Journalled.
+    const journal = await evDb.auditEvent.findMany({
+      where: { occurredAt: { gte: suiteStartedAt }, action: { in: ['evm.baseline.set', 'evm.settings.updated'] } },
+      select: { action: true },
+    });
+    check(
+      'setting a baseline and changing the rules are journalled',
+      ['evm.baseline.set', 'evm.settings.updated'].every((action) => journal.some((entry) => entry.action === action)),
+      true,
+    );
+
+    // Put things back: the project, with its work, baseline and memberships.
+    check('the project is removed', await status(`/projects/${evProject}`, { method: 'DELETE', cookie: admin }), 204);
+    check('and its baselines with it', await evDb.evmBaseline.count({ where: { projectId: Number(evProject) } }), 0);
+    earnedValueProjectId = undefined;
   }
 
   // --- Project lifecycle ------------------------------------------------------
@@ -7848,6 +8159,15 @@ async function main() {
   // The portfolio view tests' views and their probe time entry.
   if (viewTimeEntryId) {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+  // The earned value tests' rules and project, if the section stopped part-way.
+  if (evmRulesBefore) {
+    const back = await call('/earned-value/settings', { method: 'PUT', cookie: admin, body: evmRulesBefore }).catch(() => undefined);
+    console.log(`  (earned value rules: ${back?.status === 200 || back?.status === 409 ? 'put back' : 'NOT put back — check Administration → Projects → Earned value'})`);
+  }
+  if (earnedValueProjectId) {
+    const removed = await call(`/projects/${earnedValueProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+    console.log(`  (earned value test project ${earnedValueProjectId}: ${removed?.status === 204 ? 'deleted' : 'NOT deleted — remove it by hand'})`);
   }
   // The critical path tests' view and project, if the section stopped part-way.
   if (criticalPathQueryId) {

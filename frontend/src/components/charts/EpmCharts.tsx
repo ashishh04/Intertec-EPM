@@ -10,6 +10,7 @@ import {
   LineChart,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -459,6 +460,82 @@ export function MeasureSeriesChart({
           />
         </LineChart>
       )}
+    </ResponsiveContainer>
+  );
+}
+
+/** Axis ticks as magnitudes: "25K", not "AED 25,000". */
+const compactTick = (value: number) => new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+
+/**
+ * Several measures on the same axes over the same buckets — earned value's
+ * planned value, earned value and actual cost together (BR-303). A bucket
+ * with no value is a gap, never a zero: the buckets still to come carry the
+ * plan alone. An index (SPI, CPI) is read against 1, so 1 is marked.
+ */
+export function MeasureLinesChart({
+  lines,
+  bucket,
+  format,
+  index = false,
+}: {
+  lines: { label: string; points: { from: string; to: string; value: number | null }[] }[];
+  bucket: 'week' | 'month';
+  format: (value: number) => string;
+  /** Values are an index read against 1. */
+  index?: boolean;
+}) {
+  const first = lines[0];
+  if (!first || lines.every((line) => line.points.every((point) => point.value === null))) {
+    return <ChartEmpty icon={TrendingUp} title="Nothing to draw yet" description="No value in this period." />;
+  }
+
+  // Keys without dots: Recharts reads a dot in a data key as a path.
+  const rows = first.points.map((point, at) => {
+    const row: Record<string, string | number | null> = { label: bucketLabel(point.from, bucket) };
+    lines.forEach((line, which) => {
+      row[`line${which}`] = line.points[at]?.value ?? null;
+    });
+    return row;
+  });
+  const tones: Tone[] = ['primary', 'success', 'warning', 'danger'];
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <CartesianGrid {...GRID} />
+        <XAxis dataKey="label" {...AXIS} interval="preserveStartEnd" />
+        <YAxis
+          {...AXIS}
+          width={48}
+          tickFormatter={index ? (value: number) => value.toFixed(1) : compactTick}
+          allowDecimals={index}
+        />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          cursor={{ stroke: 'hsl(var(--border))' }}
+          formatter={(value: number, name: string) => [format(value), name]}
+        />
+        <Legend
+          verticalAlign="top"
+          height={28}
+          iconType="plainline"
+          wrapperStyle={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}
+        />
+        {index ? <ReferenceLine y={1} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" /> : null}
+        {lines.map((line, which) => (
+          <Line
+            key={line.label}
+            type="monotone"
+            dataKey={`line${which}`}
+            name={line.label}
+            stroke={TONE_VAR[tones[which % tones.length]!]}
+            strokeWidth={2}
+            dot={{ r: 2 }}
+            connectNulls={false}
+          />
+        ))}
+      </LineChart>
     </ResponsiveContainer>
   );
 }

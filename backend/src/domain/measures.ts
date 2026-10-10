@@ -14,6 +14,8 @@ import {
   type TimeFact,
   type WorkFact,
 } from './measure-facts.js';
+import { forecasts, type Totals } from './earned-value.js';
+import { evaluateProjects, loadEvmShared, type EvmShared, type ScopeEvaluation } from './earned-value-store.js';
 import { isDelivered, isDueSoon, isOpen, isOverdue } from './work-definitions.js';
 
 /**
@@ -66,7 +68,7 @@ export interface Viewer {
   visibleProjectIds: Set<number>;
 }
 
-export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'perWeek' | 'points';
+export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'perWeek' | 'points' | 'index';
 export type MemberKind = 'work_package' | 'project' | 'person';
 
 const PROJECT_SCOPES: ScopeKind[] = ['instance', 'portfolio', 'project'];
@@ -100,6 +102,8 @@ export interface MeasureContext {
   health: Map<number, HealthFact>;
   risk: { typeIds: Set<number>; highPriorityIds: Set<number>; configured: boolean };
   visibleProjectIds: Set<number>;
+  /** Earned value's settings history, baselines, rates and working days. */
+  evm: EvmShared;
 }
 
 export interface MeasureValue {
@@ -186,6 +190,127 @@ const dayOf = (instant: string | null): string | null => (instant ? instant.slic
 const inPeriod = (day: string | null, period: Period): boolean => day !== null && day >= period.from && day <= period.to;
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const pct = (part: number, whole: number): number | null => (whole > 0 ? round1((part / whole) * 100) : null);
+
+const round3 = (value: number) => Math.round(value * 1000) / 1000;
+
+/* -------------------------------------------------------------------------- */
+/* Earned value (BR-301 to BR-303)                                            */
+/* -------------------------------------------------------------------------- */
+
+const evmMemo = new WeakMap<WorkFact[], Map<string, ScopeEvaluation>>();
+
+/**
+ * Earned value for a context's projects as at its day — once per context, so
+ * eleven measures read one evaluation. A series rebuilds the context for each
+ * bucket, with the work as it stood then, and so evaluates each bucket once.
+ */
+export function evmOf(context: MeasureContext): ScopeEvaluation {
+  const projectIds = context.projects.map((project) => project.id);
+  const key = `${context.today}|${projectIds.join(',')}`;
+  let byKey = evmMemo.get(context.work);
+  if (!byKey) {
+    byKey = new Map();
+    evmMemo.set(context.work, byKey);
+  }
+  let found = byKey.get(key);
+  if (!found) {
+    found = evaluateProjects(context.evm, { projectIds, at: context.today, work: context.work, time: context.time });
+    byKey.set(key, found);
+  }
+  return found;
+}
+
+/**
+ * What the figures were measured against, and what they leave out, in words.
+ * `against` adds the first; the budget carries it, the other figures only
+ * what they leave out.
+ */
+function evmNote(result: ScopeEvaluation, against: boolean): string | undefined {
+  const notes: string[] = [];
+  const measured = result.projects.filter((project) => project.evaluation.totals.bac > 0 || project.evaluation.totals.ac > 0);
+  const baselined = measured.filter((project) => project.measuredAgainst.kind === 'baseline');
+  if (!against) {
+    // Only what is left out.
+  } else if (measured.length === 1) {
+    const against = measured[0]!.measuredAgainst;
+    notes.push(
+      against.kind === 'baseline'
+        ? `Measured against baseline ${against.number}, set ${against.setAt.slice(0, 10)}.`
+        : 'Measured against the current plan: no baseline has been set.',
+    );
+  } else if (measured.length > 1) {
+    notes.push(
+      baselined.length === measured.length
+        ? 'Every project measured against its baseline.'
+        : `${baselined.length} of ${measured.length} projects measured against a baseline; the rest against their current plans.`,
+    );
+  }
+  const { counts, uncostedHours } = result.totals;
+  if (counts.unpriced > 0) notes.push(`${counts.unpriced} work packages have hours but no rate to price them, and are left out.`);
+  if (counts.undated > 0) notes.push(`${counts.undated} work packages have no planned dates, so nothing of theirs is planned for any day.`);
+  if (uncostedHours > 0) notes.push(`${uncostedHours} hours logged by people with no hourly rate are not costed.`);
+  return notes.length > 0 ? notes.join(' ') : undefined;
+}
+
+/** A set's index or forecast, made from the projects' summed budgets, planned and earned values and costs. */
+function evmRollup(describe: string, from: (bac: number, pv: number, ev: number, ac: number) => number | null): Rollup {
+  const sum = (values: MeasureValue[], name: string) => roundMoney(values.reduce((total, value) => total + (value.parts?.[name] ?? 0), 0));
+  return {
+    rule: 'ratio',
+    describe,
+    from: (values) => {
+      const present = values.filter((value) => value.parts);
+      if (present.length === 0) return null;
+      return from(sum(present, 'bac'), sum(present, 'pv'), sum(present, 'ev'), sum(present, 'ac'));
+    },
+  };
+}
+
+function evmMeasure(spec: {
+  id: string;
+  label: string;
+  unit: MeasureUnit;
+  definition: string;
+  pick(totals: Totals): number | null;
+  rollup: Rollup;
+  members?: boolean;
+  entries?: 'to-date';
+  /** What its tile says beneath it: what it was measured against, what it leaves out, or nothing. */
+  note: 'against' | 'exceptions' | 'none';
+}): MeasureDefinition {
+  return {
+    id: spec.id,
+    label: spec.label,
+    unit: spec.unit,
+    definition: spec.definition,
+    scopes: PROJECT_SCOPES,
+    usesPeriod: false,
+    trend: 'asAt',
+    version: 1,
+    rollup: spec.rollup,
+    ...(spec.members ? { memberKind: 'work_package' as const } : {}),
+    ...(spec.entries ? { entries: spec.entries } : {}),
+    compute: (context) => {
+      const result = evmOf(context);
+      const { totals } = result;
+      if (totals.bac === 0 && totals.ac === 0) {
+        return { value: null, note: 'Nothing in scope to measure: no estimates to price, and no time logged.' };
+      }
+      return {
+        value: spec.pick(totals),
+        parts: { bac: totals.bac, pv: totals.pv, ev: totals.ev, ac: totals.ac },
+        note: spec.note === 'none' ? undefined : evmNote(result, spec.note === 'against'),
+        ...(spec.members
+          ? {
+              members: result.projects.flatMap((project) =>
+                project.evaluation.items.filter((item) => item.bac !== null && item.bac > 0).map((item) => item.workPackageId),
+              ),
+            }
+          : {}),
+      };
+    },
+  };
+}
 
 /** Weeks in a period: its days over seven. */
 export function weeksIn(period: Period): number {
@@ -852,6 +977,117 @@ export const MEASURES: MeasureDefinition[] = [
     },
   },
 
+  /* --------------------------------------------------------- earned value */
+  evmMeasure({
+    id: 'evm.bac',
+    note: 'against',
+    label: 'Budget at completion (BAC)',
+    unit: 'money',
+    definition:
+      'Each work package’s estimated hours at its assignee’s hourly rate, as the baseline in force priced them — or, for a project with no baseline, as its plan stands — added up. Work with no rate to price it is left out and counted.',
+    pick: (totals) => totals.bac,
+    rollup: sumRollup,
+    members: true,
+  }),
+  evmMeasure({
+    id: 'evm.pv',
+    note: 'exceptions',
+    label: 'Planned value (PV)',
+    unit: 'money',
+    definition:
+      'Each work package’s budget spread evenly over the working days from its planned start to its planned finish, as far as the day measured, added up: the work that should have been done by then, priced.',
+    pick: (totals) => totals.pv,
+    rollup: sumRollup,
+    members: true,
+  }),
+  evmMeasure({
+    id: 'evm.ev',
+    note: 'exceptions',
+    label: 'Earned value (EV)',
+    unit: 'money',
+    definition:
+      'Each work package’s budget times the share its type’s earning rule credits it with by the day measured — percent complete, 0/100, 50/50, milestone weighted or level of effort — added up. Delivered work has earned all of it.',
+    pick: (totals) => totals.ev,
+    rollup: sumRollup,
+    members: true,
+  }),
+  evmMeasure({
+    id: 'evm.ac',
+    note: 'exceptions',
+    label: 'Actual cost (AC)',
+    unit: 'money',
+    definition:
+      'Every hour logged on the projects in scope up to the day measured, at the hourly rate of the person who logged it — work outside the plan included. Hours from people without a rate are not costed, and are counted separately.',
+    pick: (totals) => totals.ac,
+    rollup: sumRollup,
+    entries: 'to-date',
+  }),
+  evmMeasure({
+    id: 'evm.sv',
+    note: 'none',
+    label: 'Schedule variance (SV)',
+    unit: 'money',
+    definition: 'Earned value minus planned value: what was done, priced, against what should have been. Negative is behind plan.',
+    pick: (totals) => totals.sv,
+    rollup: sumRollup,
+  }),
+  evmMeasure({
+    id: 'evm.cv',
+    note: 'none',
+    label: 'Cost variance (CV)',
+    unit: 'money',
+    definition: 'Earned value minus actual cost: what was done, priced, against what it cost. Negative is over cost.',
+    pick: (totals) => totals.cv,
+    rollup: sumRollup,
+  }),
+  evmMeasure({
+    id: 'evm.spi',
+    note: 'none',
+    label: 'Schedule performance (SPI)',
+    unit: 'index',
+    definition: 'Earned value over planned value. Below 1 is behind plan; 0.9 is nine-tenths of the planned work done.',
+    pick: (totals) => totals.spi,
+    rollup: evmRollup('Earned value over planned value, each added across the projects.', (bac, pv, ev) => (pv > 0 ? round3(ev / pv) : null)),
+  }),
+  evmMeasure({
+    id: 'evm.cpi',
+    note: 'none',
+    label: 'Cost performance (CPI)',
+    unit: 'index',
+    definition: 'Earned value over actual cost. Below 1 is over cost; 0.9 is ninety of value earned for each hundred spent.',
+    pick: (totals) => totals.cpi,
+    rollup: evmRollup('Earned value over actual cost, each added across the projects.', (bac, pv, ev, ac) => (ac > 0 ? round3(ev / ac) : null)),
+  }),
+  evmMeasure({
+    id: 'evm.eac',
+    note: 'none',
+    label: 'Estimate at completion (EAC)',
+    unit: 'money',
+    definition:
+      'Budget at completion over the cost performance index: what the work will cost if the rest goes as the work so far has. The budget itself while nothing has been spent.',
+    pick: (totals) => totals.eac,
+    rollup: evmRollup('From the budgets, earned values and actual costs, each added across the projects.', (bac, pv, ev, ac) => forecasts(bac, ev, ac).eac),
+  }),
+  evmMeasure({
+    id: 'evm.vac',
+    note: 'none',
+    label: 'Variance at completion (VAC)',
+    unit: 'money',
+    definition: 'Budget at completion minus the estimate at completion. Negative is the overrun forecast.',
+    pick: (totals) => totals.vac,
+    rollup: evmRollup('From the budgets, earned values and actual costs, each added across the projects.', (bac, pv, ev, ac) => forecasts(bac, ev, ac).vac),
+  }),
+  evmMeasure({
+    id: 'evm.tcpi',
+    note: 'none',
+    label: 'To-complete performance (TCPI)',
+    unit: 'index',
+    definition:
+      'The budget still to earn over the budget still to spend, (BAC − EV) / (BAC − AC): the efficiency the remaining work needs to finish on budget. Above 1 is harder than planned.',
+    pick: (totals) => totals.tcpi,
+    rollup: evmRollup('From the budgets, earned values and actual costs, each added across the projects.', (bac, pv, ev, ac) => forecasts(bac, ev, ac).tcpi),
+  }),
+
   /* --------------------------------------------------------- people, time */
   {
     id: 'capacity.weeklyHours',
@@ -1014,13 +1250,14 @@ export interface Shared {
   viewer: Viewer;
   health: Map<number, HealthFact>;
   risk: MeasureContext['risk'];
+  evm: EvmShared;
 }
 
 export async function prepare(viewer: Viewer): Promise<Shared> {
   const facts = await modelFacts();
   const visible = [...facts.projects.values()].filter((project) => viewer.visibleProjectIds.has(project.id));
-  const [health, risk] = await Promise.all([healthFacts(visible), riskSelection()]);
-  return { facts, viewer, health, risk };
+  const [health, risk, evm] = await Promise.all([healthFacts(visible), riskSelection(), loadEvmShared(facts)]);
+  return { facts, viewer, health, risk, evm };
 }
 
 async function healthFacts(projects: ProjectFact[]): Promise<Map<number, HealthFact>> {
@@ -1150,6 +1387,7 @@ export function contextFor(
     health,
     risk: shared.risk,
     visibleProjectIds: visible,
+    evm: shared.evm,
   };
 }
 

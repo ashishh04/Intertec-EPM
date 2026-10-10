@@ -1,6 +1,7 @@
 import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
+import { roundMoney } from '../lib/money.js';
 import { appLog } from '../lib/log.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
@@ -40,10 +41,7 @@ interface OpTimeEntryLite {
 
 const NONE: ProjectCost = { cost: 0, costedHours: 0, uncostedHours: 0 };
 
-/** Money to two places, the way every cost figure is reported. */
-export function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
-}
+export { roundMoney };
 
 /**
  * The cost of `hours` worked by someone at `rate` an hour.

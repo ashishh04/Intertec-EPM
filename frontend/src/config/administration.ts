@@ -203,6 +203,12 @@ export const ADMIN_AREAS: AdminArea[] = [
           'How project health is calculated: the criteria, their weights and thresholds, and what counts as a high risk.',
       },
       {
+        id: 'earned-value',
+        label: 'Earned value',
+        kind: 'live',
+        description: 'How each type of work earns value, and the rate for work no one’s rate prices.',
+      },
+      {
         id: 'attributes',
         label: 'Project attributes',
         kind: 'managed',

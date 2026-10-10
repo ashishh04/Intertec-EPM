@@ -35,6 +35,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   delivery: 'Delivery',
   utilisation: 'Utilisation',
   budget: 'Budget',
+  'earned-value': 'Earned value',
   risk: 'Risk exposure',
   documents: 'Documents',
   notifications: 'Notifications',

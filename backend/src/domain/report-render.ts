@@ -68,6 +68,8 @@ export function formatValue(value: number | null | undefined, unit: MeasureUnit 
       return `${number(value)} / wk`;
     case 'points':
       return `${number(value)} pts`;
+    case 'index':
+      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     default:
       return number(value, 0);
   }
@@ -169,8 +171,9 @@ export function renderPdf(content: ReportContent): Uint8Array {
   }
   y += 6;
 
-  // Series, two to a row, as bars.
+  // Series, two to a row: bars, or lines where several share the axes.
   const chartWidth = (width - 12) / 2;
+  const LINE_COLOURS: Rgb[] = [COLOURS.brand, COLOURS.success, COLOURS.warning];
   for (let index = 0; index < dashboard.series.length; index += 2) {
     ensure(150);
     dashboard.series.slice(index, index + 2).forEach((series, column) => {
@@ -180,6 +183,33 @@ export function renderPdf(content: ReportContent): Uint8Array {
       doc.text(series.bucket === 'week' ? 'By week' : 'By month', x, y + 13, { size: 7.5, colour: COLOURS.muted });
       const top = y + 28;
       const height = 100;
+      if (series.lines?.length) {
+        const all = [{ label: series.label ?? series.title, points: series.points }, ...series.lines];
+        const max = Math.max(...all.flatMap((line) => line.points.map((point) => point.value ?? 0)), 0) || 1;
+        doc.line(x, top + height, x + chartWidth, top + height, { colour: COLOURS.border });
+        doc.text(formatValue(max, unit), x, top - 2, { size: 6.5, colour: COLOURS.faint });
+        const step = chartWidth / Math.max(series.points.length - 1, 1);
+        all.forEach((line, at) => {
+          const colour = LINE_COLOURS[at % LINE_COLOURS.length]!;
+          line.points.forEach((point, n) => {
+            const next = line.points[n + 1];
+            if (point.value === null || !next || next.value === null) return;
+            const y1 = top + height - (point.value / max) * (height - 10);
+            const y2 = top + height - (next.value / max) * (height - 10);
+            doc.line(x + n * step, y1, x + (n + 1) * step, y2, { colour, width: 1.2 });
+          });
+          doc.rect(x + at * (chartWidth / all.length), top + height + 14, 6, 3, { fill: colour });
+          doc.text(fitText(line.label, chartWidth / all.length - 10, 6.5), x + at * (chartWidth / all.length) + 9, top + height + 12, {
+            size: 6.5,
+            colour: COLOURS.muted,
+          });
+        });
+        const first = series.points[0];
+        const last = series.points[series.points.length - 1];
+        if (first) doc.text(day(first.from), x, top + height + 4, { size: 6.5, colour: COLOURS.muted });
+        if (last && last !== first) doc.text(day(last.from), x + chartWidth, top + height + 4, { size: 6.5, colour: COLOURS.muted, align: 'right' });
+        return;
+      }
       const values = series.points.map((point) => point.value ?? 0);
       const max = Math.max(...values, 0) || 1;
       doc.line(x, top + height, x + chartWidth, top + height, { colour: COLOURS.border });
@@ -245,9 +275,10 @@ function renderTable(
 ): void {
   const columns = table.columns;
   const numeric = columns.map((column, index) => index > 0 && Boolean(column.unit));
-  // The first column takes what the others leave, and at least a third.
+  // The first column takes what the others leave, and at least a third — a
+  // quarter in a wide table, so eight figures still fit beside it.
   const rest = columns.length - 1;
-  const firstWidth = Math.max(width / 3, width - rest * 92);
+  const firstWidth = Math.max(rest >= 7 ? width / 4 : width / 3, width - rest * 92);
   const otherWidth = rest > 0 ? (width - firstWidth) / rest : 0;
   const widths = columns.map((_, index) => (index === 0 ? firstWidth : otherWidth));
   const rowHeight = 15;
@@ -359,11 +390,11 @@ export function renderXlsx(content: ReportContent): Uint8Array {
       ? [
           {
             name: 'Trends',
-            headers: ['From', 'To', ...dashboard.series.map((series) => series.title)],
+            headers: ['From', 'To', ...dashboard.series.flatMap((series) => (series.lines?.length ? [series.label ?? series.title, ...series.lines.map((line) => line.label)] : [series.title]))],
             rows: (dashboard.series[0]?.points ?? []).map((point, index) => [
               point.from,
               point.to,
-              ...dashboard.series.map((series) => series.points[index]?.value ?? null),
+              ...dashboard.series.flatMap((series) => [series.points[index]?.value ?? null, ...(series.lines ?? []).map((line) => line.points[index]?.value ?? null)]),
             ]),
           },
         ]

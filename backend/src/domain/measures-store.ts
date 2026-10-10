@@ -1,7 +1,8 @@
 import { prisma } from '../db/prisma.js';
 import { addDays, today as todayIso } from '../lib/dates.js';
-import { modelFacts } from './measure-facts.js';
-import { catalogue, contextFor, evaluateInContext, MEASURES, prepare, type Scope } from './measures.js';
+import { evaluateProjects } from './earned-value-store.js';
+import { modelFacts, workFactsAsAt, type WorkFact } from './measure-facts.js';
+import { bucketsOf, catalogue, contextFor, evaluateInContext, MEASURES, prepare, type Scope } from './measures.js';
 
 /**
  * The semantic layer, published to the analytics schema (BR-404).
@@ -96,5 +97,127 @@ export async function materialiseMeasures(day = todayIso()): Promise<number> {
       );
     }
   });
+  return rows.length;
+}
+
+/**
+ * Earned value over time, for BI (BR-303): the instance's, each active
+ * portfolio's and each project's figures at the end of every week and every
+ * month, from the earliest planned start to the latest planned finish — at
+ * most two years either side of the day. Past periods are rebuilt from the
+ * journals exactly as the Earned value dashboard rebuilds them; periods still
+ * to come carry the plan alone. Rewritten whole, in one transaction.
+ */
+export async function materialiseEarnedValue(day = todayIso()): Promise<number> {
+  const facts = await modelFacts();
+  const shared = await prepare({ visibleProjectIds: new Set(facts.projects.keys()) });
+
+  const dates: string[] = [];
+  for (const work of facts.workPackages) {
+    if (work.startDate) dates.push(work.startDate);
+    if (work.dueDate) dates.push(work.dueDate);
+  }
+  for (const baselines of shared.evm.baselines.values()) {
+    for (const baseline of baselines) {
+      for (const item of baseline.items) {
+        if (item.plannedStart) dates.push(item.plannedStart);
+        if (item.plannedFinish) dates.push(item.plannedFinish);
+      }
+    }
+  }
+  if (dates.length === 0) {
+    await prisma.$executeRawUnsafe('DELETE FROM analytics.fact_evm_period');
+    return 0;
+  }
+  dates.sort();
+  const earliest = addDays(day, -730);
+  const latest = addDays(day, 730);
+  const from = dates[0]! < earliest ? earliest : dates[0]!;
+  const to = dates.at(-1)! > latest ? latest : dates.at(-1)! < day ? day : dates.at(-1)!;
+
+  const scopes: Scope[] = [
+    { kind: 'instance' },
+    ...[...facts.portfolios.values()].filter((item) => item.active).map((item) => ({ kind: 'portfolio' as const, id: item.id })),
+    ...[...facts.projects.values()].filter((item) => item.active).map((item) => ({ kind: 'project' as const, id: String(item.id) })),
+  ];
+
+  // The work as it stood at each past period's end, read once for every scope.
+  const asAt = new Map<string, WorkFact[]>();
+  const workAt = async (end: string): Promise<WorkFact[]> => {
+    if (end >= day) return facts.workPackages;
+    let found = asAt.get(end);
+    if (!found) {
+      found = await workFactsAsAt(new Date(`${addDays(end, 1)}T00:00:00.000Z`), facts);
+      asAt.set(end, found);
+    }
+    return found;
+  };
+
+  type Row = Record<string, string | number | boolean | null>;
+  const rows: Row[] = [];
+  for (const bucket of ['week', 'month'] as const) {
+    for (const slice of bucketsOf({ from, to }, bucket)) {
+      const ahead = slice.from > day;
+      const at = slice.to < day ? slice.to : ahead ? slice.to : day;
+      const work = await workAt(slice.to < day ? slice.to : day);
+      for (const scope of scopes) {
+        const context = contextFor(shared, scope, { from: at, to: at }, at);
+        const result = evaluateProjects(shared.evm, {
+          projectIds: context.projects.map((project) => project.id),
+          at,
+          work: work.filter(context.inScope),
+          time: context.time,
+        });
+        const { totals } = result;
+        if (totals.bac === 0 && totals.ac === 0) continue;
+        const against = result.projects.filter((project) => project.evaluation.totals.bac > 0 || project.evaluation.totals.ac > 0);
+        const baselined = against.filter((project) => project.measuredAgainst.kind === 'baseline');
+        rows.push({
+          scope_type: scope.kind,
+          scope_id: scope.id ?? '',
+          bucket,
+          period_start: slice.from,
+          period_end: slice.to,
+          period_end_key: dateKey(slice.to),
+          measured_against:
+            against.length === 1
+              ? against[0]!.measuredAgainst.kind === 'baseline'
+                ? `baseline ${(against[0]!.measuredAgainst as { number: number }).number}`
+                : 'current plan'
+              : `${baselined.length} of ${against.length} projects against a baseline`,
+          bac: totals.bac,
+          pv: totals.pv,
+          ev: ahead ? null : totals.ev,
+          ac: ahead ? null : totals.ac,
+          sv: ahead ? null : totals.sv,
+          cv: ahead ? null : totals.cv,
+          spi: ahead ? null : totals.spi,
+          cpi: ahead ? null : totals.cpi,
+          eac: ahead ? null : totals.eac,
+          etc: ahead ? null : totals.etc,
+          vac: ahead ? null : totals.vac,
+          tcpi: ahead ? null : totals.tcpi,
+          is_forecast: ahead,
+        });
+      }
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('DELETE FROM analytics.fact_evm_period');
+    for (let at = 0; at < rows.length; at += 2000) {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO analytics.fact_evm_period (scope_type, scope_id, bucket, period_start, period_end, period_end_key,
+                measured_against, bac, pv, ev, ac, sv, cv, spi, cpi, eac, etc, vac, tcpi, is_forecast, computed_at)
+         SELECT r.scope_type, r.scope_id, r.bucket, r.period_start, r.period_end, r.period_end_key, r.measured_against,
+                r.bac, r.pv, r.ev, r.ac, r.sv, r.cv, r.spi, r.cpi, r.eac, r.etc, r.vac, r.tcpi, r.is_forecast, now()
+           FROM jsonb_to_recordset($1::jsonb) AS r(scope_type text, scope_id text, bucket text, period_start date,
+                period_end date, period_end_key int, measured_against text, bac float8, pv float8, ev float8, ac float8,
+                sv float8, cv float8, spi float8, cpi float8, eac float8, etc float8, vac float8, tcpi float8,
+                is_forecast boolean)`,
+        JSON.stringify(rows.slice(at, at + 2000)),
+      );
+    }
+  }, { timeout: 60_000 });
   return rows.length;
 }

@@ -11,7 +11,7 @@ import {
   type RefreshTrigger,
 } from '../domain/analytics-model.js';
 import { withLease } from '../domain/job-lease.js';
-import { materialiseMeasures, materialisedToday } from '../domain/measures-store.js';
+import { materialiseEarnedValue, materialiseMeasures, materialisedToday } from '../domain/measures-store.js';
 
 /**
  * Keeps the analytics model current (BR-402) and its history checkable (BR-403).
@@ -96,6 +96,12 @@ export function createAnalyticsRefreshScheduler(options: {
         .then((rows) => log.info({ rows }, 'Daily measure values stored'))
         .catch((error: unknown) => {
           log.warn({ err: error }, 'Daily measure values could not be stored');
+        });
+      // And earned value period by period (BR-303), rebuilt for BI.
+      await materialiseEarnedValue()
+        .then((rows) => log.info({ rows }, 'Earned value periods stored'))
+        .catch((error: unknown) => {
+          log.warn({ err: error }, 'Earned value periods could not be stored');
         });
     }
   }

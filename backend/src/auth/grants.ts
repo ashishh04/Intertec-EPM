@@ -30,6 +30,7 @@ const GRANTABLE = new Set<Permission>([
   'analytics:manage',
   'reports:schedule',
   'reports:approve',
+  'evm:configure',
 ]);
 
 export function isGrantable(permission: string): permission is Permission {
