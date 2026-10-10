@@ -34,6 +34,7 @@ import {
   useDeletePlaceholderPerson,
   usePlaceholderPeople,
 } from '@/hooks/usePlaceholderPeople';
+import { useResourceRoles } from '@/hooks/useResources';
 import { useTeams } from '@/hooks/useTeams';
 import { useUsers } from '@/hooks/useUsers';
 import { usePagination } from '@/hooks/usePagination';
@@ -266,10 +267,12 @@ function NewPlaceholderDialog({
 }) {
   const create = useCreatePlaceholderPerson();
   const teams = useTeams();
+  const roles = useResourceRoles();
 
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [teamId, setTeamId] = useState<string>(NONE);
+  const [roleId, setRoleId] = useState<string>(NONE);
   const [hours, setHours] = useState('40');
   const [error, setError] = useState<string>();
 
@@ -277,6 +280,7 @@ function NewPlaceholderDialog({
     setName('');
     setNote('');
     setTeamId(NONE);
+    setRoleId(NONE);
     setHours('40');
     setError(undefined);
   };
@@ -302,6 +306,7 @@ function NewPlaceholderDialog({
         note: note.trim() || undefined,
         teamId: teamId === NONE ? null : teamId,
         hoursCapacity: capacity,
+        resourceRoleId: roleId === NONE ? null : roleId,
       },
       {
         onSuccess: (person) => {
@@ -377,6 +382,24 @@ function NewPlaceholderDialog({
                 />
                 <FieldHint>{t('Planned capacity.')}</FieldHint>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="placeholder-role">{t('Role')}</Label>
+              <Select value={roleId} onValueChange={setRoleId}>
+                <SelectTrigger id="placeholder-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>{t('No role')}</SelectItem>
+                  {(roles.data ?? []).map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint>{t('The kind of work the role to be filled does: for capacity and demand by role.')}</FieldHint>
             </div>
 
             <div className="space-y-1.5">

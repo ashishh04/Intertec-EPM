@@ -116,6 +116,18 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('Named stand-ins that hold assignments before a real person is known.'); },
       },
       {
+        id: 'resource-roles',
+        get label() { return t('Resource roles'); },
+        kind: 'live',
+        get description() { return t('The kinds of work people do, for reading capacity, demand and utilisation by role.'); },
+      },
+      {
+        id: 'resource-rules',
+        get label() { return t('Resource rules'); },
+        kind: 'live',
+        get description() { return t('Heatmap thresholds, what counts as billable time, and the length of a working day.'); },
+      },
+      {
         id: 'groups',
         get label() { return t('Groups'); },
         kind: 'live',

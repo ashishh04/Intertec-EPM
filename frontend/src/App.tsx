@@ -46,6 +46,7 @@ const AgilePage = lazy(() => import('@/pages/AgilePage'));
 const BoardsPage = lazy(() => import('@/pages/BoardsPage'));
 const SprintsPage = lazy(() => import('@/pages/SprintsPage'));
 const GanttPage = lazy(() => import('@/pages/GanttPage'));
+const ResourcesPage = lazy(() => import('@/pages/ResourcesPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
 const ScheduledReportsPage = lazy(() => import('@/pages/ScheduledReportsPage'));
@@ -270,6 +271,7 @@ export function App() {
           <Route path="/boards" element={<BoardsPage />} />
           <Route path="/sprints" element={<SprintsPage />} />
           <Route path="/gantt" element={<GanttPage />} />
+          <Route path="/resources" element={<ResourcesPage />} />
 
           {/* The executive and PMO dashboards (BR-405). Open to everyone signed in:
               every figure is scoped server-side to the projects the person can read. */}

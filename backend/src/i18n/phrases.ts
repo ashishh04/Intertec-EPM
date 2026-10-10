@@ -26,6 +26,7 @@ export const PHRASES: readonly string[] = [
   msg('configure'),
   msg('schedule'),
   msg('approve'),
+  msg('plan'),
   msg('projects'),
   msg('work packages'),
   msg('members'),
@@ -46,6 +47,7 @@ export const PHRASES: readonly string[] = [
   msg('rates'),
   msg('audits'),
   msg('roles'),
+  msg('resources'),
   msg('systems'),
   msg('calculated fields'),
 

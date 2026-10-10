@@ -194,6 +194,14 @@ async function main() {
   // the earning rules as they were, put back if the section stopped part-way.
   let earnedValueProjectId: string | undefined;
   let evmRulesBefore: { defaultMethod: string; methods: Record<string, string>; unpricedRate: number | null } | undefined;
+  // The resource tests' project, role, pin and levelling runs, and the role
+  // the restricted account had: put back if the section stopped part-way.
+  let resourcesProjectId: string | undefined;
+  let resourcesProjectNumber: number | undefined;
+  let resourcesRoleId: string | undefined;
+  let resourcesRestrictedRoleBefore: string | null | undefined;
+  let resourcesPinnedId: string | undefined;
+  const resourcesRunIds: string[] = [];
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -7885,6 +7893,422 @@ async function main() {
     earnedValueProjectId = undefined;
   }
 
+  // --- Resources and capacity (BR-110 to BR-112, BR-312 to BR-316) ---------------
+  console.log('\nResources and capacity');
+  {
+    type Json = Record<string, any>;
+    const { prisma: rcDb } = await import('../db/prisma.js');
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const json = async (path: string, cookie = admin, init: Parameters<typeof call>[1] = {}) =>
+      (await (await call(path, { cookie, ...init })).json()) as Json;
+    const DAY = 86_400_000;
+    const isoOf = (time: number) => new Date(time).toISOString().slice(0, 10);
+    const round2 = (value: number) => Math.round(value * 100) / 100;
+    const round1 = (value: number) => Math.round(value * 10) / 10;
+    const refreshModel = () => json('/analytics/model/refresh', admin, { method: 'POST', body: { kind: 'incremental', wait: true } });
+    const stamp = Date.now();
+    const today = new Date().toISOString().slice(0, 10);
+    const todayMs = Date.parse(`${today}T00:00:00Z`);
+    const thisMonday = todayMs - ((new Date(todayMs).getUTCDay() + 6) % 7) * DAY;
+
+    // Who may: none of it is for someone without the permissions.
+    check('someone without resource planning cannot see the heatmap', await status('/resources/capacity', { cookie: restricted }), 403);
+    check('nor over-allocation', await status('/resources/over-allocations', { cookie: restricted }), 403);
+    check('nor level anything', await status('/resources/levelling', { method: 'POST', cookie: restricted, body: { scope: { kind: 'people', people: [restrictedId] } } }), 403);
+    check('nor change the resource rules', await status('/resources/settings', { method: 'PUT', cookie: restricted, body: {} }), 403);
+    check('nor add a role', await status('/resources/roles', { method: 'POST', cookie: restricted, body: { name: `Nope ${stamp}` } }), 403);
+    check('nor read someone else’s availability', await status(`/resources/people/${adminId}/availability`, { cookie: restricted }), 403);
+    check('but may read their own', await status(`/resources/people/${restrictedId}/availability`, { cookie: restricted }), 200);
+    check('nor set their own schedule', await status(`/resources/people/${restrictedId}/schedules`, { method: 'PUT', cookie: restricted, body: { effectiveFrom: today, hours: [8, 8, 8, 8, 8, 0, 0], fraction: 1 } }), 403);
+
+    // Three clear weeks well ahead — no holiday in them — so nothing else is planned there.
+    const week = await asSystem(() => upstream.request<Json>('/days/week'));
+    const workingWeekdays = new Set(((week._embedded?.elements ?? []) as Json[]).filter((entry) => entry.working).map((entry) => (entry.day as number) - 1));
+    check('the instance works Monday to Friday', [...workingWeekdays].sort().join(','), '0,1,2,3,4');
+    let W = thisMonday + 20 * 7 * DAY;
+    for (let tries = 0; tries < 8; tries += 1) {
+      const holidays = await asSystem(() =>
+        upstream.getCollection<Json>('/days/non_working', { filters: [{ field: 'date', operator: '<>d', values: [isoOf(W), isoOf(W + 20 * DAY)] }] }),
+      );
+      if ((holidays._embedded?.elements ?? []).length === 0) break;
+      W += 7 * DAY;
+    }
+    const day = (offset: number) => isoOf(W + offset * DAY);
+
+    // Roles (BR-313 to BR-315).
+    const roleName = `Suite Analyst ${stamp}`;
+    const madeRole = await call('/resources/roles', { method: 'POST', cookie: admin, body: { name: roleName } });
+    check('a role is made', madeRole.status, 201);
+    resourcesRoleId = ((await madeRole.json()) as Json).id as string | undefined;
+    check('a second one called the same, in any case, is refused', await status('/resources/roles', { method: 'POST', cookie: admin, body: { name: roleName.toUpperCase() } }), 409);
+    const restrictedProfile = await rcDb.userProfile.findUnique({ where: { openProjectId: restrictedId }, select: { resourceRoleId: true } });
+    resourcesRestrictedRoleBefore = restrictedProfile?.resourceRoleId ?? null;
+    check('the restricted account is given it', await status(`/employees/${restrictedId}/role`, { method: 'PATCH', cookie: admin, body: { roleId: resourcesRoleId } }), 200);
+
+    /*
+     * BR-312: the availability model. The restricted account, from Monday W:
+     * 8 hours Monday to Friday at half time — 4 a day, 20 a week — and the
+     * Wednesday of W off. By hand: W has 16 hours, W+1 has 20.
+     */
+    const schedule = await call(`/resources/people/${restrictedId}/schedules`, {
+      method: 'PUT',
+      cookie: admin,
+      body: { effectiveFrom: day(0), hours: [8, 8, 8, 8, 8, 0, 0], fraction: 0.5 },
+    });
+    check('BR-312: a work schedule with an employment fraction is set', schedule.status, 200);
+    const off = await call(`/resources/people/${restrictedId}/time-off`, {
+      method: 'POST',
+      cookie: admin,
+      body: { startsOn: day(2), endsOn: day(2), hoursPerDay: null, kind: 'leave' },
+    });
+    check('and a day off', off.status, 201);
+    const availability = await json(`/resources/people/${restrictedId}/availability?from=${day(0)}&weeks=3`);
+    check(
+      'available hours are the schedule times the fraction, less the day off',
+      ((availability.weeks ?? []) as Json[]).slice(0, 2).map((entry) => entry.available).join('/'),
+      '16/20',
+    );
+
+    // The HR source: imported, twice; and its figures checked against EPM's.
+    const extract = {
+      people: [
+        {
+          personId: restrictedId,
+          effectiveFrom: day(14),
+          fraction: 1,
+          hours: [8, 8, 8, 8, 8, 0, 0],
+          timeOff: [{ externalId: `suite-${stamp}-1`, startsOn: day(14), endsOn: day(14), hoursPerDay: 4, kind: 'training' }],
+        },
+        { email: `nobody-${stamp}@example.invalid`, fraction: 1 },
+      ],
+    };
+    const first = await json('/resources/hr/import', admin, { method: 'POST', body: extract });
+    check('the HR extract is imported: a schedule and time off', `${first.people}/${first.schedules}/${first.timeOffCreated}/${first.timeOffUpdated}`, '1/1/1/0');
+    check('and someone the directory does not know is named, not guessed', (first.unknown ?? []).join(','), `nobody-${stamp}@example.invalid`);
+    const second = await json('/resources/hr/import', admin, { method: 'POST', body: extract });
+    check('imported again, the time off is updated, not added twice', `${second.timeOffCreated}/${second.timeOffUpdated}`, '0/1');
+    // By hand: W 16, W+1 20, W+2 full time less 4 hours of training: 36.
+    const reconciled = await json('/resources/hr/reconcile', admin, {
+      method: 'POST',
+      body: {
+        rows: [
+          { personId: restrictedId, from: day(0), to: day(13), availableHours: 36 },
+          { personId: restrictedId, from: day(14), to: day(20), availableHours: 36 },
+          { personId: restrictedId, from: day(14), to: day(20), availableHours: 40 },
+        ],
+      },
+    });
+    check(
+      'BR-312: the available hours for the sample reconcile to the HR source’s',
+      `${reconciled.matched}/${reconciled.differing}/${reconciled.unknown}`,
+      '2/1/0',
+    );
+    check('and a figure that does not is shown with the difference', ((reconciled.rows ?? []) as Json[])[2]?.difference, -4);
+
+    // A project of its own: the administrator to give work to, the restricted account to be given it.
+    const madeProject = await call('/projects', {
+      method: 'POST',
+      cookie: admin,
+      body: { payload: { name: `Resources Test ${stamp}`, identifier: `rc-test-${stamp}` } },
+    });
+    check('a project is made for the resource tests', madeProject.status, 201);
+    resourcesProjectId = ((await madeProject.json()) as Json).id as string | undefined;
+    resourcesProjectNumber = Number(resourcesProjectId);
+    const rcProject = String(resourcesProjectId);
+    const adminRoles = (await json('/admin/roles')) as unknown as { id: string; name: string; kind: string; builtin: boolean; permissions: string[] }[];
+    const projectRoleList = adminRoles.filter((role) => role.kind === 'project' && !role.builtin);
+    const assigneeRole = projectRoleList.find((role) => role.permissions.includes('work_package_assigned') && role.permissions.includes('edit_project'));
+    const workerRole = projectRoleList.find(
+      (role) => role.name !== 'EPM Automation' && role.permissions.includes('work_package_assigned') && !role.permissions.includes('edit_project'),
+    );
+    check('there are roles to give work with', Boolean(assigneeRole && workerRole), true);
+    check(
+      'the administrator joins it',
+      await status(`/projects/${rcProject}/members`, { method: 'POST', cookie: admin, body: { userId: adminId, roleIds: [assigneeRole?.id ?? memberRoleId] } }),
+      201,
+    );
+    check(
+      'and the restricted account, to be given work',
+      await status(`/projects/${rcProject}/members`, { method: 'POST', cookie: admin, body: { userId: restrictedId, roleIds: [workerRole?.id ?? memberRoleId] } }),
+      201,
+    );
+    const taskType = (((await asSystem(() => upstream.request<Json>(`/projects/${rcProject}/types`)))._embedded?.elements ?? []) as Json[]).find(
+      (type) => type.name === 'Task',
+    )?.id;
+    const milestoneType = (((await asSystem(() => upstream.request<Json>(`/projects/${rcProject}/types`)))._embedded?.elements ?? []) as Json[]).find(
+      (type) => type.isMilestone,
+    )?.id;
+    const make = async (subject: string, hours: number, start: string, due: string, assignee: string | null, type = taskType) => {
+      const response = await call('/work-packages', {
+        method: 'POST',
+        cookie: admin,
+        body: {
+          projectId: rcProject,
+          typeId: String(type),
+          payload: {
+            subject,
+            ...(hours > 0 ? { estimatedTime: `PT${hours}H` } : {}),
+            startDate: start,
+            dueDate: due,
+            ...(assignee ? { _links: { assignee: { href: `/api/v3/users/${assignee}` } } } : {}),
+          },
+        },
+      });
+      return ((await response.json()) as Json).id as string | undefined;
+    };
+    /*
+     * W: A 12 h Monday–Tuesday and B 12 h Thursday–Friday, both the restricted
+     * account's: 24 hours against 16. C 4 h follows B, from Monday W+1. M, a
+     * milestone on Friday W+2, follows C — pinned.
+     */
+    const ids = {
+      A: await make('Resource A', 12, day(0), day(1), restrictedId),
+      B: await make('Resource B', 12, day(3), day(4), restrictedId),
+      C: await make('Resource C', 4, day(7), day(7), restrictedId),
+      M: await make('Resource M', 0, day(18), day(18), null, milestoneType),
+    };
+    check('four work packages are made', Object.values(ids).every(Boolean), true);
+    const relate = (successor?: string, predecessor?: string) =>
+      call(`/work-packages/${successor}/relations`, { method: 'POST', cookie: admin, body: { type: 'follows', relatedId: predecessor } });
+    check('C follows B, and M follows C', [(await relate(ids.C, ids.B)).status, (await relate(ids.M, ids.C)).status].join(','), '201,201');
+    const pinned = await call(`/work-packages/${ids.M}/pin`, { method: 'PUT', cookie: admin, body: { reason: 'Contractual delivery' } });
+    check('BR-111: M is pinned', pinned.status, 200);
+    resourcesPinnedId = ids.M;
+    const read = (id?: string) => asSystem(() => upstream.request<Json>(`/work_packages/${id}`));
+    const pinnedWork = await read(ids.M);
+    check('which switches it to manual scheduling, so its predecessors cannot push it', pinnedWork.scheduleManually, true);
+    // Given C as a predecessor, OpenProject started M as soon as C allows; manual now, it is put on its date and kept there.
+    check('M is put on its date', await status(`/work-packages/${ids.M}`, { method: 'PATCH', cookie: admin, body: { payload: { date: day(18) } } }), 200);
+    check('a milestone, Friday of W+2', (await read(ids.M)).date, day(18));
+    const cBefore = await read(ids.C);
+    check('C is scheduled automatically, after B', `${cBefore.scheduleManually}/${cBefore.startDate}`, `false/${day(7)}`);
+    check('the restricted account cannot pin it', await status(`/work-packages/${ids.A}/pin`, { method: 'PUT', cookie: restricted, body: {} }), 403);
+    await refreshModel();
+
+    // BR-110: over-allocation, with the work behind it.
+    const over = (await json('/resources/over-allocations?weeks=26')) as unknown as Json[];
+    const mine = over.filter((entry) => entry.key === restrictedId);
+    check('BR-110: the restricted account is over-allocated in week W, and only then', mine.map((entry) => entry.week).join(','), day(0));
+    check('by 8 hours: 24 asked of 16', `${mine[0]?.committed}/${mine[0]?.available}/${mine[0]?.excess}`, '24/16/8');
+    check(
+      'with the work that makes it up listed',
+      ((mine[0]?.contributions ?? []) as Json[]).map((part) => `${part.workPackageId}:${part.hours}`).sort().join(','),
+      [`${ids.A}:12`, `${ids.B}:12`].sort().join(','),
+    );
+
+    // BR-314: the heatmap matches the computed load, and drills to it.
+    const grid = await json(`/resources/capacity?from=${day(0)}&weeks=2&group=none`);
+    const row = ((grid.groups ?? []) as Json[]).flatMap((group) => group.rows as Json[]).find((entry) => entry.key === restrictedId);
+    const [w0, w1] = (row?.cells ?? []) as Json[];
+    check('BR-314: the heatmap colours week W by its load — 150%, over', `${w0?.ratio}/${w0?.band}/${w0?.over}`, '150/over/true');
+    check('and W+1 by its own — 20% of 20 hours, spare', `${w1?.ratio}/${w1?.band}`, '20/under');
+    const cell = await json(`/resources/capacity/cell?key=${restrictedId}&week=${day(0)}&group=none`);
+    check(
+      'and the cell drills to the work behind it',
+      ((cell.contributions ?? []) as Json[]).map((part) => `${part.workPackageId}:${part.hours}`).sort().join(','),
+      [`${ids.A}:12`, `${ids.B}:12`].sort().join(','),
+    );
+
+    // BR-313: by role, a week whose committed demand exceeds the role's capacity.
+    const byRole = await json(`/resources/capacity?from=${day(0)}&weeks=1&group=role&roleId=${resourcesRoleId}`);
+    const roleGroup = ((byRole.groups ?? []) as Json[]).find((group) => group.key === resourcesRoleId);
+    check('BR-313: the role’s week W shows demand over capacity', `${roleGroup?.cells?.[0]?.committed}/${roleGroup?.cells?.[0]?.available}/${roleGroup?.cells?.[0]?.over}`, '24/16/true');
+    const roleCell = await json(`/resources/capacity/cell?key=${encodeURIComponent(`group:role:${resourcesRoleId}`)}&week=${day(0)}&roleId=${resourcesRoleId}`);
+    check('with the demand that makes it up', ((roleCell.contributions ?? []) as Json[]).length, 2);
+
+    // Planned demand: a booking for the role with nobody named.
+    const booking = await call('/resources/allocations', {
+      method: 'POST',
+      cookie: admin,
+      body: { projectId: rcProject, roleId: resourcesRoleId, startsOn: day(7), endsOn: day(11), hoursPerWeek: 10 },
+    });
+    check('a booking for the role, nobody named, is made', booking.status, 201);
+    const bookingId = ((await booking.json()) as Json).id as string | undefined;
+    check('the restricted account cannot book time', await status('/resources/allocations', { method: 'POST', cookie: restricted, body: { projectId: rcProject, roleId: resourcesRoleId, startsOn: day(7), endsOn: day(11), hoursPerWeek: 10 } }), 403);
+    const withBooking = await json(`/resources/capacity?from=${day(7)}&weeks=1&group=role&roleId=${resourcesRoleId}`);
+    const unstaffed = ((withBooking.groups ?? []) as Json[]).flatMap((group) => group.rows as Json[]).find((entry) => entry.key === `role:${resourcesRoleId}`);
+    check('it counts as planned demand on the role, with no hours against it', `${unstaffed?.cells?.[0]?.planned}/${unstaffed?.cells?.[0]?.available}`, '10/0');
+    check('the booking is removed', await status(`/resources/allocations/${bookingId}`, { method: 'DELETE', cookie: admin }), 204);
+
+    // The BI layer: the same week, by the same definitions.
+    const { materialiseCapacity } = await import('../domain/resources-store.js');
+    check('the BI table of capacity by person and week is written', (await materialiseCapacity()) > 0, true);
+    const bi = await rcDb.$queryRawUnsafe<{ available_hours: number; demand_hours: number }[]>(
+      'SELECT available_hours, demand_hours FROM analytics.fact_capacity_week WHERE person_id = $1 AND week_start = $2::date',
+      Number(restrictedId),
+      day(0),
+    );
+    check('and its row for week W holds the hours the heatmap shows', bi[0] ? `${Number(bi[0].available_hours)}/${Number(bi[0].demand_hours)}` : 'none', '16/24');
+
+    /*
+     * BR-111: levelling. A fits; B cannot, so it moves to the next week with
+     * room — Monday and Tuesday of W+1 — and C, following it, to Wednesday;
+     * M, pinned, stays. Nothing over-allocated after.
+     */
+    const proposal = await call('/resources/levelling', {
+      method: 'POST',
+      cookie: admin,
+      body: { scope: { kind: 'people', people: [restrictedId] }, keepManual: false, horizonWeeks: 26 },
+    });
+    check('BR-111: a levelling proposal is made', proposal.status, 201);
+    const run = (await proposal.json()) as Json;
+    resourcesRunIds.push(String(run.id));
+    const moves = (run.moves ?? []) as Json[];
+    check(
+      'it moves B to make room, and C after it',
+      moves.map((move) => `${move.workPackageId}:${move.afterStart}..${move.afterDue}:${move.reason}`).join(','),
+      `${ids.B}:${day(7)}..${day(8)}:capacity,${ids.C}:${day(9)}..${day(9)}:dependency`,
+    );
+    check('leaving nobody over-allocated', ((run.after ?? []) as Json[]).filter((entry) => entry.key === restrictedId).length, 0);
+    check('and the pinned milestone where it is', moves.some((move) => move.workPackageId === ids.M), false);
+    check('nothing has changed yet', (await read(ids.B)).startDate, day(3));
+
+    // BR-112: applied as one change, every move or none.
+    const applied = await call(`/resources/levelling/${run.id}/apply`, { method: 'POST', cookie: admin });
+    check('BR-112: the proposal is applied', applied.status, 200);
+    const [bAfter, cAfter, mAfter] = [await read(ids.B), await read(ids.C), await read(ids.M)];
+    check('every move is made', `${bAfter.startDate}..${bAfter.dueDate}/${cAfter.startDate}..${cAfter.dueDate}`, `${day(7)}..${day(8)}/${day(9)}..${day(9)}`);
+    check('C, scheduled automatically, is switched to manual so it keeps its new date', cAfter.scheduleManually, true);
+    check('M has not moved', mAfter.date, day(18));
+    check('it cannot be applied twice', await status(`/resources/levelling/${run.id}/apply`, { method: 'POST', cookie: admin }), 409);
+
+    // One undo puts everything back.
+    const undone = await call(`/resources/levelling/${run.id}/undo`, { method: 'POST', cookie: admin });
+    check('one undo', undone.status, 200);
+    const [bBack, cBack] = [await read(ids.B), await read(ids.C)];
+    check('restores the original dates', `${bBack.startDate}..${bBack.dueDate}/${cBack.startDate}..${cBack.dueDate}`, `${day(3)}..${day(4)}/${day(7)}..${day(7)}`);
+    check('and C’s automatic scheduling', cBack.scheduleManually, false);
+    check('M still where it was', (await read(ids.M)).date, day(18));
+
+    // A proposal the plan has moved on from is refused whole.
+    const again = (await json('/resources/levelling', admin, {
+      method: 'POST',
+      body: { scope: { kind: 'people', people: [restrictedId] }, keepManual: false, horizonWeeks: 26 },
+    })) as Json;
+    resourcesRunIds.push(String(again.id));
+    const moved = await call(`/work-packages/${ids.B}`, { method: 'PATCH', cookie: admin, body: { payload: { startDate: day(4) } } });
+    check('B is changed after the second proposal', moved.status, 200);
+    check('so applying it is refused', await status(`/resources/levelling/${again.id}/apply`, { method: 'POST', cookie: admin }), 409);
+    check('and nothing moved', `${(await read(ids.C)).startDate}/${(await json(`/resources/levelling/${again.id}`)).status}`, `${day(7)}/stale`);
+    // Why, kept as a message, reads in each reader's language.
+    const staleInArabic = (await (await fetch(`${BASE}/resources/levelling/${again.id}`, { headers: { cookie: admin, 'Accept-Language': 'ar' } })).json()) as Json;
+    check('and why is kept for every reader: in Arabic too', String(staleInArabic.error ?? '').startsWith('تغيّرت منذ المقترح'), true);
+
+    // Working days near today, by the instance's calendar: one for logged time, and two for work delivered on time and late.
+    const nearHolidays = await asSystem(() =>
+      upstream.getCollection<Json>('/days/non_working', {
+        filters: [{ field: 'date', operator: '<>d', values: [isoOf(todayMs - 40 * DAY), isoOf(todayMs + 14 * DAY)] }],
+      }),
+    );
+    const offDays = new Set(((nearHolidays._embedded?.elements ?? []) as Json[]).map((entry) => String(entry.date)));
+    const workingFrom = (time: number, step: number) => {
+      let at = time;
+      while (!workingWeekdays.has((new Date(at).getUTCDay() + 6) % 7) || offDays.has(isoOf(at))) at += step * DAY;
+      return at;
+    };
+
+    // BR-315: utilisation for a sample person reconciles to logged ÷ available.
+    const sample = workingFrom(todayMs - 14 * DAY, -1);
+    const sampleDay = isoOf(sample);
+    check('the project is marked not billable', await status(`/projects/${rcProject}/plan`, { method: 'PATCH', cookie: admin, body: { billable: false } }), 200);
+    const logTime = async (activityId?: string) =>
+      call('/time-entries', {
+        method: 'POST',
+        cookie: admin,
+        body: { projectId: rcProject, workPackageId: ids.A, hours: 3, spentOn: sampleDay, comment: 'Resource utilisation probe', ...(activityId ? { activityId } : {}) },
+      });
+    let logged = await logTime();
+    if (logged.status !== 201) {
+      const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: rcProject } }));
+      logged = await logTime(/time_entries\/activities\/(\d+)/.exec(form)?.[1]);
+    }
+    check('three non-billable hours are logged', logged.status, 201);
+    await refreshModel();
+    const entries = (await json(`/time-entries?userId=${adminId}&from=${sampleDay}&to=${sampleDay}&pageSize=200`)) as unknown as Json[] | Json;
+    const list = (Array.isArray(entries) ? entries : ((entries.items ?? entries.entries ?? []) as Json[])) as Json[];
+    const loggedHours = round2(list.filter((entry) => entry.spentOn === sampleDay).reduce((sum, entry) => sum + Number(entry.hours), 0));
+    // Available that day, from the administrator's own records by the model's rules: the schedule in force times its
+    // fraction, or else their weekly hours over the working weekdays; less any time off.
+    const sampleDate = new Date(`${sampleDay}T00:00:00Z`);
+    const inForce = await rcDb.workSchedule.findFirst({ where: { openProjectId: adminId, effectiveFrom: { lte: sampleDate } }, orderBy: { effectiveFrom: 'desc' } });
+    const weeklyHours = (await rcDb.userProfile.findUnique({ where: { openProjectId: adminId } }))?.hoursCapacity ?? 40;
+    let available = inForce
+      ? Number((inForce.hours as number[])[(new Date(sample).getUTCDay() + 6) % 7]) * inForce.fraction
+      : weeklyHours / workingWeekdays.size;
+    for (const entry of await rcDb.timeOff.findMany({ where: { openProjectId: adminId, startsOn: { lte: sampleDate }, endsOn: { gte: sampleDate } } })) {
+      available = entry.hoursPerDay === null ? 0 : Math.max(0, available - entry.hoursPerDay);
+    }
+    available = round2(available);
+    const values = await json(
+      `/measures/values?ids=utilisation,utilisation.billable,time.nonBillable,capacity.availableHours&scope=person:${adminId}&from=${sampleDay}&to=${sampleDay}`,
+    );
+    const figure = (id: string) => values.measures?.[id]?.value;
+    check(
+      'BR-315: the administrator’s utilisation that day is their logged time over their available hours',
+      `${figure('utilisation')}/${figure('capacity.availableHours')}`,
+      `${round1((loggedHours / available) * 100)}/${available}`,
+    );
+    check('billable utilisation leaves the non-billable project’s hours out', figure('utilisation.billable'), round1(((loggedHours - 3) / available) * 100));
+    check('which are the non-billable hours', figure('time.nonBillable'), 3);
+    check(
+      'and a role’s available hours are its people’s',
+      (await json(`/measures/values?ids=capacity.availableHours&scope=role:${resourcesRoleId}&from=${day(0)}&to=${day(6)}`)).measures?.['capacity.availableHours']?.value,
+      16,
+    );
+
+    // BR-316: on-time completion, from when work was delivered against its finish date.
+    const closedStatus = (((await asSystem(() => upstream.request<Json>('/statuses')))._embedded?.elements ?? []) as Json[]).find(
+      (entry) => entry.isClosed && /^closed$/i.test(entry.name),
+    );
+    const ahead = isoOf(workingFrom(todayMs + DAY, 1));
+    const behind = isoOf(workingFrom(todayMs - DAY, -1));
+    const E = await make('Resource E', 1, ahead, ahead, null);
+    const F = await make('Resource F', 1, behind, behind, null);
+    const close = (id?: string) =>
+      status(`/work-packages/${id}`, { method: 'PATCH', cookie: admin, body: { payload: { _links: { status: { href: `/api/v3/statuses/${closedStatus?.id}` } } } } });
+    check('one is delivered before its finish date and one after', `${await close(E)},${await close(F)}`, '200,200');
+    await refreshModel();
+    const delivery = await json(`/measures/values?ids=work.onTime&scope=project:${rcProject}&from=${today}&to=${today}`);
+    check('BR-316: on-time completion is the share delivered by its finish date', delivery.measures?.['work.onTime']?.value, 50);
+    check('the Delivery dashboard carries it', ((await json(`/dashboards/delivery?scope=project:${rcProject}`)).tiles ?? []).includes('work.onTime'), true);
+
+    // Journalled.
+    const journal = await rcDb.auditEvent.findMany({
+      where: {
+        occurredAt: { gte: suiteStartedAt },
+        OR: [{ action: { startsWith: 'resources.' } }, { action: { startsWith: 'employee.' } }, { action: { startsWith: 'work-package.pin' } }],
+      },
+      select: { action: true },
+    });
+    const actions = new Set(journal.map((entry) => entry.action));
+    check(
+      'roles, availability, the HR import, bookings, pins and levelling are journalled: none missing',
+      [
+        'resources.role.created',
+        'employee.role.changed',
+        'employee.schedule.changed',
+        'employee.time-off.added',
+        'resources.hr.imported',
+        'resources.allocation.created',
+        'resources.allocation.deleted',
+        'work-package.pinned',
+        'resources.levelling.proposed',
+        'resources.levelling.applied',
+        'resources.levelling.undone',
+      ]
+        .filter((action) => !actions.has(action))
+        .join(', '),
+      '',
+    );
+
+    // Put things back: unpin, the project with its work, the restricted account's schedule, time off and role.
+    check('M is unpinned', await status(`/work-packages/${ids.M}/pin`, { method: 'DELETE', cookie: admin }), 204);
+    resourcesPinnedId = undefined;
+    check('the project is removed', await status(`/projects/${rcProject}`, { method: 'DELETE', cookie: admin }), 204);
+    resourcesProjectId = undefined;
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -8406,6 +8830,34 @@ async function main() {
   // The portfolio view tests' views and their probe time entry.
   if (viewTimeEntryId) {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  }
+  // The resource tests' pin, project, role, levelling runs, and the restricted
+  // account's schedule, time off and role, as they were.
+  if (resourcesPinnedId) await call(`/work-packages/${resourcesPinnedId}/pin`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  if (resourcesProjectId) {
+    const removed = await call(`/projects/${resourcesProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+    console.log(`  (resource test project ${resourcesProjectId}: ${removed?.status === 204 ? 'deleted' : 'NOT deleted — remove it by hand'})`);
+  }
+  if (resourcesProjectNumber !== undefined || resourcesRoleId || resourcesRunIds.length > 0 || resourcesRestrictedRoleBefore !== undefined) {
+    const { prisma } = await import('../db/prisma.js');
+    const restrictedKey = restrictedIdForCleanup;
+    const schedules = await prisma.workSchedule.deleteMany({ where: { openProjectId: restrictedKey, createdAt: { gte: suiteStartedAt } } }).catch(() => ({ count: 0 }));
+    const timeOff = await prisma.timeOff.deleteMany({ where: { openProjectId: restrictedKey, createdAt: { gte: suiteStartedAt } } }).catch(() => ({ count: 0 }));
+    if (resourcesRestrictedRoleBefore !== undefined) {
+      await prisma.userProfile
+        .updateMany({ where: { openProjectId: restrictedKey }, data: { resourceRoleId: resourcesRestrictedRoleBefore } })
+        .catch(() => undefined);
+    }
+    if (resourcesProjectNumber !== undefined) {
+      await prisma.workPackagePin.deleteMany({ where: { projectId: resourcesProjectNumber } }).catch(() => undefined);
+      await prisma.resourceAllocation.deleteMany({ where: { projectId: resourcesProjectNumber } }).catch(() => undefined);
+    }
+    if (resourcesRunIds.length > 0) await prisma.levellingRun.deleteMany({ where: { id: { in: resourcesRunIds } } }).catch(() => undefined);
+    if (resourcesRoleId) {
+      await prisma.resourceAllocation.deleteMany({ where: { roleId: resourcesRoleId } }).catch(() => undefined);
+      await prisma.resourceRole.delete({ where: { id: resourcesRoleId } }).catch(() => undefined);
+    }
+    console.log(`  (removed ${schedules.count} test schedule(s), ${timeOff.count} test time off and the resource test role)`);
   }
   // The earned value tests' rules and project, if the section stopped part-way.
   if (evmRulesBefore) {

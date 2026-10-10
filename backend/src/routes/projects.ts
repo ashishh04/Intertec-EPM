@@ -147,6 +147,8 @@ const planBody = z
       .max(1e13, 'That budget is too large.')
       .nullable()
       .optional(),
+    /** Whether time logged here is billable (BR-315); null follows the instance default. */
+    billable: z.boolean().nullable().optional(),
   })
   .strict();
 
@@ -175,7 +177,7 @@ function describeMoney(value: number | null | undefined): string | Message {
 async function updatePlan(projectId: string, input: z.infer<typeof planBody>): Promise<boolean> {
   const existing = await prisma.projectProfile.findUnique({
     where: { openProjectId: projectId },
-    select: { plannedStart: true, plannedFinish: true, budgetTotal: true },
+    select: { plannedStart: true, plannedFinish: true, budgetTotal: true, billable: true },
   });
 
   const toDate = (value: string | null) => (value === null ? null : new Date(`${value}T00:00:00Z`));
@@ -183,6 +185,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
     plannedStart: input.plannedStart === undefined ? existing?.plannedStart ?? null : toDate(input.plannedStart),
     plannedFinish: input.plannedFinish === undefined ? existing?.plannedFinish ?? null : toDate(input.plannedFinish),
     budgetTotal: input.budgetTotal === undefined ? existing?.budgetTotal ?? null : input.budgetTotal,
+    billable: input.billable === undefined ? existing?.billable ?? null : input.billable,
   };
 
   if (next.plannedStart && next.plannedFinish && next.plannedFinish < next.plannedStart) {
@@ -207,12 +210,18 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
       message('budget {from} → {to}', { from: describeMoney(existing?.budgetTotal), to: describeMoney(next.budgetTotal) }),
     );
   }
+  if ((existing?.billable ?? null) !== next.billable) {
+    const describeBillable = (value: boolean | null | undefined): Message =>
+      value === true ? message('billable') : value === false ? message('not billable') : message('as the default');
+    changes.push(message('logged time {from} → {to}', { from: describeBillable(existing?.billable), to: describeBillable(next.billable) }));
+  }
   if (changes.length === 0) return false;
 
   const snapshot = (value: typeof next) => ({
     plannedStart: value.plannedStart?.toISOString().slice(0, 10) ?? null,
     plannedFinish: value.plannedFinish?.toISOString().slice(0, 10) ?? null,
     budgetTotal: value.budgetTotal,
+    billable: value.billable,
   });
 
   await withAudit(
@@ -232,6 +241,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
         plannedStart: existing?.plannedStart ?? null,
         plannedFinish: existing?.plannedFinish ?? null,
         budgetTotal: existing?.budgetTotal ?? null,
+        billable: existing?.billable ?? null,
       }),
       after: snapshot(next),
     },

@@ -38,6 +38,8 @@ export interface WorkFact extends WorkState {
   typeCategory: string;
   priorityCategory: string;
   estimatedHours: number | null;
+  /** Remaining work, as OpenProject keeps it; null where it keeps none. */
+  remainingHours: number | null;
   spentHours: number;
   doneRatio: number | null;
   storyPoints: number | null;
@@ -52,6 +54,8 @@ export interface TimeFact {
   hours: number;
   /** Null for hours logged by someone with no rate: not costed, rather than free. */
   cost: number | null;
+  /** The time entry activity: with the project, what decides whether it is billable. */
+  activityId: number | null;
 }
 
 export interface ProjectFact {
@@ -104,7 +108,7 @@ export interface ModelFacts {
    * over the date dimension's range: weekends off its working week, and its
    * holidays. Outside that range, Monday to Friday is assumed.
    */
-  calendar: { nonWorking: Set<number>; from: number; to: number };
+  calendar: { nonWorking: Set<number>; from: number; to: number; workingWeekdays: Set<number> };
   /** When the data was read: the start of that refresh. */
   asOf: string | null;
   projects: Map<number, ProjectFact>;
@@ -151,11 +155,29 @@ async function readCalendarFacts(): Promise<ModelFacts['calendar']> {
     prisma.$queryRawUnsafe<{ first: Date; last: Date }[]>('SELECT min(date) AS first, max(date) AS last FROM analytics.dim_date'),
     prisma.$queryRawUnsafe<{ date: Date }[]>('SELECT date FROM analytics.dim_date WHERE NOT is_working_day'),
   ]);
-  return {
-    nonWorking: new Set(rows.map((row) => dayNumber(row.date))),
-    from: range[0]?.first ? dayNumber(range[0].first) : 0,
-    to: range[0]?.last ? dayNumber(range[0].last) : -1,
-  };
+  const nonWorking = new Set(rows.map((row) => dayNumber(row.date)));
+  const from = range[0]?.first ? dayNumber(range[0].first) : 0;
+  const to = range[0]?.last ? dayNumber(range[0].last) : -1;
+  return { nonWorking, from, to, workingWeekdays: workingWeekdaysOf(nonWorking, from, to) };
+}
+
+/**
+ * The weekdays the instance works — Monday 0 … Sunday 6 — told apart from its
+ * holidays: a weekday that is off more often than not over the whole range is
+ * off by the working week. Monday to Friday with no range to read.
+ */
+export function workingWeekdaysOf(nonWorking: ReadonlySet<number>, from: number, to: number): Set<number> {
+  if (to < from) return new Set([0, 1, 2, 3, 4]);
+  const off = new Array<number>(7).fill(0);
+  const all = new Array<number>(7).fill(0);
+  for (let day = from; day <= to; day += 1) {
+    const weekday = (((day + 3) % 7) + 7) % 7;
+    all[weekday] = all[weekday]! + 1;
+    if (nonWorking.has(day)) off[weekday] = off[weekday]! + 1;
+  }
+  const working = new Set<number>();
+  for (let weekday = 0; weekday < 7; weekday += 1) if (off[weekday]! * 2 <= all[weekday]!) working.add(weekday);
+  return working;
 }
 
 async function readModel(runId: string | null, asOf: string | null): Promise<ModelFacts> {
@@ -252,6 +274,7 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
           is_closed: boolean;
           is_milestone: boolean;
           estimated_hours: number | null;
+          remaining_hours: number | null;
           spent_hours: number;
           done_ratio: number | null;
           story_points: number | null;
@@ -259,7 +282,7 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
       >(
         `SELECT work_package_id, project_id, type_id, status_id, priority_id, assignee_user_id, accountable_user_id,
                 parent_id, version_id, subject, start_date, due_date, created_at, closed_at, is_closed, is_milestone,
-                estimated_hours, spent_hours, done_ratio, story_points
+                estimated_hours, remaining_hours, spent_hours, done_ratio, story_points
            FROM analytics.fact_work_package`,
       ),
       prisma.$queryRawUnsafe<
@@ -271,8 +294,11 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
           work_package_id: number | null;
           hours: number;
           cost: number | null;
+          activity_id: number | null;
         }[]
-      >('SELECT time_entry_id, spent_on, user_id, project_id, work_package_id, hours, cost FROM analytics.fact_time_entry'),
+      >(
+        'SELECT time_entry_id, spent_on, user_id, project_id, work_package_id, hours, cost, activity_id FROM analytics.fact_time_entry',
+      ),
     ]);
   const calendar = await readCalendarFacts();
 
@@ -385,6 +411,7 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
       typeCategory: typeMap.get(row.type_id)?.category ?? 'task',
       priorityCategory: (row.priority_id !== null ? priorityMap.get(row.priority_id)?.category : undefined) ?? 'medium',
       estimatedHours: numberOrNull(row.estimated_hours),
+      remainingHours: numberOrNull(row.remaining_hours),
       spentHours: Number(row.spent_hours ?? 0),
       doneRatio: numberOrNull(row.done_ratio),
       storyPoints: numberOrNull(row.story_points),
@@ -397,6 +424,7 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
       workPackageId: row.work_package_id,
       hours: Number(row.hours),
       cost: numberOrNull(row.cost),
+      activityId: row.activity_id === null ? null : Number(row.activity_id),
     })),
   };
 }
@@ -473,6 +501,8 @@ export async function workFactsAsAt(at: Date, facts: ModelFacts): Promise<WorkFa
       typeCategory: type?.category ?? 'task',
       priorityCategory: (row.priority_id !== null ? facts.priorities.get(row.priority_id)?.category : undefined) ?? 'medium',
       estimatedHours: numberOrNull(row.estimated_hours),
+      // History keeps no remaining work: demand is forward, from the work now.
+      remainingHours: null,
       spentHours: 0,
       doneRatio: numberOrNull(row.done_ratio),
       storyPoints: numberOrNull(row.story_points),

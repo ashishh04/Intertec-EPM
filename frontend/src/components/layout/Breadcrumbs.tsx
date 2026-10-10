@@ -28,6 +28,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   get sprints() { return t('Sprints'); },
   get boards() { return t('Boards'); },
   get gantt() { return t('Gantt'); },
+  get resources() { return t('Resources'); },
   get reports() { return t('Reports'); },
   get scheduled() { return t('Scheduled reports'); },
   get analytics() { return t('Analytics'); },

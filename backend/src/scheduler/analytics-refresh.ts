@@ -12,6 +12,7 @@ import {
 } from '../domain/analytics-model.js';
 import { withLease } from '../domain/job-lease.js';
 import { materialiseEarnedValue, materialiseMeasures, materialisedToday } from '../domain/measures-store.js';
+import { materialiseCapacity } from '../domain/resources-store.js';
 
 /**
  * Keeps the analytics model current (BR-402) and its history checkable (BR-403).
@@ -102,6 +103,12 @@ export function createAnalyticsRefreshScheduler(options: {
         .then((rows) => log.info({ rows }, 'Earned value periods stored'))
         .catch((error: unknown) => {
           log.warn({ err: error }, 'Earned value periods could not be stored');
+        });
+      // And capacity, demand and time by person and week (BR-312 to BR-315).
+      await materialiseCapacity()
+        .then((rows) => log.info({ rows }, 'Capacity weeks stored'))
+        .catch((error: unknown) => {
+          log.warn({ err: error }, 'Capacity weeks could not be stored');
         });
     }
   }

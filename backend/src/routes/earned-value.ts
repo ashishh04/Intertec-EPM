@@ -15,6 +15,7 @@ import {
   type ProjectEvaluation,
 } from '../domain/earned-value-store.js';
 import { modelFacts, workFactsAsAt } from '../domain/measure-facts.js';
+import { loadResourceShared } from '../domain/resources-store.js';
 import { contextFor, type Shared } from '../domain/measures.js';
 import { today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
@@ -108,13 +109,14 @@ export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
     const at = instant.toISOString().slice(0, 10);
 
     const facts = await modelFacts();
-    const evm = await loadEvmShared(facts);
+    const [evm, resources] = await Promise.all([loadEvmShared(facts), loadResourceShared()]);
     const shared: Shared = {
       facts,
       viewer,
       health: new Map(),
       risk: { typeIds: new Set(), highPriorityIds: new Set(), configured: false },
       evm,
+      resources,
     };
     const context = contextFor(shared, scope, { from: at, to: at }, at);
     const work = query.asAt ? (await workFactsAsAt(instant, facts)).filter(context.inScope) : context.work;

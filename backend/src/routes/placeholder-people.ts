@@ -17,6 +17,7 @@ function placeholderRecord(row: {
   teamId: string | null;
   departmentId: string | null;
   hoursCapacity: number;
+  resourceRoleId?: string | null;
   convertedTo?: string | null;
 }) {
   return {
@@ -25,6 +26,7 @@ function placeholderRecord(row: {
     teamId: row.teamId,
     departmentId: row.departmentId,
     hoursCapacity: row.hoursCapacity,
+    resourceRoleId: row.resourceRoleId ?? null,
     convertedTo: row.convertedTo ?? null,
   };
 }
@@ -60,9 +62,19 @@ const writeBody = z.object({
     .min(0, 'Capacity cannot be negative.')
     .max(168, 'A week has 168 hours.')
     .optional(),
+  /** The kind of work the role to be filled does. */
+  resourceRoleId: z.string().trim().min(1).nullish(),
 });
 
 const patchBody = writeBody.partial();
+
+/** A role a placeholder may be given: one that exists and is not archived; null for none. */
+async function usableRole(roleId: string | null | undefined): Promise<string | null> {
+  if (!roleId) return null;
+  const role = await prisma.resourceRole.findUnique({ where: { id: roleId } });
+  if (!role || role.archivedAt) throw EpmError.validation('That role is not one people can be given.');
+  return role.id;
+}
 
 const listQuery = z.object({
   /** Placeholders already turned into real people. Excluded by default. */
@@ -85,6 +97,7 @@ function toEpm(row: Row): EpmPlaceholderPerson {
       : undefined,
     team: row.team ? { id: row.team.id, name: row.team.name, active: row.team.active } : undefined,
     hoursCapacity: row.hoursCapacity,
+    resourceRoleId: row.resourceRoleId ?? undefined,
     convertedToUserId: row.convertedTo ?? undefined,
     convertedAt: row.convertedAt?.toISOString(),
     createdAt: row.createdAt.toISOString(),
@@ -165,6 +178,7 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
     const input = writeBody.parse(request.body ?? {});
     const mapping = await resolveMapping(input);
 
+    const roleId = input.resourceRoleId === undefined ? undefined : await usableRole(input.resourceRoleId);
     const created = await withAudit(
       (tx) =>
         tx.placeholderPerson
@@ -174,6 +188,7 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
               note: input.note || null,
               ...mapping,
               ...(input.hoursCapacity === undefined ? {} : { hoursCapacity: input.hoursCapacity }),
+              ...(roleId === undefined ? {} : { resourceRoleId: roleId }),
             },
             include,
           })
@@ -213,6 +228,8 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
           })
         : {};
 
+      const roleId = input.resourceRoleId === undefined ? undefined : await usableRole(input.resourceRoleId);
+
       const updated = await withAudit(
         (tx) =>
           tx.placeholderPerson
@@ -222,6 +239,7 @@ export const placeholderPeopleRoutes: FastifyPluginAsync = async (app) => {
                 ...(input.name === undefined ? {} : { name: input.name }),
                 ...(input.note === undefined ? {} : { note: input.note || null }),
                 ...(input.hoursCapacity === undefined ? {} : { hoursCapacity: input.hoursCapacity }),
+                ...(roleId === undefined ? {} : { resourceRoleId: roleId }),
                 ...mapping,
               },
               include,

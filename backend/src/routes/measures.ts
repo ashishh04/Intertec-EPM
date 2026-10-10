@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { loadResourceShared } from '../domain/resources-store.js';
 
 import * as guard from '../auth/guard.js';
 import { addDays, daysBetween, today as todayIso } from '../lib/dates.js';
@@ -33,7 +34,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 export const scopeQuery = z.object({
   scope: z
     .string()
-    .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|person:\d+)$/, msg('scope is not one EPM knows.'))
+    .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|role:[\w-]+|person:\d+)$/, msg('scope is not one EPM knows.'))
     .optional(),
   from: z.string().regex(DAY, msg('from must be a date, e.g. 2026-10-01.')).optional(),
   to: z.string().regex(DAY, msg('to must be a date, e.g. 2026-10-31.')).optional(),
@@ -47,6 +48,7 @@ const MISSING_SCOPE: Record<Exclude<Scope['kind'], 'instance' | 'set'>, string> 
   project: msg('That project'),
   department: msg('That department'),
   team: msg('That team'),
+  role: msg('That role'),
   person: msg('That person'),
 };
 
@@ -91,6 +93,10 @@ export function periodOf(query: { from?: string; to?: string }, today = todayIso
 export async function scopeOf(raw: string | undefined, viewer: Viewer): Promise<Scope> {
   if (!raw || raw === 'instance') return { kind: 'instance' };
   const [kind, id] = raw.split(':') as [Scope['kind'], string];
+  if (kind === 'role') {
+    if (!(await loadResourceShared()).roles.has(id)) throw EpmError.notFound(MISSING_SCOPE.role);
+    return { kind, id };
+  }
   const facts = await modelFacts();
   const known =
     kind === 'portfolio'

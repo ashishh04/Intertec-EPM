@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { FieldError, FieldHint, Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { env } from '@/config/env';
 import { useUpdateProjectPlan } from '@/hooks/useProjects';
 import { t } from '@/lib/i18n';
@@ -39,6 +40,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
   const [start, setStart] = useState('');
   const [finish, setFinish] = useState('');
   const [budget, setBudget] = useState('');
+  const [billable, setBillable] = useState('default');
   const [problem, setProblem] = useState<string>();
 
   // Keyed on the id for the same reason as the override dialog: a refetch must
@@ -49,6 +51,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
     setStart(project.startDate?.slice(0, 10) ?? '');
     setFinish(project.dueDate?.slice(0, 10) ?? '');
     setBudget(project.budgetTotal > 0 ? String(project.budgetTotal) : '');
+    setBillable(project.billable === true ? 'yes' : project.billable === false ? 'no' : 'default');
     setProblem(undefined);
   }, [open, project.id]);
 
@@ -64,6 +67,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
       plannedStart: start || null,
       plannedFinish: finish || null,
       budgetTotal: budgetValue,
+      billable: billable === 'yes' ? true : billable === 'no' ? false : null,
     };
 
     updatePlan.mutate(
@@ -137,6 +141,21 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
                 )}
               </FieldHint>
             )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="plan-billable">{t('Time logged here')}</Label>
+            <Select value={billable} onValueChange={setBillable}>
+              <SelectTrigger id="plan-billable">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">{t('As the resource rules default')}</SelectItem>
+                <SelectItem value="yes">{t('Is billable')}</SelectItem>
+                <SelectItem value="no">{t('Is not billable')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldHint>{t('Billable utilisation counts the time logged on billable projects, less any activity the resource rules call non-billable.')}</FieldHint>
           </div>
 
           {problem ? <Alert tone="danger">{problem}</Alert> : null}

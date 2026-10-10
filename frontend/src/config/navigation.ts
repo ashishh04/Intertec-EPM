@@ -25,6 +25,7 @@ import {
   Users,
   Building2,
   UserRound,
+  UsersRound,
   Briefcase,
   type LucideIcon,
 } from 'lucide-react';
@@ -84,6 +85,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { get label() { return t('Boards'); }, to: '/boards', icon: SquareKanban },
       { get label() { return t('Sprints'); }, to: '/sprints', icon: Gauge },
       { get label() { return t('Gantt'); }, to: '/gantt', icon: GanttChartSquare },
+      { get label() { return t('Resources'); }, to: '/resources', icon: UsersRound, permission: 'resources:plan' },
     ],
   },
   {

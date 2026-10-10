@@ -26,6 +26,8 @@ export interface EpmEmployee {
    * as uncosted hours rather than as free ones.
    */
   hourlyRate?: number;
+  /** The kind of work they do (BR-313 to BR-315); absent when none is set. */
+  resourceRoleId?: ID;
 }
 
 /**

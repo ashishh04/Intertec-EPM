@@ -202,6 +202,8 @@ export type Permission =
   | 'audit:view'
   | 'evm:configure'
   | 'fields:configure'
+  | 'resources:plan'
+  | 'resources:configure'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -343,6 +345,8 @@ export interface ProjectPlanInput {
   plannedStart?: ISODate | null;
   plannedFinish?: ISODate | null;
   budgetTotal?: number | null;
+  /** Whether time logged here is billable (BR-315); null follows the instance default. */
+  billable?: boolean | null;
 }
 
 /**
@@ -495,6 +499,8 @@ export interface EpmProject {
   uncostedHours: number;
   /** The approved budget. Zero means none is set. */
   budgetTotal: number;
+  /** Whether time logged here is billable (BR-315); null follows the instance default. */
+  billable: boolean | null;
   /**
    * What the caller may do to the project itself, read from the resource's own
    * links rather than inferred. Deleting is published only where the instance
@@ -1029,6 +1035,8 @@ export interface EpmPlaceholderPerson {
   department?: { id: ID; name: string; active: boolean };
   team?: { id: ID; name: string; active: boolean };
   hoursCapacity: number;
+  /** The kind of work the role to be filled does. */
+  resourceRoleId?: ID;
   /** Set once the placeholder has become a real account. */
   convertedToUserId?: ID;
   convertedAt?: ISODate;
@@ -1042,6 +1050,8 @@ export interface PlaceholderPersonInput {
   departmentId?: ID | null;
   teamId?: ID | null;
   hoursCapacity?: number;
+  /** The kind of work the role to be filled does. */
+  resourceRoleId?: ID | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2241,7 +2251,7 @@ export interface AutomationOptions {
 
 /** `index` is a ratio such as SPI or CPI, read against 1. */
 export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'perWeek' | 'points' | 'index';
-export type MeasureScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'person';
+export type MeasureScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person';
 export type MeasureMemberKind = 'work_package' | 'project' | 'person';
 
 export interface MeasureScope {
@@ -2335,7 +2345,11 @@ export interface MeasurePersonMember {
   departmentId: string | null;
   teamId: string | null;
   weeklyCapacityHours: number;
+  /** Hours available in the period: schedule, fraction, holidays and time off. */
+  availableHours: number;
   loggedHours: number;
+  billableHours: number;
+  /** Logged of available. */
   utilisation: number | null;
 }
 
@@ -2364,7 +2378,7 @@ export interface MeasureTrend {
 }
 
 export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
-export type DashboardLinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
+export type DashboardLinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person' | 'work_package';
 
 export interface DashboardColumn {
   key: string;
@@ -3252,4 +3266,338 @@ export interface FormulaReference {
   customFields: { name: string; label: string; format: string; type: CalculatedResultType | null }[];
   calculated: { key: string; name: string; type: CalculatedResultType; active: boolean }[];
   limits: { length: number; nodes: number; depth: number; aggregations: number };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Resources and capacity (Module 6: BR-110 to BR-112, BR-312 to BR-316)      */
+/* -------------------------------------------------------------------------- */
+
+/** Percentages of available hours that colour the heatmap (BR-314). */
+export interface ResourceThresholds {
+  /** Below this: spare capacity. */
+  under: number;
+  /** Above this, up to `over`: full. */
+  full: number;
+  /** Above this: over capacity. */
+  over: number;
+}
+
+export interface ResourceSettings {
+  /** 0 until something is saved: the defaults. */
+  version: number;
+  thresholds: ResourceThresholds;
+  /** A standard working day, in hours: the default pattern of a new schedule. */
+  hoursPerDay: number;
+  /** Whether a project nobody has marked either way is billable (BR-315). */
+  billableByDefault: boolean;
+  /** Time entry activities that are never billable, whatever the project. */
+  nonBillableActivityIds: string[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface ResourceSettingsView {
+  settings: ResourceSettings;
+  activities: { id: string; name: string }[];
+}
+
+/** A kind of work people do, for capacity and demand by role. */
+export interface ResourceRole {
+  id: string;
+  name: string;
+  description: string | null;
+  archived: boolean;
+  people: number;
+  placeholders: number;
+}
+
+/** A work schedule in force from a date (BR-312). */
+export interface WorkScheduleRow {
+  id: string;
+  effectiveFrom: string;
+  /** Monday to Sunday, hours at full time. */
+  hours: number[];
+  /** Employment fraction: 1 full time. */
+  fraction: number;
+  /** Hours times fraction, over the week. */
+  weeklyHours: number;
+  source: 'epm' | 'hr';
+  createdAt: string;
+  createdBy: string;
+}
+
+export type TimeOffKind = 'leave' | 'sick' | 'training' | 'other';
+
+export interface TimeOffEntry {
+  id: string;
+  personId: string;
+  startsOn: string;
+  endsOn: string;
+  /** Hours off each day; null for whole days. */
+  hoursPerDay: number | null;
+  /** Only for whoever manages people, and the person themselves. */
+  kind?: TimeOffKind;
+  note?: string | null;
+  source: 'epm' | 'hr';
+  externalId?: string | null;
+}
+
+export interface AvailabilityWeek {
+  /** The Monday. */
+  week: string;
+  /** Scheduled hours, before time off; none on public holidays. */
+  scheduled: number;
+  off: number;
+  available: number;
+}
+
+export interface PersonAvailability {
+  personId: string;
+  name: string;
+  roleId: string | null;
+  /** Weekly capacity: the schedule in force today, or the hours set on the person. */
+  weeklyHours: number;
+  schedules: WorkScheduleRow[];
+  timeOff: TimeOffEntry[];
+  weeks: AvailabilityWeek[];
+}
+
+/** Planned demand: someone, or a role, booked to a project for hours a week (BR-313). */
+export interface ResourceAllocation {
+  id: string;
+  projectId: string;
+  projectName: string;
+  personId: string | null;
+  placeholderId: string | null;
+  roleId: string | null;
+  /** Who it is booked to, as shown: a person, a placeholder, or a role alone. */
+  carrierName: string;
+  startsOn: string;
+  endsOn: string;
+  hoursPerWeek: number;
+  note: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type CapacityBand = 'none' | 'under' | 'healthy' | 'full' | 'over';
+
+/** One week of someone's capacity: actual for weeks gone, forecast from this one on. */
+export interface CapacityCell {
+  /** The Monday. */
+  week: string;
+  basis: 'actual' | 'forecast';
+  /** Hours available; from today in the current week. */
+  available: number;
+  /** Assigned work falling in the week. */
+  committed: number;
+  /** Planned allocations falling in the week. */
+  planned: number;
+  /** Hours logged in the week. */
+  logged: number;
+  /** Load (forecast) or logged (actual) as a percentage of available; null when neither. */
+  ratio: number | null;
+  band: CapacityBand;
+  /** More falls on them than they have (BR-110). */
+  over: boolean;
+}
+
+export type CarrierKind = 'person' | 'placeholder' | 'role';
+
+export interface CapacityRow {
+  /** The person's id, `placeholder:<id>`, or `role:<id>` for a role booked with nobody named. */
+  key: string;
+  kind: CarrierKind;
+  id: string;
+  name: string;
+  roleId: string | null;
+  teamId: string | null;
+  departmentId: string | null;
+  cells: CapacityCell[];
+}
+
+export interface CapacityGroup {
+  key: string;
+  name: string;
+  /** The group's weeks: its rows added up. */
+  cells: CapacityCell[];
+  rows: CapacityRow[];
+}
+
+export type CapacityGrouping = 'team' | 'role' | 'department' | 'none';
+
+export interface CapacityGrid {
+  weeks: string[];
+  today: string;
+  group: CapacityGrouping;
+  thresholds: ResourceThresholds;
+  groups: CapacityGroup[];
+  /** Assigned work with hours but no dates: in no week. */
+  undated: { items: number; hours: number };
+  asOf: string | null;
+}
+
+/** Something falling in someone's week, and how much of it. */
+export interface DemandContribution {
+  itemId: string;
+  kind: 'work' | 'allocation';
+  hours: number;
+  carrierKey: string;
+  carrierName: string;
+  projectId: string;
+  projectName: string;
+  workPackageId?: string;
+  subject?: string;
+  startDate?: string | null;
+  dueDate?: string | null;
+  allocationId?: string;
+  hoursPerWeek?: number;
+}
+
+export interface LoggedTime {
+  workPackageId: string | null;
+  subject: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  hours: number;
+}
+
+export interface CapacityCellDetail {
+  key: string;
+  name: string;
+  week: string;
+  cell: CapacityCell;
+  contributions: DemandContribution[];
+  logged: LoggedTime[];
+}
+
+/** A week someone is asked for more than they have (BR-110). */
+export interface OverAllocation {
+  key: string;
+  kind: CarrierKind;
+  id: string;
+  name: string;
+  teamId: string | null;
+  roleId: string | null;
+  week: string;
+  available: number;
+  committed: number;
+  planned: number;
+  excess: number;
+  contributions: DemandContribution[];
+}
+
+/** One person from an HR extract: their schedule, and their time off. */
+export interface HrImportPerson {
+  /** The OpenProject id, or the email address the directory knows. */
+  personId?: string;
+  email?: string;
+  effectiveFrom?: string;
+  fraction?: number;
+  hours?: number[];
+  timeOff?: { externalId: string; startsOn: string; endsOn: string; hoursPerDay?: number | null; kind?: TimeOffKind }[];
+}
+
+export interface HrImportResult {
+  people: number;
+  schedules: number;
+  timeOffCreated: number;
+  timeOffUpdated: number;
+  /** People the directory does not know. */
+  unknown: string[];
+}
+
+export interface HrReconcileRow {
+  /** As the HR source named them. */
+  person: string;
+  personId: string | null;
+  name: string | null;
+  from: string;
+  to: string;
+  hr: number;
+  epm: number | null;
+  difference: number | null;
+  matches: boolean;
+}
+
+export interface HrReconcileResult {
+  rows: HrReconcileRow[];
+  matched: number;
+  differing: number;
+  unknown: number;
+}
+
+export type LevellingStatus = 'proposed' | 'applying' | 'applied' | 'undoing' | 'undone' | 'discarded' | 'stale' | 'failed';
+
+export type LevellingMoveReason = 'capacity' | 'dependency' | 'stretched';
+
+export interface LevellingMove {
+  workPackageId: string;
+  projectId: string;
+  projectName: string;
+  subject: string;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  hours: number;
+  beforeStart: string;
+  beforeDue: string;
+  afterStart: string;
+  afterDue: string;
+  /** OpenProject keeps manual dates only: automatic work it moves is switched to manual. */
+  beforeManual: boolean;
+  reason: LevellingMoveReason;
+  state: 'pending' | 'applied' | 'undone' | 'failed';
+  /** Working days later. */
+  shiftDays: number;
+}
+
+/** A week someone is over, before or after levelling. */
+export interface LevellingWeek {
+  key: string;
+  name: string;
+  week: string;
+  available: number;
+  load: number;
+  excess: number;
+}
+
+export interface LevellingRunView {
+  id: string;
+  status: LevellingStatus;
+  createdAt: string;
+  createdBy: string;
+  appliedAt: string | null;
+  appliedBy: string | null;
+  undoneAt: string | null;
+  undoneBy: string | null;
+  error: string | null;
+  scope: { kind: 'team' | 'role' | 'people'; id?: string; name: string; people: number };
+  options: { keepManual: boolean; horizonWeeks: number };
+  moves: LevellingMove[];
+  before: LevellingWeek[];
+  after: LevellingWeek[];
+  conflicts: { workPackageId: string; subject: string; reason: 'pinned' | 'horizon' }[];
+  /** How much of the work may not move, and why. */
+  fixed: { pinned: number; started: number; manual: number; parent: number; notEditable: number };
+}
+
+export interface LevellingRunSummary {
+  id: string;
+  status: LevellingStatus;
+  createdAt: string;
+  createdBy: string;
+  scopeName: string;
+  moves: number;
+  overBefore: number;
+  overAfter: number;
+}
+
+/** A work package levelling must not move (BR-111). */
+export interface WorkPackagePin {
+  workPackageId: string;
+  projectId: string;
+  reason: string | null;
+  pinnedBy: string;
+  pinnedAt: string;
+  previousScheduleManually: boolean;
 }

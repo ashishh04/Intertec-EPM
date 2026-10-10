@@ -50,7 +50,7 @@ export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'bud
 
 export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk'];
 
-export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
+export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person' | 'work_package';
 
 export interface DashboardColumn {
   key: string;
@@ -117,7 +117,7 @@ const TITLES: Record<DashboardId, { title: string; description: string }> = {
   },
   utilisation: {
     title: msg('Resource utilisation'),
-    description: msg('Hours logged against the capacity of the people in scope.'),
+    description: msg('Hours logged against the hours the people in scope were available, billable and not.'),
   },
   budget: {
     title: msg('Budget'),
@@ -139,8 +139,12 @@ const TITLES: Record<DashboardId, { title: string; description: string }> = {
 /* Helpers                                                                    */
 /* -------------------------------------------------------------------------- */
 
-/** "All projects", or the name of the portfolio, project, department, team or person; in `language` where it is a word. */
-export function scopeName(shared: Pick<Shared, 'facts'>, scope: Scope, language: Language = contextLanguage()): string {
+/** "All projects", or the name of the portfolio, project, department, team, role or person; in `language` where it is a word. */
+export function scopeName(
+  shared: Pick<Shared, 'facts'> & Partial<Pick<Shared, 'resources'>>,
+  scope: Scope,
+  language: Language = contextLanguage(),
+): string {
   const { facts } = shared;
   switch (scope.kind) {
     case 'instance':
@@ -153,6 +157,8 @@ export function scopeName(shared: Pick<Shared, 'facts'>, scope: Scope, language:
       return facts.departments.get(scope.id ?? '')?.name ?? t(language, 'Department');
     case 'team':
       return facts.teams.get(scope.id ?? '')?.name ?? t(language, 'Team');
+    case 'role':
+      return shared.resources?.roles.get(scope.id ?? '')?.name ?? t(language, 'Role');
     case 'person':
       return facts.people.get(Number(scope.id))?.name ?? t(language, 'Person');
     case 'set':
@@ -294,6 +300,7 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
     'sprint.velocity',
     'schedule.drift',
     'work.churn',
+    'work.onTime',
   ];
   const { facts, period, today } = context;
   const language = contextLanguage();
@@ -366,7 +373,7 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
         title: msg('Projects'),
         firstColumn: msg('Project'),
         rows: projectRows(context),
-        measures: ['work.completed', 'work.throughput', 'milestones.onTime', 'work.leadTime', 'work.overdue'],
+        measures: ['work.completed', 'work.throughput', 'work.onTime', 'milestones.onTime', 'work.leadTime', 'work.overdue'],
         period,
         today,
       }),
@@ -381,16 +388,17 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
       await series(context, 'work.completed', msg('Delivered'), bucket),
       await series(context, 'work.created', msg('Created'), bucket),
       await series(context, 'work.open', msg('Open work'), bucket),
+      await series(context, 'work.onTime', msg('Completed on time'), bucket),
     ],
     measures: await evaluateInContext(tiles, context),
   };
 }
 
 async function utilisation(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
-  const tiles = ['utilisation', 'capacity.weeklyHours', 'time.logged', 'time.uncosted'];
+  const tiles = ['utilisation', 'utilisation.billable', 'capacity.availableHours', 'time.logged', 'time.billable', 'time.uncosted'];
   const { facts, period, today } = context;
   const tables: DashboardTable[] = [];
-  const measures = ['capacity.weeklyHours', 'time.logged', 'utilisation'];
+  const measures = ['capacity.availableHours', 'time.logged', 'time.billable', 'utilisation', 'utilisation.billable'];
 
   if (context.scope.kind === 'instance') {
     const departments = [...facts.departments.values()].filter((item) => item.active).sort((a, b) => a.name.localeCompare(b.name));
@@ -425,6 +433,27 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
         today,
       }),
     );
+    const roles = [...shared.resources.roles.entries()]
+      .filter(([, role]) => !role.archived)
+      .sort((a, b) => a[1].name.localeCompare(b[1].name));
+    if (roles.length > 0) {
+      tables.push(
+        await measureTable(shared, {
+          id: 'roles',
+          title: msg('Roles'),
+          firstColumn: msg('Role'),
+          rows: roles.map(([id, role]) => ({
+            key: `role:${id}`,
+            label: role.name,
+            scope: { kind: 'role', id },
+            link: { kind: 'role', id },
+          })),
+          measures,
+          period,
+          today,
+        }),
+      );
+    }
   }
 
   tables.push(
@@ -452,6 +481,7 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
     tables,
     series: [
       await series(context, 'utilisation', msg('Utilisation'), bucket),
+      await series(context, 'utilisation.billable', msg('Billable utilisation'), bucket),
       await series(context, 'time.logged', msg('Hours logged'), bucket),
     ],
     measures: await evaluateInContext(tiles, context),

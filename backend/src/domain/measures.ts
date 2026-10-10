@@ -17,6 +17,8 @@ import {
 } from './measure-facts.js';
 import { forecasts, type Totals } from './earned-value.js';
 import { evaluateProjects, loadEvmShared, type EvmShared, type ScopeEvaluation } from './earned-value-store.js';
+import { dayOf as dayNumberOf } from './critical-path.js';
+import { loadResourceShared, type ResourceShared } from './resources-store.js';
 import { isDelivered, isDueSoon, isOpen, isOverdue } from './work-definitions.js';
 
 /**
@@ -64,7 +66,7 @@ const noteDay = (iso: string): ParamValue => (contextLanguage() === 'en' ? iso.s
  * with the set as `within`, measured exactly as a portfolio is. Internal — it
  * is not a scope anyone names in a request.
  */
-export type ScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'set';
+export type ScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person' | 'set';
 
 export interface Scope {
   kind: ScopeKind;
@@ -88,7 +90,7 @@ export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'pe
 export type MemberKind = 'work_package' | 'project' | 'person';
 
 const PROJECT_SCOPES: ScopeKind[] = ['instance', 'portfolio', 'project'];
-const ALL_SCOPES: ScopeKind[] = ['instance', 'portfolio', 'project', 'department', 'team', 'person'];
+const ALL_SCOPES: ScopeKind[] = ['instance', 'portfolio', 'project', 'department', 'team', 'role', 'person'];
 
 export interface HealthFact {
   overall: HealthLevel;
@@ -120,6 +122,8 @@ export interface MeasureContext {
   visibleProjectIds: Set<number>;
   /** Earned value's settings history, baselines, rates and working days. */
   evm: EvmShared;
+  /** Availability, roles and the billable rule (Module 6). */
+  resources: ResourceShared;
 }
 
 export interface MeasureValue {
@@ -363,6 +367,29 @@ export function milestoneOutcome(work: WorkFact, today: string): 'met' | 'missed
   return work.dueDate < today ? 'missed' : 'pending';
 }
 
+/** Hours the people in scope were available over the period (BR-312). */
+function availableOf(context: Pick<MeasureContext, 'people' | 'period' | 'resources'>, people = context.people): number {
+  const from = dayNumberOf(context.period.from);
+  const to = dayNumberOf(context.period.to);
+  return people.reduce((sum, person) => sum + context.resources.availability.sum(String(person.id), from, to), 0);
+}
+
+/** Logged hours the filter keeps, as a share of the hours available (BR-315). */
+function utilisationOf(context: MeasureContext, keep: (entry: TimeFact) => boolean): MeasureValue {
+  const available = availableOf(context);
+  const logged = context.peopleTime
+    .filter((entry) => inPeriod(entry.spentOn, context.period) && keep(entry))
+    .reduce((sum, entry) => sum + entry.hours, 0);
+  return available <= 0
+    ? { value: null, note: tr('Nobody in scope was available in the period.') }
+    : {
+        value: pct(logged, available),
+        members: context.people.map((person) => person.id),
+        // `capacity` is the hours available: the name the tiles have always read.
+        parts: { logged: roundMoney(logged), capacity: roundMoney(available) },
+      };
+}
+
 const isRisk = (work: WorkFact, context: MeasureContext) => context.risk.typeIds.has(work.typeId);
 const isHighRisk = (work: WorkFact, context: MeasureContext) =>
   isRisk(work, context) && work.priorityId !== null && context.risk.highPriorityIds.has(work.priorityId);
@@ -501,6 +528,31 @@ export const MEASURES: MeasureDefinition[] = [
     compute: ({ work, period }) => {
       const delivered = work.filter((item) => deliveredIn(item, period));
       return { value: delivered.length, members: workIds(delivered) };
+    },
+  },
+  {
+    id: 'work.onTime',
+    label: msg('Completed on time'),
+    unit: 'percent',
+    definition: msg(
+      'Of the work packages delivered in the period that had a finish date, the share delivered on or before it. Work with no finish date is left out.',
+    ),
+    scopes: ALL_SCOPES,
+    usesPeriod: true,
+    memberKind: 'work_package',
+    trend: 'period',
+    version: 1,
+    rollup: ratioRollup(['onTime'], ['onTime', 'late'], msg('Work delivered on time of all delivered with a finish date, both added across the projects.')),
+    compute: ({ work, period }) => {
+      const dated = work.filter((item) => deliveredIn(item, period) && item.dueDate !== null);
+      const onTime = dated.filter((item) => (dayOf(item.closedAt) ?? '') <= item.dueDate!);
+      return dated.length === 0
+        ? { value: null, note: tr('Nothing with a finish date was delivered in the period.') }
+        : {
+            value: pct(onTime.length, dated.length),
+            members: workIds(dated),
+            parts: { onTime: onTime.length, late: dated.length - onTime.length },
+          };
     },
   },
   {
@@ -1161,29 +1213,93 @@ export const MEASURES: MeasureDefinition[] = [
     }),
   },
   {
-    id: 'utilisation',
-    label: msg('Utilisation'),
-    unit: 'percent',
-    definition:
-      msg('Hours the people in scope logged in the period, on projects you can see, as a share of their capacity for the period: weekly capacity times the days in the period divided by seven.'),
+    id: 'capacity.availableHours',
+    label: msg('Available hours'),
+    unit: 'hours',
+    definition: msg(
+      'Hours the people in scope were available in the period: their work schedule times their employment fraction — or their weekly capacity spread over the working days — less public holidays and time off.',
+    ),
     scopes: ALL_SCOPES,
     usesPeriod: true,
     memberKind: 'person',
     trend: 'period',
     version: 1,
-    compute: ({ people, peopleTime, period }) => {
-      const capacity = people.reduce((sum, person) => sum + person.weeklyCapacityHours, 0) * weeksIn(period);
-      const logged = peopleTime
-        .filter((entry) => inPeriod(entry.spentOn, period))
-        .reduce((sum, entry) => sum + entry.hours, 0);
-      return capacity <= 0
-        ? { value: null, note: tr('Nobody in scope has capacity.') }
-        : {
-            value: pct(logged, capacity),
-            members: people.map((person) => person.id),
-            parts: { logged: roundMoney(logged), capacity: roundMoney(capacity) },
-          };
-    },
+    compute: (context) => ({
+      value: roundMoney(availableOf(context)),
+      members: context.people.map((person) => person.id),
+    }),
+  },
+  {
+    id: 'time.billable',
+    label: msg('Billable hours'),
+    unit: 'hours',
+    definition: msg(
+      'Hours logged in the period that are billable: on a project marked billable — or, unmarked, as the resource settings default — and not in an activity the settings call non-billable.',
+    ),
+    scopes: ALL_SCOPES,
+    usesPeriod: true,
+    trend: 'period',
+    version: 1,
+    rollup: sumRollup,
+    compute: ({ time, period, resources }) => ({
+      value: roundMoney(
+        time.filter((entry) => inPeriod(entry.spentOn, period) && resources.billable(entry)).reduce((sum, entry) => sum + entry.hours, 0),
+      ),
+    }),
+  },
+  {
+    id: 'time.nonBillable',
+    label: msg('Non-billable hours'),
+    unit: 'hours',
+    definition: msg('Hours logged in the period that are not billable: on a project marked non-billable, or in a non-billable activity.'),
+    scopes: ALL_SCOPES,
+    usesPeriod: true,
+    trend: 'period',
+    version: 1,
+    rollup: sumRollup,
+    compute: ({ time, period, resources }) => ({
+      value: roundMoney(
+        time.filter((entry) => inPeriod(entry.spentOn, period) && !resources.billable(entry)).reduce((sum, entry) => sum + entry.hours, 0),
+      ),
+    }),
+  },
+  {
+    id: 'utilisation',
+    label: msg('Utilisation'),
+    unit: 'percent',
+    definition: msg(
+      'Hours the people in scope logged in the period, on projects you can see, as a share of the hours they were available: their work schedule times their employment fraction, less public holidays and time off.',
+    ),
+    scopes: ALL_SCOPES,
+    usesPeriod: true,
+    memberKind: 'person',
+    trend: 'period',
+    version: 2,
+    compute: (context) => utilisationOf(context, () => true),
+  },
+  {
+    id: 'utilisation.billable',
+    label: msg('Billable utilisation'),
+    unit: 'percent',
+    definition: msg('Billable hours the people in scope logged in the period, as a share of the hours they were available.'),
+    scopes: ALL_SCOPES,
+    usesPeriod: true,
+    memberKind: 'person',
+    trend: 'period',
+    version: 1,
+    compute: (context) => utilisationOf(context, (entry) => context.resources.billable(entry)),
+  },
+  {
+    id: 'utilisation.nonBillable',
+    label: msg('Non-billable utilisation'),
+    unit: 'percent',
+    definition: msg('Non-billable hours the people in scope logged in the period, as a share of the hours they were available.'),
+    scopes: ALL_SCOPES,
+    usesPeriod: true,
+    memberKind: 'person',
+    trend: 'period',
+    version: 1,
+    compute: (context) => utilisationOf(context, (entry) => !context.resources.billable(entry)),
   },
 
   /* ---------------------------------------------------------------- agile */
@@ -1286,13 +1402,19 @@ export interface Shared {
   health: Map<number, HealthFact>;
   risk: MeasureContext['risk'];
   evm: EvmShared;
+  resources: ResourceShared;
 }
 
 export async function prepare(viewer: Viewer): Promise<Shared> {
   const facts = await modelFacts();
   const visible = [...facts.projects.values()].filter((project) => viewer.visibleProjectIds.has(project.id));
-  const [health, risk, evm] = await Promise.all([healthFacts(visible), riskSelection(), loadEvmShared(facts)]);
-  return { facts, viewer, health, risk, evm };
+  const [health, risk, evm, resources] = await Promise.all([
+    healthFacts(visible),
+    riskSelection(),
+    loadEvmShared(facts),
+    loadResourceShared(),
+  ]);
+  return { facts, viewer, health, risk, evm, resources };
 }
 
 async function healthFacts(projects: ProjectFact[]): Promise<Map<number, HealthFact>> {
@@ -1384,6 +1506,11 @@ export function contextFor(
       projects = activeVisible;
       byPeople = true;
       break;
+    case 'role':
+      people = activePeople.filter((person) => shared.resources.carriers.get(String(person.id))?.roleId === scope.id);
+      projects = activeVisible;
+      byPeople = true;
+      break;
     case 'person':
       people = activePeople.filter((person) => String(person.id) === scope.id);
       projects = activeVisible;
@@ -1423,6 +1550,7 @@ export function contextFor(
     risk: shared.risk,
     visibleProjectIds: visible,
     evm: shared.evm,
+    resources: shared.resources,
   };
 }
 
@@ -1539,7 +1667,11 @@ export interface PersonMember {
   departmentId: string | null;
   teamId: string | null;
   weeklyCapacityHours: number;
+  /** Hours available in the period (BR-312). */
+  availableHours: number;
   loggedHours: number;
+  billableHours: number;
+  /** Logged of available. */
   utilisation: number | null;
 }
 
@@ -1609,21 +1741,23 @@ export async function measureMembers(
     return { measure: evaluated, asOf: facts.asOf, members: { kind: 'project', items } };
   }
 
-  const weeks = weeksIn(period);
   const items = context.people
     .filter((person) => ids.has(person.id))
     .map((person): PersonMember => {
-      const logged = context.peopleTime
-        .filter((entry) => entry.userId === person.id && inPeriod(entry.spentOn, period))
-        .reduce((sum, entry) => sum + entry.hours, 0);
+      const entries = context.peopleTime.filter((entry) => entry.userId === person.id && inPeriod(entry.spentOn, period));
+      const logged = entries.reduce((sum, entry) => sum + entry.hours, 0);
+      const billable = entries.filter((entry) => context.resources.billable(entry)).reduce((sum, entry) => sum + entry.hours, 0);
+      const available = availableOf(context, [person]);
       return {
         id: person.id,
         name: person.name,
         departmentId: person.departmentId,
         teamId: person.teamId,
         weeklyCapacityHours: person.weeklyCapacityHours,
+        availableHours: roundMoney(available),
         loggedHours: roundMoney(logged),
-        utilisation: pct(logged, person.weeklyCapacityHours * weeks),
+        billableHours: roundMoney(billable),
+        utilisation: pct(logged, available),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

@@ -34,6 +34,8 @@ const GRANTABLE = new Set<Permission>([
   'audit:view',
   'evm:configure',
   'fields:configure',
+  'resources:plan',
+  'resources:configure',
 ]);
 
 export function isGrantable(permission: string): permission is Permission {
@@ -60,6 +62,8 @@ export const GRANT_CATALOGUE: { permission: Permission; label: string; descripti
   { permission: 'audit:view', label: 'Read the audit journal', description: 'Read every change EPM has recorded, across projects and organisation data.' },
   { permission: 'evm:configure', label: 'Set the earned value rules', description: 'Change how each type of work earns value, and the rate for unpriced work, for every project.' },
   { permission: 'fields:configure', label: 'Define calculated fields', description: 'Create, change, switch off and delete the formulas EPM works out on every work package, and their OpenProject fields.' },
+  { permission: 'resources:plan', label: 'Plan resources', description: "See everyone's load across every project, book planned work, and level schedules — moving only work they may edit." },
+  { permission: 'resources:configure', label: 'Set the resource rules', description: 'Change the heatmap thresholds, what counts as billable time, and the length of a working day.' },
 ];
 
 function isPermission(value: string): value is Permission {
