@@ -91,6 +91,7 @@ export async function mayViewRates(request: FastifyRequest): Promise<boolean> {
 const SUBJECTS: Record<string, string> = {
   task: 'work packages',
   health: 'project health',
+  evm: 'earned value',
 };
 
 function describe(permission: Permission): Message {

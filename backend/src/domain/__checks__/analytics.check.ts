@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { durationToHours, hoursToDuration } from '../../lib/duration.js';
 import { allowedDifference } from '../analytics-model.js';
 import { buildDashboard } from '../dashboards.js';
+import { workingDaysOf } from '../earned-value-store.js';
 import { budgetVariancePct, plannedBudgetToDate } from '../health.js';
 import type { ModelFacts, PersonFact, ProjectFact, TimeFact, WorkFact } from '../measure-facts.js';
 import {
@@ -139,6 +140,7 @@ const WORK: WorkFact[] = [
 const facts: ModelFacts = {
   runId: '1',
   asOf: '2026-10-06T08:00:00.000Z',
+  calendar: { nonWorking: new Set(), from: 0, to: -1 },
   projects: new Map(
     [
       project(1, { portfolioId: 'A', budget: 10_000, plannedStart: '2026-09-01', plannedFinish: '2026-10-30' }),
@@ -205,6 +207,8 @@ const shared: Shared = {
   viewer: { visibleProjectIds: new Set([1, 2, 3]) },
   health,
   risk: { typeIds: new Set([9]), highPriorityIds: new Set([8]), configured: true },
+  // No baselines or rates: earned value reads each project's plan, unpriced.
+  evm: { settings: [], baselines: new Map(), rates: new Map(), days: workingDaysOf(facts.calendar) },
 };
 
 const PERIOD = { from: '2026-09-07', to: TODAY }; // four weeks and two days

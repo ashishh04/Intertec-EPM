@@ -7,6 +7,7 @@ import { appLog } from '../lib/log.js';
 import {
   costEntryPages,
   countTimeEntries,
+  readCalendar,
   journalPages,
   readDepartments,
   readJournalSummary,
@@ -20,6 +21,7 @@ import {
   readTypes,
   readUsers,
   readVersions,
+  type CalendarRow,
   type CostEntryRow,
   type DepartmentRow,
   type JournalSummary,
@@ -110,6 +112,7 @@ const TIME_OVERLAP_MS = 5 * 60_000;
 /* -------------------------------------------------------------------------- */
 
 interface Extract {
+  calendar: CalendarRow;
   statuses: StatusRow[];
   types: TypeRow[];
   priorities: PriorityRow[];
@@ -161,8 +164,9 @@ async function extract(kind: RefreshKind, state: Map<string, string>, startedAt:
 
   // The small lists and the organisation, in full every time: cheap, and a
   // renamed project or a moved person is a change worth having promptly.
-  const [statuses, types, priorities, projects, portfolios, departments, teams, users, memberships, versions] =
+  const [calendar, statuses, types, priorities, projects, portfolios, departments, teams, users, memberships, versions] =
     await Promise.all([
+      readCalendar(signal),
       readStatuses(signal),
       readTypes(signal),
       readPriorities(signal),
@@ -185,6 +189,7 @@ async function extract(kind: RefreshKind, state: Map<string, string>, startedAt:
   const summary = await readJournalSummary(signal);
 
   return {
+    calendar,
     statuses,
     types,
     priorities,
@@ -285,6 +290,17 @@ async function loadReference(tx: Tx, data: Extract, now: string): Promise<number
   await present('analytics.dim_status', 'status_id', data.statuses.map((row) => row.statusId));
   await present('analytics.dim_type', 'type_id', data.types.map((row) => row.typeId));
   await present('analytics.dim_priority', 'priority_id', data.priorities.map((row) => row.priorityId));
+
+  // The working calendar on the date dimension: the working week less the
+  // non-working days. An empty working week is OpenProject's "every day".
+  const weekdays = data.calendar.workingWeekdays.length > 0 ? data.calendar.workingWeekdays : [1, 2, 3, 4, 5, 6, 7];
+  written += await tx.$executeRawUnsafe(
+    `UPDATE analytics.dim_date d
+        SET is_working_day = (d.day_of_week = ANY($1::int[]) AND NOT (d.date = ANY($2::date[])))
+      WHERE d.is_working_day IS DISTINCT FROM (d.day_of_week = ANY($1::int[]) AND NOT (d.date = ANY($2::date[])))`,
+    weekdays,
+    data.calendar.nonWorkingDays,
+  );
   return written;
 }
 

@@ -36,6 +36,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   get delivery() { return t('Delivery'); },
   get utilisation() { return t('Utilisation'); },
   get budget() { return t('Budget'); },
+  get 'earned-value'() { return t('Earned value'); },
   get risk() { return t('Risk exposure'); },
   get documents() { return t('Documents'); },
   get notifications() { return t('Notifications'); },

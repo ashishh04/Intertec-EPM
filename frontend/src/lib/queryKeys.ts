@@ -77,6 +77,11 @@ export const queryKeys = {
   workPackageSchedule: (id: string) => ['schedule', 'work-package', id] as const,
   scheduleStatus: () => ['schedule', 'status'] as const,
 
+  // Earned value. The figures are measures, under ['insights'].
+  evmSettings: () => ['earned-value', 'settings'] as const,
+  evmBaselines: (projectId: string) => ['earned-value', 'baselines', projectId] as const,
+  workPackageEarnedValue: (id: string) => ['earned-value', 'work-package', id] as const,
+
   tasks: (filters?: TaskFilters) => ['tasks', filters ?? {}] as const,
   taskTimeline: (projectId: string) => ['tasks', 'timeline', projectId] as const,
   task: (id: ID) => ['tasks', 'detail', id] as const,

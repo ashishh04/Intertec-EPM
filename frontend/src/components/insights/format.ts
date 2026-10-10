@@ -21,6 +21,8 @@ export function formatMeasure(value: number | null | undefined, unit: MeasureUni
       return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value)} / wk`;
     case 'points':
       return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value)} pts`;
+    case 'index':
+      return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
     default:
       return formatNumber(value);
   }
@@ -35,6 +37,7 @@ export const UNIT_WORDS: Record<MeasureUnit, string> = {
   days: 'days',
   perWeek: 'per week',
   points: 'points',
+  index: 'index',
 };
 
 /** A scope as a URL carries it, and back. */

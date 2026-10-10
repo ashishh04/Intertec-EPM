@@ -200,6 +200,7 @@ export type Permission =
   | 'reports:approve'
   | 'rates:view'
   | 'audit:view'
+  | 'evm:configure'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -2237,7 +2238,8 @@ export interface AutomationOptions {
 /* Reports, dashboards and analytics (BRQ-05: BR-401 to BR-405)                */
 /* -------------------------------------------------------------------------- */
 
-export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'perWeek' | 'points';
+/** `index` is a ratio such as SPI or CPI, read against 1. */
+export type MeasureUnit = 'count' | 'percent' | 'hours' | 'money' | 'days' | 'perWeek' | 'points' | 'index';
 export type MeasureScopeKind = 'instance' | 'portfolio' | 'project' | 'department' | 'team' | 'person';
 export type MeasureMemberKind = 'work_package' | 'project' | 'person';
 
@@ -2360,7 +2362,7 @@ export interface MeasureTrend {
   points: MeasureTrendPoint[];
 }
 
-export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'risk';
+export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
 export type DashboardLinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
 
 export interface DashboardColumn {
@@ -2390,6 +2392,10 @@ export interface DashboardSeries {
   measureId: string;
   bucket: 'week' | 'month';
   points: MeasureTrendPoint[];
+  /** With `lines`: what `points` are, for the legend. */
+  label?: string;
+  /** Further measures on the same axes — earned value's PV, EV and AC together. */
+  lines?: { measureId: string; label: string; points: MeasureTrendPoint[] }[];
 }
 
 /** An executive or PMO dashboard (BR-405), described as data. */
@@ -2895,4 +2901,74 @@ export interface ScheduleStatus {
   pending: boolean;
   lastRun?: ScheduleRun;
   lastCompleted?: ScheduleRun;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Earned value (BRQ-12)                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** How a type of work earns its budget (BR-302). */
+export type EarningMethod = 'percent_complete' | 'zero_hundred' | 'fifty_fifty' | 'milestone_weighted' | 'level_of_effort';
+
+export interface EvmSettings {
+  /** 0 is the defaults, before anything was saved. */
+  version: number;
+  defaultMethod: EarningMethod;
+  /** Type id → how it earns, where that is not the default. */
+  methods: Record<string, EarningMethod>;
+  /** The hourly rate for work whose assignee has none; null leaves it unpriced. */
+  unpricedRate: number | null;
+  updatedAt?: ISODate;
+  updatedBy?: ID;
+}
+
+export interface EvmSettingsView {
+  settings: EvmSettings;
+  methods: { id: EarningMethod; label: string; describe: string }[];
+  types: { id: ID; name: string; isMilestone: boolean }[];
+}
+
+/** A project's baseline: its plan, priced and frozen when set (BR-301). */
+export interface EvmBaseline {
+  id: ID;
+  projectId: ID;
+  number: number;
+  reason: string | null;
+  setBy: ID;
+  setAt: ISODate;
+  bac: number;
+  items: number;
+  unpriced: number;
+  undated: number;
+}
+
+export type EvmMeasuredAgainst = { kind: 'baseline'; number: number; setAt: ISODate } | { kind: 'plan' };
+
+/** One work package's figures as at a reporting date. */
+export interface EvmItemFigures {
+  workPackageId: ID;
+  projectId: ID;
+  method: EarningMethod;
+  bac: number | null;
+  plannedShare: number | null;
+  earnedShare: number;
+  pv: number | null;
+  ev: number | null;
+  ac: number;
+  sv: number | null;
+  cv: number | null;
+  spi: number | null;
+  cpi: number | null;
+}
+
+export interface WorkPackageEarnedValue {
+  workPackageId: ID;
+  projectId: ID;
+  at: ISODate;
+  asOf: ISODate | null;
+  measuredAgainst?: EvmMeasuredAgainst;
+  method?: EarningMethod;
+  /** Absent when the work is not in the plan being measured against. */
+  item: EvmItemFigures | null;
+  note?: string;
 }

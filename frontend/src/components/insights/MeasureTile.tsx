@@ -81,7 +81,9 @@ export function MeasureTile({
 
         <span
           className={cn(
-            'font-display text-2xl font-bold tracking-[-0.03em] tabular-nums',
+            'whitespace-nowrap font-display font-bold tracking-[-0.03em] tabular-nums',
+            // A long figure — a negative sum of money — steps down rather than wrap its sign onto a line of its own.
+            formatMeasure(measure.value, measure.unit).length > 11 ? 'text-xl' : 'text-2xl',
             missing ? 'text-muted-foreground' : 'text-primary',
           )}
         >
@@ -125,6 +127,17 @@ function partsLine(measure: MeasureResult): string {
       });
     case 'sprint.velocity':
       return t('{sprints, plural, one {over # sprint} other {over # sprints}}', { sprints: parts.sprints ?? 0 });
+    case 'evm.pv':
+    case 'evm.ev':
+      return t('of {budget} budget', { budget: formatMeasure(parts.bac ?? 0, 'money') });
+    case 'evm.eac':
+      return t('against {budget} budget', { budget: formatMeasure(parts.bac ?? 0, 'money') });
+    case 'evm.spi':
+      return measure.value === null ? '' : measure.value < 1 ? t('behind plan') : t('on or ahead of plan');
+    case 'evm.cpi':
+      return measure.value === null ? '' : measure.value < 1 ? t('over cost') : t('on or under cost');
+    case 'evm.tcpi':
+      return measure.value === null ? '' : measure.value > 1 ? t('harder than planned') : t('within the plan');
     default:
       return '';
   }

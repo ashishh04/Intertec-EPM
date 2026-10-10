@@ -34,6 +34,7 @@ import { projectRoutes } from './projects.js';
 import { queryRoutes } from './queries.js';
 import { relationRoutes } from './relations.js';
 import { scheduleRoutes } from './schedule.js';
+import { earnedValueRoutes } from './earned-value.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
@@ -77,6 +78,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(watcherRoutes);
   await app.register(relationRoutes);
   await app.register(scheduleRoutes);
+  await app.register(earnedValueRoutes);
   await app.register(commentRoutes);
   await app.register(memberRoutes);
   await app.register(accountRoutes);

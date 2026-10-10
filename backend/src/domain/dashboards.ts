@@ -1,8 +1,14 @@
 import { env } from '../config/env.js';
+import { addDays } from '../lib/dates.js';
+import { EARNING_METHODS } from './earned-value.js';
+import type { ScopeEvaluation } from './earned-value-store.js';
+import { workFactsAsAt } from './measure-facts.js';
 import { isDelivered, isOpen } from './work-definitions.js';
 import {
+  bucketsOf,
   contextFor,
   evaluateInContext,
+  evmOf,
   measureById,
   measureSeries,
   milestoneOutcome,
@@ -34,9 +40,9 @@ import {
  * Each is timed against the response target (`EPM_DASHBOARD_TARGET_MS`).
  */
 
-export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'risk';
+export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
 
-export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'delivery', 'utilisation', 'budget', 'risk'];
+export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk'];
 
 export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'person' | 'work_package';
 
@@ -69,6 +75,13 @@ export interface DashboardSeries {
   measureId: string;
   bucket: Bucket;
   points: { from: string; to: string; value: number | null }[];
+  /** With `lines`: what `points` are, for the legend. */
+  label?: string;
+  /**
+   * Further measures drawn on the same axes, over the same buckets — earned
+   * value's planned value, earned value and actual cost together.
+   */
+  lines?: { measureId: string; label: string; points: { from: string; to: string; value: number | null }[] }[];
 }
 
 export interface Dashboard {
@@ -103,6 +116,11 @@ const TITLES: Record<DashboardId, { title: string; description: string }> = {
   budget: {
     title: 'Budget',
     description: 'Spend against budget and against the budget planned to date.',
+  },
+  'earned-value': {
+    title: 'Earned value',
+    description:
+      'The work planned by now, the work done and what it cost, each priced by the budget — and what they forecast for schedule and cost.',
   },
   risk: {
     title: 'Risk exposure',
@@ -444,6 +462,137 @@ async function budget(shared: Shared, context: MeasureContext): Promise<Partial<
   };
 }
 
+/**
+ * Earned value over the period (BR-303): each bucket's figures as at its end,
+ * from the work as it stood then, rebuilt from the journals. The bucket under
+ * way is measured now; buckets still to come carry the plan alone.
+ */
+async function earnedValueSeries(context: MeasureContext, bucket: Bucket): Promise<DashboardSeries[]> {
+  const point = (slice: { from: string; to: string }, value: number | null) => ({ from: slice.from, to: slice.to, value });
+  const pv: DashboardSeries['points'] = [];
+  const ev: DashboardSeries['points'] = [];
+  const ac: DashboardSeries['points'] = [];
+  const spi: DashboardSeries['points'] = [];
+  const cpi: DashboardSeries['points'] = [];
+  for (const slice of bucketsOf(context.period, bucket)) {
+    let result: ScopeEvaluation;
+    let ahead = false;
+    if (slice.to < context.today) {
+      const asAt = (await workFactsAsAt(new Date(`${addDays(slice.to, 1)}T00:00:00.000Z`), context.facts)).filter(context.inScope);
+      result = evmOf({ ...context, work: asAt, today: slice.to });
+    } else if (slice.from <= context.today) {
+      result = evmOf(context);
+    } else {
+      result = evmOf({ ...context, today: slice.to });
+      ahead = true;
+    }
+    const empty = result.totals.bac === 0 && result.totals.ac === 0;
+    pv.push(point(slice, empty ? null : result.totals.pv));
+    ev.push(point(slice, empty || ahead ? null : result.totals.ev));
+    ac.push(point(slice, empty || ahead ? null : result.totals.ac));
+    spi.push(point(slice, ahead ? null : result.totals.spi));
+    cpi.push(point(slice, ahead ? null : result.totals.cpi));
+  }
+  return [
+    {
+      id: 'evm.curve',
+      title: 'Planned value, earned value and actual cost',
+      measureId: 'evm.pv',
+      bucket,
+      label: 'Planned value (PV)',
+      points: pv,
+      lines: [
+        { measureId: 'evm.ev', label: 'Earned value (EV)', points: ev },
+        { measureId: 'evm.ac', label: 'Actual cost (AC)', points: ac },
+      ],
+    },
+    {
+      id: 'evm.indices',
+      title: 'Schedule and cost performance',
+      measureId: 'evm.spi',
+      bucket,
+      label: 'Schedule performance (SPI)',
+      points: spi,
+      lines: [{ measureId: 'evm.cpi', label: 'Cost performance (CPI)', points: cpi }],
+    },
+  ];
+}
+
+async function earnedValue(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = ['evm.bac', 'evm.pv', 'evm.ev', 'evm.ac', 'evm.sv', 'evm.cv', 'evm.spi', 'evm.cpi', 'evm.eac', 'evm.vac', 'evm.tcpi'];
+  const now = evmOf(context);
+  const tables: DashboardTable[] = [];
+
+  if (context.scope.kind === 'project') {
+    const project = now.projects[0];
+    const work = new Map(context.work.map((item) => [item.id, item]));
+    const against = project?.measuredAgainst;
+    tables.push({
+      id: 'work-packages',
+      title: 'Work packages',
+      description:
+        against?.kind === 'baseline'
+          ? `Against baseline ${against.number}, set ${against.setAt.slice(0, 10)}. Most over cost first.`
+          : 'Against the current plan: no baseline has been set. Most over cost first.',
+      columns: [
+        { key: 'name', label: 'Work package' },
+        { key: 'rule', label: 'Earns by' },
+        { key: 'bac', label: 'BAC', unit: 'money', measureId: 'evm.bac' },
+        { key: 'pv', label: 'PV', unit: 'money', measureId: 'evm.pv' },
+        { key: 'ev', label: 'EV', unit: 'money', measureId: 'evm.ev' },
+        { key: 'ac', label: 'AC', unit: 'money', measureId: 'evm.ac' },
+        { key: 'cv', label: 'CV', unit: 'money', measureId: 'evm.cv' },
+        { key: 'spi', label: 'SPI', unit: 'index', measureId: 'evm.spi' },
+        { key: 'cpi', label: 'CPI', unit: 'index', measureId: 'evm.cpi' },
+      ],
+      rows: (project?.evaluation.items ?? [])
+        .filter((item) => item.bac !== null && (item.bac > 0 || item.ac > 0))
+        .sort((a, b) => (a.cv ?? 0) - (b.cv ?? 0) || a.workPackageId - b.workPackageId)
+        .map((item) => {
+          const known = work.get(item.workPackageId);
+          return {
+            key: `wp:${item.workPackageId}`,
+            link: { kind: 'work_package' as const, id: String(item.workPackageId) },
+            cells: {
+              name: known?.subject ?? `Work package ${item.workPackageId}`,
+              rule: EARNING_METHODS[item.method].label,
+              bac: item.bac,
+              pv: item.pv,
+              ev: item.ev,
+              ac: item.ac,
+              cv: item.cv,
+              spi: item.spi,
+              cpi: item.cpi,
+            },
+          };
+        }),
+    });
+  } else {
+    const measured = new Set(
+      now.projects.filter((project) => project.evaluation.totals.bac > 0 || project.evaluation.totals.ac > 0).map((project) => project.projectId),
+    );
+    tables.push(
+      await measureTable(shared, {
+        id: 'projects',
+        title: 'Projects',
+        description: 'Each project against its baseline, or its current plan where none has been set.',
+        firstColumn: 'Project',
+        rows: projectRows(context).filter((row) => measured.has(Number(row.link.id))),
+        measures: ['evm.bac', 'evm.pv', 'evm.ev', 'evm.ac', 'evm.spi', 'evm.cpi', 'evm.eac', 'evm.vac'],
+        period: context.period,
+        today: context.today,
+      }),
+    );
+  }
+
+  return {
+    tiles,
+    tables,
+    series: await earnedValueSeries(context, bucketFor(context.period)),
+    measures: await evaluateInContext(tiles, context),
+  };
+}
+
 async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
   const tiles = ['risk.open', 'risk.high', 'risk.overdue'];
   const { facts } = context;
@@ -528,6 +677,7 @@ const BUILDERS: Record<DashboardId, (shared: Shared, context: MeasureContext) =>
   delivery,
   utilisation,
   budget,
+  'earned-value': earnedValue,
   risk,
 };
 

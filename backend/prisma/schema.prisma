@@ -486,6 +486,67 @@ model ScheduleRun {
   @@map("schedule_runs")
 }
 
+/// How each work package type earns value (BR-302), and the rate that prices
+/// work nobody's rate covers. Versioned like the health rules: every save
+/// inserts a row, the highest version is in force, and a figure for a past
+/// date uses the version that was in force then. With no row, every type
+/// earns by percent complete.
+model EvmSettingSet {
+  id        String   @id @default(cuid())
+  version   Int      @unique
+  settings  Json
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@map("evm_setting_sets")
+}
+
+/// A project's performance measurement baseline (BR-301): the plan earned
+/// value is measured against — each work package's budget and planned dates —
+/// frozen when it was set. Never changed afterwards (a trigger refuses);
+/// rebaselining sets a new one, and the one in force on a date is the last set
+/// by then. Deleted with its project.
+model EvmBaseline {
+  id           String            @id @default(cuid())
+  projectId    Int
+  /// 1, 2, 3… within the project.
+  number       Int
+  reason       String?
+  createdBy    String
+  createdAt    DateTime          @default(now())
+  /// Its budget at completion, and what it could not price or date, as set.
+  bac          Float
+  items        Int
+  unpriced     Int
+  undated      Int
+  workPackages EvmBaselineItem[]
+
+  @@unique([projectId, number])
+  @@index([projectId, createdAt])
+  @@map("evm_baselines")
+}
+
+/// One work package in a baseline, as the plan had it.
+model EvmBaselineItem {
+  baselineId     String
+  workPackageId  Int
+  parentId       Int?
+  typeId         Int
+  isMilestone    Boolean
+  subject        String
+  estimatedHours Float?
+  /// The hourly rate its budget was priced at.
+  rate           Float?
+  /// Estimated hours × rate; null when there was no rate to price them at.
+  bac            Float?
+  plannedStart   DateTime?   @db.Date
+  plannedFinish  DateTime?   @db.Date
+  baseline       EvmBaseline @relation(fields: [baselineId], references: [id], onDelete: Cascade)
+
+  @@id([baselineId, workPackageId])
+  @@map("evm_baseline_items")
+}
+
 /// A message for one person about something they should know and would not
 /// otherwise see.
 ///

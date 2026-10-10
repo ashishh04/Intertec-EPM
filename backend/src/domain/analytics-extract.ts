@@ -253,6 +253,35 @@ async function everything<T>(path: string, query: Parameters<typeof openProject.
 /* Reference lists                                                            */
 /* -------------------------------------------------------------------------- */
 
+export interface CalendarRow {
+  /** ISO weekdays worked: 1 Monday … 7 Sunday. */
+  workingWeekdays: number[];
+  /** One-off non-working days — holidays — as `YYYY-MM-DD`. */
+  nonWorkingDays: string[];
+}
+
+/**
+ * The instance's working calendar: its working week and its non-working days,
+ * across the date dimension's whole range. What OpenProject schedules in, and
+ * what earned value spreads a plan over.
+ */
+export function readCalendar(signal?: AbortSignal): Promise<CalendarRow> {
+  return runAsSystem(async () => {
+    const [week, holidays] = await Promise.all([
+      everything<{ day: number; working: boolean }>('/days/week', {}, signal),
+      everything<{ date: string }>(
+        '/days/non_working',
+        { filters: [{ field: 'date', operator: '<>d', values: ['2015-01-01', '2040-12-31'] }] },
+        signal,
+      ),
+    ]);
+    return {
+      workingWeekdays: week.items.filter((day) => day.working).map((day) => day.day),
+      nonWorkingDays: holidays.items.map((day) => day.date),
+    };
+  });
+}
+
 export function readStatuses(signal?: AbortSignal): Promise<StatusRow[]> {
   return runAsSystem(async () => {
     const { items } = await everything<OpStatus>('/statuses', {}, signal);

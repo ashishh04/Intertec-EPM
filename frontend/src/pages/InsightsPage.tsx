@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
-import { MeasureSeriesChart } from '@/components/charts/EpmCharts';
+import { MeasureLinesChart, MeasureSeriesChart } from '@/components/charts/EpmCharts';
+import { BaselinesCard } from '@/components/insights/BaselinesCard';
 import { DashboardTableCard } from '@/components/insights/DashboardTableCard';
 import { DrillSheet } from '@/components/insights/DrillSheet';
 import { formatMeasure } from '@/components/insights/format';
@@ -37,8 +38,8 @@ import type { DashboardId, MeasureScopeKind } from '@/types';
 /**
  * The executive and PMO dashboards (BR-405).
  *
- * Five views over the semantic layer — portfolio health, delivery, resource
- * utilisation, budget and risk exposure — for the whole instance or any
+ * Six views over the semantic layer — portfolio health, delivery, resource
+ * utilisation, budget, earned value and risk exposure — for the whole instance or any
  * portfolio, project, department, team or person, over any period. Every
  * figure is a measure defined once (BR-404), with its definition a hover away,
  * and every figure with members opens on them: a portfolio row opens the
@@ -54,6 +55,7 @@ const DASHBOARDS: { id: DashboardId; label: string }[] = [
   { id: 'delivery', label: 'Delivery' },
   { id: 'utilisation', label: 'Utilisation' },
   { id: 'budget', label: 'Budget' },
+  { id: 'earned-value', label: 'Earned value' },
   { id: 'risk', label: 'Risk exposure' },
 ];
 
@@ -121,7 +123,7 @@ export default function InsightsPage() {
         title={DASHBOARDS.find((entry) => entry.id === dashboardId)?.label ?? 'Dashboards'}
         description={
           data?.description ??
-          'Portfolio health, delivery, utilisation, budget and risk. Every figure is defined once, and opens on what is behind it.'
+          'Portfolio health, delivery, utilisation, budget, earned value and risk. Every figure is defined once, and opens on what is behind it.'
         }
         meta={
           data?.asOf ? (
@@ -259,6 +261,22 @@ export default function InsightsPage() {
                 {data.series.map((series) => {
                   const unit = data.measures[series.measureId]?.unit ?? catalogue.data?.find((entry) => entry.id === series.measureId)?.unit;
                   const asAt = trendOf.get(series.measureId) === 'asAt';
+                  if (series.lines?.length) {
+                    return (
+                      <ChartCard
+                        key={series.id}
+                        title={series.title}
+                        description={`${series.bucket === 'week' ? 'By week' : 'By month'} · as it stood at the end of each; ahead of today, the plan alone`}
+                      >
+                        <MeasureLinesChart
+                          lines={[{ label: series.label ?? series.title, points: series.points }, ...series.lines]}
+                          bucket={series.bucket}
+                          index={unit === 'index'}
+                          format={(value) => formatMeasure(value, unit)}
+                        />
+                      </ChartCard>
+                    );
+                  }
                   return (
                     <ChartCard
                       key={series.id}
@@ -276,6 +294,10 @@ export default function InsightsPage() {
                   );
                 })}
               </div>
+            ) : null}
+
+            {dashboardId === 'earned-value' && scope.startsWith('project:') ? (
+              <BaselinesCard projectId={scope.slice('project:'.length)} />
             ) : null}
 
             {data.tables.map((table) => (
