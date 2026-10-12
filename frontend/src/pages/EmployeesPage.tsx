@@ -163,7 +163,15 @@ export default function EmployeesPage() {
   // working.
   const sendInvitation = (account: EpmAccount) => {
     resendInvite.mutate(account.id, {
-      onSuccess: () => toast.success(t('Invitation sent to {email}', { email: account.email })),
+      // Queued is not delivered, and nothing queued is not success.
+      onSuccess: (result) =>
+        result.inviteSent
+          ? toast.success(t('Invitation queued for {email}', { email: account.email }), {
+              description: t('Its delivery is shown in the users list.'),
+            })
+          : toast.warning(t('The invitation was not sent'), {
+              description: t('Nothing was queued: they have no email address, or have turned email off.'),
+            }),
       onError: (error) =>
         toast.error(t('The invitation could not be sent'), {
           description: error instanceof Error ? error.message : undefined,

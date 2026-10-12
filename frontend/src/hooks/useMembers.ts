@@ -55,6 +55,9 @@ function useMemberInvalidation(projectId: ID) {
     void client.invalidateQueries({ queryKey: memberKeys.list(projectId) });
     // Adding someone removes them from the candidate list, and vice versa.
     void client.invalidateQueries({ queryKey: memberKeys.candidates(projectId) });
+    // Who may be assigned work in the project is its team, so the task
+    // form's assignee list moves with every membership change.
+    void client.invalidateQueries({ queryKey: ['catalog', 'project-assignees', projectId] });
     // `memberIds`, the workload list, and portfolio rollups all read from the
     // same membership collection upstream.
     void client.invalidateQueries({ queryKey: ['projects'] });

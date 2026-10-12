@@ -92,6 +92,10 @@ export function useProjectAssignees(projectId?: ID) {
     queryFn: () => catalogService.getProjectAssignees(projectId!),
     enabled: Boolean(projectId),
     ...REFERENCE_DATA,
+    // A project's team changes far more often than the instance's catalogue:
+    // held for fifteen minutes, someone just added to the team stayed
+    // unassignable, and the picker offered only "Unassigned".
+    staleTime: 60_000,
   });
 }
 

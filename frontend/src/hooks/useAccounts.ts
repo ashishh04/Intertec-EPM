@@ -45,6 +45,9 @@ function useAccountInvalidation() {
     void client.invalidateQueries({ queryKey: ['users'] });
     void client.invalidateQueries({ queryKey: ['members'] });
     void client.invalidateQueries({ queryKey: ['teams'] });
+    // The administration's per-person reads: invitations, last sign-ins and
+    // project memberships all move with an account.
+    void client.invalidateQueries({ queryKey: ['admin', 'users'] });
   };
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { SchemaForm } from '@/components/common/SchemaForm';
 import { Alert } from '@/components/ui/alert';
@@ -48,6 +49,7 @@ export function UserAttributesDialog({
 }
 
 function AttributesForm({ account, onDone }: { account: EpmAccount; onDone: () => void }) {
+  const client = useQueryClient();
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(
@@ -63,6 +65,8 @@ function AttributesForm({ account, onDone }: { account: EpmAccount; onDone: () =
     setSaving(true);
     try {
       await adminService.updateUserAttributes(account.id, form.draft);
+      // The person's profile shows these values.
+      void client.invalidateQueries({ queryKey: ['admin', 'users', account.id, 'attributes'] });
       toast.success(t('Attributes saved'), { description: account.name });
       onDone();
     } catch (error) {

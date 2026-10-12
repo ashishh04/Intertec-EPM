@@ -7,6 +7,7 @@ import { referenceCache } from '../lib/cache.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { checkPassword } from '../domain/password-policy.js';
 import { setCapacity, setMapping } from '../domain/employees.js';
+import { emailDelivery } from '../email/index.js';
 import { createInvite, inviteUrl } from '../email/invites.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { forgetRecipient } from '../email/recipients.js';
@@ -16,7 +17,7 @@ import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AccountRevocation, EpmAccount } from '../types/epm.js';
 import { recordAuditQuietly } from '../domain/audit.js';
-import { listOf, message, msg, type Message } from '../lib/i18n.js';
+import { contextLanguage, listOf, message, msg, type Message } from '../lib/i18n.js';
 
 /*
  * Account administration is journalled (BRL-02): creating, inviting,
@@ -142,7 +143,7 @@ function requireCreateFields(
     ['a first name', firstName],
     ['a last name', lastName],
     ['an email address', email],
-    ['a starting password', options.passwordRequired ? password : 'not needed'],
+    ['a temporary password', options.passwordRequired ? password : 'not needed'],
   ]
     .filter(([, value]) => !value)
     .map(([label]) => label as string);
@@ -171,6 +172,13 @@ async function sendInvitation(input: {
   const id = String(input.account.id);
   const email = input.account.email?.trim() ?? '';
   if (!email) throw EpmError.badRequest('This person has no email address to invite.');
+
+  // With no mail transport the outbox "sends" to the server log and marks the
+  // row sent, so the administrator was told the invitation went when nothing
+  // left the server. Refused instead, with the reason, and no link is minted.
+  if (emailDelivery().kind === 'none') {
+    throw EpmError.unavailable('Email is not set up on this server, so the invitation cannot be sent.');
+  }
 
   // Named in the email, so the person knows who to ask if the link expires.
   // The fallback is a phrase, not a name: the email writes it in the
@@ -260,7 +268,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       if (fields.password) {
         const failures = await checkPassword(fields.password, requestSignal(request));
         if (failures.length > 0) {
-          throw EpmError.badRequest(message('That starting password needs: {failures}.', { failures: listOf(failures) }));
+          throw EpmError.badRequest(message('The temporary password needs: {failures}.', { failures: listOf(failures) }));
         }
       }
       const signal = requestSignal(request);
@@ -304,6 +312,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       // rather than as an error: the account exists, and the administrator
       // can resend from the account page.
       let inviteSent = false;
+      let inviteProblem: string | undefined;
       if (sendInvite) {
         inviteSent = await sendInvitation({
           account: created,
@@ -311,6 +320,10 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
           signal,
         }).catch((error: unknown) => {
           request.log.warn({ err: error, accountId: id }, 'The invitation could not be queued');
+          // Said to the administrator, so the warning names the cause rather
+          // than only that something went wrong — in their language.
+          if (error instanceof EpmError) inviteProblem = error.toBody(contextLanguage()).message;
+          else if (error instanceof Error) inviteProblem = error.message;
           return false;
         });
       }
@@ -358,11 +371,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
       reply.code(201);
 
-      const account: EpmAccount & { placementProblems?: string[]; inviteSent: boolean } = {
+      const account: EpmAccount & { placementProblems?: string[]; inviteSent: boolean; inviteProblem?: string } = {
         ...toEpmAccount(created),
         inviteSent,
       };
       if (placementProblems.length > 0) account.placementProblems = placementProblems;
+      if (inviteProblem) account.inviteProblem = inviteProblem;
       return account;
     },
   );

@@ -122,6 +122,30 @@ export interface AdminUserLogin {
   lastLoginAt: string | null;
 }
 
+/** What delivers email from this server; `none` means it is only logged. */
+export interface AdminEmailStatus {
+  delivery: 'smtp' | 'resend' | 'none';
+  from: string;
+}
+
+/** The latest invitation email sent to one person, as the outbox last left it. */
+export interface AdminInvitation {
+  /** The person's user id. */
+  id: ID;
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'cancelled';
+  queuedAt: string;
+  sentAt: string | null;
+  /** The provider's last refusal; set on a failure, and on a retry still queued. */
+  error: string | null;
+}
+
+/** A project someone belongs to, with the roles they hold there. */
+export interface AdminUserProject {
+  id: ID;
+  name: string;
+  roles: string[];
+}
+
 export interface AdminType {
   id: ID;
   name: string;
@@ -465,6 +489,18 @@ export class ApiAdminRepository {
 
   getUserLogins(): Promise<AdminUserLogin[]> {
     return apiClient.get<AdminUserLogin[]>('/admin/users/last-logins');
+  }
+
+  getEmailStatus(): Promise<AdminEmailStatus> {
+    return apiClient.get<AdminEmailStatus>('/admin/email');
+  }
+
+  getInvitations(): Promise<AdminInvitation[]> {
+    return apiClient.get<AdminInvitation[]>('/admin/users/invitations');
+  }
+
+  getUserProjects(id: ID): Promise<AdminUserProject[]> {
+    return apiClient.get<AdminUserProject[]>(`/admin/users/${id}/projects`);
   }
 
   /** One person's user attributes, as a form the instance validates. */

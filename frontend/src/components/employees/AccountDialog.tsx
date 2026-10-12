@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCreateAccount, useUpdateAccount } from '@/hooks/useAccounts';
+import { useAdminEmailStatus } from '@/hooks/useAdmin';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useTeams } from '@/hooks/useTeams';
 import { t } from '@/lib/i18n';
@@ -92,6 +93,10 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   const updateAccount = useUpdateAccount();
   const departments = useDepartments();
   const teams = useTeams();
+  // Asked only when creating: an invitation is impossible on a server with
+  // no mail transport, and the switch should say so before anyone relies on it.
+  const emailStatus = useAdminEmailStatus(open && !isEdit);
+  const emailReady = emailStatus.data?.delivery !== 'none';
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -131,7 +136,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   // An invitation needs somewhere to go, so the switch only counts once an
   // email address is in. Create only: an existing account is never re-invited
   // from here.
-  const inviting = !isEdit && sendInvite && email.trim() !== '';
+  const inviting = !isEdit && emailReady && sendInvite && email.trim() !== '';
 
   // A team that belongs to a department settles the department too, so only
   // compatible teams are offered — the same rule the mapping dialog applies,
@@ -165,7 +170,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
         },
         {
           onSuccess: () => {
-            toast.success(t('Person updated'));
+            toast.success(t('User updated'));
             onOpenChange(false);
           },
           onError: fail,
@@ -180,7 +185,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     }
 
     if (!inviting && !password) {
-      setProblem(t('A starting password is required.'));
+      setProblem(t('A temporary password is required.'));
       return;
     }
 
@@ -221,11 +226,11 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             // Asked for, not delivered: the account exists with a password
             // nobody knows, so the way forward is another invitation.
             toast.warning(t('{name} was created, but the invitation was not sent', { name: created.name }), {
-              description: t('Use "Resend invitation" from their account menu.'),
+              description: created.inviteProblem ?? t('Use "Resend invitation" from their account menu.'),
             });
           } else {
             toast.success(t('{name} can now sign in', { name: created.name }), {
-              description: t('Give them the username and password you set.'),
+              description: t('Share the username and temporary password with them securely.'),
             });
           }
           onOpenChange(false);
@@ -239,7 +244,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? t('Edit person') : t('Add a person')}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Edit user') : t('Add a user')}</DialogTitle>
           <DialogDescription>
             {isEdit
               ? t('Their account details.')
@@ -302,17 +307,19 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                 <div className="min-w-0">
                   <Label htmlFor="account-invite">{t('Send an invitation email')}</Label>
                   <FieldHint className="mt-0.5">
-                    {email.trim() === ''
-                      ? t('Enter their email address first.')
-                      : inviting
-                        ? t('They will set their own password from the link. It expires in 7 days.')
-                        : t('You will hand over a starting password instead.')}
+                    {!emailReady
+                      ? t('Email is not set up on this server yet, so invitations cannot be sent. Set a temporary password instead.')
+                      : email.trim() === ''
+                        ? t('Enter their email address first.')
+                        : inviting
+                          ? t('They will set their own password from the link. It expires in 7 days.')
+                          : t('A temporary password will be set instead, for you to share with them.')}
                   </FieldHint>
                 </div>
                 <Switch
                   id="account-invite"
                   checked={inviting}
-                  disabled={email.trim() === ''}
+                  disabled={!emailReady || email.trim() === ''}
                   onCheckedChange={setSendInvite}
                 />
               </div>
@@ -320,7 +327,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
 
             {isEdit || inviting ? null : (
               <div className="space-y-1.5">
-                <Label htmlFor="account-password">{t('Starting password')}</Label>
+                <Label htmlFor="account-password">{t('Temporary password')}</Label>
                 <div className="flex gap-2">
                   {/* Shown, not masked: the administrator has to read it out to
                       hand it over, and hiding it from the person typing it
@@ -338,16 +345,16 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     variant="secondary"
                     className="shrink-0"
                     disabled={!password}
-                    aria-label={t('Copy starting password')}
+                    aria-label={t('Copy temporary password')}
                     onClick={() => {
                       navigator.clipboard
                         .writeText(password)
                         .then(() => {
                           setCopied(true);
-                          toast.success(t('Password copied'));
+                          toast.success(t('Temporary password copied to the clipboard'));
                           window.setTimeout(() => setCopied(false), 2000);
                         })
-                        .catch(() => toast.error(t('Could not copy. Select the password and copy it by hand.')));
+                        .catch(() => toast.error(t('The password could not be copied. Select it and copy it manually.')));
                     }}
                   >
                     {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -360,11 +367,11 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                     onClick={() => setPassword(suggestPassword())}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    {t('New')}
+                    {t('Generate')}
                   </Button>
                 </div>
                 <FieldHint>
-                  {t('Give this to them with the username. They can change it once signed in.')}
+                  {t('Share this temporary password and the username with the user through a secure channel. They will be asked to set a new password when they first sign in.')}
                 </FieldHint>
               </div>
             )}
@@ -468,7 +475,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             {t('Cancel')}
           </Button>
           <Button onClick={submit} disabled={pending}>
-            {isEdit ? t('Save') : t('Create person')}
+            {isEdit ? t('Save') : t('Create user')}
           </Button>
         </DialogFooter>
       </DialogContent>

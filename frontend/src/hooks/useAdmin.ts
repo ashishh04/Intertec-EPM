@@ -45,6 +45,9 @@ export const adminKeys = {
   enterprise: ['admin', 'enterprise'] as const,
   permissions: ['admin', 'permissions'] as const,
   userLogins: ['admin', 'users', 'logins'] as const,
+  email: ['admin', 'email'] as const,
+  invitations: ['admin', 'users', 'invitations'] as const,
+  userProjects: (id: ID) => ['admin', 'users', id, 'projects'] as const,
   // Defined in lib/queryKeys.ts with the rest of the app's keys, and re-exposed
   // here so every admin hook still reaches for one object.
   settingsSections: queryKeys.adminSettingsSections,
@@ -213,6 +216,42 @@ export function useAdminUserLogins() {
   return useQuery({
     queryKey: adminKeys.userLogins,
     queryFn: () => adminService.getUserLogins(),
+    ...ADMIN_DATA,
+  });
+}
+
+/** Whether this server can deliver email at all — invitations depend on it. */
+export function useAdminEmailStatus(enabled = true) {
+  return useQuery({
+    queryKey: adminKeys.email,
+    queryFn: () => adminService.getEmailStatus(),
+    enabled,
+    ...ADMIN_DATA,
+  });
+}
+
+/**
+ * Each person's latest invitation and what became of it. While one is still
+ * on its way it is asked again every few seconds, so "queued" turns into
+ * "sent" or "failed" on screen without a reload.
+ */
+export function useAdminInvitations() {
+  return useQuery({
+    queryKey: adminKeys.invitations,
+    queryFn: () => adminService.getInvitations(),
+    staleTime: 5_000,
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((invite) => invite.status === 'queued' || invite.status === 'sending')
+        ? 5_000
+        : false,
+  });
+}
+
+export function useAdminUserProjects(id?: ID) {
+  return useQuery({
+    queryKey: adminKeys.userProjects(id ?? 'unknown'),
+    queryFn: () => adminService.getUserProjects(id!),
+    enabled: Boolean(id),
     ...ADMIN_DATA,
   });
 }

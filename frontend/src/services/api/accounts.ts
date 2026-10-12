@@ -49,8 +49,10 @@ export interface AccountInput {
  */
 export interface CreatedAccount extends EpmAccount {
   placementProblems?: string[];
-  /** Whether an invitation email actually went out. */
+  /** Whether an invitation email was queued to go out. */
   inviteSent: boolean;
+  /** Why an invitation that was asked for was not queued, in the reader's language. */
+  inviteProblem?: string;
 }
 
 export class ApiAccountRepository {

@@ -50,6 +50,18 @@ export function emailProvider(): EmailProvider {
   return provider;
 }
 
+/**
+ * Whether anything real delivers email, for the administration pages: a
+ * deployment with neither SMTP nor Resend only writes email to its log, and
+ * an administrator who is told "invitation sent" there is told something false.
+ * Never a key or a password.
+ */
+export function emailDelivery(): { kind: 'smtp' | 'resend' | 'none'; from: string } {
+  if (smtpSettings()) return { kind: 'smtp', from: env.EMAIL_FROM };
+  if (env.RESEND_API_KEY) return { kind: 'resend', from: env.EMAIL_FROM };
+  return { kind: 'none', from: env.EMAIL_FROM };
+}
+
 /** For the startup log line. Never a key or a password. */
 export function describeEmailProvider(): string {
   const smtp = smtpSettings();

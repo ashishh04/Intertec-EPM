@@ -1,28 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Ellipsis, ListChecks, Lock, Mail, Pencil, Trash2, Unlock, UserPlus, UserRound } from 'lucide-react';
-import { toast } from 'sonner';
+import { Link, useParams } from 'react-router-dom';
+import { MailWarning, UserPlus, UserRound } from 'lucide-react';
 
 import { TableSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ListToolbar, ResultCount, SearchInput } from '@/components/common/ListToolbar';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
-import { AccountDialog } from '@/components/employees/AccountDialog';
+import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -31,25 +17,28 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import {
-  useAccounts,
-  useDeleteAccount,
-  useResendInvite,
-  useSetAccountLocked,
-} from '@/hooks/useAccounts';
-import { useAdminUserLogins } from '@/hooks/useAdmin';
+import { useAccounts } from '@/hooks/useAccounts';
+import { useAdminEmailStatus, useAdminInvitations, useAdminUserLogins } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
-import type { Tone } from '@/lib/domain';
 import { t } from '@/lib/i18n';
 import { formatDateTime, formatLongDate } from '@/lib/utils';
 import type { AccountStatus, EpmAccount } from '@/types';
+import {
+  AccountActionsMenu,
+  InvitationNote,
+  STATUS_LABEL,
+  STATUS_TONE,
+  useAccountActions,
+  userProfilePath,
+} from './shared-accounts';
 import { AdminPagination, AdminTable, CheckCell } from './shared-tables';
-import { UserAttributesDialog } from './UserAttributesDialog';
+import { UserProfile } from './UserProfile';
 
 /**
  * Users, shaped like OpenProject's Users administration page: a status filter
  * with counts, a name filter, and one row per account with the actions the
- * backend publishes for it.
+ * backend publishes for it. A person's name or email opens their profile,
+ * `/admin/users/users/:id`, rather than a mail program.
  *
  * Every write goes through the same hooks the Employees page uses, so the two
  * surfaces can never disagree about what an account may have done to it.
@@ -59,43 +48,33 @@ const ALL = '__all__';
 
 type StatusFilter = typeof ALL | AccountStatus;
 
-const STATUS_LABEL: Record<AccountStatus, string> = {
-  get active() { return t('Active'); },
-  get invited() { return t('Invited'); },
-  get registered() { return t('Registered'); },
-  get locked() { return t('Locked'); },
-};
-
-const STATUS_TONE: Record<AccountStatus, Tone> = {
-  active: 'success',
-  invited: 'warning',
-  registered: 'warning',
-  locked: 'danger',
-};
-
 /** The filter options in OpenProject's order. Registered is rare, so it appears only when present. */
 const STATUS_ORDER: AccountStatus[] = ['active', 'invited', 'locked', 'registered'];
 
 export default function UsersPage() {
+  const { itemId } = useParams<{ itemId?: string }>();
+  return itemId ? <UserProfile id={itemId} /> : <UsersList />;
+}
+
+function UsersList() {
   const accounts = useAccounts(true);
   const logins = useAdminUserLogins();
-  const setLocked = useSetAccountLocked();
-  const deleteAccount = useDeleteAccount();
-  const resendInvite = useResendInvite();
+  const invitations = useAdminInvitations();
+  const email = useAdminEmailStatus();
+  const actions = useAccountActions();
 
   const [status, setStatus] = useState<StatusFilter>(ALL);
   const [name, setName] = useState('');
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<EpmAccount>();
-  const [removing, setRemoving] = useState<EpmAccount>();
-  const [attributesFor, setAttributesFor] = useState<EpmAccount>();
 
   const all = useMemo(() => accounts.data ?? [], [accounts.data]);
 
   const lastLogin = useMemo(
     () => new Map((logins.data ?? []).map((login) => [login.id, login.lastLoginAt])),
     [logins.data],
+  );
+  const invitationOf = useMemo(
+    () => new Map((invitations.data ?? []).map((invitation) => [invitation.id, invitation])),
+    [invitations.data],
   );
 
   // Read apart from the accounts, so the list never waits on it: until it
@@ -129,71 +108,19 @@ export default function UsersPage() {
   const filtering = status !== ALL || name.trim() !== '';
   const paging = usePagination(items, { pageSize: 25, resetKey: `${status}|${name}` });
 
-  const openCreate = () => {
-    setEditing(undefined);
-    setDialogOpen(true);
-  };
-
-  const openEdit = (account: EpmAccount) => {
-    setEditing(account);
-    setDialogOpen(true);
-  };
-
-  const toggleLocked = (account: EpmAccount) => {
-    const locked = account.status !== 'locked';
-
-    setLocked.mutate(
-      { id: account.id, locked },
-      {
-        onSuccess: () =>
-          toast.success(
-            locked
-              ? t('{name} deactivated', { name: account.name })
-              : t('{name} reactivated', { name: account.name }),
-          ),
-        onError: (error) =>
-          toast.error(t('That could not be changed'), {
-            description: error instanceof Error ? error.message : undefined,
-          }),
-      },
-    );
-  };
-
-  // Nothing to confirm: another email is cheap, and the old link simply stops
-  // working.
-  const sendInvitation = (account: EpmAccount) => {
-    resendInvite.mutate(account.id, {
-      onSuccess: () => toast.success(t('Invitation sent to {email}', { email: account.email })),
-      onError: (error) =>
-        toast.error(t('The invitation could not be sent'), {
-          description: error instanceof Error ? error.message : undefined,
-        }),
-    });
-  };
-
-  const confirmRemove = () => {
-    if (!removing) return;
-    const label = removing.name;
-
-    deleteAccount.mutate(removing.id, {
-      onSuccess: () => {
-        toast.success(t('{name} was deleted', { name: label }));
-        setRemoving(undefined);
-      },
-      onError: (error) =>
-        toast.error(t('That could not be deleted'), {
-          description: error instanceof Error ? error.message : undefined,
-        }),
-    });
-  };
-
   return (
     <div className="space-y-4">
+      {email.data?.delivery === 'none' ? (
+        <Alert tone="warning" icon={MailWarning} title={t('Email is not set up on this server')}>
+          {t('Invitations and email notifications cannot be delivered until the server’s mail settings are added. Until then, create users with a temporary password.')}
+        </Alert>
+      ) : null}
+
       <ListToolbar
         trailing={
           <>
             <ResultCount count={items.length} total={all.length} label={t('user')} plural={t('users')} />
-            <Button size="sm" onClick={openCreate}>
+            <Button size="sm" onClick={actions.openCreate}>
               <UserPlus className="h-3.5 w-3.5" />
               {t('Add user')}
             </Button>
@@ -240,7 +167,7 @@ export default function UsersPage() {
                 ? t('Try a different status or name.')
                 : t('Users appear here once they have an account.')
             }
-            action={filtering ? undefined : { label: t('Add user'), onClick: openCreate }}
+            action={filtering ? undefined : { label: t('Add user'), onClick: actions.openCreate }}
           />
         }
       >
@@ -261,134 +188,55 @@ export default function UsersPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paging.items.map((account) => {
-              const { update, lock, unlock, remove } = account.can;
-              const hasActions = update || lock || unlock || remove;
-
-              return (
-                <TableRow key={account.id}>
-                  <TableCell className="font-mono text-2xs">{account.login}</TableCell>
-                  <TableCell dir="auto">{account.firstName}</TableCell>
-                  <TableCell dir="auto">{account.lastName}</TableCell>
-                  <TableCell>
-                    {account.email ? (
-                      <a
-                        href={`mailto:${account.email}`}
-                        className="text-primary underline-offset-4 hover:underline"
-                      >
-                        {account.email}
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground">{'—'}</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <CheckCell value={account.admin} label={t('Administrator')} />
-                  </TableCell>
-                  <TableCell>
-                    <Badge tone={STATUS_TONE[account.status]} size="sm">
-                      {STATUS_LABEL[account.status]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
-                    {formatLongDate(account.createdAt)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
-                    {lastLoginOf(account)}
-                  </TableCell>
-                  <TableCell className="text-end">
-                    {hasActions ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            aria-label={t('Actions for {name}', { name: account.name })}
-                          >
-                            <Ellipsis className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {update ? (
-                            <DropdownMenuItem onSelect={() => openEdit(account)}>
-                              <Pencil />
-                              {t('Edit')}
-                            </DropdownMenuItem>
-                          ) : null}
-
-                          {update ? (
-                            <DropdownMenuItem onSelect={() => setAttributesFor(account)}>
-                              <ListChecks />
-                              {t('Attributes')}
-                            </DropdownMenuItem>
-                          ) : null}
-
-                          {update ? (
-                            <DropdownMenuItem onSelect={() => sendInvitation(account)}>
-                              <Mail />
-                              {t('Resend invitation')}
-                            </DropdownMenuItem>
-                          ) : null}
-
-                          {lock || unlock ? (
-                            <DropdownMenuItem onSelect={() => toggleLocked(account)}>
-                              {unlock ? <Unlock /> : <Lock />}
-                              {unlock ? t('Reactivate') : t('Deactivate')}
-                            </DropdownMenuItem>
-                          ) : null}
-
-                          {remove ? (
-                            <DropdownMenuItem destructive onSelect={() => setRemoving(account)}>
-                              <Trash2 />
-                              {t('Delete')}
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {paging.items.map((account) => (
+              <TableRow key={account.id}>
+                <TableCell className="font-mono text-2xs">
+                  <Link
+                    to={userProfilePath(account.id)}
+                    className="rounded text-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {account.login}
+                  </Link>
+                </TableCell>
+                <TableCell dir="auto">{account.firstName}</TableCell>
+                <TableCell dir="auto">{account.lastName}</TableCell>
+                <TableCell>
+                  {account.email ? (
+                    <Link
+                      to={userProfilePath(account.id)}
+                      className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {account.email}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">{'—'}</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <CheckCell value={account.admin} label={t('Administrator')} />
+                </TableCell>
+                <TableCell>
+                  <Badge tone={STATUS_TONE[account.status]} size="sm">
+                    {STATUS_LABEL[account.status]}
+                  </Badge>
+                  <InvitationNote invitation={invitationOf.get(account.id)} className="mt-1" />
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
+                  {formatLongDate(account.createdAt)}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
+                  {lastLoginOf(account)}
+                </TableCell>
+                <TableCell className="text-end">
+                  <AccountActionsMenu account={account} actions={actions} />
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </AdminTable>
       </QueryBoundary>
 
-      <AccountDialog open={dialogOpen} onOpenChange={setDialogOpen} account={editing} />
-
-      <UserAttributesDialog
-        account={attributesFor}
-        onOpenChange={(open) => !open && setAttributesFor(undefined)}
-      />
-
-      <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
-            <DialogDescription>
-              {t(
-                'This removes their account permanently, along with their department, team and capacity in EPM. It cannot be undone. To keep their history and stop them signing in, deactivate them instead.',
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setRemoving(undefined)}
-              disabled={deleteAccount.isPending}
-            >
-              {t('Cancel')}
-            </Button>
-            <Button
-              variant="danger"
-              onClick={confirmRemove}
-              loading={deleteAccount.isPending}
-            >
-              {t('Delete permanently')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {actions.dialogs}
     </div>
   );
 }

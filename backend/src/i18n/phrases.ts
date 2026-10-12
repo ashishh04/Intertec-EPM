@@ -98,7 +98,7 @@ export const PHRASES: readonly string[] = [
   msg('a first name'),
   msg('a last name'),
   msg('an email address'),
-  msg('a starting password'),
+  msg('a temporary password'),
 
   // routes/accounts.ts requireAffordance(…, message): why an account action is refused.
   msg('This person cannot be deactivated.'),

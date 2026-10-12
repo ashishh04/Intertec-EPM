@@ -2,6 +2,8 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
+import { prisma } from '../db/prisma.js';
+import { emailDelivery } from '../email/index.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, idFromHref, linkTitle } from '../openproject/client.js';
@@ -172,6 +174,30 @@ export interface AdminUserLogin {
   id: string;
   /** ISO; null for someone who has never signed in. */
   lastLoginAt: string | null;
+}
+
+/** What delivers email from this server; `none` means it is only logged. */
+export interface AdminEmailStatus {
+  delivery: 'smtp' | 'resend' | 'none';
+  from: string;
+}
+
+/** The latest invitation email sent to one person, as the outbox last left it. */
+export interface AdminInvitation {
+  /** The person's user id. */
+  id: string;
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'cancelled';
+  queuedAt: string;
+  sentAt: string | null;
+  /** The provider's last refusal; set on a failure, and on a retry still queued. */
+  error: string | null;
+}
+
+/** A project someone belongs to, with the roles they hold there. */
+export interface AdminUserProject {
+  id: string;
+  name: string;
+  roles: string[];
 }
 
 export interface AdminType {
@@ -497,6 +523,9 @@ const toPlaceholderUser = (user: OpTimestamped): AdminPlaceholderUser => ({
 
 /** The `_links.members` OpenProject expects when creating or updating a group. */
 const memberHrefs = (ids: string[]) => ids.map((id) => ({ href: `/api/v3/users/${id}` }));
+
+/** The outbox states an invitation can be in; anything else reads as queued. */
+const INVITATION_STATUSES = new Set(['queued', 'sending', 'sent', 'failed', 'cancelled']);
 
 /** A user attribute, as API v3 names a user's custom field. */
 const ATTRIBUTE = /^customField\d+$/;
@@ -1041,6 +1070,67 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const body = await instance<{ logins?: AdminUserLogin[] }>(request, '/users/logins');
     return body.logins ?? [];
   });
+
+  /** Whether this server can deliver email at all, and as whom. */
+  app.get('/admin/email', async (request): Promise<AdminEmailStatus> => {
+    await guard.require(request, 'users:manage');
+    const { kind, from } = emailDelivery();
+    return { delivery: kind, from };
+  });
+
+  /**
+   * Each person's latest invitation and what became of it. "Invitation sent"
+   * used to be said the moment one was queued; this is what the outbox knows
+   * since — still queued, sent, or refused, and why.
+   */
+  app.get('/admin/users/invitations', async (request): Promise<AdminInvitation[]> => {
+    await guard.require(request, 'users:manage');
+    const rows = await prisma.emailOutbox.findMany({
+      where: { template: 'invite' },
+      orderBy: [{ recipientId: 'asc' }, { createdAt: 'desc' }],
+      distinct: ['recipientId'],
+      select: { recipientId: true, status: true, createdAt: true, sentAt: true, lastError: true },
+    });
+    return rows.map((row) => ({
+      id: row.recipientId,
+      status: INVITATION_STATUSES.has(row.status) ? (row.status as AdminInvitation['status']) : 'queued',
+      queuedAt: row.createdAt.toISOString(),
+      sentAt: row.sentAt?.toISOString() ?? null,
+      error: row.lastError ?? null,
+    }));
+  });
+
+  /** The projects one person belongs to, and their roles in each. */
+  app.get<{ Params: { id: string } }>(
+    '/admin/users/:id/projects',
+    async (request): Promise<AdminUserProject[]> => {
+      await guard.require(request, 'users:manage');
+      const { id } = request.params;
+      if (!/^\d+$/.test(id)) throw EpmError.notFound('That user');
+
+      const { items } = await openProject.getAll<{ _links?: HalLinks }>(
+        '/memberships',
+        { pageSize: 100, filters: [{ field: 'principal', operator: '=', values: [id] }] },
+        { signal: requestSignal(request) },
+      );
+
+      return items
+        .flatMap<AdminUserProject>((membership) => {
+          const project = membership._links?.project as HalLink | undefined;
+          const projectId = idFromHref(project?.href);
+          if (!projectId) return [];
+          const roles = membership._links?.roles;
+          return [
+            {
+              id: projectId,
+              name: str(project?.title),
+              roles: (Array.isArray(roles) ? roles : []).map((role) => str(role.title)).filter(Boolean),
+            },
+          ];
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+    },
+  );
 
   /**
    * One person's user attributes as a form: the instance's own user form, cut

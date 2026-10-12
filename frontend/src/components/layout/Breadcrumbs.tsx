@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
+import { useAccounts } from '@/hooks/useAccounts';
 import { useProject } from '@/hooks/useProjects';
 import { useTask } from '@/hooks/useTasks';
 import { useTeam } from '@/hooks/useTeams';
@@ -77,6 +78,10 @@ export function Breadcrumbs({ className }: { className?: string }) {
   const { data: portfolio } = usePortfolio(params.portfolioId);
   const { data: department } = useDepartment(params.departmentId);
   const { data: view } = usePortfolioView(params.viewId);
+  // A person's profile in Administration → Users is addressed by id; the
+  // account list the page has already loaded names them.
+  const onUserProfile = params.areaId === 'users' && params.pageId === 'users' && Boolean(params.itemId);
+  const { data: accounts } = useAccounts(onUserProfile);
 
   const segments = location.pathname.split('/').filter(Boolean);
   const crumbs: Crumb[] = [];
@@ -107,6 +112,11 @@ export function Breadcrumbs({ className }: { className?: string }) {
     }
     if (segment === params.viewId) {
       crumbs.push({ label: view?.name ?? t('View'), to: path });
+      continue;
+    }
+
+    if (onUserProfile && index === 3 && segment === params.itemId) {
+      crumbs.push({ label: accounts?.find((account) => account.id === segment)?.name ?? t('User'), to: path });
       continue;
     }
 

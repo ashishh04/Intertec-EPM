@@ -167,11 +167,17 @@ function BackToAdministration() {
   );
 }
 
-/** Inside a multi-page area: its pages as a tab strip under the heading. */
+/**
+ * Inside a multi-page area: its pages as a tab strip under the heading.
+ *
+ * It wraps rather than scrolls. Users and permissions has a dozen pages, and
+ * on a 1366 px screen a scrolling strip hid the last three behind an edge with
+ * nothing but a hairline scrollbar to say they were there.
+ */
 function PageTabs({ area, page }: { area: AdminArea; page: AdminPage }) {
   return (
-    <nav aria-label={t('{area} pages', { area: area.label })} className="epm-scroll -mb-1 overflow-x-auto">
-      <ul className="flex items-center gap-4 border-b border-border">
+    <nav aria-label={t('{area} pages', { area: area.label })} className="-mb-1">
+      <ul className="flex flex-wrap items-end gap-x-4 gap-y-1 border-b border-border">
         {area.pages.map((item) => {
           const active = item.id === page.id;
           return (

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -27,6 +27,8 @@ import {
   TASK_PRIORITY_META,
   TASK_STATUS_META,
 } from '@/lib/domain';
+import { MemberDialog } from '@/components/projects/MemberDialog';
+import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { useProjects } from '@/hooks/useProjects';
 import { useProjectAssignees, useProjectTypes } from '@/hooks/useCatalog';
@@ -123,6 +125,22 @@ export function TaskDrawer() {
    */
   const { data: projectTypes } = useProjectTypes(projectId || undefined);
   const { data: assignees } = useProjectAssignees(projectId || undefined);
+
+  // Only the project's team can be assigned, so a project nobody has been
+  // added to offers no one — which read as a broken picker. Whoever may manage
+  // the team can add people from here; the list refreshes when they do.
+  const { canInProject } = useAuth();
+  const mayAddPeople = Boolean(projectId) && canInProject(projectId, 'member:manage');
+  const [addingPeople, setAddingPeople] = useState(false);
+  const addPeople = mayAddPeople ? (
+    <button
+      type="button"
+      onClick={() => setAddingPeople(true)}
+      className="rounded font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {t('Add people to this project')}
+    </button>
+  ) : null;
 
   // Parent candidates are scoped to the selected project.
   const { data: parentCandidates } = useTasks({
@@ -318,7 +336,18 @@ export function TaskDrawer() {
                 label={t('Assignee')}
                 value={watch('assigneeId') ?? NONE}
                 onChange={(value) => setValue('assigneeId', value)}
-                hint={projectId ? undefined : t('Select a project first.')}
+                hint={
+                  !projectId ? (
+                    t('Select a project first.')
+                  ) : assignees && assignees.length === 0 ? (
+                    <>
+                      {t('Only people in the project’s team can be assigned, and it has nobody yet.')}{' '}
+                      {addPeople ?? t('Ask a project admin to add people to it.')}
+                    </>
+                  ) : (
+                    addPeople ?? undefined
+                  )
+                }
                 options={[
                   { value: NONE, label: t('Unassigned') },
                   ...(assignees ?? []).map((person) => ({
@@ -417,6 +446,7 @@ export function TaskDrawer() {
           </DialogFooter>
         </form>
       </DialogContent>
+      {projectId ? <MemberDialog open={addingPeople} onOpenChange={setAddingPeople} projectId={projectId} /> : null}
     </Dialog>
   );
 }
@@ -429,7 +459,7 @@ interface FormSelectProps {
   options: { value: string; label: string }[];
   required?: boolean;
   error?: string;
-  hint?: string;
+  hint?: ReactNode;
   placeholder?: string;
 }
 
