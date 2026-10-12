@@ -86,7 +86,7 @@ const isAttribute = (name: string): name is Attribute => Object.hasOwn(ATTRIBUTE
 export const ATTRIBUTE_HELP: Record<Attribute, string> = {
   estimatedHours: msg('Work: the hours estimated for the work package itself.'),
   remainingHours: msg('Remaining work, in hours.'),
-  spentHours: msg('Spent time: the hours logged on the work package and everything under it, as OpenProject shows it.'),
+  spentHours: msg('Spent time: the hours logged on the work package and everything under it, as the work package shows it.'),
   percentDone: msg('% complete, from 0 to 100.'),
   startDate: msg('Its start date.'),
   dueDate: msg('Its finish date.'),

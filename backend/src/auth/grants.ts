@@ -39,6 +39,9 @@ const GRANTABLE = new Set<Permission>([
   'timesheets:manage',
   'expenses:manage',
   'time:configure',
+  'finance:view',
+  'finance:manage',
+  'finance:configure',
 ]);
 
 export function isGrantable(permission: string): permission is Permission {
@@ -64,12 +67,15 @@ export const GRANT_CATALOGUE: { permission: Permission; label: string; descripti
   { permission: 'rates:view', label: 'Read hourly rates', description: "See people's hourly rates and the cost of one person's time." },
   { permission: 'audit:view', label: 'Read the audit journal', description: 'Read every change EPM has recorded, across projects and organisation data.' },
   { permission: 'evm:configure', label: 'Set the earned value rules', description: 'Change how each type of work earns value, and the rate for unpriced work, for every project.' },
-  { permission: 'fields:configure', label: 'Define calculated fields', description: 'Create, change, switch off and delete the formulas EPM works out on every work package, and their OpenProject fields.' },
+  { permission: 'fields:configure', label: 'Define calculated fields', description: 'Create, change, switch off and delete the formulas EPM works out on every work package, and the fields that hold their values.' },
   { permission: 'resources:plan', label: 'Plan resources', description: "See everyone's load across every project, book planned work, and level schedules — moving only work they may edit." },
   { permission: 'resources:configure', label: 'Set the resource rules', description: 'Change the heatmap thresholds, what counts as billable time, and the length of a working day.' },
   { permission: 'timesheets:manage', label: 'Manage timesheets', description: "See everyone's timesheets and who has not submitted, and reopen an approved one." },
   { permission: 'expenses:manage', label: 'Manage expense claims', description: "See every claim and its receipts, post approved claims, and export them for finance." },
   { permission: 'time:configure', label: 'Set the time and expense rules', description: 'Change the timesheet period and bounds, the time logging policies and the receipt threshold.' },
+  { permission: 'finance:view', label: 'See finance', description: 'See cash flow, margin, the revenue forecast and billing for the projects they can see.' },
+  { permission: 'finance:manage', label: 'Manage finance', description: "Set projects' contracts and budget phasing, generate billable items and send them to the finance system." },
+  { permission: 'finance:configure', label: 'Set the finance rules', description: 'Add exchange rates, keep the rate cards, and set the forecast confidence and the finance system.' },
 ];
 
 function isPermission(value: string): value is Permission {

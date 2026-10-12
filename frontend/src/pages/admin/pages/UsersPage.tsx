@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Ellipsis, Lock, Mail, Pencil, Trash2, Unlock, UserPlus, UserRound } from 'lucide-react';
+import { Ellipsis, ListChecks, Lock, Mail, Pencil, Trash2, Unlock, UserPlus, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { TableSkeleton } from '@/components/common/DataTable';
@@ -37,12 +37,14 @@ import {
   useResendInvite,
   useSetAccountLocked,
 } from '@/hooks/useAccounts';
+import { useAdminUserLogins } from '@/hooks/useAdmin';
 import { usePagination } from '@/hooks/usePagination';
 import type { Tone } from '@/lib/domain';
 import { t } from '@/lib/i18n';
-import { formatLongDate } from '@/lib/utils';
+import { formatDateTime, formatLongDate } from '@/lib/utils';
 import type { AccountStatus, EpmAccount } from '@/types';
 import { AdminPagination, AdminTable, CheckCell } from './shared-tables';
+import { UserAttributesDialog } from './UserAttributesDialog';
 
 /**
  * Users, shaped like OpenProject's Users administration page: a status filter
@@ -76,6 +78,7 @@ const STATUS_ORDER: AccountStatus[] = ['active', 'invited', 'locked', 'registere
 
 export default function UsersPage() {
   const accounts = useAccounts(true);
+  const logins = useAdminUserLogins();
   const setLocked = useSetAccountLocked();
   const deleteAccount = useDeleteAccount();
   const resendInvite = useResendInvite();
@@ -86,8 +89,23 @@ export default function UsersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<EpmAccount>();
   const [removing, setRemoving] = useState<EpmAccount>();
+  const [attributesFor, setAttributesFor] = useState<EpmAccount>();
 
   const all = useMemo(() => accounts.data ?? [], [accounts.data]);
+
+  const lastLogin = useMemo(
+    () => new Map((logins.data ?? []).map((login) => [login.id, login.lastLoginAt])),
+    [logins.data],
+  );
+
+  // Read apart from the accounts, so the list never waits on it: until it
+  // arrives the column is blank, and if it cannot be read it says so once.
+  const lastLoginOf = (account: EpmAccount) => {
+    if (logins.isError) return t('Not available');
+    if (!logins.data) return '';
+    const at = lastLogin.get(account.id);
+    return at ? formatDateTime(at) : t('Never');
+  };
 
   const counts = useMemo(() => {
     const tally: Record<AccountStatus, number> = { active: 0, invited: 0, registered: 0, locked: 0 };
@@ -211,7 +229,7 @@ export default function UsersPage() {
         error={accounts.error}
         onRetry={() => accounts.refetch()}
         errorTitle={t('Unable to load users')}
-        skeleton={<TableSkeleton columns={8} />}
+        skeleton={<TableSkeleton columns={9} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
@@ -236,6 +254,7 @@ export default function UsersPage() {
               <TableHead>{t('Administrator')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
               <TableHead>{t('Created on')}</TableHead>
+              <TableHead>{t('Last login')}</TableHead>
               <TableHead className="w-12">
                 <span className="sr-only">{t('Actions')}</span>
               </TableHead>
@@ -274,6 +293,9 @@ export default function UsersPage() {
                   <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                     {formatLongDate(account.createdAt)}
                   </TableCell>
+                  <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
+                    {lastLoginOf(account)}
+                  </TableCell>
                   <TableCell className="text-end">
                     {hasActions ? (
                       <DropdownMenu>
@@ -291,6 +313,13 @@ export default function UsersPage() {
                             <DropdownMenuItem onSelect={() => openEdit(account)}>
                               <Pencil />
                               {t('Edit')}
+                            </DropdownMenuItem>
+                          ) : null}
+
+                          {update ? (
+                            <DropdownMenuItem onSelect={() => setAttributesFor(account)}>
+                              <ListChecks />
+                              {t('Attributes')}
                             </DropdownMenuItem>
                           ) : null}
 
@@ -326,6 +355,11 @@ export default function UsersPage() {
       </QueryBoundary>
 
       <AccountDialog open={dialogOpen} onOpenChange={setDialogOpen} account={editing} />
+
+      <UserAttributesDialog
+        account={attributesFor}
+        onOpenChange={(open) => !open && setAttributesFor(undefined)}
+      />
 
       <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
         <DialogContent className="sm:max-w-md">

@@ -590,7 +590,7 @@ export async function applyLevelling(id: string, actorId: string): Promise<Level
     }
     if (off.length > 0) {
       for (const target of [...forward].reverse()) await write(back(target)).catch(() => undefined);
-      throw new LevellingFailure(message('OpenProject did not keep the new dates of {items}; everything was put back.', { items: off.join(', ') }));
+      throw new LevellingFailure(message('The new dates of {items} were not kept; everything was put back.', { items: off.join(', ') }));
     }
   } catch (error) {
     await prisma.levellingItem.updateMany({ where: { runId: id }, data: { state: 'pending' } });
@@ -662,7 +662,7 @@ export async function undoLevelling(id: string, actorId: string): Promise<Levell
       const current = await read(target.workPackageId);
       if (current.startDate !== target.start || current.dueDate !== target.due) off.push(`#${target.workPackageId}`);
     }
-    if (off.length > 0) throw new LevellingFailure(message('OpenProject did not return {items} to the dates before.', { items: off.join(', ') }));
+    if (off.length > 0) throw new LevellingFailure(message('{items} could not be returned to the dates before.', { items: off.join(', ') }));
   } catch (error) {
     await prisma.levellingItem.updateMany({ where: { runId: id }, data: { state: 'applied' } });
     await prisma.levellingRun.update({ where: { id }, data: { status: 'applied', ...failureOf(error) } });

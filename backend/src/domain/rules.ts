@@ -906,7 +906,7 @@ async function fireRule(
             return recordOutcome(
               action.type,
               'skipped',
-              message('Not done: no automation account is configured, so rules change nothing in OpenProject'),
+              message('Not done: no automation account is configured, so rules change no work'),
             );
           }
           // "set status failed" — the action's type with its first underscore a space, as it always read.
@@ -1103,7 +1103,7 @@ export async function dryRunRule(input: unknown, windowDays: number): Promise<Ru
   const matched = subjects.list.filter((subject) => ruleMatches(rule.conditions, subject.facts, now));
   if (rule.fireMode === 'enter') notes.push(tr('As written, the rule acts on each item once as it starts to match.'));
   if (!automationConfigured() && rule.actions.some((action) => WRITES.has(action.type))) {
-    notes.push(tr('No automation account is configured: changes to OpenProject would be skipped.'));
+    notes.push(tr('No automation account is configured: changes to work would be skipped.'));
   }
   notes.push(tr('Nothing was changed, sent or logged.'));
 

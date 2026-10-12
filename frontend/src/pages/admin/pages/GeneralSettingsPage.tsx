@@ -23,7 +23,6 @@ export default function GeneralSettingsPage() {
         title={t('General')}
         description={t('The instance\'s identity and the defaults every page and list inherits.')}
         facts={[
-          { label: t('Host name'), value: valueOr(data?.hostName, t('Not set')) },
           { label: t('Per-page options'), value: joinOrFallback(data?.perPageOptions) },
           { label: t('Duration format'), value: valueOr(data?.durationFormat, t('Not set')) },
           { label: t('Hours per day'), value: valueOr(data?.hoursPerDay, t('Not set')) },

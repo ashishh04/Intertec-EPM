@@ -39,6 +39,7 @@ import { calculatedFieldRoutes } from './calculated-fields.js';
 import { resourceRoutes } from './resources.js';
 import { timesheetRoutes } from './timesheets.js';
 import { expenseRoutes } from './expenses.js';
+import { financeRoutes } from './finance.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
@@ -91,6 +92,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(resourceRoutes);
   await app.register(timesheetRoutes);
   await app.register(expenseRoutes);
+  await app.register(financeRoutes);
   await app.register(commentRoutes);
   await app.register(memberRoutes);
   await app.register(accountRoutes);

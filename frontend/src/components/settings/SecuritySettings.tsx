@@ -73,8 +73,8 @@ export function SecuritySettings() {
           */}
           <FactList
             facts={[
-              { label: t('Sign-in'), value: t('EPM\'s own form; the password is checked by OpenProject') },
-              { label: t('Password rules and lockout'), value: t('OpenProject\'s, as listed above') },
+              { label: t('Sign-in'), value: t('EPM\'s own form; the password is checked on the server') },
+              { label: t('Password rules and lockout'), value: t('As listed above') },
               { label: t('API credentials'), value: t('Server-side only') },
             ]}
           />

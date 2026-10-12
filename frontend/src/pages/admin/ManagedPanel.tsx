@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ExternalLink, Lock } from 'lucide-react';
+import { Info, Lock } from 'lucide-react';
 import { FactList } from '@/components/common/FactList';
 import { Alert } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,22 +68,22 @@ export function ManagedPanel({
 
       <CardContent className="space-y-3 pt-4">
         {enterprise ? (
-          <Alert tone="neutral" icon={Lock} title={t('Needs an Enterprise licence')}>
+          <Alert tone="neutral" icon={Lock} title={t('Not included in this installation')}>
             {t(
-              'This is part of the OpenProject Enterprise edition, which this instance does not have. It cannot be enabled from EPM, and it cannot be enabled in OpenProject either until the instance is licensed.',
+              'This feature is not part of this installation, and it cannot be switched on from EPM.',
             )}
           </Alert>
         ) : (
-          <Alert tone="neutral" icon={ExternalLink} title={t('Changed in OpenProject, not here')}>
+          <Alert tone="neutral" icon={Info} title={t('Read-only here')}>
             {t(
-              'This setting is available on this instance, but OpenProject publishes no API for it, so EPM has nothing to call. It is not missing from EPM — there is nothing for EPM to send.',
+              'These values are shown for reference. They are set on the server, not from EPM.',
             )}
           </Alert>
         )}
 
         {managedAt ? (
           <p className="text-xs text-muted-foreground">
-            {t('Change it in the OpenProject administration, under:')}{' '}
+            {t('Set on the server, under:')}{' '}
             <span className="font-medium text-foreground">{managedAt}</span>
           </p>
         ) : null}

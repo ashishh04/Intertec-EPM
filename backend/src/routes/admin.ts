@@ -7,6 +7,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { openProject, idFromHref, linkTitle } from '../openproject/client.js';
 import { translateDescriptors } from '../lib/i18n.js';
 import type { HalCollection, HalLink, HalLinks } from '../openproject/types.js';
+import type { FormResult } from './forms.js';
 // Shared with the frontend rather than restated here: a section's shape is
 // what the browser renders from, so both sides read it from one declaration.
 import type {
@@ -165,6 +166,12 @@ export interface AdminPlaceholderUser {
   id: string;
   name: string;
   createdAt: string;
+}
+
+export interface AdminUserLogin {
+  id: string;
+  /** ISO; null for someone who has never signed in. */
+  lastLoginAt: string | null;
 }
 
 export interface AdminType {
@@ -363,11 +370,24 @@ interface OpVersion extends OpNamed {
   sharing?: string;
 }
 
+interface OpForm {
+  _embedded: {
+    payload: Record<string, unknown>;
+    schema: Record<string, unknown>;
+    validationErrors?: Record<string, { message?: string }>;
+  };
+  _links?: { commit?: { href: string; method?: string } };
+}
+
 /* ---------------------------------------------------------------------------
  * Helpers
  * ------------------------------------------------------------------------- */
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/** The instance's own wording with its product name taken out; EPM never shows it. */
+const withoutProductName = (text: string): string =>
+  text.replace(/\s+in OpenProject\b/g, '').replace(/OpenProject/g, 'EPM');
 const byPosition = <T extends { position: number }>(a: T, b: T) => a.position - b.position;
 
 /** The un-paginated collections: one GET, no offset/pageSize to negotiate. */
@@ -477,6 +497,84 @@ const toPlaceholderUser = (user: OpTimestamped): AdminPlaceholderUser => ({
 
 /** The `_links.members` OpenProject expects when creating or updating a group. */
 const memberHrefs = (ids: string[]) => ids.map((id) => ({ href: `/api/v3/users/${id}` }));
+
+/** A user attribute, as API v3 names a user's custom field. */
+const ATTRIBUTE = /^customField\d+$/;
+
+const isHref = (value: unknown): boolean => Boolean(value && typeof value === 'object' && 'href' in value);
+
+/**
+ * Whether a schema entry is a link-valued attribute — a list, whose values are
+ * custom options. API v3 reads those from `_links`, everything else from the
+ * body itself.
+ */
+function isLinkField(field: unknown): boolean {
+  if (!field || typeof field !== 'object') return false;
+  const type = (field as { type?: unknown }).type;
+  return typeof type === 'string' && /CustomOption/.test(type);
+}
+
+/**
+ * A person's attributes, and nothing else, in the shape API v3 writes them.
+ *
+ * Every key that is not a custom field is dropped, so a route built on this
+ * cannot change a login, an email or administrator rights whatever it is
+ * sent. A value is a link when the schema says so; without a schema (while a
+ * form is being validated) when it looks like one.
+ */
+function attributePayload(payload: unknown, schema?: Record<string, unknown>): Record<string, unknown> {
+  if (!payload || typeof payload !== 'object') return {};
+  const source = payload as Record<string, unknown>;
+  const sourceLinks =
+    source._links && typeof source._links === 'object' ? (source._links as Record<string, unknown>) : {};
+
+  const body: Record<string, unknown> = {};
+  const links: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries({ ...sourceLinks, ...source })) {
+    if (!ATTRIBUTE.test(key)) continue;
+    const link = schema
+      ? isLinkField(schema[key])
+      : isHref(value) || (Array.isArray(value) && value.length > 0 && value.every(isHref));
+    if (!link) {
+      body[key] = value;
+    } else if (Array.isArray(value)) {
+      links[key] = value.filter(isHref).map((item) => ({ href: (item as { href: unknown }).href }));
+    } else {
+      links[key] = { href: isHref(value) ? (value as { href: unknown }).href : null };
+    }
+  }
+  if (Object.keys(links).length > 0) body._links = links;
+  return body;
+}
+
+/** The instance's user form, cut down to the person's attributes. */
+function attributeForm(form: OpForm): FormResult {
+  const { schema, payload, validationErrors } = form._embedded;
+  const links = payload._links && typeof payload._links === 'object' ? (payload._links as Record<string, unknown>) : {};
+
+  const errors: Record<string, string> = {};
+  for (const [field, detail] of Object.entries(validationErrors ?? {})) {
+    if (ATTRIBUTE.test(field)) errors[field] = detail?.message ?? 'Invalid value.';
+  }
+
+  return {
+    schema: Object.fromEntries(Object.entries(schema).filter(([key]) => key.startsWith('_') || ATTRIBUTE.test(key))),
+    payload: {
+      ...Object.fromEntries(Object.entries(payload).filter(([key]) => ATTRIBUTE.test(key))),
+      // An unset list arrives as `{ href: null }`; left out, the picker shows
+      // its placeholder instead of an empty box.
+      _links: Object.fromEntries(
+        Object.entries(links).filter(
+          ([key, value]) => ATTRIBUTE.test(key) && !(isHref(value) && (value as { href: unknown }).href === null),
+        ),
+      ),
+    },
+    errors,
+    commit: form._links?.commit
+      ? { href: form._links.commit.href, method: (form._links.commit.method ?? 'patch').toUpperCase() }
+      : undefined,
+  };
+}
 
 const toWeekDay = (day: OpWeekDay): AdminWeekDay => ({
   day: day.day,
@@ -758,10 +856,24 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   /* -------------------------------------------------------------- permissions */
 
-  /** Every permission a role can be given, grouped as OpenProject's role form groups them. */
+  /**
+   * Every permission a role can be given, grouped as OpenProject's role form
+   * groups them. The instance's wording is kept except for its own product
+   * name, which one label carries ("View repository revisions in …") and
+   * which EPM never shows.
+   */
   app.get('/admin/permissions', async (request): Promise<AdminPermissionModule[]> => {
     await guard.require(request, 'users:manage');
-    return instance<AdminPermissionModule[]>(request, '/permissions');
+    const modules = await instance<AdminPermissionModule[]>(request, '/permissions');
+    return modules.map((module) => ({
+      ...module,
+      label: withoutProductName(module.label),
+      permissions: module.permissions.map((permission) => ({
+        ...permission,
+        label: withoutProductName(permission.label),
+        explanation: permission.explanation === null ? null : withoutProductName(permission.explanation),
+      })),
+    }));
   });
 
   /* --------------------------------------------------------------- enterprise */
@@ -916,6 +1028,68 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
     reply.code(204);
   });
+
+  /* ------------------------------------------------------------------- users */
+
+  /**
+   * When each person last signed in, for the Users list. API v3 does not
+   * publish it; the `/epm_admin` add-on reads it, and every sign-in to EPM
+   * goes through the instance, which records it.
+   */
+  app.get('/admin/users/last-logins', async (request): Promise<AdminUserLogin[]> => {
+    await guard.require(request, 'users:manage');
+    const body = await instance<{ logins?: AdminUserLogin[] }>(request, '/users/logins');
+    return body.logins ?? [];
+  });
+
+  /**
+   * One person's user attributes as a form: the instance's own user form, cut
+   * down to the attributes Administration → User attributes defines, with
+   * their choices and validation.
+   */
+  app.post<{ Params: { id: string }; Body: { payload?: Record<string, unknown> } }>(
+    '/admin/users/:id/attributes/form',
+    async (request): Promise<FormResult> => {
+      await guard.require(request, 'users:manage');
+      const { id } = request.params;
+      if (!/^\d+$/.test(id)) throw EpmError.notFound('That user');
+
+      const form = await openProject
+        .request<OpForm>(`/users/${id}/form`, {
+          method: 'POST',
+          body: attributePayload(request.body?.payload),
+          signal: requestSignal(request),
+        })
+        .catch(rethrowPrincipalFailure('That user'));
+
+      return attributeForm(form);
+    },
+  );
+
+  /** Writes one person's user attributes; anything else in the body is ignored. */
+  app.patch<{ Params: { id: string }; Body: { payload?: Record<string, unknown> } }>(
+    '/admin/users/:id/attributes',
+    async (request, reply) => {
+      await guard.require(request, 'users:manage');
+      const { id } = request.params;
+      if (!/^\d+$/.test(id)) throw EpmError.notFound('That user');
+      const signal = requestSignal(request);
+
+      // The schema says which attributes are lists, so a cleared list is
+      // written as an empty link rather than as a value API v3 refuses.
+      const schema = await openProject
+        .request<Record<string, unknown>>('/users/schema', { signal })
+        .catch(() => undefined);
+      const body = attributePayload(request.body?.payload, schema);
+      if (Object.keys(body).length === 0) throw EpmError.badRequest('There are no user attributes to save.');
+
+      await openProject
+        .request<unknown>(`/users/${id}`, { method: 'PATCH', body, signal })
+        .catch(rethrowPrincipalFailure('That user'));
+
+      reply.code(204);
+    },
+  );
 
   app.get('/admin/types', async (request): Promise<AdminType[]> => {
     await guard.require(request, 'users:manage');

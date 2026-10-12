@@ -58,10 +58,8 @@ Rails.application.config.to_prepare do
       },
       "work-packages" => {
         label: "Work package settings",
-        description: "Instance-wide behaviour of work packages, including how progress is recorded.",
+        description: "Instance-wide behaviour of work packages: highlighting, relations and exports.",
         fields: [
-          ["work_package_done_ratio", :enum, :done_ratio_options,
-           "Progress tracking", "Whether percentage complete is typed in or derived from the status."],
           ["work_package_list_default_highlighting_mode", :enum, :highlighting_options,
            "Default highlighting", "What colour in a work package table refers to."],
           ["cross_project_work_package_relations", :boolean, nil,
@@ -70,6 +68,22 @@ Rails.application.config.to_prepare do
            "Include subproject work", "Show a subproject's work packages in its parent by default."],
           ["work_packages_projects_export_limit", :integer, nil,
            "Export limit", "The most work packages a single export may contain."]
+        ]
+      },
+      # Its own page, as in the instance's own administration. Changing the
+      # first two starts a background job that rewrites existing work packages
+      # (Settings::UpdateService queues it), so EPM's page asks before saving.
+      "progress-tracking" => {
+        label: "Progress tracking",
+        description: "How % Complete is worked out on each work package, and totalled up a hierarchy.",
+        fields: [
+          ["work_package_done_ratio", :enum, :done_ratio_options,
+           "Progress calculation", "Whether % Complete is typed in on each work package or follows its status."],
+          ["total_percent_complete_mode", :enum, :total_percent_complete_options,
+           "Hierarchy totals", "How a parent's total % Complete is worked out from the work packages below it."],
+          ["percent_complete_on_status_closed", :enum, :percent_complete_closed_options,
+           "% Complete when closed",
+           "What happens to % Complete when a work package moves to a closed status. Work-based progress only."]
         ]
       },
       "projects" => {
@@ -451,8 +465,24 @@ Rails.application.config.to_prepare do
 
     def done_ratio_options
       [
-        { value: "field", label: "Work-based — typed on the work package" },
-        { value: "status", label: "Status-based — derived from the status" }
+        { value: "field", label: "Work-based" },
+        { value: "status", label: "Status-based" }
+      ]
+    end
+
+    # Setting.total_percent_complete_mode accepts exactly these.
+    def total_percent_complete_options
+      [
+        { value: "work_weighted_average", label: "Weighted by work" },
+        { value: "simple_average", label: "Simple average" }
+      ]
+    end
+
+    # Setting.percent_complete_on_status_closed accepts exactly these.
+    def percent_complete_closed_options
+      [
+        { value: "no_change", label: "No change" },
+        { value: "set_100p", label: "Set to 100%" }
       ]
     end
 

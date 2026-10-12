@@ -166,7 +166,8 @@ OpenProject, and approval outcomes are moved with the service key.
 
 For rules to see changes made in OpenProject itself, its webhook (Administration
 → API and webhooks) has to send the work package and project events, created
-and updated, to `https://<host>/api/webhooks/openproject`, signed with
+and updated, to `https://<host>/api/webhooks/delivery` (the older
+`/api/webhooks/openproject` is still accepted), signed with
 `OPENPROJECT_WEBHOOK_SECRET`. Changes made through EPM reach the rules either
 way. Rules and escalation policies are defined in EPM, under Administration →
 Rules and escalation.

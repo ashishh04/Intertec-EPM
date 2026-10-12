@@ -308,7 +308,7 @@ function RunView({ id, onClose }: { id: string; onClose: () => void }) {
             onOpenChange={(open) => !open && setConfirm(null)}
             title={t('Apply this levelling?')}
             description={t(
-              'Every move is made, or none is: if any work has changed since the proposal, or a single write is refused, nothing changes. Work OpenProject schedules automatically is switched to manual scheduling so it keeps its new dates. One undo puts everything back.',
+              'Every move is made, or none is: if any work has changed since the proposal, or a single write is refused, nothing changes. Work that is scheduled automatically is switched to manual scheduling so it keeps its new dates. One undo puts everything back.',
             )}
             confirmLabel={t('Apply')}
             pending={apply.isPending}

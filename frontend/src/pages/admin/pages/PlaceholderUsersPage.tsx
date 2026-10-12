@@ -196,15 +196,15 @@ export default function PlaceholderUsersPage() {
       {upstreamItems.length > 0 ? (
         <section className="space-y-2">
           <h3 className="epm-eyebrow">
-            {t('OpenProject placeholder users')}
+            {t('Placeholder users from an earlier licence')}
             <Badge size="sm" tone="neutral" className="ms-2">
               {upstreamItems.length}
             </Badge>
           </h3>
           <p className="text-2xs text-muted-foreground">
             {enterprise.data?.allows.placeholderUsers === false
-              ? t('Created in OpenProject under an Enterprise licence, which this instance no longer has. They are shown so they are not lost, and can still be assigned work upstream.')
-              : t('Created in OpenProject under an Enterprise licence. These can be assigned work; the placeholders above cannot.')}
+              ? t('Created under a licence this installation no longer has. They are shown so they are not lost, and work can still be assigned to them.')
+              : t('Created under the installation’s licence. These can be assigned work; the placeholders above cannot.')}
           </p>
           <AdminTable>
             <TableHeader>

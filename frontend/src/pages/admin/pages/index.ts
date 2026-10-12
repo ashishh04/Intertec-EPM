@@ -32,13 +32,14 @@ function catalog(resource: string): LazyExoticComponent<ComponentType> {
 }
 
 export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<ComponentType>> = {
-  enterprise: lazy(() => import('./EnterprisePage')),
   'users/settings': lazy(() => import('./UsersSettingsPage')),
   'users/users': lazy(() => import('./UsersPage')),
+  'users/user-attributes': lazy(() => import('./UserAttributesPage')),
   'users/placeholder-users': lazy(() => import('./PlaceholderUsersPage')),
   'users/resource-roles': lazy(() => import('./ResourceRolesPage')),
   'users/resource-rules': lazy(() => import('./ResourceRulesPage')),
   'users/groups': lazy(() => import('./GroupsPage')),
+  'users/organization': lazy(() => import('./OrganizationPage')),
   'users/roles': lazy(() => import('./RolesPage')),
   'users/permissions-report': lazy(() => import('./PermissionsReportPage')),
   'users/epm-permissions': lazy(() => import('./PermissionGrantsPage')),
@@ -47,6 +48,8 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'work-packages/types': catalog('types'),
   'work-packages/statuses': catalog('statuses'),
   'work-packages/priorities': catalog('priorities'),
+  'work-packages/progress-tracking': lazy(() => import('./ProgressTrackingPage')),
+  'work-packages/identifiers': lazy(() => import('./IdentifiersPage')),
   'work-packages/approval-chains': lazy(() => import('./ApprovalChainsPage')),
   'work-packages/calculated-fields': lazy(() => import('./CalculatedFieldsPage')),
   'projects/list': lazy(() => import('./ProjectsListPage')),

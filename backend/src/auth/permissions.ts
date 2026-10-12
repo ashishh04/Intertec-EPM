@@ -76,6 +76,9 @@ export const PERMISSIONS = [
   'timesheets:manage',
   'expenses:manage',
   'time:configure',
+  'finance:view',
+  'finance:manage',
+  'finance:configure',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -202,6 +205,14 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // are policy for everyone, like the health rules.
   'time:configure':
     'The time and expense rules are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Margin, revenue and billing are commercial: finance's and the PMO's, not
+  // implied by a project role, the way rates:view is not.
+  'finance:view':
+    'Margin, revenue and cash flow are EPM-owned; OpenProject has budgets but no revenue. Granted from EPM permission grants instead.',
+  'finance:manage':
+    'Contracts, budget phasing and billing are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  'finance:configure':
+    'Exchange rates, rate cards and the finance settings are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

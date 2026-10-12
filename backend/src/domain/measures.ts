@@ -403,7 +403,7 @@ const budgeted = (context: MeasureContext) => context.projects.filter((project) 
  * Labour priced by the rule, and every other cost recorded (Module 10). Rounded
  * per entry and added, so a set's figure is the sum of its projects'.
  */
-function costOf(
+export function costOf(
   time: TimeFact[],
   costs: CostFact[] = [],
 ): { cost: number; labour: number; other: number; costedHours: number; uncostedHours: number } {

@@ -49,7 +49,7 @@ export function ScheduleStatusCard() {
             <CardTitle>{t('Critical path')}</CardTitle>
             <CardDescription>
               {t(
-                '{seconds, plural, other {Total and free float are counted in the working days above. EPM recalculates them after every change it makes, and checks OpenProject every # seconds for changes made there.}}',
+                '{seconds, plural, other {Total and free float are counted in the working days above. EPM recalculates them after every change it makes, and checks every # seconds for changes made elsewhere.}}',
                 { seconds: checkSeconds },
               )}
             </CardDescription>
@@ -78,7 +78,7 @@ export function ScheduleStatusCard() {
           </Alert>
         ) : null}
         {lastCompleted?.mirrorError ? (
-          <Alert tone="warning" title={t('OpenProject\'s schedule fields are not being written')}>
+          <Alert tone="warning" title={t('The schedule fields on work packages are not being written')}>
             {lastCompleted.mirrorError}
           </Alert>
         ) : null}
@@ -111,7 +111,7 @@ export function ScheduleStatusCard() {
                 : ''}
             </span>
           </Fact>
-          <Fact icon={Table2} title={t('OpenProject\'s fields')}>
+          <Fact icon={Table2} title={t('Work package fields')}>
             {!mirrorEnabled ? t('Not written') : lastCompleted?.mirrorError ? t('Not written') : t('Written')}
             <span className="block text-2xs text-muted-foreground">
               {!mirrorEnabled
@@ -135,7 +135,7 @@ function describeTrigger(trigger: string): string {
     case 'change':
       return t('Started by a change made in EPM');
     case 'check':
-      return t('Started by a change found in OpenProject');
+      return t('Started by a change made outside EPM');
     case 'manual':
       return t('Started by someone asking');
     case 'startup':

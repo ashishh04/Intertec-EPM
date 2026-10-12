@@ -55,7 +55,7 @@ function oauthConfig() {
 
   if (!clientId || !clientSecret) {
     throw EpmError.internal(
-      'Sign-in is not configured. Set OPENPROJECT_OAUTH_CLIENT_ID and OPENPROJECT_OAUTH_CLIENT_SECRET.',
+      'Sign-in is not configured on the server.',
     );
   }
 
@@ -100,7 +100,7 @@ async function exchange(body: Record<string, string>): Promise<TokenResponse> {
 
   if (failure.error === 'unsupported_grant_type') {
     throw EpmError.internal(
-      'Sign-in is unavailable: this OpenProject instance does not accept password sign-in.',
+      'Sign-in is unavailable: the server does not accept password sign-in.',
     );
   }
 

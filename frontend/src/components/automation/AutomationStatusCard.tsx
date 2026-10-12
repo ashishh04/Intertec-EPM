@@ -23,11 +23,8 @@ export function AutomationStatusCard({ show = 'rules' }: { show?: 'rules' | 'esc
     <div className="space-y-3">
       {show === 'rules' && !account.working ? (
         <Alert tone="warning" title={account.configured ? t('The automation account key does not work') : t('No automation account is configured')}>
-          {t('Rules still notify and call out, but change nothing in OpenProject until there is one.')}{' '}
-          {t('Run {script} on the OpenProject container and put the key it prints in {variable}.', {
-            script: 'automation-account.rb',
-            variable: 'OPENPROJECT_AUTOMATION_API_KEY',
-          })}
+          {t('Rules still notify and call out, but change no work until there is one.')}{' '}
+          {t('Whoever runs the server creates the account and sets its key in the backend configuration.')}
         </Alert>
       ) : null}
       <Card>
@@ -53,7 +50,7 @@ export function AutomationStatusCard({ show = 'rules' }: { show?: 'rules' | 'esc
                   {worker.lastProcessedAt ? ` · ${t('last {when}', { when: formatRelative(worker.lastProcessedAt) })}` : ''}
                 </span>
               </Fact>
-              <Fact icon={Webhook} title={t('Changes made in OpenProject')}>
+              <Fact icon={Webhook} title={t('Changes made outside EPM')}>
                 {webhook.secretConfigured ? t('Arrive by webhook') : t('Not seen: no webhook secret')}
                 <span className="block text-2xs text-muted-foreground">
                   {webhook.lastReceivedAt ? t('Last delivery {when}', { when: formatRelative(webhook.lastReceivedAt) }) : t('No delivery since the server started')}

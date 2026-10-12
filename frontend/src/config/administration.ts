@@ -3,7 +3,6 @@ import {
   Braces,
   CalendarDays,
   ClipboardList,
-  DatabaseBackup,
   FolderKanban,
   HardDrive,
   HelpCircle,
@@ -14,10 +13,7 @@ import {
   Mail,
   Megaphone,
   Paintbrush,
-  Palette,
-  Puzzle,
   Settings2,
-  ShieldCheck,
   SlidersHorizontal,
   Users,
   Workflow,
@@ -107,7 +103,13 @@ export const ADMIN_AREAS: AdminArea[] = [
         id: 'users',
         get label() { return t('Users'); },
         kind: 'live',
-        get description() { return t('Every account on the instance, with its status and global role.'); },
+        get description() { return t('Every account on the instance, with its status, its last sign-in and its attributes.'); },
+      },
+      {
+        id: 'user-attributes',
+        get label() { return t('User attributes'); },
+        kind: 'live',
+        get description() { return t('Information kept on each person beyond their account, such as a job title or a skill.'); },
       },
       {
         id: 'placeholder-users',
@@ -132,6 +134,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         get label() { return t('Groups'); },
         kind: 'live',
         get description() { return t('Named sets of users that can be added to projects as one.'); },
+      },
+      {
+        id: 'organization',
+        get label() { return t('Organization'); },
+        kind: 'live',
+        get description() { return t('The company’s structure: departments, the teams inside them, and who sits where.'); },
       },
       {
         id: 'roles',
@@ -171,7 +179,7 @@ export const ADMIN_AREAS: AdminArea[] = [
         id: 'settings',
         get label() { return t('Settings'); },
         kind: 'live',
-        get description() { return t('Instance-wide behaviour of work packages, such as progress calculation.'); },
+        get description() { return t('Instance-wide behaviour of work packages, such as highlighting, relations and exports.'); },
       },
       {
         id: 'types',
@@ -192,6 +200,18 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('The urgency levels a work package can carry.'); },
       },
       {
+        id: 'progress-tracking',
+        get label() { return t('Progress tracking'); },
+        kind: 'live',
+        get description() { return t('How % Complete is worked out on each work package, and how it adds up a hierarchy.'); },
+      },
+      {
+        id: 'identifiers',
+        get label() { return t('Identifiers'); },
+        kind: 'live',
+        get description() { return t('How work packages are named across EPM, and the project identifiers their prefixes come from.'); },
+      },
+      {
         id: 'approval-chains',
         get label() { return t('Approval chains'); },
         kind: 'live',
@@ -206,13 +226,6 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() {
           return t('Formulas EPM works out on every work package — remaining effort, days late, roll-ups of the children — that every view can show, filter, group and sum.');
         },
-      },
-      {
-        id: 'custom-actions',
-        get label() { return t('Custom actions'); },
-        enterprise: true,
-        kind: 'managed',
-        get description() { return t('One-click buttons that apply several changes to a work package at once.'); },
       },
     ],
   },
@@ -247,18 +260,6 @@ export const ADMIN_AREAS: AdminArea[] = [
         get label() { return t('Earned value'); },
         kind: 'live',
         get description() { return t('How each type of work earns value, and the rate for work no one’s rate prices.'); },
-      },
-      {
-        id: 'attributes',
-        get label() { return t('Project attributes'); },
-        kind: 'managed',
-        get description() { return t('Extra fields shown on every project overview.'); },
-      },
-      {
-        id: 'lists',
-        get label() { return t('Project lists'); },
-        kind: 'managed',
-        get description() { return t('Saved, shareable views of the project list.'); },
       },
     ],
   },
@@ -439,52 +440,14 @@ export const ADMIN_AREAS: AdminArea[] = [
         kind: 'live',
         get description() { return t('Password rules, session lifetime and self-registration.'); },
       },
-      {
-        id: 'ldap',
-        get label() { return t('LDAP authentication'); },
-        // Not Enterprise. LDAP is in the free edition; it is `managed` here only
-        // because OpenProject 15 exposes no API for it — `/api/v3/ldap_auth_sources`
-        // is a 404. Marking it Enterprise told administrators to buy a licence
-        // for something they already have.
-        kind: 'managed',
-        get managedAt() { return t('Authentication → LDAP connections'); },
-        get description() { return t('Directory servers that accounts are checked against.'); },
-      },
+      // LDAP, OpenID, SAML, two-factor and reCAPTCHA are not listed: none can be
+      // read or changed through EPM, so their pages could only send people to
+      // the delivery system's own administration, which EPM never shows.
       {
         id: 'oauth',
         get label() { return t('OAuth applications'); },
         kind: 'live',
         get description() { return t('Applications allowed to act on behalf of signed-in people.'); },
-      },
-      {
-        id: 'openid',
-        get label() { return t('OpenID providers'); },
-        enterprise: true,
-        kind: 'managed',
-        get managedAt() { return t('Authentication → OpenID providers'); },
-        get description() { return t('External identity providers that can sign people in.'); },
-      },
-      {
-        id: 'saml',
-        get label() { return t('SAML providers'); },
-        enterprise: true,
-        kind: 'managed',
-        get managedAt() { return t('Authentication → SAML providers'); },
-        get description() { return t('Enterprise single sign-on providers.'); },
-      },
-      {
-        id: 'two-factor',
-        get label() { return t('Two-factor authentication'); },
-        kind: 'managed',
-        get managedAt() { return t('Authentication → Two-factor authentication'); },
-        get description() { return t('Whether a second factor is offered or required at sign-in.'); },
-      },
-      {
-        id: 'recaptcha',
-        get label() { return t('reCAPTCHA'); },
-        kind: 'managed',
-        get managedAt() { return t('Authentication → reCAPTCHA'); },
-        get description() { return t('The challenge shown to keep automated sign-ins out.'); },
       },
     ],
   },
@@ -495,28 +458,14 @@ export const ADMIN_AREAS: AdminArea[] = [
     Megaphone,
     'live',
   ),
-  single(
-    'design',
-    msg('Design'),
-    msg('The logo, colours and favicon that brand the instance.'),
-    Palette,
-    'managed',
-  ),
+  // Design and the Enterprise edition are not listed: the first cannot be
+  // changed through EPM, and the second is about the delivery system's own
+  // licence — neither has anything an EPM administrator can act on.
   single(
     'colors',
     msg('Colors'),
     msg('The colours in use by types, statuses and priorities.'),
     Paintbrush,
-    'live',
-  ),
-  // `live`: EPM already reads the licence state to decide whether to offer
-  // Enterprise-gated actions, so the page shows it rather than rendering an
-  // empty card. It still cannot apply a token — there is no API for that.
-  single(
-    'enterprise',
-    msg('Enterprise edition'),
-    msg('The support token that unlocks enterprise features.'),
-    ShieldCheck,
     'live',
   ),
   {
@@ -536,12 +485,6 @@ export const ADMIN_AREAS: AdminArea[] = [
         get label() { return t('Timesheets, policies and expenses'); },
         kind: 'live',
         get description() { return t('The timesheet period and its hours, the time logging policies, and the receipt threshold for claims.'); },
-      },
-      {
-        id: 'activities',
-        get label() { return t('Time tracking activities'); },
-        kind: 'managed',
-        get description() { return t('The kinds of work a time entry can be logged against.'); },
       },
       {
         id: 'cost-types',
@@ -578,24 +521,12 @@ export const ADMIN_AREAS: AdminArea[] = [
       },
     ],
   },
-  single(
-    'plugins',
-    msg('Plugins'),
-    msg('The extensions installed on the instance.'),
-    Puzzle,
-    'managed',
-  ),
-  single(
-    'backup',
-    msg('Backup'),
-    msg('On-demand backups of the instance database and attachments.'),
-    DatabaseBackup,
-    'managed',
-  ),
+  // Plugins and Backup are not listed either: both live only in the delivery
+  // system's own administration.
   single(
     'information',
     msg('Information'),
-    msg('The version and configuration of the instance behind EPM.'),
+    msg('Which version of EPM this is, and where it runs.'),
     Info,
     'live',
   ),

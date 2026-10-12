@@ -351,8 +351,8 @@ async function mirrorValues(
       // Nothing to retry until the fields change, and that changes the network digest.
       valuesFingerprint: network.fingerprint.values,
       error:
-        `OpenProject's schedule fields are not set up (${problems.map((field) => `${field.name}: ${field.problem}`).join('; ')}). ` +
-        'Run backend/openproject/setup/schedule-fields.rb on the instance.',
+        `The schedule fields on work packages are not set up (${problems.map((field) => `${field.name}: ${field.problem}`).join('; ')}). ` +
+        'They are created by the schedule fields setup on the server.',
     };
   }
 
@@ -386,8 +386,8 @@ async function mirrorValues(
   } catch (error) {
     const reason =
       error instanceof OpenProjectError && error.upstreamStatus === 409
-        ? "OpenProject's schedule fields are not set up. Run backend/openproject/setup/schedule-fields.rb on the instance."
-        : `Writing to OpenProject's schedule fields failed: ${error instanceof Error ? error.message : String(error)}`;
+        ? 'The schedule fields on work packages are not set up. They are created by the schedule fields setup on the server.'
+        : `Writing the schedule fields failed: ${error instanceof Error ? error.message : String(error)}`;
     appLog.warn({ err: error }, 'Critical path mirror failed; the next check retries it');
     // No digest: the next check sees a difference and tries again.
     return { mirrored: touched, skipped, valuesFingerprint: null, error: reason };

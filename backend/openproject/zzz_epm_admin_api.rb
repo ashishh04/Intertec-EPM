@@ -12,6 +12,7 @@
 #   GET    /epm_admin/settings/users   the users-settings object
 #   PATCH  /epm_admin/settings/users   partial object -> updated object
 #   GET    /epm_admin/enterprise       Enterprise-gated features this instance allows
+#   GET    /epm_admin/users/logins     when each person last signed in
 #   PATCH  /epm_admin/days/week       which weekdays are working days
 #   POST   /epm_admin/days/non_working  add a public holiday
 #   DELETE /epm_admin/days/non_working/:id
@@ -136,6 +137,21 @@ Rails.application.config.to_prepare do
       end
 
       render json: { active: enterprise_active?, allows: allows }
+    end
+
+    # ------------------------------------------------------------------ users
+
+    # When each person last signed in. API v3 does not publish
+    # `last_login_on`, while the instance's own users list shows it as a
+    # column; every sign-in through EPM sets it, because EPM signs people in
+    # through the instance. People only — not groups or placeholder users —
+    # and nil for someone who has never signed in.
+    def user_logins
+      logins = User.where(type: "User").pluck(:id, :last_login_on).map do |id, at|
+        { id: id.to_s, lastLoginAt: at&.utc&.iso8601 }
+      end
+
+      render json: { logins: logins }
     end
 
     # ------------------------------------------------------------- permissions
@@ -604,6 +620,7 @@ Rails.application.routes.prepend do
     get "settings/users", action: :settings_users
     patch "settings/users", action: :update_settings_users
     get "enterprise", action: :enterprise
+    get "users/logins", action: :user_logins
     get "permissions", action: :permissions
     get "roles", action: :roles
     post "roles", action: :create_role

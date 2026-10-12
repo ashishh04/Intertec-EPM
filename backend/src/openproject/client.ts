@@ -222,7 +222,7 @@ export class OpenProjectClient {
       // Refused rather than downgraded: a rule's change made on the system key
       // would be journalled under the administrator's name.
       if (!this.automationAuthorization) {
-        throw new Error('The automation account is not configured (OPENPROJECT_AUTOMATION_API_KEY).');
+        throw new Error('The automation account is not configured.');
       }
       return this.automationAuthorization;
     }

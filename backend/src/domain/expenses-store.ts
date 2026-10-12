@@ -15,6 +15,7 @@ import type { ExpenseCategory, ExpenseClaimStatus, ExpenseClaimView, ExpenseRece
 import { cancelRequest, registerSubjectAdapter, requestsFor, submitSubject, type LoadedSubject } from './approvals.js';
 import { withAudit } from './audit.js';
 import { invalidateProjectCost } from './costs.js';
+import { assertKnownCurrency, Converter, rateOn, reportingCurrency } from './currency.js';
 import { getTimeSettings } from './time-rules.js';
 
 /**
@@ -70,11 +71,9 @@ let categoryCache: { at: number; value: ExpenseCategory[] } | undefined;
 
 export async function listCategories(): Promise<ExpenseCategory[]> {
   if (categoryCache && Date.now() - categoryCache.at < 60_000) return categoryCache.value;
-  const [{ types }, settings] = await Promise.all([
-    runAsSystem(() => openProject.request<{ types: OpCostType[] }>('/epm_admin/costs/types', { root: true })),
-    getTimeSettings(),
-  ]);
-  const currency = settings.expenses.currency.toUpperCase();
+  const { types } = await runAsSystem(() => openProject.request<{ types: OpCostType[] }>('/epm_admin/costs/types', { root: true }));
+  // Cost entries are in the reporting currency, which every cost figure is in.
+  const currency = reportingCurrency();
   const value = types.map((type) => ({
     id: String(type.id),
     name: type.name,
@@ -98,7 +97,7 @@ export async function createCategory(input: unknown, actorId: string): Promise<E
   if ((await listCategories()).some((category) => category.name.toLowerCase() === name.toLowerCase())) {
     throw EpmError.conflict(message('There is already a category called {name}.', { name }));
   }
-  const currency = (await getTimeSettings()).expenses.currency.toUpperCase();
+  const currency = reportingCurrency();
   const created = await runAsSystem(() =>
     openProject.request<OpCostType>('/epm_admin/costs/types', {
       root: true,
@@ -127,6 +126,8 @@ const claimSchema = z.object({
   workPackageId: z.string().regex(/^\d+$/, 'Choose the work package the cost was for.'),
   categoryId: z.string().regex(/^\d+$/, 'Choose a category.'),
   amount: z.coerce.number().positive('The amount is more than nothing.').max(1e9),
+  /** The currency it was paid in (BR-320); the claims' usual currency when left out. */
+  currency: z.string().optional(),
   spentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Give the day the cost was paid.'),
   description: z.string().trim().min(1, 'Say what the cost was for.').max(2000),
 });
@@ -165,12 +166,13 @@ async function validClaim(input: unknown, claimantId: string) {
   if (!category) throw EpmError.validation('That category does not exist.');
   await workPackageIn(claim.workPackageId, claim.projectId);
   await assertMember(claimantId, claim.projectId);
-  return { claim, category };
+  const currency = await assertKnownCurrency(claim.currency ?? (await getTimeSettings()).expenses.currency);
+  return { claim: { ...claim, currency }, category };
 }
 
 export async function createClaim(input: unknown, claimantId: string): Promise<ExpenseClaimView> {
   const { claim, category } = await validClaim(input, claimantId);
-  const currency = (await getTimeSettings()).expenses.currency.toUpperCase();
+  const currency = claim.currency;
   const row = await withAudit(
     (tx) =>
       tx.expenseClaim.create({
@@ -223,6 +225,7 @@ export async function updateClaim(id: string, input: unknown, actorId: string): 
           workPackageId: Number(claim.workPackageId),
           costTypeId: Number(claim.categoryId),
           amount: new Prisma.Decimal(claim.amount.toFixed(2)),
+          currency: claim.currency,
           spentOn: date(claim.spentOn),
           description: claim.description,
         },
@@ -354,6 +357,7 @@ export async function receiptContent(claimId: string, receiptId: string, viewer:
 export async function submitClaim(id: string, actorId: string): Promise<ExpenseClaimView> {
   const claim = await draftOf(id, actorId);
   const settings = await getTimeSettings();
+  await rateOn(claim.currency, iso(claim.spentOn));
   const receipts = await prisma.expenseReceipt.count({ where: { claimId: id } });
   if (money(claim.amount) > settings.expenses.receiptThreshold && receipts === 0) {
     throw EpmError.validation(
@@ -410,7 +414,18 @@ export async function postClaim(id: string, actorId: string | null): Promise<Exp
   const claim = await prisma.expenseClaim.findUnique({ where: { id } });
   if (!claim) throw EpmError.notFound('That claim');
   if (claim.status !== 'approved') throw EpmError.conflict('Only an approved claim that is not yet posted can be posted.');
-  const amount = money(claim.amount);
+  // The cost entry is in the reporting currency, at the rate for the day it was paid (BR-321);
+  // the claim keeps its own currency and amount (BR-320).
+  const reporting = reportingCurrency();
+  let converted: { amount: number; rate: number };
+  try {
+    converted = await new Converter().on(money(claim.amount), claim.currency, reporting, iso(claim.spentOn));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    await prisma.expenseClaim.update({ where: { id }, data: { postError: reason.slice(0, 1000) } });
+    return actorId ? claimView(id, { id: actorId, manage: true }) : undefined;
+  }
+  const amount = converted.amount;
   const category = (await listCategories().catch(() => [])).find((candidate) => candidate.id === String(claim.costTypeId));
   const units = category && !category.isAmount && category.rate ? Math.round((amount / category.rate) * 10_000) / 10_000 : amount;
   try {
@@ -430,7 +445,20 @@ export async function postClaim(id: string, actorId: string | null): Promise<Exp
       }),
     );
     await withAudit(
-      (tx) => tx.expenseClaim.update({ where: { id }, data: { status: 'posted', costEntryId: entry.id, postedAt: new Date(), postError: null } }),
+      (tx) =>
+        tx.expenseClaim.update({
+          where: { id },
+          data: {
+            status: 'posted',
+            costEntryId: entry.id,
+            postedAt: new Date(),
+            postError: null,
+            reportingCurrency: reporting,
+            reportingAmount: new Prisma.Decimal(amount.toFixed(2)),
+            exchangeRate: new Prisma.Decimal(converted.rate.toFixed(8)),
+            rateDate: claim.spentOn,
+          },
+        }),
       {
         actorId,
         projectId: String(claim.projectId),
@@ -438,7 +466,7 @@ export async function postClaim(id: string, actorId: string | null): Promise<Exp
         entityId: id,
         action: 'expense.posted',
         summary: message('Expense claim {key} posted to the project as OpenProject cost entry {entry}.', { key: claimKey(id), entry: entry.id }),
-        after: { costEntryId: entry.id, amount, units },
+        after: { costEntryId: entry.id, amount, units, currency: claim.currency, claimed: money(claim.amount), rate: converted.rate },
       },
     );
     invalidateProjectCost(String(claim.projectId));
@@ -473,7 +501,7 @@ async function loadClaim(id: string): Promise<LoadedSubject> {
     projectId,
     projectName: projects.find((project) => String(project.id) === projectId)?.name ?? '',
     facts: { projectId, portfolioId: profile?.portfolioId ?? undefined, customFields: {} },
-    value: money(claim.amount),
+    value: (await new Converter().on(money(claim.amount), claim.currency, reportingCurrency(), iso(claim.spentOn)).catch(() => ({ amount: money(claim.amount) }))).amount,
     valueLabel: msg('Amount'),
   };
 }
@@ -560,6 +588,14 @@ async function viewsOf(rows: (ExpenseClaim & { receipts: Pick<ExpenseReceipt, 'i
       categoryName: categories.find((category) => category.id === String(row.costTypeId))?.name ?? `#${row.costTypeId}`,
       amount,
       currency: row.currency,
+      ...(row.reportingAmount !== null
+        ? {
+            reportingAmount: money(row.reportingAmount),
+            reportingCurrency: row.reportingCurrency ?? undefined,
+            exchangeRate: row.exchangeRate === null ? undefined : Number(row.exchangeRate),
+            rateDate: row.rateDate ? iso(row.rateDate) : undefined,
+          }
+        : {}),
       spentOn: iso(row.spentOn),
       description: row.description,
       status,

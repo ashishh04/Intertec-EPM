@@ -554,7 +554,7 @@ export async function generateSeries(seriesId: string, now = new Date(), budget 
   }
 
   if (!automationConfigured()) {
-    outcome.problem = message('No automation account is configured, so no task was made. Set OPENPROJECT_AUTOMATION_API_KEY on the server.');
+    outcome.problem = message('No automation account is configured, so no task was made. Its key is set on the server.');
     await recordProblem(row, outcome.problem);
     await refreshNext(row, today, calendar);
     return outcome;

@@ -157,7 +157,7 @@ function ClaimDetail({ claim }: { claim: ExpenseClaimView }) {
                 {claim.submittedAt ? t('Submitted {when}.', { when: formatDateTime(claim.submittedAt) }) : t('Not submitted.')}
                 {claim.approvedAt ? ` ${t('Approved {when}.', { when: formatDateTime(claim.approvedAt) })}` : ''}
                 {claim.postedAt && claim.costEntryId
-                  ? ` ${t('Recorded against the project {when} as OpenProject cost entry {entry}.', { when: formatDateTime(claim.postedAt), entry: claim.costEntryId })}`
+                  ? ` ${t('Recorded against the project {when} as cost entry {entry}.', { when: formatDateTime(claim.postedAt), entry: claim.costEntryId })}`
                   : ''}
               </p>
             </CardContent>

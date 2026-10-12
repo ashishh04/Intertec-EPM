@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import type { FormResult } from './forms';
 import type {
   AdminCatalog,
   AdminCatalogRow,
@@ -112,6 +113,13 @@ export interface AdminPlaceholderUser {
   id: ID;
   name: string;
   createdAt: string;
+}
+
+/** When one person last signed in. */
+export interface AdminUserLogin {
+  id: ID;
+  /** ISO; null for someone who has never signed in. */
+  lastLoginAt: string | null;
 }
 
 export interface AdminType {
@@ -451,5 +459,21 @@ export class ApiAdminRepository {
 
   deletePlaceholderUser(id: ID): Promise<void> {
     return apiClient.delete<void>(`/admin/placeholder-users/${id}`);
+  }
+
+  // Users: last sign-in and user attributes
+
+  getUserLogins(): Promise<AdminUserLogin[]> {
+    return apiClient.get<AdminUserLogin[]>('/admin/users/last-logins');
+  }
+
+  /** One person's user attributes, as a form the instance validates. */
+  userAttributesForm(id: ID, payload?: Record<string, unknown>): Promise<FormResult> {
+    return apiClient.post<FormResult>(`/admin/users/${id}/attributes/form`, { payload });
+  }
+
+  /** Only the attributes in `payload` are written; anything else is ignored. */
+  updateUserAttributes(id: ID, payload: Record<string, unknown>): Promise<void> {
+    return apiClient.patch<void>(`/admin/users/${id}/attributes`, { payload });
   }
 }

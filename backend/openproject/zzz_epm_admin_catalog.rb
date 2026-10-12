@@ -119,7 +119,13 @@ Rails.application.config.to_prepare do
           singular: "application",
           description: "Applications allowed to act on a person's behalf.",
           model: -> { Doorkeeper::Application },
-          order: -> { Doorkeeper::Application.order(:name) },
+          # The instance's own built-in applications (its mobile app) are not
+          # listed: they cannot be edited here, and they are the instance's,
+          # not anything an EPM administrator set up.
+          order: lambda {
+            scope = Doorkeeper::Application.order(:name)
+            Doorkeeper::Application.column_names.include?("builtin") ? scope.where(builtin: false) : scope
+          },
           fields: [
             { key: "name", label: "Name", type: "string", required: true },
             { key: "redirectUri", label: "Redirect URI", type: "text", required: true,
@@ -146,6 +152,31 @@ Rails.application.config.to_prepare do
             { key: "isForAll", label: "For all projects", type: "boolean",
               help: "Available everywhere rather than enabled per project." },
             { key: "isFilter", label: "Usable as a filter", type: "boolean" }
+          ]
+        },
+        # The instance's user custom fields, under the name its newer releases
+        # give them. `build` and `find!` take the model as given here, so these
+        # rows are UserCustomField and never touch the work package fields.
+        "user-attributes" => {
+          label: "User attributes",
+          singular: "user attribute",
+          description: "Extra information kept on each person's profile, such as a job title or a skill.",
+          model: -> { UserCustomField },
+          order: -> { UserCustomField.order(:position) },
+          fields: [
+            { key: "name", label: "Name", type: "string", required: true },
+            { key: "fieldFormat", label: "Format", type: "enum", options: :user_format_options,
+              required: true, help: "What kind of value it holds. Cannot change once in use." },
+            { key: "possibleValues", label: "Possible values", type: "text",
+              help: "One per line. Only for a list." },
+            { key: "multiValue", label: "Several values", type: "boolean",
+              help: "Lets a person hold more than one of the possible values. Only for a list." },
+            { key: "isRequired", label: "Required", type: "boolean",
+              help: "Everyone must have a value. Not available for a yes/no attribute." },
+            { key: "adminOnly", label: "Administrators only", type: "boolean",
+              help: "Only administrators can see or change it." },
+            { key: "editable", label: "Editable by the person", type: "boolean",
+              help: "People can change their own value." }
           ]
         }
       }
@@ -405,6 +436,20 @@ Rails.application.config.to_prepare do
         { value: "bool", label: "Boolean" },
         { value: "user", label: "User" },
         { value: "version", label: "Version" }
+      ]
+    end
+
+    # The formats a user custom field can take: the instance offers user,
+    # version and link only to work packages, projects and time entries.
+    def user_format_options
+      [
+        { value: "string", label: "Text" },
+        { value: "text", label: "Long text" },
+        { value: "int", label: "Integer" },
+        { value: "float", label: "Float" },
+        { value: "list", label: "List" },
+        { value: "date", label: "Date" },
+        { value: "bool", label: "Boolean" }
       ]
     end
 

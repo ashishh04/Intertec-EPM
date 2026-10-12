@@ -172,7 +172,7 @@ const bridgeMissing = (error: unknown) => error instanceof OpenProjectError && e
 
 function bridgeError(error: unknown): never {
   if (bridgeMissing(error)) {
-    throw EpmError.unavailable('OpenProject cannot hold calculated fields yet: zzz_epm_calculated.rb is not loaded there.', error);
+    throw EpmError.unavailable('Calculated fields cannot be stored yet: the server is missing the part that holds them.', error);
   }
   throw error;
 }
@@ -657,7 +657,7 @@ export async function deleteCalculatedField(id: string, actorId: string): Promis
       entityType: 'calculated-field',
       entityId: id,
       action: 'calculated-field.deleted',
-      summary: message('Calculated field {name} ({key}) deleted, with its values and its OpenProject field.', {
+      summary: message('Calculated field {name} ({key}) deleted, with its values and the field that held them.', {
         name: current.name,
         key: current.key,
       }),
@@ -1010,7 +1010,7 @@ async function mirrorValues(
       mirrored: touched,
       skipped,
       valuesFingerprint: null,
-      error: `Writing calculated values to OpenProject failed: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Writing calculated values failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }

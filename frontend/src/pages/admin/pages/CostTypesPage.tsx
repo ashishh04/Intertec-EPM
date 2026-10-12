@@ -40,7 +40,7 @@ export default function CostTypesPage() {
       <Card>
         <CardHeader variant="compact">
           <CardTitle>{t('Cost types')}</CardTitle>
-          <CardDescription>{t('OpenProject’s categories of cost other than labour. Expense claims are made under them, and recorded as them once approved.')}</CardDescription>
+          <CardDescription>{t('Categories of cost other than labour. Expense claims are made under them, and recorded as them once approved.')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-4">
           <QueryBoundary

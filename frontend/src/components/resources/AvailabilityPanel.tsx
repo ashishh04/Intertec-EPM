@@ -575,7 +575,7 @@ function HrTools() {
           </CardTitle>
           <CardDescription>
             {t(
-              'Schedules and time off, one line each, by email or OpenProject id. Time off is matched by the HR source’s own id, so the same extract imported twice changes nothing the second time.',
+              'Schedules and time off, one line each, by email or user id. Time off is matched by the HR source’s own id, so the same extract imported twice changes nothing the second time.',
             )}
           </CardDescription>
         </CardHeader>

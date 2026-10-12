@@ -26,7 +26,7 @@ declare module 'fastify' {
  * yet, and OpenProject delivering a webhook, which proves itself with a
  * signature instead.
  */
-const PUBLIC_PATHS = new Set(['/auth/login', '/auth/logout', '/auth/config', '/webhooks/openproject']);
+const PUBLIC_PATHS = new Set(['/auth/login', '/auth/logout', '/auth/config', '/webhooks/delivery', '/webhooks/openproject']);
 
 /** Everything under here is public: the token in the path is the credential. */
 const PUBLIC_PREFIXES = ['/invites/'];

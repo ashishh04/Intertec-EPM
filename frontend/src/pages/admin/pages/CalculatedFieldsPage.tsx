@@ -263,7 +263,7 @@ export default function CalculatedFieldsPage() {
         onOpenChange={(open) => !open && setDeleting(undefined)}
         title={deleting ? t('Delete {name}?', { name: deleting.name }) : ''}
         description={t(
-          'Its values and its OpenProject field go with it, and views that show it lose the column. A field another reads cannot be deleted. This cannot be undone.',
+          'Its values and the field that holds them go with it, and views that show it lose the column. A field another reads cannot be deleted. This cannot be undone.',
         )}
         confirmLabel={t('Delete')}
         tone="danger"
@@ -319,7 +319,7 @@ function PassesCard({ mayConfigure }: { mayConfigure: boolean }) {
           {status.data
             ? status.data.enabled
               ? t(
-                  'Worked out after every change made through EPM, and checked against OpenProject every {seconds, number} seconds for changes made there — and when the day turns, for formulas that read TODAY().',
+                  'Worked out after every change made through EPM, and checked every {seconds, number} seconds for changes made elsewhere — and when the day turns, for formulas that read TODAY().',
                   { seconds: status.data.checkSeconds },
                 )
               : t('Calculated fields are switched off on this server: values are not recalculated.')

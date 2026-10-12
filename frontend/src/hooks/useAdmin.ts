@@ -44,6 +44,7 @@ export const adminKeys = {
   usersSettings: ['admin', 'settings', 'users'] as const,
   enterprise: ['admin', 'enterprise'] as const,
   permissions: ['admin', 'permissions'] as const,
+  userLogins: ['admin', 'users', 'logins'] as const,
   // Defined in lib/queryKeys.ts with the rest of the app's keys, and re-exposed
   // here so every admin hook still reaches for one object.
   settingsSections: queryKeys.adminSettingsSections,
@@ -200,6 +201,18 @@ export function useAdminVersions() {
   return useQuery({
     queryKey: adminKeys.versions,
     queryFn: () => adminService.getVersions(),
+    ...ADMIN_DATA,
+  });
+}
+
+/**
+ * When each person last signed in. Kept apart from the account list, which
+ * every people screen shares, so only the Users page pays for it.
+ */
+export function useAdminUserLogins() {
+  return useQuery({
+    queryKey: adminKeys.userLogins,
+    queryFn: () => adminService.getUserLogins(),
     ...ADMIN_DATA,
   });
 }

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { FastifyBaseLogger, FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { env } from '../config/env.js';
 import { invalidateProjectCost } from '../domain/costs.js';
@@ -186,7 +186,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  app.post<{ Body: WebhookBody }>('/webhooks/openproject', async (request, reply) => {
+  const receive = async (request: FastifyRequest<{ Body: WebhookBody }>, reply: FastifyReply) => {
     verifySignature(request);
     noteWebhookReceived();
 
@@ -239,5 +239,11 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
     }
 
     reply.code(204);
-  });
+  };
+
+  // `/webhooks/delivery` is the address to give the instance's webhook. The
+  // older one is still accepted, so a webhook already pointed there keeps
+  // arriving until someone changes its URL.
+  app.post<{ Body: WebhookBody }>('/webhooks/delivery', receive);
+  app.post<{ Body: WebhookBody }>('/webhooks/openproject', receive);
 };

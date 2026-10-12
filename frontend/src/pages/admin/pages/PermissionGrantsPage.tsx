@@ -89,7 +89,7 @@ export default function PermissionGrantsPage() {
   return (
     <div className="space-y-4">
       <Alert tone="neutral" icon={ShieldCheck}>
-        {t('These are EPM\'s own permissions, for things OpenProject has no notion of. What someone may do inside a project comes from their role there (Roles and permissions). Every change here is journalled and takes effect within a minute.')}
+        {t('These are EPM\'s own permissions, for things project roles do not cover. What someone may do inside a project comes from their role there (Roles and permissions). Every change here is journalled and takes effect within a minute.')}
       </Alert>
 
       {configured.length > 0 ? (
