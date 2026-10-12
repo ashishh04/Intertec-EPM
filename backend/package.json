@@ -39,7 +39,7 @@
     "fastify": "^5.12.5",
     "fontkit": "^2.0.4",
     "nodemailer": "^10.0.10",
-    "prisma": "^6.2.1",
+    "prisma": "^7.10.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
