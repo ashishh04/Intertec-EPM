@@ -122,6 +122,7 @@ export interface ProjectOverlay {
   plannedFinish?: Date | null;
   billable?: boolean | null;
   timesheetApproval?: boolean | null;
+  timezone?: string | null;
 }
 
 /**
@@ -231,6 +232,7 @@ export function toEpmProject(
     budgetTotal: options.overlay?.budgetTotal ?? 0,
     billable: options.overlay?.billable ?? null,
     timesheetApproval: options.overlay?.timesheetApproval ?? null,
+    timezone: options.overlay?.timezone ?? null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };

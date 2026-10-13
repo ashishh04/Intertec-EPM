@@ -9,7 +9,8 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { idFromHref, openProject } from '../openproject/client.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
-import { message } from '../lib/i18n.js';
+import { listOf, message } from '../lib/i18n.js';
+import { notifyPeople } from '../domain/notifications.js';
 
 /**
  * Full-fidelity work package writes.
@@ -124,6 +125,10 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
+      // BR-113: what follows it, as it stood, when its dates change.
+      const datesChange = ['startDate', 'dueDate', 'date', 'duration'].some((key) => key in payload);
+      const followers = datesChange ? await successorDates(id, signal) : [];
+
       const updated = await openProject.request<OpWorkPackageWrite>(`/work_packages/${id}`, {
         method: 'PATCH',
         body: { lockVersion: current.lockVersion, ...payload },
@@ -143,7 +148,24 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         version: updated.lockVersion,
         actorId: request.auth?.userId,
       });
-      return { id: String(updated.id), subject: updated.subject, lockVersion: updated.lockVersion };
+      const moved = followers.length > 0 ? await movedSince(followers, signal) : [];
+      if (moved.length > 0 && request.auth?.userId) {
+        await notifyPeople({
+          recipients: [request.auth.userId],
+          category: 'project_update',
+          title: message('Moving {subject} moved {count, plural, one {# work package} other {# work packages}} that follow it', {
+            subject: updated.subject,
+            count: moved.length,
+          }),
+          body: message('{moved}.', {
+            moved: listOf(moved.map((item) => message('{subject} by {days, plural, one {# day} other {# days}}', { subject: item.subject, days: item.days }))),
+          }),
+          link: `/tasks/${id}`,
+          severity: 'info',
+          dedupeKey: `successors-moved:${id}:${updated.lockVersion}`,
+        }).catch(() => 0);
+      }
+      return { id: String(updated.id), subject: updated.subject, lockVersion: updated.lockVersion, moved };
     },
   );
 
@@ -166,3 +188,86 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
     reply.code(204);
   });
 };
+
+/* -------------------------------------------------------------------------- */
+/* Successors (BR-113)                                                        */
+/* -------------------------------------------------------------------------- */
+
+interface FollowerDates {
+  id: string;
+  subject: string;
+  start: string | null;
+  finish: string | null;
+}
+
+type OpDated = { id: number; subject: string; startDate?: string | null; dueDate?: string | null; date?: string | null };
+
+const datesOf = (work: OpDated): FollowerDates => ({
+  id: String(work.id),
+  subject: work.subject,
+  // A milestone renders only `date`.
+  start: work.startDate ?? work.date ?? null,
+  finish: work.dueDate ?? work.date ?? null,
+});
+
+/** Who directly follows a work package. */
+async function directSuccessors(id: string, signal?: AbortSignal): Promise<string[]> {
+  const relations = await openProject
+    .request<{ _embedded?: { elements?: { type: string; _links: { from?: { href?: string }; to?: { href?: string } } }[] } }>(
+      `/work_packages/${id}/relations`,
+      { signal },
+    )
+    .catch(() => null);
+  const ids: string[] = [];
+  for (const relation of relations?._embedded?.elements ?? []) {
+    const from = idFromHref(relation._links.from?.href);
+    const to = idFromHref(relation._links.to?.href);
+    if (relation.type === 'follows' && to === id && from) ids.push(from);
+    if (relation.type === 'precedes' && from === id && to) ids.push(to);
+  }
+  return ids;
+}
+
+/** Everything that follows this one, directly or down the chain, with its dates now: at most 50. */
+async function successorDates(id: string, signal?: AbortSignal): Promise<FollowerDates[]> {
+  const seen = new Set<string>([id]);
+  const queue = [id];
+  const out: FollowerDates[] = [];
+  while (queue.length > 0 && out.length < 50) {
+    for (const follower of await directSuccessors(queue.shift()!, signal)) {
+      if (seen.has(follower) || out.length >= 50) continue;
+      seen.add(follower);
+      const work = await openProject.request<OpDated>(`/work_packages/${follower}`, { signal }).catch(() => null);
+      if (!work) continue;
+      out.push(datesOf(work));
+      queue.push(follower);
+    }
+  }
+  return out;
+}
+
+/** Working days, Monday to Friday, from one day to another: negative backwards. */
+function weekdaysBetween(from: string, to: string): number {
+  const sign = to >= from ? 1 : -1;
+  const [low, high] = sign > 0 ? [from, to] : [to, from];
+  let count = 0;
+  for (let at = Date.parse(`${low}T00:00:00Z`) + 86_400_000; at <= Date.parse(`${high}T00:00:00Z`); at += 86_400_000) {
+    const weekday = new Date(at).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) count += 1;
+  }
+  return sign * count;
+}
+
+/** Of those, the ones whose dates have since moved, and by how many days. */
+async function movedSince(before: FollowerDates[], signal?: AbortSignal): Promise<{ id: string; subject: string; start: string | null; finish: string | null; days: number }[]> {
+  const moved = [];
+  for (const old of before) {
+    const work = await openProject.request<OpDated>(`/work_packages/${old.id}`, { signal }).catch(() => null);
+    if (!work) continue;
+    const now = datesOf(work);
+    if (now.start === old.start && now.finish === old.finish) continue;
+    const days = old.finish && now.finish ? weekdaysBetween(old.finish, now.finish) : old.start && now.start ? weekdaysBetween(old.start, now.start) : 0;
+    moved.push({ ...now, days });
+  }
+  return moved;
+}

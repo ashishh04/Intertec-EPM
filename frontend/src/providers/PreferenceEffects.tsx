@@ -37,7 +37,7 @@ import {
  * date format when they join and then never again.
  */
 export function PreferenceEffects({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   // Asked for only once a session exists. This renders above the router, so it
   // is mounted on the public pages as well — and a signed-out request for a
@@ -77,7 +77,7 @@ export function PreferenceEffects({ children }: { children: React.ReactNode }) {
   // already uses the right language and format instead of showing the default
   // for a frame and then correcting itself.
   setConventions({ language, calendar, numerals });
-  setDateConventions({ dateFormat, timeFormat });
+  setDateConventions({ dateFormat, timeFormat, timeZone: user?.timezone });
 
   const dir = direction(language);
 

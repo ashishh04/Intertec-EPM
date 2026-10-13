@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ComboSelect } from '@/components/common/ComboSelect';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,6 +43,8 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
   const [budget, setBudget] = useState('');
   const [billable, setBillable] = useState('default');
   const [ownerApproves, setOwnerApproves] = useState('yes');
+  const [timezone, setTimezone] = useState<string>();
+  const zones = useMemo(() => ((Intl as unknown as { supportedValuesOf?: (key: 'timeZone') => string[] }).supportedValuesOf?.('timeZone') ?? []).map((zone) => ({ id: zone, name: zone })), []);
   const [problem, setProblem] = useState<string>();
 
   // Keyed on the id for the same reason as the override dialog: a refetch must
@@ -54,6 +57,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
     setBudget(project.budgetTotal > 0 ? String(project.budgetTotal) : '');
     setBillable(project.billable === true ? 'yes' : project.billable === false ? 'no' : 'default');
     setOwnerApproves(project.timesheetApproval === false ? 'no' : 'yes');
+    setTimezone(project.timezone ?? undefined);
     setProblem(undefined);
   }, [open, project.id]);
 
@@ -71,6 +75,7 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
       budgetTotal: budgetValue,
       billable: billable === 'yes' ? true : billable === 'no' ? false : null,
       timesheetApproval: ownerApproves === 'no' ? false : null,
+      timezone: timezone ?? null,
     };
 
     updatePlan.mutate(
@@ -173,6 +178,12 @@ export function ProjectPlanDialog({ open, onOpenChange, project }: ProjectPlanDi
               </SelectContent>
             </Select>
             <FieldHint>{t('After a person’s line manager, the owners of the projects their time is on approve their timesheet.')}</FieldHint>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="plan-timezone">{t('Timezone')}</Label>
+            <ComboSelect id="plan-timezone" label={t('Timezone')} options={zones} value={timezone} onChange={setTimezone} clearable placeholder={t('The instance default')} />
+            <FieldHint>{t('The project’s dates are calendar days in its timezone: everyone sees the same day, wherever they are.')}</FieldHint>
           </div>
 
           {problem ? <Alert tone="danger">{problem}</Alert> : null}

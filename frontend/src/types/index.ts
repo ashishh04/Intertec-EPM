@@ -355,6 +355,8 @@ export interface ProjectPlanInput {
   billable?: boolean | null;
   /** Whether the project's owner approves time logged here (BR-305); null means yes. */
   timesheetApproval?: boolean | null;
+  /** The project's timezone (BR-108), an IANA name; null follows the instance default. */
+  timezone?: string | null;
 }
 
 /**
@@ -511,6 +513,8 @@ export interface EpmProject {
   billable: boolean | null;
   /** Whether the project's owner approves time logged here (BR-305); null means yes. */
   timesheetApproval: boolean | null;
+  /** The project's timezone (BR-108); its dates are calendar days there. Null: the instance default. */
+  timezone: string | null;
   /**
    * What the caller may do to the project itself, read from the resource's own
    * links rather than inferred. Deleting is published only where the instance

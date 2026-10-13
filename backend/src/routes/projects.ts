@@ -151,6 +151,13 @@ const planBody = z
     billable: z.boolean().nullable().optional(),
     /** Whether the project's owner approves time logged here (BR-305); null means yes. */
     timesheetApproval: z.boolean().nullable().optional(),
+    /** The project's timezone (BR-108), an IANA name; null follows the instance default. */
+    timezone: z
+      .string()
+      .max(64)
+      .refine((zone) => { try { new Intl.DateTimeFormat('en', { timeZone: zone }); return true; } catch { return false; } }, 'That is not a timezone.')
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -179,7 +186,7 @@ function describeMoney(value: number | null | undefined): string | Message {
 async function updatePlan(projectId: string, input: z.infer<typeof planBody>): Promise<boolean> {
   const existing = await prisma.projectProfile.findUnique({
     where: { openProjectId: projectId },
-    select: { plannedStart: true, plannedFinish: true, budgetTotal: true, billable: true, timesheetApproval: true },
+    select: { plannedStart: true, plannedFinish: true, budgetTotal: true, billable: true, timesheetApproval: true, timezone: true },
   });
 
   const toDate = (value: string | null) => (value === null ? null : new Date(`${value}T00:00:00Z`));
@@ -189,6 +196,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
     budgetTotal: input.budgetTotal === undefined ? existing?.budgetTotal ?? null : input.budgetTotal,
     billable: input.billable === undefined ? existing?.billable ?? null : input.billable,
     timesheetApproval: input.timesheetApproval === undefined ? existing?.timesheetApproval ?? null : input.timesheetApproval,
+    timezone: input.timezone === undefined ? existing?.timezone ?? null : input.timezone,
   };
 
   if (next.plannedStart && next.plannedFinish && next.plannedFinish < next.plannedStart) {
@@ -228,6 +236,9 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
       }),
     );
   }
+  if ((existing?.timezone ?? null) !== next.timezone) {
+    changes.push(message('timezone {from} → {to}', { from: existing?.timezone ?? message('the default'), to: next.timezone ?? message('the default') }));
+  }
   if (changes.length === 0) return false;
 
   const snapshot = (value: typeof next) => ({
@@ -236,6 +247,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
     budgetTotal: value.budgetTotal,
     billable: value.billable,
     timesheetApproval: value.timesheetApproval,
+    timezone: value.timezone,
   });
 
   await withAudit(
@@ -257,6 +269,7 @@ async function updatePlan(projectId: string, input: z.infer<typeof planBody>): P
         budgetTotal: existing?.budgetTotal ?? null,
         billable: existing?.billable ?? null,
         timesheetApproval: existing?.timesheetApproval ?? null,
+        timezone: existing?.timezone ?? null,
       }),
       after: snapshot(next),
     },

@@ -169,6 +169,10 @@ model ProjectProfile {
   /// Whether the project's owner approves the time people log here, after
   /// their line manager (BR-305); null means yes.
   timesheetApproval  Boolean?
+  /// The project's timezone (BR-108): its dates are calendar days there.
+  /// Null follows the instance default. Project dates are date-only, so
+  /// everyone, in any timezone, sees the same day.
+  timezone           String?
   /// The project's currency (BR-320): its contract value, bill rates and
   /// billable items are in it. Null means the reporting currency. Its budget is
   /// EPM's internal cost budget and stays in the reporting currency.

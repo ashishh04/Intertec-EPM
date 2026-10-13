@@ -209,6 +209,7 @@ async function main() {
   const timeCostEntryIds: string[] = [];
   /** What the finance tests undo, last first. */
   const financeCleanup: (() => Promise<unknown>)[] = [];
+  let slipProjectId: string | undefined;
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -8839,6 +8840,76 @@ async function main() {
     timeSettingsBefore = undefined;
   }
 
+  // --- Work that slips (BR-113) and a project's timezone (BR-108) -------------
+  console.log('\nWork that slips, and a project\'s timezone');
+  {
+    type Json = Record<string, any>;
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const json = async (path: string, init: Parameters<typeof call>[1] = {}) => (await (await call(path, { cookie: admin, ...init })).json()) as Json;
+    const stamp = Date.now();
+    const made = await call('/projects', { method: 'POST', cookie: admin, body: { payload: { name: `Slip Test ${stamp}`, identifier: `slip-${stamp}` } } });
+    check('a project is made for the slip tests', made.status, 201);
+    slipProjectId = ((await made.json()) as Json).id as string | undefined;
+
+    // BR-108: a timezone of its own; its dates stay calendar days.
+    check('BR-108: the project is given a timezone', await status(`/projects/${slipProjectId}/plan`, { method: 'PATCH', cookie: admin, body: { timezone: 'Asia/Dubai' } }), 200);
+    check('and keeps it', (await json(`/projects/${slipProjectId}`)).timezone, 'Asia/Dubai');
+    check('a name that is no timezone is refused', await status(`/projects/${slipProjectId}/plan`, { method: 'PATCH', cookie: admin, body: { timezone: 'Mars/Olympus' } }), 400);
+
+    // Three weeks ahead, from a Monday: P Monday to Friday; S1 and S2 follow it in turn; M follows P but is scheduled by hand.
+    const DAY = 86_400_000;
+    const now = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) + 21 * DAY;
+    const monday = now - ((new Date(now).getUTCDay() + 6) % 7) * DAY;
+    const day = (offset: number) => new Date(monday + offset * DAY).toISOString().slice(0, 10);
+    const types = ((await asSystem(() => upstream.request<Json>(`/projects/${slipProjectId}/types`)))._embedded?.elements ?? []) as Json[];
+    const taskType = types.find((type) => type.name === 'Task')?.id ?? types.find((type) => !type.isMilestone)?.id;
+    const milestoneType = types.find((type) => type.isMilestone)?.id;
+    const make = async (subject: string, start: string, due: string, type = taskType) =>
+      ((await json('/work-packages', { method: 'POST', body: { projectId: slipProjectId, typeId: String(type), payload: { subject, startDate: start, dueDate: due } } })).id as string | undefined);
+    const P = await make('Slip P', day(0), day(4));
+    const S1 = await make('Slip S1', day(7), day(8));
+    const S2 = await make('Slip S2', day(9), day(10));
+    const M = await make('Slip M', day(7), day(8));
+    const relate = (successor?: string, predecessor?: string) =>
+      status(`/work-packages/${successor}/relations`, { method: 'POST', cookie: admin, body: { type: 'follows', relatedId: predecessor } });
+    check('S1 follows P, S2 follows S1, M follows P', [await relate(S1, P), await relate(S2, S1), await relate(M, P)].join(), '201,201,201');
+    check('M is scheduled by hand', await status(`/work-packages/${M}`, { method: 'PATCH', cookie: admin, body: { payload: { scheduleManually: true, startDate: day(7), dueDate: day(8) } } }), 200);
+    const read = async (id?: string) => {
+      const work = await asSystem(() => upstream.request<Json>(`/work_packages/${id}`));
+      return { start: (work.startDate ?? work.date) as string, finish: (work.dueDate ?? work.date) as string, manual: work.scheduleManually as boolean };
+    };
+    const before = { S1: await read(S1), S2: await read(S2), M: await read(M) };
+    check('S1 and S2 are scheduled automatically, M by hand', `${before.S1.manual}/${before.S2.manual}/${before.M.manual}`, 'false/false/true');
+
+    // P's finish moves five working days.
+    const moved = await call(`/work-packages/${P}`, { method: 'PATCH', cookie: admin, body: { payload: { dueDate: day(11) } } });
+    const answer = (await moved.json()) as Json;
+    const weekdays = (from: string, to: string) => {
+      let count = 0;
+      for (let at = Date.parse(`${from}T00:00:00Z`) + DAY; at <= Date.parse(`${to}T00:00:00Z`); at += DAY) if (![0, 6].includes(new Date(at).getUTCDay())) count += 1;
+      return count;
+    };
+    const after = { S1: await read(S1), S2: await read(S2), M: await read(M) };
+    check(
+      'BR-113: moving a predecessor’s finish five days shifts every automatically scheduled successor five days',
+      [weekdays(before.S1.start, after.S1.start), weekdays(before.S1.finish, after.S1.finish), weekdays(before.S2.start, after.S2.start), weekdays(before.S2.finish, after.S2.finish)].join(),
+      '5,5,5,5',
+    );
+    check('and leaves the one scheduled by hand untouched', `${after.M.start}/${after.M.finish}`, `${day(7)}/${day(8)}`);
+    check(
+      'the planner is told what moved, and by how much',
+      ((answer.moved ?? []) as Json[]).map((item) => `${item.id}:${item.days}`).sort().join(),
+      [`${S1}:5`, `${S2}:5`].sort().join(),
+    );
+    const told = (await json('/notifications?limit=20')) as Json;
+    const items = (Array.isArray(told) ? told : (told.items ?? [])) as Json[];
+    check('in the app as well', items.some((item) => String(item.link ?? '').endsWith(`/tasks/${P}`)), true);
+
+    check('the project is removed', await status(`/projects/${slipProjectId}`, { method: 'DELETE', cookie: admin }), 204);
+    slipProjectId = undefined;
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -9361,6 +9432,7 @@ async function main() {
   if (viewTimeEntryId) {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
   }
+  if (slipProjectId) await call(`/projects/${slipProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
   // The finance tests' rates, rate card, items, batch, phasing and settings.
   for (const undo of financeCleanup.splice(0).reverse()) await undo().catch(() => undefined);
   // The time and expense tests' cost entries, project and rules, and the

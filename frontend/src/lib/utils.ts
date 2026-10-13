@@ -55,12 +55,34 @@ type DateFormat = keyof typeof DATE_PATTERNS;
 let activeFormat: DateFormat = 'system';
 let activePattern: DatePattern = DATE_PATTERNS.system;
 let activeClock: '24h' | '12h' = '24h';
+/**
+ * The timezone a moment in time is shown in (BR-109): the person's own, from
+ * their profile. Dates without a time are calendar days and never shift.
+ */
+let activeTimeZone: string | undefined;
 
 /** Applies the person's format choices. Called by `PreferenceEffects`. */
-export function setDateConventions(options: { dateFormat: DateFormat; timeFormat: '24h' | '12h' }): void {
+export function setDateConventions(options: { dateFormat: DateFormat; timeFormat: '24h' | '12h'; timeZone?: string }): void {
   activeFormat = DATE_PATTERNS[options.dateFormat] ? options.dateFormat : 'system';
   activePattern = DATE_PATTERNS[activeFormat];
   activeClock = options.timeFormat;
+  activeTimeZone = validZone(options.timeZone);
+}
+
+function validZone(zone?: string): string | undefined {
+  if (!zone) return undefined;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+    return zone;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The zone's short name at that moment, e.g. "GST" or "GMT+4". */
+function zoneName(date: Date): string {
+  const parts = dateFormatter({ timeZone: activeTimeZone, timeZoneName: 'short', hour: 'numeric' }).formatToParts(date);
+  return parts.find((part) => part.type === 'timeZoneName')?.value ?? '';
 }
 
 /*
@@ -155,6 +177,13 @@ export function formatMonthYear(value?: string | Date | null): string {
 export function formatTime(value?: string | Date | null): string {
   const date = toDate(value);
   if (!date) return '—';
+  if (activeTimeZone) {
+    const clock = dateFormatter({
+      timeZone: activeTimeZone,
+      ...(activeClock === '24h' ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } : { hour: 'numeric', minute: '2-digit', hourCycle: 'h12' }),
+    }).format(date);
+    return `${clock} ${zoneName(date)}`;
+  }
   if (viaIntl()) {
     return dateFormatter(
       activeClock === '24h'
@@ -168,6 +197,10 @@ export function formatTime(value?: string | Date | null): string {
 export function formatDateTime(value?: string | Date | null): string {
   const date = toDate(value);
   if (!date) return '—';
+  if (activeTimeZone) {
+    const day = dateFormatter({ timeZone: activeTimeZone, day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+    return t('{date}, {time}', { date: day, time: formatTime(date) });
+  }
   if (viaIntl()) return t('{date}, {time}', { date: intlDate(date, 'long'), time: formatTime(date) });
   return `${format(date, activePattern.time)}, ${formatTime(date)}`;
 }

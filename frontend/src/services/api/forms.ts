@@ -1,4 +1,7 @@
+import { toast } from 'sonner';
+
 import { apiClient } from './client';
+import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
@@ -218,11 +221,18 @@ export class ApiWorkPackageRepository {
     });
   }
 
-  update(id: ID, payload: Record<string, unknown>) {
-    return apiClient.patch<{ id: ID; subject: string; lockVersion: number }>(
+  /** Says, when its dates moved the work that follows it, what moved and by how much (BR-113). */
+  async update(id: ID, payload: Record<string, unknown>) {
+    const result = await apiClient.patch<{ id: ID; subject: string; lockVersion: number; moved?: { id: ID; subject: string; days: number }[] }>(
       `/work-packages/${id}`,
       { payload },
     );
+    if (result.moved?.length) {
+      toast.info(t('{count, plural, one {# work package that follows it moved} other {# work packages that follow it moved}}', { count: result.moved.length }), {
+        description: result.moved.map((item) => t('{subject} by {days, plural, one {# day} other {# days}}', { subject: item.subject, days: item.days })).join(', '),
+      });
+    }
+    return result;
   }
 }
 
