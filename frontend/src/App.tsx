@@ -50,6 +50,7 @@ const ResourcesPage = lazy(() => import('@/pages/ResourcesPage'));
 const TimesheetsPage = lazy(() => import('@/pages/TimesheetsPage'));
 const TimesheetPage = lazy(() => import('@/pages/TimesheetPage'));
 const ExpensesPage = lazy(() => import('@/pages/ExpensesPage'));
+const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const ExpenseClaimPage = lazy(() => import('@/pages/ExpenseClaimPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
@@ -282,6 +283,14 @@ export function App() {
           <Route path="/timesheets/people/:personId" element={<TimesheetPage />} />
           <Route path="/timesheets/:id" element={<TimesheetPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
+          <Route
+            path="/finance"
+            element={
+              <RequirePermission permission="finance:view">
+                <FinancePage />
+              </RequirePermission>
+            }
+          />
           <Route path="/expenses/:id" element={<ExpenseClaimPage />} />
 
           {/* The executive and PMO dashboards (BR-405). Open to everyone signed in:

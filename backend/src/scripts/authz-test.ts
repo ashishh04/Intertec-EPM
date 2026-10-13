@@ -207,6 +207,8 @@ async function main() {
   let timeProjectId: string | undefined;
   let timeSettingsBefore: Record<string, unknown> | undefined;
   const timeCostEntryIds: string[] = [];
+  /** What the finance tests undo, last first. */
+  const financeCleanup: (() => Promise<unknown>)[] = [];
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -8591,6 +8593,241 @@ async function main() {
       '',
     );
 
+    // --- Finance, on the same project (BR-310, BR-311, BR-318 to BR-323) ---------
+    console.log('\nFinance');
+    {
+      const { createServer } = await import('node:http');
+      const reporting = String((await json('/finance/currencies')).reporting);
+      check('finance figures are not for someone without its permissions', await status(`/finance/margin?projectId=${teProject}`, { cookie: restricted }), 403);
+      check('nor are exchange rates added by them', await status('/finance/rates', { method: 'POST', cookie: restricted, body: {} }), 403);
+      const addRate = async (body: Json) => {
+        const response = await call('/finance/rates', { method: 'POST', cookie: admin, body });
+        const row = (await response.json()) as Json;
+        if (row.id) {
+          financeCleanup.push(() =>
+            teDb.exchangeRateFixing.deleteMany({ where: { rateId: row.id } }).then(() => teDb.exchangeRate.deleteMany({ where: { id: row.id } })),
+          );
+        }
+        return response.status;
+      };
+      check(
+        'rates are added: EUR and USD, and a USD planning rate',
+        [
+          await addRate({ currency: 'EUR', rate: 4, effectiveFrom: '2026-01-01' }),
+          await addRate({ currency: 'USD', rate: 3.6725, effectiveFrom: '2026-01-01' }),
+          await addRate({ currency: 'USD', rate: 3.67, effectiveFrom: '2026-01-01', kind: 'planning' }),
+        ].join(),
+        '201,201,201',
+      );
+      const card = await json('/finance/rate-cards', admin, {
+        method: 'POST',
+        body: { name: `Suite card ${stamp}`, currency: 'USD', isDefault: false, rates: [{ roleId: null, hourlyRate: 100 }] },
+      });
+      financeCleanup.push(() =>
+        teDb.projectProfile.updateMany({ where: { rateCardId: card.id }, data: { rateCardId: null } }).then(() => teDb.rateCard.deleteMany({ where: { id: card.id } })),
+      );
+      financeCleanup.push(() => teDb.billableItem.deleteMany({ where: { projectId: Number(teProject) } }));
+      financeCleanup.push(() => teDb.budgetPhase.deleteMany({ where: { projectId: Number(teProject) } }));
+      const contract = await json(`/finance/projects/${teProject}/contract`, admin, {
+        method: 'PATCH',
+        body: { currency: 'USD', contractValue: 20000, billingModel: 'time_and_materials', rateCardId: card.id },
+      });
+      check('the project is billed in USD, time and materials, at the card', `${contract.currency}/${contract.billingModel}/${contract.rateCardName}`, `USD/time_and_materials/Suite card ${stamp}`);
+
+      // BR-310: phasing derived from the plan, set by hand, and kept to the budget when it changes.
+      const firstOfMonth = `${today.slice(0, 7)}-01`;
+      const thisMonth = new Date(`${firstOfMonth}T00:00:00Z`);
+      const nextFirst = new Date(Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() + 1, 1));
+      const nextLast = new Date(Date.UTC(thisMonth.getUTCFullYear(), thisMonth.getUTCMonth() + 2, 0));
+      const plan = (body: Json) => status(`/projects/${teProject}/plan`, { method: 'PATCH', cookie: admin, body });
+      check('the project has a budget and planned dates', await plan({ budgetTotal: 12000, plannedStart: firstOfMonth, plannedFinish: isoOf(nextLast.getTime()) }), 200);
+      const sum = (phases: Json[]) => round2(phases.reduce((total, phase) => total + Number(phase.amount), 0));
+      const derived = await json(`/finance/projects/${teProject}/phasing`);
+      check('BR-310: phased from the schedule, the months sum to the budget', `${derived.basis}/${sum(derived.phases)}`, 'dates/12000');
+      const months = [firstOfMonth, isoOf(nextFirst.getTime())];
+      const phase = (amounts: number[]) =>
+        call(`/finance/projects/${teProject}/phasing`, { method: 'PUT', cookie: admin, body: { phases: months.map((month, index) => ({ month, amount: amounts[index] })) } });
+      check('phased by hand, months that miss the budget are refused', (await phase([5000, 5000])).status, 422);
+      const manual = (await (await phase([4000, 8000])).json()) as Json;
+      check('months that make it are kept', `${manual.basis}/${sum(manual.phases)}`, 'manual/12000');
+      await plan({ budgetTotal: 15000 });
+      const rescaled = await json(`/finance/projects/${teProject}/phasing`);
+      check(
+        'BR-310: with the budget changed, the phasing still sums to it',
+        `${rescaled.rescaled}/${sum(rescaled.phases)}/${(rescaled.phases as Json[]).map((one) => one.amount).join('+')}`,
+        'true/15000/5000+10000',
+      );
+
+      // The reopened timesheet approved again, and a claim in euros.
+      check('the reopened timesheet is submitted again', (await submitWeek()).status, 200);
+      for (let step = 0; step < 2; step += 1) {
+        const task = pendingTask(await json(`/timesheets/${sheet.id}`, admin));
+        if (task) await call(`/approvals/tasks/${task.id}/decide`, { method: 'POST', cookie: admin, body: { decision: 'approve' } });
+      }
+      check('and approved', (await json(`/timesheets/${sheet.id}`, admin)).status, 'approved');
+      const euro = await json('/expenses', restricted, {
+        method: 'POST',
+        body: { projectId: teProject, workPackageId: A, categoryId: category!.id, amount: 100, currency: 'EUR', spentOn: wd(2), description: 'Suite claim in euros' },
+      });
+      check('a claim in EUR is drafted', `${euro.status}/${euro.currency}`, 'draft/EUR');
+      check('and submitted', await status(`/expenses/${euro.id}/submit`, { method: 'POST', cookie: restricted }), 200);
+      for (let step = 0; step < 2; step += 1) {
+        const task = pendingTask(await json(`/expenses/${euro.id}`, admin));
+        if (task) await call(`/approvals/tasks/${task.id}/decide`, { method: 'POST', cookie: admin, body: { decision: 'approve' } });
+      }
+      const euroPosted = await json(`/expenses/${euro.id}`, admin);
+      if (euroPosted.costEntryId) timeCostEntryIds.push(String(euroPosted.costEntryId));
+      check(
+        'BR-320: posted, the claim keeps its currency and amount beside the converted one',
+        `${euroPosted.status}/${euroPosted.currency}/${euroPosted.amount}/${euroPosted.reportingCurrency}/${euroPosted.reportingAmount}/${euroPosted.exchangeRate}`,
+        `posted/EUR/100/${reporting}/400/4`,
+      );
+      const euroEntry = euroPosted.costEntryId
+        ? await asSystem(() => upstream.request<Json>(`/epm_admin/costs/entries/${euroPosted.costEntryId}`, { root: true }))
+        : ({} as Json);
+      check('and its cost entry is in the reporting currency', euroEntry.costs, 400);
+      let measured = await costOf();
+      for (let attempt = 0; attempt < 12 && round2(measured - costAfter) !== 400; attempt += 1) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 10_000));
+        await refreshModel();
+        measured = await costOf();
+      }
+      check('the model has it', round2(measured - costAfter), 400);
+
+      // BR-311: cumulative actual at the last period's end against actual cost as the measures have it.
+      const flow = await json(`/finance/cash-flow?projectId=${teProject}`);
+      check(
+        'BR-311: cumulative actual at the period end reconciles to total actual cost',
+        `${flow.reconciliation?.reconciles}/${flow.reconciliation?.cumulativeAtEnd}`,
+        `true/${measured}`,
+      );
+      check('and the plan beside it is the phased budget', flow.combined?.totals?.planned, 15000);
+
+      // BR-318: margin against an independent calculation — five billable hours at 100 USD on days at 3.6725.
+      const marginOf = async () => ((await json(`/finance/margin?projectId=${teProject}`)).projects as Json[])[0];
+      const line = await marginOf();
+      const earned = round2(5 * 100 * 3.6725);
+      check('BR-318: actual margin matches an independent calculation', `${line?.margin?.actual?.revenue}/${line?.margin?.actual?.margin}`, `${earned}/${round2(earned - measured)}`);
+      check(
+        'and estimated margin: the contract at the planning rate, less the budget',
+        `${line?.margin?.estimated?.revenue}/${line?.margin?.estimated?.margin}`,
+        `${round2(20000 * 3.67)}/${round2(20000 * 3.67 - 15000)}`,
+      );
+
+      // BR-319: eight hours planned next month at 100 USD, at the planning rate, at full confidence.
+      const ym = isoOf(nextFirst.getTime()).slice(0, 7);
+      const made = await call('/work-packages', {
+        method: 'POST',
+        cookie: admin,
+        body: {
+          projectId: teProject,
+          typeId: String(taskType),
+          payload: { subject: 'Forecast work', estimatedTime: 'PT8H', startDate: `${ym}-10`, dueDate: `${ym}-20`, _links: { assignee: { href: `/api/v3/users/${restrictedId}` } } },
+        },
+      });
+      check('work is planned for next month', made.status, 201);
+      const expectedForecast = round2(8 * 100 * 3.67);
+      let forecastMonth: Json | undefined;
+      for (let attempt = 0; attempt < 8 && Number(forecastMonth?.revenue) !== expectedForecast; attempt += 1) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 10_000));
+        await refreshModel();
+        const forecast = await json(`/finance/forecast?projectId=${teProject}`);
+        forecastMonth = ((forecast.projects as Json[])?.[0]?.months as Json[] | undefined)?.find((month) => month.month === `${ym}-01`);
+      }
+      check('BR-319: forecast revenue matches an independent calculation', `${forecastMonth?.revenue}/${forecastMonth?.weighted}`, `${expectedForecast}/${expectedForecast}`);
+
+      // BR-322: billable items from approved time and approved expenses, reconciled; no duplicates on a second run.
+      const generate = () => json(`/finance/projects/${teProject}/billing`, admin, { method: 'POST', body: { from: wd(0), to: wd(6) } });
+      const bill = await generate();
+      const amounts = (kind: string) =>
+        ((bill.items ?? []) as Json[])
+          .filter((item) => item.kind === kind)
+          .map((item) => Number(item.amount))
+          .sort((a, b) => a - b)
+          .join('+');
+      check('BR-322: items are made from approved time and approved expenses', `time:${amounts('time')}|expense:${amounts('expense')}`, 'time:200+300|expense:108.92+408.44');
+      check(
+        'and reconcile to them for the period',
+        `${bill.reconciliation?.reconciles}/${bill.reconciliation?.hours?.approved}/${bill.reconciliation?.expenses?.approved}`,
+        'true/5/517.36',
+      );
+      check('a claim still awaiting approval is not billed', ((bill.items ?? []) as Json[]).some((item) => item.sourceId === small.id), false);
+      check('generating again makes no duplicates', ((await generate()).items as Json[]).length, ((bill.items ?? []) as Json[]).length);
+
+      // BR-321: a backdated rate afterwards changes no figure already reported for the period.
+      const figures = async () =>
+        JSON.stringify([
+          (await marginOf())?.margin?.actual?.revenue,
+          (await json(`/finance/cash-flow?projectId=${teProject}`)).reconciliation?.cumulativeAtEnd,
+          (await json(`/finance/projects/${teProject}/billing?from=${wd(0)}&to=${wd(6)}`)).reconciliation?.expenses?.approved,
+        ]);
+      const before = await figures();
+      await addRate({ currency: 'USD', rate: 5, effectiveFrom: '2026-01-01' });
+      await addRate({ currency: 'EUR', rate: 9, effectiveFrom: '2026-01-01' });
+      check('BR-321: the period reported again after backdated rates gives the same converted figures', await figures(), before);
+
+      // BR-323: a stand-in finance system that keeps one document per item id.
+      const documents = new Map<string, string>();
+      const keys: string[] = [];
+      const receiver = createServer((request, response) => {
+        let body = '';
+        request.on('data', (chunk) => (body += chunk));
+        request.on('end', () => {
+          keys.push(String(request.headers['idempotency-key']));
+          const sent = JSON.parse(body) as Json;
+          const received = (sent.items as Json[]).map((item) => {
+            if (!documents.has(item.itemId)) documents.set(item.itemId, `FIN-${documents.size + 1}`);
+            return { itemId: item.itemId, reference: documents.get(item.itemId) };
+          });
+          response.writeHead(200, { 'Content-Type': 'application/json' });
+          response.end(JSON.stringify({ batchId: sent.batchId, received }));
+        });
+      });
+      await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+      financeCleanup.push(async () => receiver.close());
+      const settingsBefore = await json('/finance/settings');
+      const settingsWith = (endpoint: string | null) => ({ confidence: settingsBefore.confidence, horizonMonths: settingsBefore.horizonMonths, endpoint });
+      financeCleanup.push(() => call('/finance/settings', { method: 'PUT', cookie: admin, body: settingsWith(settingsBefore.endpoint ?? null) }));
+      const port = (receiver.address() as { port: number }).port;
+      check('the finance system’s address is set', await status('/finance/settings', { method: 'PUT', cookie: admin, body: settingsWith(`http://127.0.0.1:${port}/finance`) }), 200);
+      const batch = await json('/finance/batches', admin, { method: 'POST', body: { projectId: teProject } });
+      if (batch.id) financeCleanup.push(() => teDb.financeBatch.deleteMany({ where: { id: batch.id } }));
+      check('a batch of the four items', `${batch.status}/${batch.itemCount}`, 'ready/4');
+      check('only whoever manages finance sends it', await status(`/finance/batches/${batch.id}/send`, { method: 'POST', cookie: restricted }), 403);
+      const sent = await json(`/finance/batches/${batch.id}/send`, admin, { method: 'POST' });
+      check('BR-323: sent, the batch reconciles on both sides', `${sent.status}/${sent.reconciliation?.matched}/${sent.reconciliation?.finance?.count}/${documents.size}`, 'acknowledged/true/4/4');
+      check(
+        'each item carries the finance system’s reference',
+        ((sent.items ?? []) as Json[]).every((item) => item.status === 'transferred' && String(item.externalRef).startsWith('FIN-')),
+        true,
+      );
+      const replayed = await json(`/finance/batches/${batch.id}/replay`, admin, { method: 'POST' });
+      check(
+        'BR-323: replayed, the batch creates no duplicates',
+        `${replayed.replays}/${replayed.reconciliation?.matched}/${(replayed.reconciliation?.duplicates as Json[] | undefined)?.length}/${documents.size}`,
+        '1/true/0/4',
+      );
+      check('both times under the batch’s id as the idempotency key', keys.join(), `${batch.id},${batch.id}`);
+      check('nothing is left to batch', await status('/finance/batches', { method: 'POST', cookie: admin, body: { projectId: teProject } }), 409);
+
+      const financeJournal = new Set(
+        (
+          await teDb.auditEvent.findMany({
+            where: { occurredAt: { gte: suiteStartedAt }, OR: [{ action: { startsWith: 'finance.' } }, { action: { startsWith: 'billing.' } }, { action: { startsWith: 'project.phasing' } }, { action: 'project.finance.updated' }] },
+            select: { action: true },
+          })
+        ).map((row) => row.action),
+      );
+      check(
+        'rates, cards, contracts, phasing, billing and batches are journalled: none missing',
+        ['finance.rate.added', 'finance.rate_card.created', 'project.finance.updated', 'project.phasing.saved', 'billing.generated', 'finance.batch.created', 'finance.batch.sent', 'finance.batch.replayed', 'finance.settings.updated']
+          .filter((action) => !financeJournal.has(action))
+          .join(', '),
+        '',
+      );
+      for (const undo of financeCleanup.splice(0).reverse()) await undo().catch(() => undefined);
+    }
+
     // Put things back: the restricted account's team, the cost entry, the project, the rules.
     await setMapping(restrictedId, {});
     for (const id of timeCostEntryIds.splice(0)) {
@@ -9124,6 +9361,8 @@ async function main() {
   if (viewTimeEntryId) {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
   }
+  // The finance tests' rates, rate card, items, batch, phasing and settings.
+  for (const undo of financeCleanup.splice(0).reverse()) await undo().catch(() => undefined);
   // The time and expense tests' cost entries, project and rules, and the
   // restricted account's timesheets, claims and their approval requests.
   if (timeCostEntryIds.length > 0) {

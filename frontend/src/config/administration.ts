@@ -492,6 +492,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         kind: 'live',
         get description() { return t('Units of non-labour cost and their rates; expense claims are made under them.'); },
       },
+      {
+        id: 'finance',
+        get label() { return t('Currencies, rate cards and forecast'); },
+        kind: 'live',
+        get description() { return t('Exchange rates, bill rates by role, forecast confidence and where billable items are sent.'); },
+      },
     ],
   },
   single(

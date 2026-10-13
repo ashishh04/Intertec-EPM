@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   Coins,
+  Landmark,
   FileText,
   FolderKanban,
   GanttChartSquare,
@@ -98,6 +99,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { get label() { return t('Reports'); }, to: '/reports', icon: FileText },
       { get label() { return t('Scheduled reports'); }, to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
       { get label() { return t('Time & Costs'); }, to: '/time-and-costs', icon: Coins },
+      { get label() { return t('Finance'); }, to: '/finance', icon: Landmark, permission: 'finance:view' },
     ],
   },
   {

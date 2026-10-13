@@ -11,6 +11,7 @@ import { FieldHint, Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProjects } from '@/hooks/useProjects';
 import { useTasks } from '@/hooks/useTasks';
+import { useCurrencies } from '@/hooks/useFinance';
 import { useCreateClaim, useExpenseCategories, useTimeSettings, useUpdateClaim } from '@/hooks/useTimesheets';
 import { t } from '@/lib/i18n';
 import { toISODateOnly } from '@/lib/utils';
@@ -42,6 +43,8 @@ export function ClaimDialog({
   const [workPackageId, setWorkPackageId] = useState<string>();
   const [categoryId, setCategoryId] = useState<string>();
   const [amount, setAmount] = useState('');
+  const [claimCurrency, setClaimCurrency] = useState<string>();
+  const currencies = useCurrencies();
   const [spentOn, setSpentOn] = useState(() => toISODateOnly(new Date()));
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string>();
@@ -52,6 +55,7 @@ export function ClaimDialog({
     setWorkPackageId(claim?.workPackageId);
     setCategoryId(claim?.categoryId);
     setAmount(claim ? String(claim.amount) : '');
+    setClaimCurrency(claim?.currency);
     setSpentOn(claim?.spentOn ?? toISODateOnly(new Date()));
     setDescription(claim?.description ?? '');
     setError(undefined);
@@ -66,7 +70,8 @@ export function ClaimDialog({
     () => (tasks.data?.items ?? []).map((task) => ({ id: task.id, name: task.subject, hint: task.key })),
     [tasks.data],
   );
-  const currency = settings.data?.settings.expenses.currency ?? '';
+  const usual = settings.data?.settings.expenses.currency ?? '';
+  const currency = claimCurrency ?? usual;
   const threshold = settings.data?.settings.expenses.receiptThreshold;
 
   const save = () => {
@@ -76,7 +81,7 @@ export function ClaimDialog({
     if (!categoryId) return setError(t('Choose a category.'));
     if (!Number.isFinite(value) || value <= 0) return setError(t('Enter the amount, e.g. 125.50.'));
     if (!description.trim()) return setError(t('Say what the cost was for.'));
-    const input = { projectId, workPackageId, categoryId, amount: value, spentOn, description: description.trim() };
+    const input = { projectId, workPackageId, categoryId, amount: value, currency: currency || undefined, spentOn, description: description.trim() };
     const failed = (failure: unknown) => setError(failure instanceof Error ? failure.message : t('The claim was refused.'));
     if (claim) {
       update.mutate(
@@ -172,7 +177,23 @@ export function ClaimDialog({
               <Label htmlFor="claim-amount" required>
                 {currency ? t('Amount ({currency})', { currency }) : t('Amount')}
               </Label>
-              <Input id="claim-amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
+              <div className="flex gap-2">
+                <Input id="claim-amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                {(currencies.data?.currencies.length ?? 0) > 1 ? (
+                  <Select value={currency} onValueChange={setClaimCurrency}>
+                    <SelectTrigger className="w-24" aria-label={t('Currency')}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(currencies.data?.currencies ?? []).map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </div>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="claim-date" required>
