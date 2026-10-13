@@ -77,7 +77,7 @@ const step = z.object({
 });
 
 /** What a chain can decide (Module 10 adds timesheets and expense claims). */
-export const SUBJECT_TYPES = ['work_package', 'timesheet', 'expense_claim'] as const satisfies readonly ApprovalSubjectType[];
+export const SUBJECT_TYPES = ['work_package', 'timesheet', 'expense_claim', 'scenario'] as const satisfies readonly ApprovalSubjectType[];
 
 const chainSchema = z
   .object({

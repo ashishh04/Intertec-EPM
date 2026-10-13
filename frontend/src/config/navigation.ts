@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Coins,
   Landmark,
+  GitCompare,
   FileText,
   FolderKanban,
   GanttChartSquare,
@@ -96,6 +97,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { get label() { return t('Dashboards'); }, to: '/insights', icon: PieChart, matchNested: true },
       { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true },
+      { get label() { return t('Scenarios'); }, to: '/scenarios', icon: GitCompare, matchNested: true, permission: 'scenarios:manage' },
       { get label() { return t('Reports'); }, to: '/reports', icon: FileText },
       { get label() { return t('Scheduled reports'); }, to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
       { get label() { return t('Time & Costs'); }, to: '/time-and-costs', icon: Coins },

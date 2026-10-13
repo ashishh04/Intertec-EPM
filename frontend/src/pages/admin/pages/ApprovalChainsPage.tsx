@@ -344,6 +344,7 @@ function ChainEditor({
                   <SelectItem value="work_package">{t('Work packages')}</SelectItem>
                   <SelectItem value="timesheet">{t('Timesheets')}</SelectItem>
                   <SelectItem value="expense_claim">{t('Expense claims')}</SelectItem>
+                  <SelectItem value="scenario">{t('Portfolio scenarios')}</SelectItem>
                 </SelectContent>
               </Select>
               {draft.subjectType !== 'work_package' ? (

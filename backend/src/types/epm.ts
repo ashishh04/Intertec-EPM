@@ -210,6 +210,7 @@ export type Permission =
   | 'finance:view'
   | 'finance:manage'
   | 'finance:configure'
+  | 'scenarios:manage'
   | 'teams:manage'
   | 'roles:manage'
   | 'system:manage';
@@ -1792,7 +1793,7 @@ export type ApprovalApproverSpec =
 export type ApprovalConditionOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'in' | 'not_in';
 
 /** What a chain decides: a work package, a timesheet (BR-305) or an expense claim (BR-308). */
-export type ApprovalSubjectType = 'work_package' | 'timesheet' | 'expense_claim';
+export type ApprovalSubjectType = 'work_package' | 'timesheet' | 'expense_claim' | 'scenario';
 
 /**
  * When a step applies (BR-211). `field` is `value` (the chain's value field),
@@ -4105,4 +4106,78 @@ export interface FinanceBatchView {
   acknowledgedAt: string | null;
   reconciliation: BatchReconciliationView | null;
   items?: BillableItemView[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Portfolio scenarios (Module 7: BR-220 to BR-222)                           */
+/* -------------------------------------------------------------------------- */
+
+export type ScenarioStatus = 'draft' | 'submitted' | 'promoted' | 'rejected';
+
+export interface ScenarioProjectView {
+  projectId: ID;
+  name: string;
+  included: boolean;
+  priority: number;
+  shiftMonths: number;
+  shiftDays: number;
+  budget: number | null;
+  capturedStart: ISODate | null;
+  capturedFinish: ISODate | null;
+  capturedBudget: number | null;
+  /** The dates with the move applied. */
+  plannedStart: ISODate | null;
+  plannedFinish: ISODate | null;
+  workItems: number;
+}
+
+export interface ScenarioMonth {
+  month: ISODate;
+  capacity: number;
+  demand: number;
+  spend: number;
+}
+
+export interface ScenarioProfile {
+  months: ScenarioMonth[];
+  totals: { demand: number; spend: number; capacity: number };
+  milestones: { workPackageId: ID; projectId: ID; subject: string; date: ISODate }[];
+  /** The priorities of the projects included, added up. */
+  strategicScore: number;
+  /** Open work with no dates: in no month. */
+  undatedHours: number;
+}
+
+export interface ScenarioView {
+  id: ID;
+  name: string;
+  portfolioId: ID | null;
+  status: ScenarioStatus;
+  capturedAt: string;
+  createdBy: ID;
+  requestId: ID | null;
+  decidedAt: string | null;
+  decidedBy: ID | null;
+  decision: { comment?: string | null; applied?: unknown } | null;
+  projects: ScenarioProjectView[];
+  /** As adjusted, and as captured. */
+  profile: ScenarioProfile;
+  captured: ScenarioProfile;
+}
+
+export interface ScenarioSummary {
+  id: ID;
+  name: string;
+  portfolioId: ID | null;
+  status: ScenarioStatus;
+  capturedAt: string;
+  projects: number;
+}
+
+export interface ScenarioProjectInput {
+  included?: boolean;
+  priority?: number;
+  shiftMonths?: number;
+  shiftDays?: number;
+  budget?: number | null;
 }

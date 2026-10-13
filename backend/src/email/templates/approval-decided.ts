@@ -26,7 +26,7 @@ export interface ApprovalDecidedPayload {
   comment?: string;
   openUrl: string;
   /** What was decided; a work package when absent (rows queued before Module 10). */
-  subjectKind?: 'work_package' | 'timesheet' | 'expense_claim';
+  subjectKind?: 'work_package' | 'timesheet' | 'expense_claim' | 'scenario';
 }
 
 export function render(payload: ApprovalDecidedPayload, locale: EmailLocale): RenderedEmail {
@@ -64,7 +64,9 @@ export function render(payload: ApprovalDecidedPayload, locale: EmailLocale): Re
           ? tr('Open the timesheet')
           : payload.subjectKind === 'expense_claim'
             ? tr('Open the claim')
-            : tr('Open the work package'),
+            : payload.subjectKind === 'scenario'
+              ? tr('Open the scenario')
+              : tr('Open the work package'),
         payload.openUrl,
       ),
     locale,

@@ -51,6 +51,8 @@ const TimesheetsPage = lazy(() => import('@/pages/TimesheetsPage'));
 const TimesheetPage = lazy(() => import('@/pages/TimesheetPage'));
 const ExpensesPage = lazy(() => import('@/pages/ExpensesPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
+const ScenariosPage = lazy(() => import('@/pages/ScenariosPage'));
+const ScenarioPage = lazy(() => import('@/pages/ScenarioPage'));
 const ExpenseClaimPage = lazy(() => import('@/pages/ExpenseClaimPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const InsightsPage = lazy(() => import('@/pages/InsightsPage'));
@@ -283,6 +285,22 @@ export function App() {
           <Route path="/timesheets/people/:personId" element={<TimesheetPage />} />
           <Route path="/timesheets/:id" element={<TimesheetPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
+          <Route
+            path="/scenarios"
+            element={
+              <RequirePermission permission="scenarios:manage">
+                <ScenariosPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="/scenarios/:id"
+            element={
+              <RequirePermission permission="scenarios:manage">
+                <ScenarioPage />
+              </RequirePermission>
+            }
+          />
           <Route
             path="/finance"
             element={

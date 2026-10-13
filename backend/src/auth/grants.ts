@@ -42,6 +42,7 @@ const GRANTABLE = new Set<Permission>([
   'finance:view',
   'finance:manage',
   'finance:configure',
+  'scenarios:manage',
 ]);
 
 export function isGrantable(permission: string): permission is Permission {
@@ -75,6 +76,7 @@ export const GRANT_CATALOGUE: { permission: Permission; label: string; descripti
   { permission: 'time:configure', label: 'Set the time and expense rules', description: 'Change the timesheet period and bounds, the time logging policies and the receipt threshold.' },
   { permission: 'finance:view', label: 'See finance', description: 'See cash flow, margin, the revenue forecast and billing for the projects they can see.' },
   { permission: 'finance:manage', label: 'Manage finance', description: "Set projects' contracts and budget phasing, generate billable items and send them to the finance system." },
+  { permission: 'scenarios:manage', label: 'Plan scenarios', description: "Copy a portfolio's projects into a scenario, adjust and compare it, and submit it to be applied once approved." },
   { permission: 'finance:configure', label: 'Set the finance rules', description: 'Add exchange rates, keep the rate cards, and set the forecast confidence and the finance system.' },
 ];
 

@@ -70,6 +70,10 @@ async function assertMayRead(request: FastifyRequest, id: string) {
     if (allows(permissions, 'expenses:manage')) return row;
     throw EpmError.notFound('That approval request');
   }
+  if (row.subjectType === 'scenario') {
+    if (allows(permissions, 'scenarios:manage')) return row;
+    throw EpmError.notFound('That approval request');
+  }
 
   const visible = (await loadProjects(requestSignal(request))).some((project) => project.id === row.projectId);
   if (visible && allows(permissions, 'task:view', row.projectId)) return row;

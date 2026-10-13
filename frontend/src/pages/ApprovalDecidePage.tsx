@@ -86,7 +86,9 @@ export default function ApprovalDecidePage() {
                 ? t('Open the timesheet')
                 : request.subjectType === 'expense_claim'
                   ? t('Open the claim')
-                  : t('Open the work package')}
+                  : request.subjectType === 'scenario'
+                    ? t('Open the scenario')
+                    : t('Open the work package')}
             </Link>
           </Button>
           <Button asChild variant="secondary">

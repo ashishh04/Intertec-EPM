@@ -2040,3 +2040,63 @@ model FinanceSettingSet {
 
   @@map("finance_setting_sets")
 }
+
+/// A copy of a portfolio's projects and their open work at a moment (BR-220),
+/// adjusted without touching live data (BR-221), and applied to live data
+/// only once approved (BR-222).
+model Scenario {
+  id          String            @id @default(cuid())
+  name        String
+  portfolioId String?
+  /// draft, submitted, promoted or rejected.
+  status      String            @default("draft")
+  capturedAt  DateTime          @default(now())
+  createdBy   String
+  requestId   String?
+  decidedAt   DateTime?
+  decidedBy   String?
+  /// The approver's words on promotion or rejection, and what was applied.
+  decision    Json?
+  updatedAt   DateTime          @updatedAt
+  projects    ScenarioProject[]
+  work        ScenarioWork[]
+
+  @@map("scenarios")
+}
+
+model ScenarioProject {
+  scenarioId     String
+  scenario       Scenario  @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  projectId      Int
+  name           String
+  included       Boolean   @default(true)
+  /// 1 (low) to 5 (high): what the strategic score adds up.
+  priority       Int       @default(3)
+  /// The move, in months then days, applied to the project's dates and work.
+  shiftMonths    Int       @default(0)
+  shiftDays      Int       @default(0)
+  budget         Float?
+  capturedStart  DateTime? @db.Date
+  capturedFinish DateTime? @db.Date
+  capturedBudget Float?
+
+  @@id([scenarioId, projectId])
+  @@map("scenario_projects")
+}
+
+/// A project's open work as it stood at capture.
+model ScenarioWork {
+  scenarioId     String
+  scenario       Scenario  @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  workPackageId  Int
+  projectId      Int
+  subject        String
+  remainingHours Float
+  startDate      DateTime? @db.Date
+  dueDate        DateTime? @db.Date
+  isMilestone    Boolean   @default(false)
+
+  @@id([scenarioId, workPackageId])
+  @@index([scenarioId, projectId])
+  @@map("scenario_work")
+}

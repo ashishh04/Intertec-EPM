@@ -210,6 +210,7 @@ async function main() {
   /** What the finance tests undo, last first. */
   const financeCleanup: (() => Promise<unknown>)[] = [];
   let slipProjectId: string | undefined;
+  let scenarioProjectId: string | undefined;
   // The administrator's stored preferences, while its email is switched off
   // for the run: `null` when it had none. Put back as the very last step.
   let adminPreferences: HeldPreferences | undefined;
@@ -8910,6 +8911,105 @@ async function main() {
     slipProjectId = undefined;
   }
 
+  // --- Portfolio scenarios (BR-220 to BR-222) ---------------------------------
+  console.log('\nPortfolio scenarios');
+  {
+    type Json = Record<string, any>;
+    const { runAsSystem: asSystem } = await import('../auth/context.js');
+    const { openProject: upstream } = await import('../openproject/client.js');
+    const { prisma: scDb } = await import('../db/prisma.js');
+    const json = async (path: string, init: Parameters<typeof call>[1] = {}, cookie = admin) => (await (await call(path, { cookie, ...init })).json()) as Json;
+    const stamp = Date.now();
+    check('scenarios are not for someone without scenarios:manage', await status('/scenarios', { cookie: restricted }), 403);
+
+    // A project two months ahead: 40 open hours over two weeks, a milestone, a budget; the restricted account owns it.
+    const DAY = 86_400_000;
+    const ahead = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) + 60 * DAY;
+    const monday = ahead - ((new Date(ahead).getUTCDay() + 6) % 7) * DAY;
+    const day = (offset: number) => new Date(monday + offset * DAY).toISOString().slice(0, 10);
+    const made = await call('/projects', { method: 'POST', cookie: admin, body: { payload: { name: `Scenario Test ${stamp}`, identifier: `scn-${stamp}` } } });
+    check('a project is made for the scenario tests', made.status, 201);
+    scenarioProjectId = ((await made.json()) as Json).id as string | undefined;
+    const pid = String(scenarioProjectId);
+    check('it has a plan and a budget', await status(`/projects/${pid}/plan`, { method: 'PATCH', cookie: admin, body: { plannedStart: day(0), plannedFinish: day(25), budgetTotal: 9000 } }), 200);
+    check('the restricted account owns it', await status(`/projects/${pid}/owner`, { method: 'PATCH', cookie: admin, body: { ownerId: restrictedId } }), 200);
+    const types = ((await asSystem(() => upstream.request<Json>(`/projects/${pid}/types`)))._embedded?.elements ?? []) as Json[];
+    const taskType = types.find((type) => type.name === 'Task')?.id ?? types.find((type) => !type.isMilestone)?.id;
+    const milestoneType = types.find((type) => type.isMilestone)?.id;
+    const work = async (payload: Json, type = taskType) => (await json('/work-packages', { method: 'POST', body: { projectId: pid, typeId: String(type), payload } })).id as string;
+    const W = await work({ subject: 'Scenario work', estimatedTime: 'PT40H', startDate: day(0), dueDate: day(11) });
+    const M = await work({ subject: 'Scenario milestone', date: day(25) }, milestoneType);
+    const live = async () => {
+      const [w, m] = await Promise.all([asSystem(() => upstream.request<Json>(`/work_packages/${W}`)), asSystem(() => upstream.request<Json>(`/work_packages/${M}`))]);
+      const plan = await json(`/projects/${pid}`);
+      return JSON.stringify([w.startDate, w.dueDate, w.estimatedTime, m.date, plan.startDate ?? null, plan.dueDate ?? null, plan.budgetTotal]);
+    };
+    const before = await live();
+
+    // BR-220: a copy, as things stand; live data untouched.
+    const captured = await call('/scenarios', { method: 'POST', cookie: admin, body: { name: `Suite scenario ${stamp}`, projectIds: [pid] } });
+    check('BR-220: a scenario is made from the project as it stands', captured.status, 201);
+    const scenario = (await captured.json()) as Json;
+    check('it holds the open work, the milestone, the plan and the budget', `${scenario.projects?.[0]?.workItems}/${scenario.profile?.totals?.demand}/${scenario.profile?.milestones?.[0]?.date}/${scenario.projects?.[0]?.capturedBudget}`, `2/40/${day(25)}/9000`);
+    check('BR-220: making it leaves live data unchanged', await live(), before);
+    await call(`/work-packages/${W}`, { method: 'PATCH', cookie: admin, body: { payload: { estimatedTime: 'PT60H' } } });
+    check('and it keeps the state at the moment it was made, whatever happens to live data after', (await json(`/scenarios/${scenario.id}`)).profile?.totals?.demand, 40);
+    await call(`/work-packages/${W}`, { method: 'PATCH', cookie: admin, body: { payload: { estimatedTime: 'PT40H' } } });
+    const restored = await live();
+
+    // BR-221: deferred by a quarter, capacity demand and spend move together.
+    const deferred = await json(`/scenarios/${scenario.id}/projects/${pid}`, { method: 'PATCH', body: { shiftMonths: 3 } });
+    const months = (profile: Json, field: string) => ((profile.months ?? []) as Json[]).filter((row) => Number(row[field]) > 0).map((row) => `${row.month}:${row[field]}`);
+    const plus3 = (rows: string[]) =>
+      rows.map((row) => {
+        const [month, value] = row.split(':');
+        const [y, m] = month!.split('-').map(Number) as [number, number];
+        return `${new Date(Date.UTC(y, m - 1 + 3, 1)).toISOString().slice(0, 10)}:${value}`;
+      });
+    check(
+      'BR-221: deferred a quarter, the totals of demand and spend are unchanged',
+      `${deferred.profile?.totals?.demand}/${deferred.profile?.totals?.spend}`,
+      `${deferred.captured?.totals?.demand}/${deferred.captured?.totals?.spend}`,
+    );
+    check('and the capacity demand moves three months', JSON.stringify(months(deferred.profile, 'demand')), JSON.stringify(plus3(months(deferred.captured, 'demand'))));
+    check(
+      'and so does the spend profile, consistently',
+      JSON.stringify(((deferred.profile?.months ?? []) as Json[]).filter((row) => Number(row.spend) > 0).map((row) => row.month)).length > 2 &&
+        deferred.profile?.totals?.spend === 9000 &&
+        ((deferred.profile?.months ?? []) as Json[]).every((row) => Number(row.spend) === 0 || row.month >= `${day(0).slice(0, 7)}-01`),
+      true,
+    );
+    check('with the milestone three months on', deferred.profile?.milestones?.[0]?.date > day(25), true);
+    check('adjusting it does not touch live data either', await live(), restored);
+
+    // BR-222: submitted, nothing changes until it is approved; approved, it is applied and the decision recorded.
+    const submitted = await json(`/scenarios/${scenario.id}/submit`, { method: 'POST' });
+    check('it is submitted for approval', submitted.status, 'submitted');
+    check('BR-222: before approval, live data is unchanged', await live(), restored);
+    const requestView = await json(`/approvals/requests/${submitted.requestId}`, {}, restricted);
+    const task = ((requestView.steps ?? []) as Json[]).flatMap((step) => (step.tasks ?? []) as Json[]).find((entry) => entry.status === 'pending' && entry.approverId === restrictedId);
+    check('the project’s owner is asked', Boolean(task), true);
+    const comment = `Defer to next quarter ${stamp}`;
+    check('and approves it', await status(`/approvals/tasks/${task?.id}/decide`, { method: 'POST', cookie: restricted, body: { decision: 'approve', comment } }), 200);
+    const promoted = await json(`/scenarios/${scenario.id}`);
+    check('BR-222: approved, the scenario is promoted with the decision recorded', `${promoted.status}/${promoted.decision?.comment}/${promoted.decidedBy}`, `promoted/${comment}/${restrictedId}`);
+    const after = JSON.parse(await live()) as (string | number | null)[];
+    const startNow = promoted.projects?.[0]?.plannedStart;
+    // OpenProject starts work on a working day: a start that lands on a weekend moves to the Monday.
+    const workingStart = (iso: string) => {
+      let at = Date.parse(`${iso}T00:00:00Z`);
+      while ([0, 6].includes(new Date(at).getUTCDay())) at += DAY;
+      return new Date(at).toISOString().slice(0, 10);
+    };
+    check('and applied to live data: the work, the milestone and the plan three months on', [after[0], after[3], after[4]].join(), [workingStart(startNow), promoted.profile?.milestones?.[0]?.date, startNow].join());
+    const journal = await scDb.auditEvent.findMany({ where: { entityId: scenario.id, occurredAt: { gte: suiteStartedAt } }, select: { action: true } });
+    check('the journal has it all', ['scenario.created', 'scenario.adjusted', 'scenario.submitted', 'scenario.promoted'].filter((action) => !journal.some((row) => row.action === action)).join(', '), '');
+
+    check('the project is removed', await status(`/projects/${pid}`, { method: 'DELETE', cookie: admin }), 204);
+    scenarioProjectId = undefined;
+    await scDb.scenario.delete({ where: { id: scenario.id } }).catch(() => undefined);
+  }
+
   // --- Project lifecycle ------------------------------------------------------
   console.log('\nProject lifecycle');
 
@@ -9433,6 +9533,12 @@ async function main() {
     await call(`/time-entries/${viewTimeEntryId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
   }
   if (slipProjectId) await call(`/projects/${slipProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  if (scenarioProjectId) await call(`/projects/${scenarioProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+  {
+    const { prisma } = await import('../db/prisma.js');
+    await prisma.scenario.deleteMany({ where: { capturedAt: { gte: suiteStartedAt }, name: { startsWith: 'Suite scenario' } } }).catch(() => undefined);
+    await prisma.approvalRequest.deleteMany({ where: { subjectType: 'scenario', requestedAt: { gte: suiteStartedAt } } }).catch(() => undefined);
+  }
   // The finance tests' rates, rate card, items, batch, phasing and settings.
   for (const undo of financeCleanup.splice(0).reverse()) await undo().catch(() => undefined);
   // The time and expense tests' cost entries, project and rules, and the

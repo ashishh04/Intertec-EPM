@@ -79,6 +79,7 @@ export const PERMISSIONS = [
   'finance:view',
   'finance:manage',
   'finance:configure',
+  'scenarios:manage',
   'roles:manage',
   'system:manage',
 ] as const;
@@ -211,6 +212,9 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
     'Margin, revenue and cash flow are EPM-owned; OpenProject has budgets but no revenue. Granted from EPM permission grants instead.',
   'finance:manage':
     'Contracts, budget phasing and billing are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Scenarios copy a portfolio's plans and, approved, change them: a planning role.
+  'scenarios:manage':
+    'Portfolio scenarios are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'finance:configure':
     'Exchange rates, rate cards and the finance settings are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
