@@ -89,7 +89,7 @@ export default function ScenariosPage() {
                   <th className="py-1.5 text-start font-medium">{t('Scenario')}</th>
                   <th className="py-1.5 text-start font-medium">{t('Made')}</th>
                   <th className="py-1.5 text-end font-medium">{t('Projects')}</th>
-                  <th className="py-1.5 text-start font-medium">{t('Status')}</th>
+                  <th className="py-1.5 ps-6 text-start font-medium">{t('Status')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -102,7 +102,7 @@ export default function ScenariosPage() {
                     </td>
                     <td className="py-1.5">{formatDateTime(scenario.capturedAt)}</td>
                     <td className="py-1.5 text-end">{scenario.projects}</td>
-                    <td className="py-1.5">
+                    <td className="py-1.5 ps-6">
                       <Badge tone={SCENARIO_STATUS[scenario.status].tone}>{SCENARIO_STATUS[scenario.status].label()}</Badge>
                     </td>
                   </tr>

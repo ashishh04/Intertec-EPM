@@ -564,7 +564,7 @@ function BillingCard({ projectId, manage }: { projectId: ID; manage: boolean }) 
                     <th className="py-1.5 text-start font-medium">{t('Item')}</th>
                     <th className="py-1.5 text-end font-medium">{t('Quantity')}</th>
                     <th className="py-1.5 text-end font-medium">{t('Amount')}</th>
-                    <th className="py-1.5 text-start font-medium">{t('Status')}</th>
+                    <th className="py-1.5 ps-6 text-start font-medium">{t('Status')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -578,7 +578,7 @@ function BillingCard({ projectId, manage }: { projectId: ID; manage: boolean }) 
                       <td className="py-1.5 text-end font-mono">
                         {money(item.amount)} {item.currency}
                       </td>
-                      <td className="py-1.5">{item.status === 'open' ? t('Open') : item.status === 'batched' ? t('In a batch') : t('Transferred')}</td>
+                      <td className="py-1.5 ps-6">{item.status === 'open' ? t('Open') : item.status === 'batched' ? t('In a batch') : t('Transferred')}</td>
                     </tr>
                   ))}
                   {view.items.length === 0 ? (

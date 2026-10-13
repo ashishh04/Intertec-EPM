@@ -205,10 +205,16 @@ function ProjectRow({ scenarioId, project, editable }: { scenarioId: string; pro
 }
 
 function Comparison({ left, right }: { left: { name: string; profile: ScenarioProfile }; right: { name: string; profile: ScenarioProfile } }) {
-  const months = useMemo(
-    () => [...new Set([...left.profile.months, ...right.profile.months].map((row) => row.month))].sort(),
-    [left.profile.months, right.profile.months],
-  );
+  // Every month from the first to the last of either, with none skipped.
+  const months = useMemo(() => {
+    const all = [...left.profile.months, ...right.profile.months].map((row) => row.month).sort();
+    const out: string[] = [];
+    if (all.length === 0) return out;
+    for (let at = new Date(`${all[0]}T00:00:00Z`); at.toISOString().slice(0, 10) <= all.at(-1)!; at = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1))) {
+      out.push(at.toISOString().slice(0, 10));
+    }
+    return out;
+  }, [left.profile.months, right.profile.months]);
   const cell = (profile: ScenarioProfile, month: string) => profile.months.find((row) => row.month === month);
   const delivery = (profile: ScenarioProfile) => profile.milestones.at(-1)?.date;
   return (
@@ -259,7 +265,7 @@ function Comparison({ left, right }: { left: { name: string; profile: ScenarioPr
             return (
               <tr key={month} className="border-b border-border/60">
                 <td className="py-1.5">{monthLabel(month)}</td>
-                <td className="py-1.5 text-end font-mono">{formatNumber(a?.capacity ?? b?.capacity ?? 0)}</td>
+                <td className="py-1.5 text-end font-mono">{a ?? b ? formatNumber((a ?? b)!.capacity) : '—'}</td>
                 <td className={`py-1.5 text-end font-mono ${over ? 'text-destructive' : ''}`}>{formatNumber(a?.demand ?? 0)}</td>
                 <td className="py-1.5 text-end font-mono">{formatNumber(b?.demand ?? 0)}</td>
                 <td className="py-1.5 text-end font-mono">{formatNumber(a?.spend ?? 0)}</td>
