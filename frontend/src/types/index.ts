@@ -4181,3 +4181,45 @@ export interface ScenarioProjectInput {
   shiftDays?: number;
   budget?: number | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Importing tasks from a CSV                                                 */
+/* -------------------------------------------------------------------------- */
+
+export type TaskImportStatus = 'checked' | 'invalid' | 'running' | 'done' | 'failed' | 'cancelled';
+
+export interface TaskImportProblem {
+  /** The line in the file, the header being line 1. */
+  row: number;
+  column?: string;
+  message: string;
+}
+
+export interface TaskImportView {
+  id: ID;
+  projectId: ID;
+  fileName: string;
+  status: TaskImportStatus;
+  total: number;
+  created: number;
+  /** Dependencies linked. */
+  linked: number;
+  failed: number;
+  /** Rows by type, e.g. { Epic: 12, Task: 900 }. */
+  byType: Record<string, number>;
+  /** How deep the hierarchy goes: 1 for flat, 3 for epic → task → subtask. */
+  levels: number;
+  relations: number;
+  /** Problems found checking the file: the first 500. */
+  problems: TaskImportProblem[];
+  problemCount: number;
+  /** Rows that could not be created: the first 500. */
+  errors: TaskImportProblem[];
+  errorCount: number;
+  createdBy: ID;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** Whether it can be started, or resumed, now. */
+  canRun: boolean;
+}

@@ -2100,3 +2100,37 @@ model ScenarioWork {
   @@index([scenarioId, projectId])
   @@map("scenario_work")
 }
+
+/// A CSV of tasks being imported into a project: checked first, then created
+/// in the background — parents before children, dependencies last — under
+/// the importer's own account. `results` maps each row's key to the work
+/// package made for it, so a run that stops can be resumed without duplicates.
+model TaskImport {
+  id          String    @id @default(cuid())
+  projectId   Int
+  createdBy   String
+  fileName    String
+  /// checked, invalid, running, done, failed or cancelled.
+  status      String
+  total       Int
+  created     Int       @default(0)
+  linked      Int       @default(0)
+  failed      Int       @default(0)
+  /// The rows as checked and resolved: what each work package will be made from.
+  rows        Json
+  /// Problems found checking the file, by row.
+  problems    Json
+  /// Row key → work package id.
+  results     Json      @default("{}")
+  /// Rows that could not be created, and why.
+  errors      Json      @default("[]")
+  cancelRequested Boolean @default(false)
+  startedAt   DateTime?
+  heartbeatAt DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId, createdAt])
+  @@map("task_imports")
+}

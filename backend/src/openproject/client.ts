@@ -105,6 +105,11 @@ interface RequestOptions {
    * retries, same error mapping; only the prefix differs.
    */
   root?: boolean;
+  /**
+   * Sent once and never retried: for a create that must not happen twice when
+   * an answer is slow (a timed-out POST may still have been carried out).
+   */
+  once?: boolean;
 }
 
 export function buildFilters(filters: OpFilter[]): string {
@@ -251,13 +256,14 @@ export class OpenProjectClient {
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const { method = 'GET', body, query, signal, timeoutMs = env.OPENPROJECT_TIMEOUT_MS, root = false } = options;
+    const { method = 'GET', body, query, signal, timeoutMs = env.OPENPROJECT_TIMEOUT_MS, root = false, once = false } = options;
+    const attempts = once ? 1 : MAX_ATTEMPTS;
     const url = this.url(path, query, root);
     const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
 
     let lastError: unknown;
 
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       const timeout = AbortSignal.timeout(timeoutMs);
       const composed = signal ? AbortSignal.any([signal, timeout]) : timeout;
       // Every attempt is timed for /metrics (NFR12): a slow or failing
@@ -295,7 +301,7 @@ export class OpenProjectClient {
           return (await response.json()) as T;
         }
 
-        if (RETRYABLE_STATUS.has(response.status) && attempt < MAX_ATTEMPTS - 1) {
+        if (RETRYABLE_STATUS.has(response.status) && attempt < attempts - 1) {
           await sleep(delayFor(attempt, response.headers.get('retry-after')));
           continue;
         }
@@ -314,7 +320,7 @@ export class OpenProjectClient {
         observeUpstream(method, timedOut ? 'timeout' : 'error', seconds());
 
         if (error instanceof DOMException && error.name === 'TimeoutError') {
-          if (attempt < MAX_ATTEMPTS - 1) {
+          if (attempt < attempts - 1) {
             lastError = error;
             continue;
           }
@@ -322,7 +328,7 @@ export class OpenProjectClient {
         }
 
         lastError = error;
-        if (attempt < MAX_ATTEMPTS - 1) {
+        if (attempt < attempts - 1) {
           await sleep(delayFor(attempt, null));
           continue;
         }
