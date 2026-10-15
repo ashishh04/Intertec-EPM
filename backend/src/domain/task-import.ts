@@ -182,7 +182,8 @@ export function checkRows(text: string, context: ProjectContext): { rows: Planne
     index[column] = header.findIndex((name) => names.includes(name));
   }
   if (index.subject < 0) return { rows: [], problems: [{ row: 1, message: message('The header needs a Subject column (or Title, or Name).') }] };
-  const cell = (cells: string[], column: Column) => (index[column] >= 0 ? (cells[index[column]] ?? '').trim() : '');
+  // An apostrophe the export put before =, +, - or @ (so spreadsheets do not run it as a formula) is not part of the value.
+  const cell = (cells: string[], column: Column) => (index[column] >= 0 ? (cells[index[column]] ?? '').trim().replace(/^'(?=[=+\-@])/, '') : '');
 
   const rows: PlannedRow[] = [];
   const keys = new Map<string, number>();

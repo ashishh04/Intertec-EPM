@@ -882,6 +882,7 @@ export const ar: Readonly<Record<string, string>> = {
   "Summary": "الملخص",
   "Sunday": "الأحد",
   "Symbol": "رمز خاص",
+  "Tasks": "المهام",
   "Team": "الفريق",
   "Teams": "الفرق",
   "Text": "نص",

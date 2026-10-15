@@ -2,7 +2,9 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import { currentAuth } from '../auth/context.js';
 import * as guard from '../auth/guard.js';
+import { asCsv, asWorkbook, exportRows } from '../domain/task-export.js';
 import { cancelImport, checkImport, getImport, importView, listImports, startImport, templateFor } from '../domain/task-import.js';
+import { openProject } from '../openproject/client.js';
 import { EpmError } from '../lib/errors.js';
 import { contentDispositionFor } from '../lib/uploads.js';
 
@@ -36,6 +38,29 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
       .header('Cache-Control', 'private, no-store');
     // A byte-order mark, so Excel reads the file as UTF-8.
     return reply.send(`﻿${await templateFor(projectId)}`);
+  });
+
+  /**
+   * The project's work packages in the import's columns, as CSV or Excel:
+   * exported, edited and imported again, hierarchy and dependencies intact.
+   * Read with the caller's access; needs only `task:view`.
+   */
+  app.get<{ Params: { projectId: string }; Querystring: { format?: string; closed?: string } }>('/projects/:projectId/task-exports', async (request, reply) => {
+    const projectId = Number(request.params.projectId);
+    if (!Number.isInteger(projectId) || projectId <= 0) throw EpmError.notFound('That project');
+    await guard.require(request, 'task:view', String(projectId));
+    const data = await exportRows(projectId, request.query.closed !== 'false');
+    const project = await openProject.request<{ name: string; identifier?: string }>(`/projects/${projectId}`);
+    const stem = `${(project.identifier ?? `project-${projectId}`).replace(/[^\w-]+/g, '-')}-tasks-${new Date().toISOString().slice(0, 10)}`;
+    reply.header('Cache-Control', 'private, no-store');
+    if (request.query.format === 'xlsx') {
+      reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', contentDispositionFor(`${stem}.xlsx`));
+      return reply.send(Buffer.from(asWorkbook(data, project.name)));
+    }
+    reply.header('Content-Type', 'text/csv; charset=utf-8').header('Content-Disposition', contentDispositionFor(`${stem}.csv`));
+    return reply.send(asCsv(data));
   });
 
   app.get<{ Params: { projectId: string } }>('/projects/:projectId/task-imports', async (request) =>
