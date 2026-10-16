@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { EpmError } from '../lib/errors.js';
 import { runWithAuth, type AuthContext } from './context.js';
+import { isExternal } from '../domain/external-access.js';
 import { SESSION_COOKIE, isSignInConfigured, resolveSession } from './oauth.js';
 
 /**
@@ -82,5 +83,26 @@ export function registerAuth(app: FastifyInstance, apiPrefix: string): void {
     }
 
     runWithAuth(request.auth, () => done());
+  });
+
+  /**
+   * External users (BR-611 to BR-613) reach the portal and nothing else.
+   *
+   * Deny by default: whatever they type, an external user's request is refused
+   * unless it is the portal's API, signing in or out, who they are, or their
+   * own preferences. Every internal page's data and every administrative
+   * function is out of reach here, before any route runs — not left to each
+   * route to remember.
+   */
+  app.addHook('preHandler', async (request) => {
+    if (isPublic(request, apiPrefix) || !request.auth) return;
+    if (!(await isExternal(request.auth.userId))) return;
+    const path = (request.url.split('?')[0] ?? '').slice(apiPrefix.length);
+    const allowed =
+      path.startsWith('/portal/') ||
+      path.startsWith('/auth/') ||
+      (path === '/me' && request.method === 'GET') ||
+      (path === '/preferences' && ['GET', 'PUT', 'PATCH'].includes(request.method));
+    if (!allowed) throw EpmError.forbidden('This is not available to external users.');
   });
 }

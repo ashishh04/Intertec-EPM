@@ -55,6 +55,8 @@ interface AuthContextValue {
    * session.
    */
   mustChangePassword: boolean;
+  /** A client or vendor: they see only the portal (BR-611). */
+  external: boolean;
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => void;
   /** Sets the caller's own password and clears the gate. */
@@ -152,6 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         Object.values(byProject).some((map) => lookup(map, permission)),
 
       mustChangePassword: me?.mustChangePassword ?? false,
+      external: me?.external === true,
 
       signIn,
       signOut,

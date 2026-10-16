@@ -37,6 +37,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'users/user-attributes': lazy(() => import('./UserAttributesPage')),
   'users/placeholder-users': lazy(() => import('./PlaceholderUsersPage')),
   'users/resource-roles': lazy(() => import('./ResourceRolesPage')),
+  'users/external-access': lazy(() => import('./ExternalAccessPage')),
   'users/resource-rules': lazy(() => import('./ResourceRulesPage')),
   'users/groups': lazy(() => import('./GroupsPage')),
   'users/organization': lazy(() => import('./OrganizationPage')),

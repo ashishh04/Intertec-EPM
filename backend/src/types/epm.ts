@@ -35,6 +35,8 @@ export type AvatarAccent = 'blue' | 'teal' | 'violet' | 'amber' | 'rose' | 'slat
 export interface EpmUser {
   id: ID;
   name: string;
+  /** A client or vendor: they see only the portal (BR-611). */
+  external?: boolean;
   /**
    * The two halves of the name, as the directory stores them. Present so a
    * person can edit their own name without EPM guessing where to split the
@@ -4224,4 +4226,127 @@ export interface TaskImportView {
   finishedAt: string | null;
   /** Whether it can be started, or resumed, now. */
   canRun: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* External portal (Module 17: BR-611 to BR-613)                              */
+/* -------------------------------------------------------------------------- */
+
+export type ExternalPermission =
+  | 'status'
+  | 'milestones'
+  | 'tasks.all'
+  | 'tasks.assigned'
+  | 'comment'
+  | 'status.own'
+  | 'time.own'
+  | 'documents.view'
+  | 'documents.upload'
+  | 'approvals'
+  | 'reports';
+
+export interface ExternalRoleView {
+  id: ID;
+  name: string;
+  description: string | null;
+  permissions: ExternalPermission[];
+  builtIn: boolean;
+  /** People holding it on a project. */
+  grants: number;
+}
+
+export interface ExternalRoleInput {
+  name: string;
+  description?: string | null;
+  permissions: ExternalPermission[];
+}
+
+export interface ExternalAccessView {
+  id: ID;
+  userId: ID;
+  userName: string;
+  projectId: ID;
+  projectName: string;
+  roleId: ID;
+  roleName: string;
+  grantedBy: ID;
+  grantedAt: string;
+}
+
+export interface PortalProjectSummary {
+  id: ID;
+  name: string;
+  roleName: string;
+  permissions: ExternalPermission[];
+}
+
+export interface PortalHome {
+  userName: string;
+  projects: PortalProjectSummary[];
+  /** Approval requests waiting on them. */
+  approvals: number;
+}
+
+export interface PortalMilestone {
+  id: ID;
+  subject: string;
+  date: ISODate | null;
+  status: string;
+  closed: boolean;
+}
+
+export interface PortalProjectView extends PortalProjectSummary {
+  description: string | null;
+  plannedStart: ISODate | null;
+  plannedFinish: ISODate | null;
+  /** healthy, warning, critical; null without the status permission or before it is assessed. */
+  health: string | null;
+  milestones: PortalMilestone[] | null;
+  summary: { total: number; closed: number; overdue: number; percentDone: number } | null;
+}
+
+export interface PortalTaskRow {
+  id: ID;
+  subject: string;
+  type: string;
+  status: string;
+  closed: boolean;
+  assignee: string | null;
+  assignedToMe: boolean;
+  startDate: ISODate | null;
+  dueDate: ISODate | null;
+  percentDone: number | null;
+}
+
+export interface PortalComment {
+  id: ID;
+  author: string;
+  createdAt: string;
+  text: string;
+}
+
+export interface PortalTaskView extends PortalTaskRow {
+  projectId: ID;
+  projectName: string;
+  description: string | null;
+  comments: PortalComment[];
+  statuses: { id: ID; name: string }[];
+  can: { comment: boolean; changeStatus: boolean; logTime: boolean };
+}
+
+export interface PortalDocument {
+  id: ID;
+  name: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  uploadedBy: string;
+}
+
+export interface PortalApproval {
+  taskId: ID;
+  requestId: ID;
+  title: string;
+  projectName: string;
+  stepName: string;
+  requestedAt: string;
 }

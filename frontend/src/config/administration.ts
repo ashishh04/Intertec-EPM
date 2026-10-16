@@ -124,6 +124,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('The kinds of work people do, for reading capacity, demand and utilisation by role.'); },
       },
       {
+        id: 'external-access',
+        get label() { return t('External users'); },
+        kind: 'live',
+        get description() { return t('Clients and vendors: their roles, the permission matrix, and the projects they can see in the portal.'); },
+      },
+      {
         id: 'resource-rules',
         get label() { return t('Resource rules'); },
         kind: 'live',

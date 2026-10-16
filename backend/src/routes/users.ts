@@ -35,7 +35,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       prisma.userProfile
         .findUnique({
           where: { openProjectId: request.auth?.userId ?? '' },
-          select: { mustChangePassword: true },
+          select: { mustChangePassword: true, external: true },
         })
         .catch(() => null),
     ]);
@@ -50,6 +50,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       permissions: toNested(permissions.global),
       projectPermissions,
       mustChangePassword: profile?.mustChangePassword ?? false,
+      external: profile?.external ?? false,
     };
   });
 

@@ -75,6 +75,7 @@ const IntegrationPage = lazy(() => import('@/pages/IntegrationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
 const AdministrationPage = lazy(() => import('@/pages/admin/AdministrationPage'));
+const PortalApp = lazy(() => import('@/pages/portal/PortalApp'));
 
 /**
  * Boundary for the routes that render outside AppShell — in practice /login.
@@ -105,7 +106,7 @@ function SignedInRedirect() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, mustChangePassword } = useAuth();
+  const { isAuthenticated, isLoading, mustChangePassword, external } = useAuth();
   const location = useLocation();
 
   // The session is confirmed with the backend, so it is not known on first
@@ -124,6 +125,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   // one, so there is no address to skip past and no destination to lose — the
   // requested URL is still there once the password is set.
   if (mustChangePassword) return <SetPasswordPage />;
+
+  // An external user (BR-611) sees the portal in place of EPM, whatever the address;
+  // the server refuses them everything else anyway.
+  if (external) return <PortalApp />;
 
   return <>{children}</>;
 }

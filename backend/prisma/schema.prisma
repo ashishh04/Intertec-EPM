@@ -111,6 +111,9 @@ model UserProfile {
   /// without this. Nullable on purpose: "not costed" is a real state, and the
   /// report says how many hours it applies to rather than treating them as free.
   hourlyRate         Float?
+  /// An external user — a client or a vendor (BR-611): sees only the portal,
+  /// and in it only what their external roles allow on the projects granted.
+  external           Boolean     @default(false)
   /// Set when an administrator created this account with a starting password
   /// they chose. Cleared the moment the person sets their own.
   ///
@@ -2133,4 +2136,36 @@ model TaskImport {
 
   @@index([projectId, createdAt])
   @@map("task_imports")
+}
+
+/// What an external user may do on a project (BR-611 to BR-613): a permission
+/// matrix, edited by an administrator. Keys: status, milestones, tasks.all,
+/// tasks.assigned, comment, status.own, time.own, documents.view,
+/// documents.upload, approvals, reports.
+model ExternalRole {
+  id          String           @id @default(cuid())
+  name        String           @unique
+  description String?
+  permissions String[]
+  builtIn     Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  access      ExternalAccess[]
+
+  @@map("external_roles")
+}
+
+/// An external user's role on one project.
+model ExternalAccess {
+  id        String       @id @default(cuid())
+  userId    String
+  projectId Int
+  roleId    String
+  role      ExternalRole @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  grantedBy String
+  grantedAt DateTime     @default(now())
+
+  @@unique([userId, projectId])
+  @@index([userId])
+  @@map("external_access")
 }
