@@ -318,7 +318,52 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       )
       .catch(() => ({ items: [] as OpWorkPackage[] }));
 
-    return workPackages.items.map((workPackage): CalendarEvent => {
+    // Meetings are EPM's own records, and sprints OpenProject's versions: the
+    // calendar shows both beside the work, as it says it does.
+    const viewer = await viewerOf(request);
+    const visible = [...viewer.visibleProjectIds].map(String);
+    const [meetings, versions] = await Promise.all([
+      prisma.meeting
+        .findMany({
+          where: {
+            startsAt: { gte: new Date(`${addDays(from, -1)}T00:00:00Z`), lte: new Date(`${addDays(to, 1)}T23:59:59Z`) },
+            state: { not: 'cancelled' },
+            OR: [{ projectId: null }, { projectId: { in: visible } }],
+          },
+          orderBy: { startsAt: 'asc' },
+          take: 1000,
+        })
+        .catch(() => []),
+      openProject
+        .getAll<{ id: number; name: string; startDate?: string | null; endDate?: string | null; _links: Record<string, { href?: string } | undefined> }>('/versions', { pageSize: 500 }, { signal })
+        .catch(() => ({ items: [] as { id: number; name: string; startDate?: string | null; endDate?: string | null; _links: Record<string, { href?: string } | undefined> }[] })),
+    ]);
+    const meetingEvents = meetings.map(
+      (meeting): CalendarEvent => ({
+        id: `meeting-${meeting.id}`,
+        title: meeting.title,
+        kind: 'meeting',
+        date: meeting.startsAt.toISOString(),
+        endDate: new Date(meeting.startsAt.getTime() + meeting.durationMinutes * 60_000).toISOString(),
+        ...(meeting.projectId ? { projectId: meeting.projectId } : {}),
+        link: `/meetings/${meeting.id}`,
+        allDay: false,
+      }),
+    );
+    const sprintEvents = versions.items
+      .filter((version) => version.startDate && version.startDate <= to && (version.endDate ?? version.startDate) >= from)
+      .map(
+        (version): CalendarEvent => ({
+          id: `sprint-${version.id}`,
+          title: version.name,
+          kind: 'sprint',
+          date: version.startDate!,
+          ...(version.endDate ? { endDate: version.endDate } : {}),
+          allDay: true,
+        }),
+      );
+
+    const workEvents = workPackages.items.map((workPackage): CalendarEvent => {
       const typeId = linkId(workPackage._links, 'type');
       const isMilestone = typeId ? milestoneTypeIds.includes(typeId) : false;
       const date = workPackage.startDate ?? workPackage.date ?? workPackage.dueDate ?? from;
@@ -334,5 +379,6 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         allDay: true,
       };
     });
+    return [...workEvents, ...sprintEvents, ...meetingEvents];
   });
 };

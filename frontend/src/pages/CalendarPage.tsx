@@ -271,8 +271,9 @@ function EventChip({ event }: { event: CalendarEvent }) {
     </span>
   );
 
-  return event.taskId ? (
-    <Link to={`/tasks/${event.taskId}`} className="block focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+  const to = event.link ?? (event.taskId ? `/tasks/${event.taskId}` : null);
+  return to ? (
+    <Link to={to} className="block focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
       {content}
     </Link>
   ) : (

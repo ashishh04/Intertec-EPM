@@ -1085,6 +1085,8 @@ export interface CalendarEvent {
   endDate?: ISODate;
   projectId?: ID;
   taskId?: ID;
+  /** Where it opens in EPM, when that is not a task: a meeting. */
+  link?: string;
   allDay: boolean;
 }
 

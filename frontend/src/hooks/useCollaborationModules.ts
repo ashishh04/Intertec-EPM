@@ -64,7 +64,8 @@ export function useMeeting(id?: ID) {
 
 function useMeetingInvalidation() {
   const client = useQueryClient();
-  return () => client.invalidateQueries({ queryKey: meetingKeys.all });
+  // A meeting is also on the calendar.
+  return () => Promise.all([client.invalidateQueries({ queryKey: meetingKeys.all }), client.invalidateQueries({ queryKey: ['calendar'] })]);
 }
 
 export function useCreateMeeting() {
