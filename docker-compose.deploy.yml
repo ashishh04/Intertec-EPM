@@ -30,6 +30,8 @@ services:
     restart: unless-stopped
     environment:
       OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:?set a real secret}
+      # OpenProject 17 reads the key from SECRET_KEY_BASE and will not boot on a default.
+      SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:?set a real secret}
       OPENPROJECT_HOST__NAME: ${EPM_DOMAIN:?set the domain}
       # The public hostname above is what OpenProject puts in generated URLs, so
       # it has to be the real domain. But it also becomes Rails' `config.hosts`

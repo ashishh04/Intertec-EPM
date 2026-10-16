@@ -31,12 +31,14 @@
 # internal OpenProject APIs. After changing the base tag below, verify sign-in
 # still works before calling the upgrade done — see README.md in this directory.
 #
-# Pinned by digest to the build EPM is tested against: 15.5.1, built 5 May
-# 2025. OpenProject supports only its latest major with security fixes, and
-# critical fixes at most for the last two; with 17 current, 15 receives none.
-# The upgrade is tracked under the vulnerability and patch process.
+# Pinned by digest to the build EPM is tested against: 17.9.2, the current
+# release (upgraded from 15.5.1 in October 2026, which no longer received
+# security fixes). It still bundles PostgreSQL 13 beside 17 and keeps running on
+# an existing 13 data directory; moving that to 17 is a separate step
+# (/app/docker/prod/postgres-db-upgrade). Upgrades follow the vulnerability and
+# patch process.
 
-FROM openproject/openproject:15@sha256:d9f71d33f3fa2b2059c4c8e3978a4cccd5044437d9023b2be284aca83a17e717
+FROM openproject/openproject:17.9.2@sha256:3603f071443e16f773ca0e6bbe7f12f66eeeb95cca4540c4f93ec504305a0596
 
 # Library documents are kept
 # --------------------------

@@ -639,6 +639,9 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       .request<void>(`/time_entries/${id}`, { method: 'DELETE', signal: requestSignal(request) })
       .catch(rethrow('That time entry'));
 
+    // An incremental refresh only reads what changed, so it never sees a
+    // deletion: without this the entry would count until the nightly full one.
+    await prisma.$executeRaw`DELETE FROM analytics.fact_time_entry WHERE time_entry_id = ${Number(id)}`.catch(() => undefined);
     spendChanged(previous.projectId);
     reply.code(204);
   });

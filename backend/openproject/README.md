@@ -24,7 +24,7 @@ evaluated. Before any wider deployment, revisit:
 
 ## Why the patch is needed
 
-OpenProject 15.5.1 offers three API authentication mechanisms, and none accepts
+OpenProject (15.5.1, and still 17.9.2) offers three API authentication mechanisms, and none accepts
 a username and password directly:
 
 | Mechanism | Status |
@@ -270,6 +270,28 @@ Change the `image` tag, recreate, then re-run both checks above. If the handler
 still resolves into the doorkeeper gem, the mutation no longer applies and
 sign-in will fail with `unsupported_grant_type` — the backend surfaces that as
 "this instance does not accept password sign-in" rather than a generic error.
+
+### The 15.5.1 → 17.9.2 upgrade (October 2026)
+
+What it took on the local instance, for the next one and for the deployed host:
+
+- **One major version at a time.** 17 refuses to migrate a 15 database, so
+  start 16.6.10 (`sha256:eb08fa63…`) once, let its migrations finish, then 17.
+- **Postgres 15 or newer.** 17 fails on the bundled PG 13 (`syntax error near
+  "NULLS"`). With the container stopped, upgrade the data folder with the
+  image's own script into a new folder, then swap the folders:
+  `docker run --rm -v <pgdata>:/var/openproject/pgdata -v <pgdata-next>:/var/openproject/pgdata-next -e OPENPROJECT_INSTALLATION__TYPE=docker openproject/openproject:17.9.2 root ./docker/prod/postgres-db-upgrade`
+  (an exit code of 127 at the end is only the missing `analyze_new_cluster.sh`).
+- **Re-set the `openproject` role's password** on the new cluster (it is
+  re-hashed as scram-sha-256), then `vacuumdb --all --analyze-only`, `REINDEX
+  TABLE versions` and `ALTER COLLATION public.versions_name REFRESH VERSION`.
+- **`SECRET_KEY_BASE`.** 17 will not boot on a well-known default, and reads
+  `SECRET_KEY_BASE`, not `OPENPROJECT_SECRET_KEY_BASE`. The production compose
+  files pass the real secret under both names. Moving a host from the image
+  default to a real secret invalidates API keys created before, so issue
+  `OPENPROJECT_API_KEY` and `OPENPROJECT_AUTOMATION_API_KEY` again there. The
+  local compose waives the check instead, to keep its existing keys.
+- Take a full backup first: `pg_dumpall` plus copies of `pgdata` and `assets`.
 
 
 ## Why there are three admin initializers

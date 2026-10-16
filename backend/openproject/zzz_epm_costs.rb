@@ -89,6 +89,8 @@ Rails.application.config.to_prepare do
       entry.project = work_package.project
       entry.work_package = work_package
       entry.user = user
+      # Required from OpenProject 17: who logged it, here the administrator EPM posts as.
+      entry.logged_by = User.current if entry.respond_to?(:logged_by=)
       entry.cost_type = cost_type
       entry.units = units
       entry.spent_on = spent_on

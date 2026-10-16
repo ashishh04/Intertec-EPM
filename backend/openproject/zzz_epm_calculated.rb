@@ -147,14 +147,16 @@ Rails.application.config.to_prepare do
         field.project_ids = project_ids.empty? ? [] : Project.where(id: project_ids).pluck(:id)
 
         wanted = type_ids.empty? ? Type.pluck(:id) : Type.where(id: type_ids).pluck(:id)
-        Type.find_each do |type|
-          has = type.custom_field_ids.include?(field.id)
-          want = wanted.include?(type.id)
+        # From 17 fields belong to a type's variants, not the type: every variant
+        # of a wanted type gets the field, and every other variant loses it.
+        TypeVariant.find_each do |variant|
+          has = variant.custom_field_ids.include?(field.id)
+          want = wanted.include?(variant.type_id)
           next if has == want
 
           # Not `reset_attribute_groups`: that starts by deactivating every field.
-          type.custom_field_ids = want ? type.custom_field_ids + [field.id] : type.custom_field_ids - [field.id]
-          type.save!
+          variant.custom_field_ids = want ? variant.custom_field_ids + [field.id] : variant.custom_field_ids - [field.id]
+          variant.save!
         end
       end
       EpmCalculated.field_ids(fresh: true)
@@ -226,7 +228,7 @@ Rails.application.config.to_prepare do
         calculated: field.editable == false,
         isForAll: field.is_for_all?,
         isFilter: field.is_filter?,
-        typeIds: field.type_ids.sort,
+        typeIds: field.type_variants.map(&:type_id).uniq.sort,
         projectIds: field.project_ids.sort,
         options: field.field_format == "list" ? field.custom_options.to_h { |option| [option.id.to_s, option.value] } : nil
       }
@@ -247,6 +249,8 @@ Rails.application.config.to_prepare do
       }
     end
 
+    # From 17 a type's fields belong to its variants: a project picks a variant of
+    # each type (project_types), else the type's default variant applies.
     # A work package may hold a field when its type has it active and the
     # field is for all projects or enabled in its project.
     def holds_sql(field_id)
@@ -254,7 +258,7 @@ Rails.application.config.to_prepare do
       <<~SQL.squish
         EXISTS (SELECT 1 FROM custom_fields_types cft
                   JOIN custom_fields f ON f.id = cft.custom_field_id
-                 WHERE cft.type_id = w.type_id AND f.id = #{field_id}
+                 WHERE cft.type_variant_id = COALESCE((SELECT pt.variant_id FROM project_types pt WHERE pt.project_id = w.project_id AND pt.type_id = w.type_id), (SELECT tv.id FROM type_variants tv WHERE tv.type_id = w.type_id AND tv.is_default_variant LIMIT 1)) AND f.id = #{field_id}
                    AND (f.is_for_all OR EXISTS (SELECT 1 FROM custom_fields_projects cfp
                                                  WHERE cfp.custom_field_id = f.id AND cfp.project_id = w.project_id)))
       SQL
@@ -336,7 +340,7 @@ Rails.application.config.to_prepare do
     def holds_sql_for_column(column)
       <<~SQL.squish
         EXISTS (SELECT 1 FROM custom_fields_types cft
-                 WHERE cft.type_id = w.type_id AND cft.custom_field_id = #{column})
+                 WHERE cft.type_variant_id = COALESCE((SELECT pt.variant_id FROM project_types pt WHERE pt.project_id = w.project_id AND pt.type_id = w.type_id), (SELECT tv.id FROM type_variants tv WHERE tv.type_id = w.type_id AND tv.is_default_variant LIMIT 1)) AND cft.custom_field_id = #{column})
         AND (f.is_for_all OR EXISTS (SELECT 1 FROM custom_fields_projects cfp
                                       WHERE cfp.custom_field_id = #{column} AND cfp.project_id = w.project_id))
       SQL
@@ -363,7 +367,7 @@ Rails.application.config.to_prepare do
           (SELECT string_agg(concat_ws(',', o.id, o.value), ';' ORDER BY o.id)
              FROM custom_options o WHERE o.custom_field_id IN (#{list_sql(custom)})),
           (SELECT string_agg(concat_ws(',', f.id, f.is_for_all,
-                    (SELECT string_agg(t.type_id::text, ' ' ORDER BY t.type_id) FROM custom_fields_types t WHERE t.custom_field_id = f.id),
+                    (SELECT string_agg(s.type_id::text, ' ' ORDER BY s.type_id) FROM (SELECT DISTINCT tv.type_id FROM custom_fields_types t JOIN type_variants tv ON tv.id = t.type_variant_id WHERE t.custom_field_id = f.id) s),
                     (SELECT string_agg(pp.project_id::text, ' ' ORDER BY pp.project_id) FROM custom_fields_projects pp WHERE pp.custom_field_id = f.id)),
                   ';' ORDER BY f.id)
              FROM custom_fields f WHERE f.id IN (#{list_sql(calculated)})),

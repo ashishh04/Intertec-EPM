@@ -36,7 +36,8 @@ export const EXTERNAL_PERMISSIONS: ExternalPermission[] = [
 
 /** The project role permissions each matrix entry needs upstream. */
 const NEEDS: Partial<Record<ExternalPermission, string[][]>> = {
-  comment: [['add_work_package_notes']],
+  // `add_work_package_notes` until OpenProject 17 renamed it.
+  comment: [['add_work_package_comments', 'add_work_package_notes']],
   // Working their own tasks means tasks can be assigned to them.
   'tasks.assigned': [['work_package_assigned']],
   'status.own': [['edit_work_packages', 'change_work_package_status'], ['work_package_assigned']],

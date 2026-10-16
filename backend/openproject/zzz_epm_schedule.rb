@@ -190,6 +190,8 @@ Rails.application.config.to_prepare do
       ids.values.any? ? ids.values.map { |id| Integer(id) }.join(",") : "NULL"
     end
 
+    # From 17 a type's fields belong to its variants: a project picks a variant of
+    # each type (project_types), else the type's default variant applies.
     # A work package may hold a field when its type has it active and the field
     # is for all projects or enabled in its project.
     def holds_sql(field_id)
@@ -197,7 +199,7 @@ Rails.application.config.to_prepare do
       <<~SQL.squish
         EXISTS (SELECT 1 FROM custom_fields_types cft
                   JOIN custom_fields f ON f.id = cft.custom_field_id
-                 WHERE cft.type_id = w.type_id AND f.id = #{field_id}
+                 WHERE cft.type_variant_id = COALESCE((SELECT pt.variant_id FROM project_types pt WHERE pt.project_id = w.project_id AND pt.type_id = w.type_id), (SELECT tv.id FROM type_variants tv WHERE tv.type_id = w.type_id AND tv.is_default_variant LIMIT 1)) AND f.id = #{field_id}
                    AND (f.is_for_all OR EXISTS (SELECT 1 FROM custom_fields_projects cfp
                                                  WHERE cfp.custom_field_id = f.id AND cfp.project_id = w.project_id)))
       SQL

@@ -27,7 +27,7 @@
 
 services:
   openproject:
-    image: openproject/openproject:15
+    image: openproject/openproject:17.9.2@sha256:3603f071443e16f773ca0e6bbe7f12f66eeeb95cca4540c4f93ec504305a0596
     container_name: openproject
     restart: unless-stopped
     ports:
@@ -36,6 +36,12 @@ services:
       # Matches the original container. SECRET_KEY_BASE must be a real secret
       # in any deployment that is not a local throwaway.
       OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:-secret}
+      # From 17 OpenProject refuses to boot on the image's default
+      # SECRET_KEY_BASE, which is the key this local instance has always really
+      # used (the line above is not read for it). Changing it would invalidate
+      # the API keys in backend/.env, so locally the check is waived. Never set
+      # this in docker-compose.prod.yml or docker-compose.deploy.yml.
+      OPENPROJECT_DISABLE__SECRET_KEY_BASE__CHECK: 'true'
       OPENPROJECT_HOST__NAME: ${OPENPROJECT_HOST__NAME:-localhost:8080}
       OPENPROJECT_HTTPS: ${OPENPROJECT_HTTPS:-false}
       OPENPROJECT_DEFAULT__LANGUAGE: en

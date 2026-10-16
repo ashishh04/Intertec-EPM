@@ -41,7 +41,7 @@ PERMISSIONS = %i[
   change_work_package_status
   manage_work_package_relations
   manage_subtasks
-  add_work_package_notes
+  add_work_package_comments
   assign_versions
 ].freeze
 
