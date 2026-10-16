@@ -369,6 +369,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('The languages people may choose for the interface.'); },
       },
       {
+        id: 'assistant',
+        get label() { return t('Pragnya (AI assistant)'); },
+        kind: 'live',
+        get description() { return t('Guardrails for the assistant: whether it answers, finance and people questions, a daily limit, topics it declines, and how it is used.'); },
+      },
+      {
         id: 'attachments',
         get label() { return t('Attachments'); },
         kind: 'live',

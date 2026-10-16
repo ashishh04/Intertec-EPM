@@ -43,6 +43,19 @@ export interface ToolDefinition {
   /** Chip text for the UI, past tense: "Looked up overdue tasks". */
   label(args: Record<string, unknown>): string;
   execute(context: ToolContext, args: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Whether this person is offered the tool at all: what they hold, and what
+   * the administrators allow Pragnya. The API checks again on every call; this
+   * keeps the model from even trying what would only be refused.
+   */
+  allowed?(access: ToolAccess): boolean;
+}
+
+export interface ToolAccess {
+  /** A global permission, or one held on any project. */
+  can(permission: string): boolean;
+  allowFinance: boolean;
+  allowPeople: boolean;
 }
 
 /** Ceiling on a tool result, in JSON characters, before it is truncated. */
@@ -369,6 +382,7 @@ const listProjects: ToolDefinition = {
 
 const teamWorkload: ToolDefinition = {
   name: 'team_workload',
+  allowed: (access) => access.allowPeople,
   description:
     'Workload per person this week: allocation as a percentage of capacity, open tasks ' +
     'assigned, hours logged and capacity. Optionally scoped to one team.',
@@ -849,6 +863,168 @@ const timeSummary: ToolDefinition = {
   },
 };
 
+/* -------------------------------------------------------------------------- */
+/* The newer modules: timesheets, claims, approvals, finance, resources,      */
+/* scenarios. Each a GET through the API as the person asking.                */
+/* -------------------------------------------------------------------------- */
+
+const myTimesheet: ToolDefinition = {
+  name: 'my_timesheet',
+  description:
+    'The timesheet of the person asking for the period containing a day (default today): its status ' +
+    '(draft, submitted, approved), hours logged against the bounds, anything stopping it being submitted, ' +
+    'and a rejection reason. Use it for "is my timesheet in" or "why can I not submit".',
+  parameters: { type: 'object', properties: { day: { type: 'string', description: 'YYYY-MM-DD; default today.' } }, additionalProperties: false },
+  label: () => 'Looked up your timesheet',
+  async execute(context, args) {
+    const sheet = await callApi<Record<string, unknown>>(context, '/timesheets/mine', { day: str(args.day) });
+    return { period: sheet.period, status: sheet.status, hours: sheet.hours, bounds: sheet.bounds, problems: sheet.problems, rejection: sheet.rejection, locked: sheet.locked, link: '/timesheets' };
+  },
+};
+
+const teamTimesheets: ToolDefinition = {
+  name: 'team_timesheets',
+  description:
+    'Timesheets of a period for the people the asker manages (or everyone, for whoever manages timesheets): ' +
+    'who has submitted, who is approved, who is outstanding. Use for "who has not submitted". Report the list ' +
+    'as facts, never as a judgement of anyone.',
+  parameters: {
+    type: 'object',
+    properties: {
+      day: { type: 'string', description: 'A day in the period, YYYY-MM-DD.' },
+      status: { type: 'string', enum: ['outstanding', 'submitted', 'approved', 'rejected'] },
+    },
+    additionalProperties: false,
+  },
+  label: () => 'Looked up timesheets',
+  allowed: (access) => access.allowPeople,
+  async execute(context, args) {
+    const overview = await callApi<{ rows?: Record<string, unknown>[]; counts?: unknown; period?: unknown }>(context, '/timesheets/overview', {
+      day: str(args.day),
+      status: str(args.status),
+    });
+    return {
+      period: overview.period,
+      counts: overview.counts,
+      rows: (overview.rows ?? []).slice(0, ROW_CAP).map((row) => ({ person: row.personName ?? row.name, status: row.status, hours: row.hours })),
+    };
+  },
+};
+
+const expenseClaims: ToolDefinition = {
+  name: 'expense_claims',
+  description:
+    'Expense claims: the asker\u2019s own (scope mine, the default), or everyone\u2019s for whoever manages claims ' +
+    '(scope all), with amount, currency, status and project. Use for "what claims do I have pending".',
+  parameters: {
+    type: 'object',
+    properties: { scope: { type: 'string', enum: ['mine', 'all'] }, status: { type: 'string', enum: ['draft', 'submitted', 'approved', 'posted'] } },
+    additionalProperties: false,
+  },
+  label: (args) => (str(args.scope) === 'all' ? 'Looked up expense claims' : 'Looked up your expense claims'),
+  async execute(context, args) {
+    const claims = await callApi<Record<string, unknown>[]>(context, '/expenses', { scope: str(args.scope) ?? 'mine', status: str(args.status) });
+    return claims.slice(0, ROW_CAP).map((claim) => ({
+      id: claim.id,
+      description: claim.description,
+      amount: claim.amount,
+      currency: claim.currency,
+      status: claim.status,
+      project: claim.projectName,
+      spentOn: claim.spentOn,
+      link: `/expenses/${claim.id}`,
+    }));
+  },
+};
+
+const approvalsWaiting: ToolDefinition = {
+  name: 'approvals_waiting',
+  description: 'Approval requests waiting for the person asking to decide: what, on which project, at which step. Use for "what do I need to approve".',
+  parameters: { type: 'object', properties: {}, additionalProperties: false },
+  label: () => 'Looked up approvals waiting for you',
+  async execute(context) {
+    const requests = await callApi<Record<string, unknown>[]>(context, '/approvals/inbox');
+    return requests
+      .slice(0, ROW_CAP)
+      .map((request) => ({ title: request.title, project: request.projectName, subject: request.subjectType, requestedAt: request.requestedAt, link: request.link ?? '/approvals' }));
+  },
+};
+
+const financeFigures: ToolDefinition = {
+  name: 'finance_figures',
+  description:
+    'Finance for one project, a portfolio, or every project the asker can see: kind cash_flow (planned ' +
+    'against actual spend by month), margin (estimated against actual), or forecast (labour revenue by ' +
+    'month, weighted). In the reporting currency. Use only for finance questions.',
+  parameters: {
+    type: 'object',
+    properties: { kind: { type: 'string', enum: ['cash_flow', 'margin', 'forecast'] }, projectId: { type: 'string' }, portfolioId: { type: 'string' } },
+    required: ['kind'],
+    additionalProperties: false,
+  },
+  label: (args) => `Looked up ${String(args.kind ?? 'finance').replace('_', ' ')}`,
+  allowed: (access) => access.allowFinance && access.can('finance:view'),
+  async execute(context, args) {
+    const kind = str(args.kind);
+    const path = kind === 'margin' ? '/finance/margin' : kind === 'forecast' ? '/finance/forecast' : '/finance/cash-flow';
+    const data = await callApi<Record<string, unknown>>(context, path, { projectId: str(args.projectId), portfolioId: str(args.portfolioId) });
+    if (kind === 'cash_flow') {
+      const combined = data.combined as { points?: unknown[]; totals?: unknown } | undefined;
+      return { currency: data.currency, totals: combined?.totals, months: (combined?.points ?? []).slice(-12), reconciliation: data.reconciliation, link: '/finance' };
+    }
+    if (kind === 'margin') {
+      return {
+        currency: data.currency,
+        combined: data.combined,
+        projects: ((data.projects as Record<string, unknown>[]) ?? []).slice(0, ROW_CAP).map((row) => ({ name: row.name, margin: row.margin, billing: row.billingModel })),
+        link: '/finance',
+      };
+    }
+    return { currency: data.currency, total: data.total, months: data.combined, link: '/finance' };
+  },
+};
+
+const earnedValue: ToolDefinition = {
+  name: 'earned_value',
+  description:
+    'Earned value for one project, a portfolio or the instance: planned value, earned value, actual cost, SPI, CPI, EAC. ' +
+    'Use for "are we on budget or on schedule" in earned value terms.',
+  parameters: { type: 'object', properties: { projectId: { type: 'string' }, portfolioId: { type: 'string' } }, additionalProperties: false },
+  label: () => 'Looked up earned value',
+  allowed: (access) => access.allowFinance,
+  async execute(context, args) {
+    const scope = str(args.projectId) ? `project:${str(args.projectId)}` : str(args.portfolioId) ? `portfolio:${str(args.portfolioId)}` : 'instance';
+    const data = await callApi<Record<string, unknown>>(context, '/earned-value', { scope });
+    return { scope, totals: data.totals, link: '/insights/earned-value' };
+  },
+};
+
+const resourceOverload: ToolDefinition = {
+  name: 'resource_overload',
+  description:
+    'Who is over-allocated in the coming weeks, and by how much: committed hours against available ' +
+    'hours per person per week. For resource planners. Report figures neutrally, never as a judgement.',
+  parameters: { type: 'object', properties: { weeks: { type: 'number', description: 'Weeks ahead, default 8.' } }, additionalProperties: false },
+  label: () => 'Looked up over-allocation',
+  allowed: (access) => access.allowPeople && access.can('resources:plan'),
+  async execute(context, args) {
+    const rows = await callApi<Record<string, unknown>[]>(context, '/resources/over-allocations', { weeks: String(limitOf(args.weeks, 8)) });
+    return rows.slice(0, ROW_CAP).map((row) => ({ person: row.name, week: row.week, available: row.available, committed: row.committed, excess: row.excess }));
+  },
+};
+
+const scenarios: ToolDefinition = {
+  name: 'scenarios',
+  description: 'Portfolio scenarios: their names, status (draft, awaiting approval, applied, rejected) and when they were made. For whoever plans scenarios.',
+  parameters: { type: 'object', properties: {}, additionalProperties: false },
+  label: () => 'Looked up scenarios',
+  allowed: (access) => access.can('scenarios:manage'),
+  async execute(context) {
+    const rows = await callApi<Record<string, unknown>[]>(context, '/scenarios');
+    return rows.slice(0, ROW_CAP).map((row) => ({ name: row.name, status: row.status, made: row.capturedAt, projects: row.projects, link: `/scenarios/${row.id}` }));
+  },
+};
+
 export const TOOLS: readonly ToolDefinition[] = [
   listTasks,
   getProject,
@@ -862,6 +1038,14 @@ export const TOOLS: readonly ToolDefinition[] = [
   listNews,
   searchWiki,
   timeSummary,
+  myTimesheet,
+  teamTimesheets,
+  expenseClaims,
+  approvalsWaiting,
+  financeFigures,
+  earnedValue,
+  resourceOverload,
+  scenarios,
 ];
 
 const byName = new Map(TOOLS.map((tool) => [tool.name, tool]));
@@ -870,9 +1054,9 @@ export function findTool(name: string): ToolDefinition | undefined {
   return byName.get(name);
 }
 
-/** The tool list in the shape the Messages API expects. */
-export function toolSchemas(): ChatTool[] {
-  return TOOLS.map((tool) => ({
+/** The tools this person is offered, in the shape the Messages API expects. */
+export function toolSchemas(access?: ToolAccess): ChatTool[] {
+  return TOOLS.filter((tool) => !access || !tool.allowed || tool.allowed(access)).map((tool) => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.parameters as ChatTool['input_schema'],

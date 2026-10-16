@@ -4350,3 +4350,34 @@ export interface PortalApproval {
   stepName: string;
   requestedAt: string;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Pragnya guardrails (Module 13)                                             */
+/* -------------------------------------------------------------------------- */
+
+export interface AssistantPolicyView {
+  enabled: boolean;
+  /** Finance figures: cash flow, margin, forecast, earned value. */
+  allowFinance: boolean;
+  /** People figures: workload, over-allocation, everyone's timesheets. */
+  allowPeople: boolean;
+  /** Questions a person may ask a day; 0 for no limit. */
+  dailyLimit: number;
+  /** Words or phrases Pragnya declines to discuss. */
+  blockedTopics: string[];
+  /** The organisation's own guidance, which cannot loosen any rule. */
+  guidance: string | null;
+  updatedBy: ID | null;
+  updatedAt: string | null;
+}
+
+export interface AssistantUsageRow {
+  userId: ID;
+  userName: string;
+  questions: number;
+  /** Lookups by tool, e.g. { list_tasks: 4 }. */
+  tools: Record<string, number>;
+  tokens: number;
+  refused: number;
+  lastAt: string;
+}

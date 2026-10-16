@@ -67,6 +67,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'calendars/date-format': lazy(() => import('./DateFormatPage')),
   'calendars/subscriptions': settingsSection('calendars'),
   'system/general': lazy(() => import('./GeneralSettingsPage')),
+  'system/assistant': lazy(() => import('./AssistantPolicyPage')),
   'system/languages': settingsSection('languages'),
   'system/attachments': lazy(() => import('./AttachmentsPage')),
   'system/repositories': settingsSection('repositories'),

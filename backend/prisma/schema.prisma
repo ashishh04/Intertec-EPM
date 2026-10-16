@@ -2169,3 +2169,21 @@ model ExternalAccess {
   @@index([userId])
   @@map("external_access")
 }
+
+/// What administrators allow Pragnya, the assistant, to do (BR-501 to BR-503):
+/// whether it is on, whether it answers finance and people questions, how
+/// many questions a person may ask a day, topics it refuses, and guidance it
+/// follows — none of which can loosen the permissions every lookup runs under.
+model AssistantPolicy {
+  id            Int      @id @default(1)
+  enabled       Boolean  @default(true)
+  allowFinance  Boolean  @default(true)
+  allowPeople   Boolean  @default(true)
+  dailyLimit    Int      @default(100)
+  blockedTopics String[] @default([])
+  guidance      String?
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("assistant_policy")
+}

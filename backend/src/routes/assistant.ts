@@ -6,6 +6,7 @@ import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { status as assistantStatus, isConfigured } from '../assistant/bedrock.js';
 import { chat, toConversation, toMessage } from '../assistant/service.js';
+import { getPolicy } from '../assistant/policy.js';
 import type { AssistantStreamEvent } from '../types/epm.js';
 
 /**
@@ -34,7 +35,11 @@ function writeFrame(reply: FastifyReply, event: AssistantStreamEvent): void {
 }
 
 export const assistantRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/assistant/status', async () => assistantStatus());
+  app.get('/assistant/status', async () => {
+    // Switched off by an administrator: the same answer as not configured, with the reason.
+    const policy = await getPolicy();
+    return policy.enabled ? assistantStatus() : { ...assistantStatus(), available: false, reason: 'Pragnya has been switched off by your administrator.' };
+  });
 
   app.get('/assistant/conversations', async (request) => {
     const rows = await prisma.assistantConversation.findMany({
