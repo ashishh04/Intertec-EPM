@@ -214,6 +214,15 @@ export function level(input: LevelInput): LevelOutcome {
   const fits = (item: LevelItem, start: number, due: number) => {
     if (!item.carrier || !scopeCarriers.has(item.carrier)) return true;
     const weeks = ledger.get(item.carrier)!;
+    // Not starting or finishing on a day its assignee is away all day (BR-113).
+    // Without this, work inside an absence counts as fitting whenever the week
+    // has room on other days. A day off inside longer work, part days off and
+    // days a schedule leaves free stay with the weekly measure, as before.
+    const awayAllDay = (day: number) => {
+      const scheduled = availability.scheduled(item.carrier!, day);
+      return scheduled > 0 && availability.off(item.carrier!, day) >= scheduled - EPSILON;
+    };
+    if (item.hours > 0 && (awayAllDay(Math.max(start, today)) || awayAllDay(Math.max(due, today)))) return false;
     const days = spread(workItem(item, start, due), availability, today);
     if (!days) return true;
     const byWeek = new Map<number, number>();

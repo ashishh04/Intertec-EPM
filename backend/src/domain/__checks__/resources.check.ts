@@ -362,4 +362,48 @@ await check('work that has started, or may not be edited, is not moved', () => {
   assert.equal(outcome.after.length, 1, 'still over: nothing that may move');
 });
 
+await check('BR-113: work on days its assignee is away moves after the absence, its successor with it, though the week had room', () => {
+  // R: 40 hours a week, away Monday 12 and Tuesday 13 October: 24 hours left that week.
+  const away = new AvailabilityModel(
+    plain,
+    new Map<string, CarrierInput>([['R', { weeklyHours: 40, schedules: [], timeOff: [{ from: d('2026-10-12'), to: d('2026-10-13'), hoursPerDay: null }] }]]),
+  );
+  // A, 16 hours on the two days away; B, 8 hours, follows it on the Wednesday: 24 hours, as many as the week has.
+  const outcome = level({
+    items: [item(61, 'R', 16, '2026-10-12', '2026-10-13'), item(62, 'R', 8, '2026-10-14', '2026-10-14', { scheduleManually: false })],
+    relations: [{ predecessorId: 61, successorId: 62, lag: 0 }],
+    calendar: scheduleCalendar,
+    availability: away,
+    otherDemand: [],
+    carriers: new Set(['R']),
+    today: d('2026-10-12'),
+    horizonDays: 365,
+  });
+  assert.equal(outcome.before.length, 0, 'the week is not over-allocated: the absence is what moves it');
+  assert.deepEqual(
+    outcome.moves.map((move) => `#${move.id} ${isoOf(move.newStart)}..${isoOf(move.newDue)}`),
+    ['#61 2026-10-14..2026-10-15', '#62 2026-10-16..2026-10-16'],
+  );
+  assert.equal(outcome.conflicts.length, 0);
+});
+
+await check('but a day off inside longer work leaves it where it is, the week having room', () => {
+  // R: away on Wednesday 14 October only; W, 24 hours Monday to Friday.
+  const away = new AvailabilityModel(
+    plain,
+    new Map<string, CarrierInput>([['R', { weeklyHours: 40, schedules: [], timeOff: [{ from: d('2026-10-14'), to: d('2026-10-14'), hoursPerDay: null }] }]]),
+  );
+  const outcome = level({
+    items: [item(63, 'R', 24, '2026-10-12', '2026-10-16')],
+    relations: [],
+    calendar: scheduleCalendar,
+    availability: away,
+    otherDemand: [],
+    carriers: new Set(['R']),
+    today: d('2026-10-12'),
+    horizonDays: 365,
+  });
+  assert.deepEqual(outcome.moves, []);
+});
+
 console.log(`\n${passed} passed`);

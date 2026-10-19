@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { allows } from '../auth/capabilities.js';
+import { absencesChangedSince, proposeForAbsenceLater } from '../domain/absence-reschedule.js';
 import * as guard from '../auth/guard.js';
 import { prisma } from '../db/prisma.js';
 import {
@@ -171,12 +172,17 @@ export const resourceRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string }; Body: unknown }>('/resources/people/:id/time-off', async (request, reply) => {
     await guard.require(request, 'employees:manage');
     reply.code(201);
-    return addTimeOff(numeric(request.params.id, 'That person'), request.body, request.auth!.userId);
+    const entry = await addTimeOff(numeric(request.params.id, 'That person'), request.body, request.auth!.userId);
+    // BR-113: work that no longer fits gets new dates proposed to the planners.
+    proposeForAbsenceLater(entry, request.auth!.userId);
+    return entry;
   });
 
   app.patch<{ Params: { id: string; entryId: string }; Body: unknown }>('/resources/people/:id/time-off/:entryId', async (request) => {
     await guard.require(request, 'employees:manage');
-    return updateTimeOff(numeric(request.params.id, 'That person'), request.params.entryId, request.body, request.auth!.userId);
+    const entry = await updateTimeOff(numeric(request.params.id, 'That person'), request.params.entryId, request.body, request.auth!.userId);
+    proposeForAbsenceLater(entry, request.auth!.userId);
+    return entry;
   });
 
   app.delete<{ Params: { id: string; entryId: string } }>('/resources/people/:id/time-off/:entryId', async (request, reply) => {
@@ -187,7 +193,10 @@ export const resourceRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Body: unknown }>('/resources/hr/import', async (request) => {
     await guard.require(request, 'employees:manage');
-    return importHr(request.body, request.auth!.userId);
+    const since = new Date();
+    const result = await importHr(request.body, request.auth!.userId);
+    for (const absence of await absencesChangedSince(since)) proposeForAbsenceLater(absence, request.auth!.userId);
+    return result;
   });
 
   app.post<{ Body: unknown }>('/resources/hr/reconcile', async (request) => {
