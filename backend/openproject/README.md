@@ -241,9 +241,10 @@ should be true in `rails runner`.
 docker compose -f backend/openproject/docker-compose.openproject.yml up -d
 ```
 
-Data lives in host bind mounts (`pgdata`, `assets`), so recreating the container
-does not touch the database or attachments. Set `OPENPROJECT_DATA_DIR` to move
-them.
+The database is its own service, `openproject-db` (a named volume locally; its
+password is `OPENPROJECT_DB_PASSWORD` in `backend/openproject/.env`, gitignored),
+and attachments a host bind mount (`assets`), so recreating the container
+touches neither. Set `OPENPROJECT_DATA_DIR` to move the attachments.
 
 ## Verifying the patch is live
 

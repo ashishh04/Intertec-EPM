@@ -59,6 +59,15 @@ Run at least quarterly, and after any change to these scripts, on a copy — nev
 The full in-place procedure (`epm-restore.sh --yes`) is rehearsed on staging, since it stops and
 restarts OpenProject.
 
+**19 Oct 2026, development instance, after OpenProject moved to its own database (`openproject-db`):**
+`epm-backup.sh` run against the local containers (`EPM_DB=container:epm-postgres
+OPENPROJECT=container:openproject OPENPROJECT_DB=container:openproject-db`): EPM 1.3 MB,
+OpenProject 8.8 MB, attachments 0.9 MB, checksums verified. OpenProject's dump restored into a
+scratch database in `openproject-db`: 960 work packages, 14 users, 7 attachments, 1,270 journals and
+3,779 custom values, equal to the source; scratch database dropped. The in-place step was rehearsed
+the same day by the move itself — the live instance's dump restored into a new `openproject-db` and
+OpenProject started on it, counts equal, EPM's checks passing.
+
 ## Runbook: restoring production
 
 1. Decide what to restore and from which run (`ls /srv/epm-backups`). Tell users the system is

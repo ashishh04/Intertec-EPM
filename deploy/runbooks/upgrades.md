@@ -36,3 +36,30 @@ upgrade — minor too — is rehearsed:
 5. Only then production: backup, deploy the new image, verify as for a release.
 6. A major upgrade is not reversible by changing the tag: OpenProject's database has been migrated.
    The way back is the backup taken in step 5.
+
+The 15.5.1 → 17.9.2 upgrade (October 2026) is written up step by step in
+`backend/openproject/README.md`: one major at a time, Postgres 15 or newer, and `SECRET_KEY_BASE`.
+
+## Moving OpenProject off its bundled database (once per server)
+
+From October 2026 OpenProject's database is its own service, `openproject-db`, in both compose
+files; the image's bundled Postgres stays off because `DATABASE_URL` names another host. A server
+installed before that keeps its database in `$OPENPROJECT_DATA_DIR/pgdata`, and moves once. Do
+the OpenProject upgrade first if it is due: the bundled database must be on Postgres 17, the
+version of `openproject-db`.
+
+1. Set `OPENPROJECT_DB_PASSWORD` in `.env.prod` (`openssl rand -hex 24`: hex, as it goes into a URL).
+2. Stop EPM and OpenProject: `docker compose -f docker-compose.deploy.yml --env-file .env.prod stop backend web openproject`.
+3. Dump the bundled database with the old container's own tools, starting only its Postgres:
+   `docker compose ... run --rm --no-deps -T --entrypoint sh openproject -c 'su postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D /var/openproject/pgdata -w start" && su postgres -c "pg_dump -d openproject -Fc"' > openproject.dump`
+   — run this with the *previous* compose file, which still mounts `pgdata`.
+4. With the new compose file: `docker compose ... up -d openproject-db`, then restore:
+   `docker compose ... exec -T openproject-db pg_restore -U openproject -d openproject --no-owner --role=openproject --exit-on-error < openproject.dump`.
+5. Compare counts of `work_packages`, `users`, `attachments` and `journals` between the dump's
+   source and `openproject-db`; they must be equal.
+6. `docker compose ... up -d`; OpenProject starts on `openproject-db` (`pgrep postgres` inside the
+   `openproject` container finds nothing). Verify as for a release.
+7. Keep `$OPENPROJECT_DATA_DIR/pgdata` until the next backup has been taken and checked, then remove it.
+
+Rehearsed on the development instance on 19 Oct 2026 (960 work packages, 14 users, 7 attachments,
+1,270 journals and 3,779 custom values, equal before and after; EPM's checks passed after).

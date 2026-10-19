@@ -13,6 +13,29 @@
 name: epm
 
 services:
+  # ------------------------------------------------------------ OpenProject database
+  # OpenProject's own Postgres (Module 20), not the one bundled in its image:
+  # a DATABASE_URL naming another host is what keeps the bundled one off. On
+  # its own it can be backed up, restored and later moved to a managed
+  # Postgres by changing DATABASE_URL alone. Not published.
+  openproject-db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    container_name: openproject-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openproject
+      POSTGRES_PASSWORD: ${OPENPROJECT_DB_PASSWORD:?set a real password}
+      POSTGRES_DB: openproject
+    volumes:
+      # A bind mount on the same disk as the attachments, so one snapshot holds both.
+      - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openproject -d openproject']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [epm]
+
   # ------------------------------------------------------------ OpenProject
   # The system EPM wraps. Not published: EPM is the only thing that talks to
   # it, over the internal network.
@@ -24,7 +47,12 @@ services:
     image: ${EPM_IMAGE_NAMESPACE:-epm-local}/epm-openproject:${EPM_IMAGE_TAG:-dev}
     container_name: openproject
     restart: unless-stopped
+    depends_on:
+      openproject-db:
+        condition: service_healthy
     environment:
+      # Plain, without query parameters: the image checks it with psql, which refuses Rails' options.
+      DATABASE_URL: postgres://openproject:${OPENPROJECT_DB_PASSWORD:?set a real password}@openproject-db:5432/openproject
       OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:?set a real secret}
       # OpenProject 17 reads the key from SECRET_KEY_BASE and will not boot on a default.
       SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:?set a real secret}
@@ -52,7 +80,6 @@ services:
       # Behind Caddy, so the addresses it sees are the proxy's.
       OPENPROJECT_RAILS__RELATIVE__URL__ROOT: ""
     volumes:
-      - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/pgdata:/var/openproject/pgdata
       - ${OPENPROJECT_DATA_DIR:-/srv/openproject}/assets:/var/openproject/assets
     networks: [epm]
 

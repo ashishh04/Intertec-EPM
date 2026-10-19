@@ -2,7 +2,7 @@
 # EPM backup (NFR13): everything a deployment needs to be put back.
 #
 #   EPM's database             pg_dump, custom format       epm.dump
-#   OpenProject's database     pg_dump inside its container openproject.dump
+#   OpenProject's database     pg_dump in openproject-db    openproject.dump
 #   OpenProject's attachments  tar of /var/openproject/assets  openproject-assets.tar.gz
 #   What was backed up         versions, sizes, row counts  MANIFEST
 #   Checksums of all of it                                  SHA256SUMS
@@ -23,8 +23,10 @@
 #   BACKUP_GPG_RECIPIENT  encrypt every file to this key (recommended off-host)
 #   BACKUP_COPY_COMMAND   run with the run's directory as $1 once it is
 #                         complete, e.g. 'aws s3 cp --recursive "$1" s3://bucket/epm/'
-#   EPM_DB, OPENPROJECT   compose service names (default postgres, openproject),
-#                         or container:<name> to address a container directly
+#   EPM_DB, OPENPROJECT, OPENPROJECT_DB
+#                         compose service names (default postgres, openproject,
+#                         openproject-db), or container:<name> to address a
+#                         container directly
 #
 # Exit status is non-zero on any failure, and a failed run leaves only a
 # `.partial` directory, never something that looks like a good backup.
@@ -38,6 +40,7 @@ BACKUP_ROOT=${BACKUP_ROOT:-/srv/epm-backups}
 RETENTION_DAYS=${RETENTION_DAYS:-14}
 EPM_DB=${EPM_DB:-postgres}
 OPENPROJECT=${OPENPROJECT:-openproject}
+OPENPROJECT_DB=${OPENPROJECT_DB:-openproject-db}
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 DEST="$BACKUP_ROOT/$STAMP"
@@ -62,7 +65,7 @@ say "EPM database"
 in_service "$EPM_DB" sh -c 'pg_dump -U "${POSTGRES_USER:-epm}" -d "${POSTGRES_DB:-epm}" -Fc' > "$WORK/epm.dump"
 
 say "OpenProject database"
-in_service "$OPENPROJECT" sh -c 'pg_dump "$DATABASE_URL" -Fc' > "$WORK/openproject.dump"
+in_service "$OPENPROJECT_DB" pg_dump -U openproject -d openproject -Fc > "$WORK/openproject.dump"
 
 say "OpenProject attachments"
 in_service "$OPENPROJECT" tar -C /var/openproject -czf - assets > "$WORK/openproject-assets.tar.gz"
@@ -71,7 +74,7 @@ in_service "$OPENPROJECT" tar -C /var/openproject -czf - assets > "$WORK/openpro
 # same tools a restore will use, rather than discovered during one.
 say "Checking the dumps can be read"
 in_service "$EPM_DB" pg_restore -l < "$WORK/epm.dump" > /dev/null
-in_service "$OPENPROJECT" pg_restore -l < "$WORK/openproject.dump" > /dev/null
+in_service "$OPENPROJECT_DB" pg_restore -l < "$WORK/openproject.dump" > /dev/null
 tar -tzf "$WORK/openproject-assets.tar.gz" > /dev/null
 
 say "Manifest"
@@ -80,9 +83,9 @@ say "Manifest"
   echo "epm_migration=$(in_service "$EPM_DB" sh -c 'psql -U "${POSTGRES_USER:-epm}" -d "${POSTGRES_DB:-epm}" -Atc "select migration_name from _prisma_migrations order by finished_at desc nulls last limit 1"')"
   echo "epm_audit_events=$(in_service "$EPM_DB" sh -c 'psql -U "${POSTGRES_USER:-epm}" -d "${POSTGRES_DB:-epm}" -Atc "select count(*) from audit_events"')"
   echo "openproject_version=$(in_service "$OPENPROJECT" sh -c "awk '/MAJOR =|MINOR =|PATCH =/{print \$3}' /app/lib/open_project/version.rb | paste -sd. -")"
-  echo "openproject_work_packages=$(in_service "$OPENPROJECT" sh -c 'psql "$DATABASE_URL" -Atc "select count(*) from work_packages"')"
-  echo "openproject_users=$(in_service "$OPENPROJECT" sh -c 'psql "$DATABASE_URL" -Atc "select count(*) from users"')"
-  echo "openproject_attachments=$(in_service "$OPENPROJECT" sh -c 'psql "$DATABASE_URL" -Atc "select count(*) from attachments"')"
+  echo "openproject_work_packages=$(in_service "$OPENPROJECT_DB" psql -U openproject -d openproject -Atc "select count(*) from work_packages")"
+  echo "openproject_users=$(in_service "$OPENPROJECT_DB" psql -U openproject -d openproject -Atc "select count(*) from users")"
+  echo "openproject_attachments=$(in_service "$OPENPROJECT_DB" psql -U openproject -d openproject -Atc "select count(*) from attachments")"
   for file in epm.dump openproject.dump openproject-assets.tar.gz; do
     echo "size_bytes_$file=$(wc -c < "$WORK/$file" | tr -d ' ')"
   done

@@ -14,8 +14,11 @@
 # -----
 #   docker compose -f backend/openproject/docker-compose.openproject.yml up -d
 #
-# The data directories are bind mounts on the host, so recreating the container
-# does not touch the database or attachments. Override their location with
+# OpenProject's database is its own Postgres service (openproject-db, a named
+# volume), not the one bundled inside the image: setting DATABASE_URL to
+# another host is what tells the image not to start its own. Its password is
+# OPENPROJECT_DB_PASSWORD, kept in backend/openproject/.env (gitignored).
+# Attachments stay a bind mount on the host; override its location with
 # OPENPROJECT_DATA_DIR if this is deployed elsewhere.
 #
 # Upgrade implications
@@ -26,13 +29,35 @@
 # done — see backend/openproject/README.md.
 
 services:
+  # OpenProject's own database (Module 20), so it can be backed up, restored,
+  # replicated and later moved to a managed Postgres without touching the app.
+  openproject-db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    container_name: openproject-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openproject
+      POSTGRES_PASSWORD: ${OPENPROJECT_DB_PASSWORD:?set it in backend/openproject/.env}
+      POSTGRES_DB: openproject
+    volumes:
+      - openproject-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U openproject -d openproject']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   openproject:
     image: openproject/openproject:17.9.2@sha256:3603f071443e16f773ca0e6bbe7f12f66eeeb95cca4540c4f93ec504305a0596
     container_name: openproject
     restart: unless-stopped
     ports:
       - '8080:80'
+    depends_on:
+      openproject-db:
+        condition: service_healthy
     environment:
+      DATABASE_URL: postgres://openproject:${OPENPROJECT_DB_PASSWORD:?set it in backend/openproject/.env}@openproject-db:5432/openproject
       # Matches the original container. SECRET_KEY_BASE must be a real secret
       # in any deployment that is not a local throwaway.
       OPENPROJECT_SECRET_KEY_BASE: ${OPENPROJECT_SECRET_KEY_BASE:-secret}
@@ -63,7 +88,6 @@ services:
       OPENPROJECT_WEB_WORKERS: ${OPENPROJECT_WEB_WORKERS:-4}
       OPENPROJECT_WEB_MAX__THREADS: ${OPENPROJECT_WEB_MAX__THREADS:-8}
     volumes:
-      - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/pgdata:/var/openproject/pgdata
       - ${OPENPROJECT_DATA_DIR:-C:/Open-source/Open-Project}/assets:/var/openproject/assets
       # The EPM patches. Read-only: nothing in the container should rewrite them.
       - ./zzz_epm_password_grant.rb:/app/config/initializers/zzz_epm_password_grant.rb:ro
@@ -90,3 +114,6 @@ services:
       # Cost types and cost entries (/epm_admin/costs/*), which API v3 cannot
       # create: approved expense claims become cost entries (Module 10).
       - ./zzz_epm_costs.rb:/app/config/initializers/zzz_epm_costs.rb:ro
+
+volumes:
+  openproject-db:

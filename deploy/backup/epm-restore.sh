@@ -14,10 +14,10 @@
 #   3. EPM's database: dropped and recreated, then restored from epm.dump.
 #      The analytics replica follows on its own; the append-only journal's
 #      triggers are restored with the schema.
-#   4. OpenProject: its container is stopped; a one-off container from the same
-#      image, on the same data directory, starts only PostgreSQL, restores
-#      openproject.dump into a recreated database and stops it again; the
-#      attachments directory is replaced from the tar. Then OpenProject starts.
+#   4. OpenProject: its container is stopped; its own database service
+#      (openproject-db) gets a recreated database restored from
+#      openproject.dump; the attachments directory is replaced from the tar.
+#      Then OpenProject starts.
 #   5. EPM's backend and web start again, and /ready is checked.
 #
 # Settings: COMPOSE_FILE, ENV_FILE as for epm-backup.sh.
@@ -85,16 +85,14 @@ if wants openproject || wants assets; then
 fi
 
 if wants openproject; then
-  say "Restoring OpenProject's database (one-off container, PostgreSQL only)"
-  compose run --rm --no-deps -T --entrypoint sh openproject -c '
-    set -e
-    VERSION=$(cat /var/openproject/pgdata/PG_VERSION)
-    BIN=/usr/lib/postgresql/$VERSION/bin
-    su postgres -c "$BIN/pg_ctl -D /var/openproject/pgdata -w start"
-    su postgres -c "psql -v ON_ERROR_STOP=1 -c \"DROP DATABASE IF EXISTS openproject WITH (FORCE)\" -c \"CREATE DATABASE openproject OWNER openproject\""
-    su postgres -c "pg_restore -d openproject --no-owner --role=openproject --exit-on-error"
-    su postgres -c "$BIN/pg_ctl -D /var/openproject/pgdata -w stop"
-  ' < "$WORK/openproject.dump"
+  say "Restoring OpenProject's database (its own service, openproject-db)"
+  compose up -d openproject-db
+  for attempt in $(seq 1 30); do
+    compose exec -T openproject-db pg_isready -U openproject -d postgres >/dev/null 2>&1 && break
+    sleep 2
+  done
+  compose exec -T openproject-db sh -c 'dropdb -U openproject --if-exists --force openproject && createdb -U openproject openproject'
+  compose exec -T openproject-db pg_restore -U openproject -d openproject --no-owner --role=openproject --exit-on-error < "$WORK/openproject.dump"
 fi
 
 if wants assets; then

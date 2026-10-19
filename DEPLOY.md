@@ -394,14 +394,18 @@ ties that image to that address.
 
 | What | Where |
 |---|---|
-| OpenProject database and attachments | bind mount at `OPENPROJECT_DATA_DIR`, default `/srv/openproject` |
+| OpenProject database | its own service, `openproject-db`; bind mount at `OPENPROJECT_DATA_DIR/db`, default `/srv/openproject/db` |
+| OpenProject attachments | bind mount at `OPENPROJECT_DATA_DIR/assets` |
 | EPM database | named volume `epm-pgdata` |
 | Analytics replica | named volume `epm-pgdata-replica`; a copy, rebuilt by cloning |
 | TLS certificates | named volume `caddy-data` |
 
 OpenProject's data is a bind mount on purpose: a path can be pointed at a
 mounted disk, and a mounted disk can be snapshotted independently of the
-instance. `caddy-data` must survive a recreate — without it Caddy re-issues on
+instance. Its database is a service of its own rather than the Postgres bundled
+in OpenProject's image, so it can be backed up and restored on its own, and
+moved to a managed Postgres by changing `DATABASE_URL` alone. A server
+installed before October 2026 moves once: `deploy/runbooks/upgrades.md`. `caddy-data` must survive a recreate — without it Caddy re-issues on
 every deploy and will meet Let's Encrypt's rate limit.
 
 Backups are taken by `deploy/backup/epm-backup.sh` — EPM's database,
