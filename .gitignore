@@ -68,3 +68,6 @@ user-guide/
 
 # HyperFrames video projects — captures and renders are hundreds of MB.
 videos/
+
+# Load-test sessions and reports (backend/src/scripts/load-test.ts): the sessions are credentials.
+.load-test/
