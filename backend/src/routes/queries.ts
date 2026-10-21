@@ -67,12 +67,11 @@ const runQuery = z.object({
   pageSize: z.coerce.number().int().positive().max(200).optional(),
   showSums: booleanish.optional(),
   /**
-   * Return the rows as a tree rather than a flat list.
-   *
-   * OpenProject orders the page parent-before-child and pulls in any ancestor
-   * needed to reach a matching row, even where that ancestor does not match the
-   * filter itself. That is what makes a filtered list still readable as a
-   * breakdown rather than as orphaned leaves.
+   * Return the rows as a tree rather than a flat list: each top-level item
+   * followed by its children, theirs, and so on — all of them at once, the
+   * table paging the rows it shows. OpenProject's API does not do
+   * this — it accepts the flag and returns the rows in sort order, its own
+   * screen building the tree in the browser — so EPM does (see `treePage`).
    */
   showHierarchies: booleanish.optional(),
   includeSubprojects: booleanish.optional(),
@@ -92,15 +91,12 @@ function upstreamParams(query: z.infer<typeof runQuery>): QueryParams {
   if (query.showSums !== undefined) params.showSums = String(query.showSums);
 
   /*
-   * Grouping wins over the tree.
-   *
-   * OpenProject refuses the pair outright — "Display mode is mutually exclusive
-   * with group by 'project'" — and a saved view that already has hierarchy on
-   * carries it into a grouped run unless it is turned off explicitly. Deciding
-   * it here means no caller can produce the combination, whatever it asks for.
+   * The tree is EPM's to build (`runAndNormalize`), so the flag is kept here as
+   * the caller's wish and never sent upstream as true: OpenProject's API only
+   * accepts it, and refuses it outright beside a grouping — "Display mode is
+   * mutually exclusive with group by 'project'".
    */
-  const hierarchy = query.groupBy ? false : query.showHierarchies;
-  if (hierarchy !== undefined) params.showHierarchies = String(hierarchy);
+  if (query.showHierarchies !== undefined) params.showHierarchies = String(query.showHierarchies);
   if (query.includeSubprojects !== undefined) {
     params.includeSubprojects = String(query.includeSubprojects);
   }
@@ -160,6 +156,80 @@ interface QueryResponse {
   };
 }
 
+/** Rows read for a tree, at most: the whole result is needed to order it. */
+const TREE_LIMIT = 5000;
+const TREE_READ = 1000;
+
+export interface TaskTree {
+  /** Rows matching the query, in every top-level item, not only this page's. */
+  rows: number;
+  /** How deep each row on the page is: 0 for a top-level item. */
+  depth: Record<string, number>;
+  /** How many children each row on the page has. */
+  children: Record<string, number>;
+  /** Rows whose parent the query does not select (filtered out): shown at the top level. */
+  parentOutside: string[];
+  /** More rows matched than a tree is built from; the rest are not shown. */
+  truncated: boolean;
+}
+
+/** Groupings a tree can sit inside: a work package's children share its project. */
+const TREE_GROUPINGS = new Set(['project']);
+
+/**
+ * One page of a tree: the page's top-level items, each followed depth-first by
+ * its descendants, siblings in the query's own order. A row whose parent is not
+ * in the list (filtered out, or in another group) stands at the top level, so
+ * nothing is hidden. Grouped, each group holds its own trees, in the groups'
+ * order, and a page is so many top-level items across them; each group's
+ * `taskIds` become the page's rows in it, its count staying the whole result's.
+ */
+export function treePage(
+  tasks: EpmTask[],
+  page: number,
+  size: number,
+  groups?: TaskGroup[],
+): { rows: EpmTask[]; roots: number; groups?: TaskGroup[]; tree: Omit<TaskTree, 'rows' | 'truncated'> } {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const sets = groups ? groups.map((group) => group.taskIds.map((id) => byId.get(id)).filter((task): task is EpmTask => Boolean(task))) : [tasks];
+  const groupOf = new Map<string, number>();
+  const children = new Map<string, EpmTask[]>();
+  const roots: { task: EpmTask; group: number }[] = [];
+  sets.forEach((set, group) => {
+    for (const task of set) groupOf.set(task.id, group);
+    for (const task of set) {
+      if (task.parentId && groupOf.get(task.parentId) === group) children.set(task.parentId, [...(children.get(task.parentId) ?? []), task]);
+      else roots.push({ task, group });
+    }
+  });
+  const rows: EpmTask[] = [];
+  const idsByGroup = sets.map((): string[] => []);
+  const depth: Record<string, number> = {};
+  const childCount: Record<string, number> = {};
+  const seen = new Set<string>();
+  const visit = (task: EpmTask, level: number, group: number) => {
+    if (seen.has(task.id)) return;
+    seen.add(task.id);
+    rows.push(task);
+    idsByGroup[group]!.push(task.id);
+    depth[task.id] = level;
+    const below = children.get(task.id) ?? [];
+    childCount[task.id] = below.length;
+    for (const child of below) visit(child, level + 1, group);
+  };
+  for (const { task, group } of roots.slice((page - 1) * size, page * size)) visit(task, 0, group);
+  return {
+    rows,
+    roots: roots.length,
+    ...(groups ? { groups: groups.map((group, index) => ({ ...group, taskIds: idsByGroup[index]! })) } : {}),
+    tree: {
+      depth,
+      children: childCount,
+      parentOutside: rows.filter((task) => task.parentId && groupOf.get(task.parentId) !== groupOf.get(task.id)).map((task) => task.id),
+    },
+  };
+}
+
 /** A query plus the page of work packages it selects. */
 async function runAndNormalize(
   path: string,
@@ -175,11 +245,18 @@ async function runAndNormalize(
   total: number;
   pageSize: number;
   page: number;
+  /** Present only as a tree: then every row comes at once, and `total` counts top-level items. */
+  tree?: TaskTree;
 }> {
+  // A tree is built from the whole result, read a large page at a time; ungrouped, or grouped by project.
+  const asTree = params.showHierarchies === 'true' && (!params.groupBy || TREE_GROUPINGS.has(String(params.groupBy)));
+  const upstream: QueryParams = asTree
+    ? { ...params, offset: '1', pageSize: String(TREE_READ), showHierarchies: 'false' }
+    : { ...params, ...(params.showHierarchies ? { showHierarchies: 'false' } : {}) };
   let response: QueryResponse & Parameters<typeof toEpmQuery>[0];
   try {
     response = await openProject.request<QueryResponse & Parameters<typeof toEpmQuery>[0]>(path, {
-      query: params,
+      query: upstream,
       signal,
     });
   } catch (error) {
@@ -213,8 +290,24 @@ async function runAndNormalize(
     throw error;
   }
 
+  // A saved view's own grouping, when the request names none, may be one a tree cannot sit in: then a plain page.
+  const viewGrouping = toEpmQuery(response).groupBy;
+  if (asTree && !params.groupBy && viewGrouping && !TREE_GROUPINGS.has(viewGrouping)) {
+    return runAndNormalize(path, { ...params, showHierarchies: 'false' }, signal);
+  }
+
   const results = response._embedded?.results;
-  const elements = results?._embedded?.elements ?? [];
+  let elements = results?._embedded?.elements ?? [];
+  const matched = results?.total ?? elements.length;
+  if (asTree) {
+    for (let offset = 2; elements.length < Math.min(matched, TREE_LIMIT); offset += 1) {
+      const more = await openProject.request<QueryResponse>(path, { query: { ...upstream, offset: String(offset) }, signal });
+      const page = more._embedded?.results?._embedded?.elements ?? [];
+      if (page.length === 0) break;
+      elements = [...elements, ...page];
+    }
+    elements = elements.slice(0, TREE_LIMIT);
+  }
 
   const catalog = await getCatalog(signal);
   const identifiers = new Map<string, string>();
@@ -241,6 +334,26 @@ async function runAndNormalize(
         ),
       )
     : undefined;
+
+  if (asTree) {
+    // The whole tree at once: the table pages the rows that can be seen, as branches are folded and unfolded.
+    const { rows, roots, tree, groups: pageGroups } = treePage(
+      elements.map((workPackage) => toEpmTask(workPackage, catalog, identifiers)),
+      1,
+      Number.MAX_SAFE_INTEGER,
+      groups,
+    );
+    return {
+      query,
+      tasks: rows,
+      ...(pageGroups ? { groups: pageGroups } : {}),
+      ...(sums ? { sums } : {}),
+      total: roots,
+      pageSize: rows.length,
+      page: 1,
+      tree: { ...tree, rows: Math.min(matched, TREE_LIMIT), truncated: matched > TREE_LIMIT },
+    };
+  }
 
   return {
     query,

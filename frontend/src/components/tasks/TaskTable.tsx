@@ -1,8 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
   ChevronsUpDown,
   Columns3,
   Download,
@@ -48,6 +51,7 @@ import {
 } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { ID, EpmProject, EpmTask, EpmUser, TaskFilters, UpdateTaskInput } from '@/types';
+import type { TaskTree } from '@/services/api/queries';
 
 type ColumnKey =
   | 'key'
@@ -206,6 +210,12 @@ export interface TaskTableProps {
    * view want — a tree and a sort order are different claims about the rows.
    */
   showHierarchy?: boolean;
+  /**
+   * The rows as a tree, ordered and measured by the server, all of them at
+   * once: rows with children can be collapsed, and pages are cut from the rows
+   * that can be seen. Takes over from `showHierarchy`.
+   */
+  tree?: TaskTree;
 }
 
 /**
@@ -229,6 +239,7 @@ export function TaskTable({
   onExport,
   hideProjectColumn = false,
   showHierarchy = false,
+  tree,
   columns: controlledColumns,
   columnLabels,
   sums,
@@ -274,39 +285,92 @@ export function TaskTable({
   }, [columns, sums, tasks]);
 
   const depths = useMemo(
-    () => (showHierarchy ? hierarchyDepths(tasks) : new Map<ID, number>()),
-    [showHierarchy, tasks],
+    () =>
+      tree
+        ? new Map<ID, number>(Object.entries(tree.depth))
+        : showHierarchy
+          ? hierarchyDepths(tasks)
+          : new Map<ID, number>(),
+    [tree, showHierarchy, tasks],
   );
+
+  // Rows whose children are folded away. Kept across pages: an id is an id.
+  const [collapsed, setCollapsed] = useState<Set<ID>>(new Set());
+  const parents = useMemo(() => (tree ? tasks.filter((task) => (tree.children[task.id] ?? 0) > 0).map((task) => task.id) : []), [tree, tasks]);
+  const outside = useMemo(() => new Set(tree?.parentOutside ?? []), [tree]);
+  const toggleCollapsed = (id: ID) =>
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // A row is hidden while any of its ancestors is folded; the whole tree is on the page.
+  const visibleTasks = useMemo(() => {
+    if (!tree || collapsed.size === 0) return tasks;
+    const byId = new Map(tasks.map((task) => [task.id, task]));
+    return tasks.filter((task) => {
+      let parentId = task.parentId;
+      for (let guard = 0; parentId && byId.has(parentId) && guard < tasks.length; guard += 1) {
+        if (collapsed.has(parentId)) return false;
+        parentId = byId.get(parentId)?.parentId;
+      }
+      return true;
+    });
+  }, [tree, collapsed, tasks]);
+
+  /*
+   * As a tree, the whole result is here and pages are cut from the rows that
+   * can be seen: so many rows a page whatever is expanded, and folding a branch
+   * re-pages at once without asking the server again. In the groups' order when
+   * grouped.
+   */
+  const visibleOrder = useMemo(() => {
+    if (!tree) return visibleTasks;
+    if (!groups?.length) return visibleTasks;
+    const byId = new Map(visibleTasks.map((task) => [task.id, task]));
+    return groups.flatMap((group) => group.taskIds.map((id) => byId.get(id)).filter((task): task is EpmTask => task !== undefined));
+  }, [tree, groups, visibleTasks]);
+  const pageTasks = useMemo(
+    () => (tree ? visibleOrder.slice((page - 1) * pageSize, page * pageSize) : tasks),
+    [tree, visibleOrder, page, pageSize, tasks],
+  );
+  // Folding a branch can leave the page past the end: back to the last one.
+  const lastPage = Math.max(1, Math.ceil(visibleOrder.length / pageSize));
+  useEffect(() => {
+    if (tree && page > lastPage) onPageChange(lastPage);
+  }, [tree, page, lastPage, onPageChange]);
 
   /**
    * The body's rows: either a flat list, or group headers interleaved with the
    * rows belonging to each group.
    *
    * Groups with nothing on this page are still rendered, because their count is
-   * real and omitting them would make the page look like the whole result.
+   * real and omitting them would make the page look like the whole result —
+   * except as a tree, where pages run through the groups in order, so a group
+   * with nothing here is wholly on another page and its header would be noise.
    */
   const rows = useMemo(() => {
     if (!groups?.length) {
-      return tasks.map((task) => ({ kind: 'task' as const, task }));
+      return (tree ? pageTasks : visibleTasks).map((task) => ({ kind: 'task' as const, task }));
     }
 
-    const byId = new Map(tasks.map((task) => [task.id, task]));
+    const byId = new Map((tree ? pageTasks : visibleTasks).map((task) => [task.id, task]));
 
-    return groups.flatMap((group) => [
-      { kind: 'group' as const, group },
-      ...group.taskIds
-        .map((id) => byId.get(id))
-        .filter((task): task is EpmTask => task !== undefined)
-        .map((task) => ({ kind: 'task' as const, task })),
-    ]);
-  }, [groups, tasks]);
+    return groups.flatMap((group) => {
+      const members = group.taskIds.map((id) => byId.get(id)).filter((task): task is EpmTask => task !== undefined);
+      if (tree && members.length === 0) return [];
+      return [{ kind: 'group' as const, group }, ...members.map((task) => ({ kind: 'task' as const, task }))];
+    });
+  }, [groups, tree, pageTasks, visibleTasks]);
 
-  const allSelected = tasks.length > 0 && tasks.every((task) => selected.has(task.id));
+  // Selecting all is the rows on this page.
+  const allSelected = pageTasks.length > 0 && pageTasks.every((task) => selected.has(task.id));
   const someSelected = selected.size > 0 && !allSelected;
   const selectedIds = [...selected];
 
   const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(tasks.map((task) => task.id)));
+    setSelected(allSelected ? new Set() : new Set(pageTasks.map((task) => task.id)));
   };
 
   const toggleOne = (id: ID) => {
@@ -438,9 +502,26 @@ export function TaskTable({
       ) : (
         <>
           <p className="px-1 text-2xs text-muted-foreground">
-            {total === 0 ? t('No results') : t('{count, plural, one {# task} other {# tasks}}', { count: total })}
+            {total === 0
+              ? t('No results')
+              : tree
+                ? t('{items, plural, one {# top-level item} other {# top-level items}} · {count, plural, one {# task} other {# tasks}} in all', { items: total, count: tree.rows })
+                : t('{count, plural, one {# task} other {# tasks}}', { count: total })}
+            {tree?.truncated ? ` · ${t('Only the first {count} are shown as a tree: filter to narrow it.', { count: tree.rows })}` : ''}
           </p>
           <div className="flex items-center gap-1.5">
+            {tree && parents.length > 0 ? (
+              <>
+                <Button size="sm" variant="ghost" onClick={() => setCollapsed(new Set())}>
+                  <ChevronsUpDown className="h-3.5 w-3.5" />
+                  {t('Expand all')}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setCollapsed(new Set(parents))}>
+                  <ChevronsDownUp className="h-3.5 w-3.5" />
+                  {t('Collapse all')}
+                </Button>
+              </>
+            ) : null}
             {/* Hidden when a query owns the columns — two pickers editing the
                 same thing, only one of which is saved, invites confusion. */}
             <DropdownMenu>
@@ -489,14 +570,14 @@ export function TaskTable({
   const footer =
     total > 0 ? (
       <Pagination
-        page={page}
+        page={tree ? Math.min(page, lastPage) : page}
         pageSize={pageSize}
-        total={total}
+        total={tree ? visibleOrder.length : total}
         onPageChange={onPageChange}
         onPageSizeChange={onPageSizeChange}
         pageSizeOptions={[15, 25, 50, 100]}
-        itemLabel={t('task')}
-        itemLabelPlural={t('tasks')}
+        itemLabel={tree ? t('row') : t('task')}
+        itemLabelPlural={tree ? t('rows') : t('tasks')}
       />
     ) : undefined;
 
@@ -584,7 +665,8 @@ export function TaskTable({
               const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
               const due = describeDueDate(task.dueDate, task.statusCategory === 'done');
               const isSelected = selected.has(task.id);
-              const depth = showHierarchy ? (depths.get(task.id) ?? 0) : 0;
+              const depth = tree || showHierarchy ? (depths.get(task.id) ?? 0) : 0;
+              const childCount = tree?.children[task.id] ?? 0;
 
               return (
                 <TableRow key={task.id} data-state={isSelected ? 'selected' : undefined}>
@@ -611,13 +693,39 @@ export function TaskTable({
                               className="me-2 h-4 w-3 shrink-0 border-s border-border"
                             />
                           ))}
+                          {tree ? (
+                            childCount > 0 ? (
+                              <button
+                                type="button"
+                                className="me-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                                aria-expanded={!collapsed.has(task.id)}
+                                aria-label={collapsed.has(task.id) ? t('Show the {count} items under {task}', { count: childCount, task: task.subject }) : t('Hide the {count} items under {task}', { count: childCount, task: task.subject })}
+                                onClick={() => toggleCollapsed(task.id)}
+                              >
+                                {collapsed.has(task.id) ? <ChevronRight className="h-3.5 w-3.5 rtl:rotate-180" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                              </button>
+                            ) : (
+                              <span aria-hidden className="me-1 h-5 w-5 shrink-0" />
+                            )
+                          ) : null}
                           <Link
                             to={`/tasks/${task.id}`}
                             dir="auto"
-                            className="truncate font-medium text-foreground underline-offset-2 hover:text-primary hover:underline"
+                            className={cn(
+                              'truncate text-foreground underline-offset-2 hover:text-primary hover:underline',
+                              tree && childCount > 0 ? 'font-semibold' : 'font-medium',
+                            )}
                           >
                             {task.subject}
                           </Link>
+                          {tree && childCount > 0 ? (
+                            <span className="ms-1.5 shrink-0 text-2xs text-muted-foreground">({childCount})</span>
+                          ) : null}
+                          {outside.has(task.id) ? (
+                            <span className="ms-1.5 shrink-0 text-2xs text-muted-foreground" title={t('Its parent is filtered out of this view, or listed under another group.')}>
+                              {t('parent not listed here')}
+                            </span>
+                          ) : null}
                         </span>
                       ) : column === 'project' ? (
                         <span className="text-muted-foreground">{project?.name ?? '—'}</span>

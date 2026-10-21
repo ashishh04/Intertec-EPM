@@ -29,7 +29,7 @@ export default function TasksPage() {
             </Button>
             <Button variant="outline" onClick={() => setImporting(true)} disabled={!canAnywhere('task:create')}>
               <Upload className="h-4 w-4" />
-              {t('Import CSV')}
+              {t('Import')}
             </Button>
             <Button onClick={() => openTaskDrawer()} disabled={!canAnywhere('task:create')}>
               <Plus className="h-4 w-4" />

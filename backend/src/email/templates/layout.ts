@@ -4,7 +4,8 @@
  * Inline CSS and a fixed 600px table, because that is what mail clients
  * render consistently; a stylesheet or a flex layout is stripped or ignored
  * by enough of them to make the result unpredictable. Muted grey on white, a
- * single primary button, no images — nothing to block, nothing to load.
+ * single primary button, and one image — the Intertec logo, with alt text so a
+ * client that blocks images still shows the name.
  *
  * Everything interpolated into HTML goes through `escape`. Subjects, names
  * and notification bodies all originate in OpenProject, where a user can type
@@ -19,6 +20,7 @@ import {
   type Conventions,
   type Language,
 } from '../../lib/i18n.js';
+import { env } from '../../config/env.js';
 
 export interface RenderedEmail {
   subject: string;
@@ -78,10 +80,23 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 /** For a caller rendering without a payload locale. */
 export const ENGLISH: EmailLocale = emailLocale(undefined);
 
-const PRIMARY = '#155EEF';
-const INK = '#1F2937';
-const MUTED = '#6B7280';
+// Intertec's own palette, sampled from the logo: the purple of "35", the
+// magenta it fades from, the red of the dot, and the navy of the strapline.
+const PRIMARY = '#864C9A';
+const MAGENTA = '#DF4175';
+const RED = '#DC3027';
+const INK = '#17242D';
+const MUTED = '#5F6B73';
 const RULE = '#E5E7EB';
+
+const WEBSITE = 'https://www.intertecsystems.com';
+
+/**
+ * The logo is linked, not attached: an inline attachment would force every
+ * message through Resend's single-send endpoint. Served by the web app from
+ * `frontend/public/email/`, so it has to stay there.
+ */
+const logoUrl = (): string => `${env.APP_BASE_URL.replace(/\/+$/, '')}/email/intertec-logo.png`;
 
 export function escape(value: string): string {
   return value
@@ -164,15 +179,31 @@ export function layout(title: string, bodyHtml: string, locale: EmailLocale = EN
     `<div style="display:none;max-height:0;overflow:hidden;color:#F5F6F8;">${escape(title)}</div>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F5F6F8;">` +
     `<tr><td align="center" style="padding:32px 16px;">` +
-    `<table role="presentation" dir="${dir}" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:8px;border:1px solid ${RULE};">` +
-    `<tr><td style="padding:24px 32px 8px 32px;text-align:${align};font-family:${fonts};">` +
-    `<div style="font-size:18px;font-weight:700;letter-spacing:0.04em;color:${PRIMARY};">EPM</div>` +
+    `<table role="presentation" dir="${dir}" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:8px;border:1px solid ${RULE};overflow:hidden;">` +
+    // The brand stripe: red to magenta to purple. Outlook ignores gradients
+    // and paints the purple underneath.
+    `<tr><td height="4" style="height:4px;line-height:4px;font-size:0;background:${PRIMARY};` +
+    `background-image:linear-gradient(90deg,${RED},${MAGENTA},${PRIMARY});">&nbsp;</td></tr>` +
+    // Logo on the reading-start side, the product name on the other.
+    `<tr><td style="padding:20px 32px 16px 32px;border-bottom:1px solid ${RULE};font-family:${fonts};">` +
+    `<table role="presentation" dir="${dir}" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>` +
+    `<td style="text-align:${align};vertical-align:middle;">` +
+    `<a href="${WEBSITE}" style="text-decoration:none;">` +
+    `<img src="${escape(logoUrl())}" width="200" height="46" alt="Intertec" ` +
+    `style="display:block;border:0;outline:none;width:200px;height:46px;font-size:20px;font-weight:700;color:${INK};"></a>` +
+    `</td>` +
+    `<td style="text-align:${dir === 'rtl' ? 'left' : 'right'};vertical-align:middle;white-space:nowrap;">` +
+    `<span style="font-size:15px;font-weight:700;letter-spacing:0.08em;color:${PRIMARY};">EPM</span>` +
+    `</td></tr></table>` +
     `</td></tr>` +
-    `<tr><td style="padding:16px 32px 8px 32px;text-align:${align};font-family:${fonts};">` +
+    `<tr><td style="padding:24px 32px 8px 32px;text-align:${align};font-family:${fonts};">` +
     bodyHtml +
     `</td></tr>` +
-    `<tr><td style="padding:16px 32px 24px 32px;border-top:1px solid ${RULE};text-align:${align};font-family:${fonts};">` +
-    `<div style="font-size:12px;line-height:18px;color:${MUTED};">${escape(locale.tr('Intertec Systems · Internal platform'))}</div>` +
+    `<tr><td style="padding:16px 32px 20px 32px;background:#FAFAFB;border-top:1px solid ${RULE};text-align:${align};font-family:${fonts};">` +
+    `<div style="font-size:12px;line-height:18px;color:${INK};font-weight:600;">${escape(locale.tr('Intertec Systems · Internal platform'))}</div>` +
+    `<div style="font-size:12px;line-height:18px;color:${MUTED};">` +
+    `<a href="${WEBSITE}" style="color:${PRIMARY};text-decoration:none;">www.intertecsystems.com</a>` +
+    `</div>` +
     `</td></tr>` +
     `</table></td></tr></table></body></html>`
   );
@@ -184,5 +215,6 @@ export function textBody(lines: (string | undefined)[], locale: EmailLocale = EN
     ...lines.filter((line): line is string => Boolean(line)),
     '',
     locale.tr('Intertec Systems · Internal platform'),
+    'www.intertecsystems.com',
   ].join('\n');
 }

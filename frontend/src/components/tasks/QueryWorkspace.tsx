@@ -119,6 +119,11 @@ interface QueryWorkspaceProps {
   className?: string;
 }
 
+/** Groupings the tree can sit inside: a task's children share its project. */
+const TREE_GROUPINGS = new Set(['project']);
+/** Sent as the page size for a tree, whose rows all come at once: fixed, so paging does not fetch again. */
+const TREE_REQUEST_SIZE = 100;
+
 export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const { openTaskDrawer } = useUI();
   const { canAnywhere } = useAuth();
@@ -173,17 +178,20 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     });
   }, [filters, schemaQuery.data]);
 
-  // Grouping and sorting each impose their own order, so the tree yields to
-  // either rather than fighting it.
-  const treeMode = hierarchy && !groupBy && !sort;
+  // A sort imposes its own order, so the tree yields to it. Grouping by project
+  // keeps it — each project's own tree under its heading, a task's children
+  // sharing its project; any other grouping (by status, say) does not.
+  const treeAllowed = !sort && (!groupBy || TREE_GROUPINGS.has(groupBy));
+  const treeMode = hierarchy && treeAllowed;
 
   // Overrides are only sent when set. Omitting `filters` entirely lets a saved
   // view keep its own; sending an empty array would silently clear it.
   const overrides = useMemo(
     () => ({
       projectId,
-      offset: page,
-      pageSize,
+      // As a tree the whole result comes at once and the table pages it, so paging asks nothing of the server.
+      offset: treeMode ? 1 : page,
+      pageSize: treeMode ? TREE_REQUEST_SIZE : pageSize,
       ...(isAdHoc || appliedFilters.length > 0 ? { filters: buildFilters(appliedFilters) } : {}),
       ...(sort
         ? {
@@ -502,8 +510,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               the reason the tree is not showing stays on screen. */}
           <InfoTooltip
             label={
-              groupBy || sort
-                ? t('Grouping and sorting each impose their own order, so the tree is off while either is set.')
+              !treeAllowed
+                ? t('Sorting by a column, or grouping by anything but project, imposes its own order, so the tree is off while either is set.')
                 : t('Show sub-items nested under their parent.')
             }
           >
@@ -513,7 +521,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                 size="sm"
                 className="shrink-0"
                 aria-pressed={treeMode}
-                disabled={Boolean(groupBy || sort)}
+                disabled={!treeAllowed}
                 onClick={() => {
                   setHierarchy((on) => !on);
                   setPage(1);
@@ -578,6 +586,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             setPage(1);
           }}
           showHierarchy={treeMode}
+          tree={treeMode ? result.data?.tree : undefined}
           sortBy={activeSort?.field}
           sortDir={activeSort?.direction}
           sortable={sortableColumns}
@@ -614,7 +623,8 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         <p className="mt-2 text-2xs text-muted-foreground">
           {t(
             '{total, plural, one {# work package} other {# work packages}} · {filters, plural, one {# filter applied} other {# filters applied}}',
-            { total: result.data?.total ?? 0, filters: appliedFilters.length },
+            // As a tree `total` counts top-level items; this line counts every work package.
+            { total: result.data?.tree?.rows ?? result.data?.total ?? 0, filters: appliedFilters.length },
           )}
         </p>
       ) : null}

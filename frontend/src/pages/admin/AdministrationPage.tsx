@@ -176,8 +176,9 @@ function BackToAdministration() {
  */
 function PageTabs({ area, page }: { area: AdminArea; page: AdminPage }) {
   return (
-    <nav aria-label={t('{area} pages', { area: area.label })} className="-mb-1">
-      <ul className="flex flex-wrap items-end gap-x-4 gap-y-1 border-b border-border">
+    <nav aria-label={t('{area} pages', { area: area.label })}>
+      {/* A pill strip, as the Tabs component draws one; it wraps, so its track is rounded rather than a capsule. */}
+      <ul className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-2xl bg-muted p-1">
         {area.pages.map((item) => {
           const active = item.id === page.id;
           return (
@@ -186,11 +187,11 @@ function PageTabs({ area, page }: { area: AdminArea; page: AdminPage }) {
                 to={adminPagePath(area, item)}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  '-mb-px inline-flex whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1 text-xs font-medium transition-colors',
+                  'inline-flex whitespace-nowrap rounded-full px-3 py-1.5 font-display text-xs font-medium transition-all',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   active
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                    ? 'bg-surface text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
                 )}
               >
                 {item.label}

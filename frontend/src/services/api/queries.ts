@@ -96,6 +96,22 @@ export interface QueryResult {
   total: number;
   pageSize: number;
   page: number;
+  /** Present only when the rows come as a tree: then they all come at once, and `total` counts top-level items. */
+  tree?: TaskTree;
+}
+
+/** The shape of a page of rows ordered as a tree: each top-level item followed by its descendants. */
+export interface TaskTree {
+  /** Rows matching the query, across every page. */
+  rows: number;
+  /** Depth of each row on the page: 0 for a top-level item. */
+  depth: Record<ID, number>;
+  /** How many children each row on the page has. */
+  children: Record<ID, number>;
+  /** Rows whose parent the query filtered out: shown at the top level. */
+  parentOutside: ID[];
+  /** More rows matched than a tree is built from. */
+  truncated: boolean;
 }
 
 /** Parameters that override a view for one request without saving anything. */

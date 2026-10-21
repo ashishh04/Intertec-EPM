@@ -4199,21 +4199,60 @@ export interface TaskImportProblem {
   message: string;
 }
 
+/** One cell an update row changes: the column, the value now, and the file's. */
+export interface TaskImportChange {
+  column: string;
+  from: string;
+  to: string;
+}
+
 export interface TaskImportView {
   id: ID;
   projectId: ID;
   fileName: string;
   status: TaskImportStatus;
+  /** Rows in the file. */
   total: number;
+  /** Rows that create a work package. */
+  toCreate: number;
+  /** Rows with an ID (WP and its number) of this project that change it. */
+  toUpdate: number;
+  /** Rows with an ID of this project that match it already. */
+  unchanged: number;
+  /** Created rows whose ID names a work package of another project: copies. */
+  copies: number;
+  /** Rows matched by an ID an earlier import made a task from (E1, T1…), not WP and a number. */
+  matchedEarlier: number;
+  /** New rows with the subject of a task already in the project: perhaps duplicates. The first 300. */
+  sameSubject: { row: number; key: string; subject: string; existing: string }[];
+  /** Rows whose Done % cannot be set, the instance deriving it from status. */
+  progressIgnored: number;
+  /** Dates in the file on a non-working day, moved to the next working day as the schedule does. */
+  datesMoved: number;
+  /**
+   * How the file was read, on the check only: EPM's own columns, or OpenProject's export translated;
+   * the order its dates were read in; and the columns not imported.
+   */
+  source?: { format: 'epm' | 'openproject'; dateOrder?: 'day-first' | 'month-first'; ignoredColumns: string[] };
   created: number;
+  updated: number;
   /** Dependencies linked. */
   linked: number;
+  /** Dependencies removed. */
+  unlinked: number;
   failed: number;
-  /** Rows by type, e.g. { Epic: 12, Task: 900 }. */
+  /** New rows by type, e.g. { Epic: 12, Task: 900 }. */
   byType: Record<string, number>;
   /** How deep the hierarchy goes: 1 for flat, 3 for epic → task → subtask. */
   levels: number;
+  /** Dependencies to add. */
   relations: number;
+  /** Dependencies to remove: no longer listed for a task the file updates. */
+  relationsRemoved: number;
+  /** Update rows whose date edits are left out: their dates follow their subtasks, or their start the tasks they follow. The first 300. */
+  datesSkipped: { row: number; key: string; subject: string; reason: 'children' | 'predecessors' }[];
+  /** What the update rows change: the first 300. */
+  changes: { row: number; key: string; subject: string; changes: TaskImportChange[] }[];
   /** Problems found checking the file: the first 500. */
   problems: TaskImportProblem[];
   problemCount: number;

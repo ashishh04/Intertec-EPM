@@ -5,13 +5,18 @@ import * as guard from '../auth/guard.js';
 import { asCsv, asWorkbook, exportRows } from '../domain/task-export.js';
 import { cancelImport, checkImport, getImport, importView, listImports, startImport, templateFor } from '../domain/task-import.js';
 import { openProject } from '../openproject/client.js';
+import { parseCsv } from '../lib/csv-parse.js';
 import { EpmError } from '../lib/errors.js';
 import { contentDispositionFor } from '../lib/uploads.js';
+import { isCompoundFile, readXls } from '../lib/xls-read.js';
+import { isZip, readXlsx } from '../lib/xlsx-read.js';
 
 /**
- * Importing tasks from a CSV (epics, tasks, subtasks, milestones, dates,
- * assignees, dependencies). Needs `task:create` in the project; the rows are
- * created under the importer's own account.
+ * Importing tasks from a CSV or Excel file (.xlsx, or .xls as OpenProject exports it) — epics, tasks, subtasks, milestones,
+ * dates, assignees, dependencies): rows are created, or update the work
+ * packages their IDs name. Needs `task:create` in the project, and `task:edit`
+ * for a file that changes existing work; every row is written under the
+ * importer's own account.
  */
 
 const FILE_LIMIT = 25 * 1024 * 1024;
@@ -30,14 +35,14 @@ async function importOf(request: FastifyRequest, id: string) {
 }
 
 export const taskImportRoutes: FastifyPluginAsync = async (app) => {
+  /** The import template for the project, as a workbook: a sheet to fill in, an example, and what each column takes. */
   app.get<{ Params: { projectId: string } }>('/projects/:projectId/task-imports/template', async (request, reply) => {
     const projectId = await projectOf(request, request.params.projectId);
     reply
-      .header('Content-Type', 'text/csv; charset=utf-8')
-      .header('Content-Disposition', contentDispositionFor(`epm-task-import-template.csv`))
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', contentDispositionFor('epm-task-import-template.xlsx'))
       .header('Cache-Control', 'private, no-store');
-    // A byte-order mark, so Excel reads the file as UTF-8.
-    return reply.send(`﻿${await templateFor(projectId)}`);
+    return reply.send(Buffer.from(await templateFor(projectId)));
   });
 
   /**
@@ -67,17 +72,35 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
     listImports(await projectOf(request, request.params.projectId)),
   );
 
-  /** Uploads a CSV and checks every row; nothing is created yet. */
+  /** Uploads a CSV or .xlsx and checks every row; nothing is changed yet. */
   app.post<{ Params: { projectId: string } }>('/projects/:projectId/task-imports', async (request, reply) => {
     const projectId = await projectOf(request, request.params.projectId);
     const uploaded = await request.file({ limits: { fileSize: FILE_LIMIT, files: 1 } }).catch(() => {
-      throw EpmError.badRequest('Send the CSV as multipart/form-data.');
+      throw EpmError.badRequest('Send the file as multipart/form-data.');
     });
     if (!uploaded) throw EpmError.badRequest('No file was uploaded.');
     const content = await uploaded.toBuffer();
     if (uploaded.file.truncated) throw EpmError.validation('The file is larger than 25 MB.');
+    let records;
+    if (isCompoundFile(content)) {
+      // An older Excel file (.xls): what OpenProject's own XLS export writes.
+      try {
+        records = readXls(content);
+      } catch {
+        throw EpmError.validation('This older Excel file (.xls) could not be read. Save it as .xlsx or CSV and upload it again.');
+      }
+    } else if (isZip(content)) {
+      try {
+        records = readXlsx(content);
+      } catch {
+        throw EpmError.validation('The Excel file could not be read. Save it again as .xlsx or CSV and upload it again.');
+      }
+    } else {
+      records = parseCsv(content.toString('utf8'));
+    }
+    const mayEdit = await guard.holds(request, 'task:edit', String(projectId));
     reply.code(201);
-    return checkImport(projectId, uploaded.filename || 'tasks.csv', content.toString('utf8'), request.auth!.userId);
+    return checkImport(projectId, uploaded.filename || 'tasks.csv', records, request.auth!.userId, mayEdit);
   });
 
   app.get<{ Params: { id: string } }>('/task-imports/:id', async (request) => importView(await importOf(request, request.params.id)));

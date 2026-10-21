@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { ComboSelect } from '@/components/common/ComboSelect';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { FieldHint, Label } from '@/components/ui/label';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useProjects } from '@/hooks/useProjects';
@@ -15,8 +15,9 @@ import { apiClient } from '@/services/api/client';
 
 /**
  * Exports a project's epics, tasks, subtasks and milestones as CSV or Excel,
- * in the columns the import reads: edit the file and import it again, with
- * its hierarchy and dependencies intact.
+ * in the columns the import reads. Imported into the same project, an edited
+ * file changes only what was edited (each row's ID, WP and its number, names
+ * its task); imported into another project, it makes a copy.
  */
 export function ExportTasksDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const projects = useProjects();
@@ -46,7 +47,7 @@ export function ExportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('Export tasks')}</DialogTitle>
-          <DialogDescription>{t('Every epic, task, subtask and milestone of a project, in the same columns the import reads: edit the file and import it again.')}</DialogDescription>
+          <DialogDescription>{t('Every epic, task, subtask and milestone of a project, as Excel or CSV, in the columns Import reads.')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -73,7 +74,15 @@ export function ExportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
               {t('Include closed work')}
             </label>
           </div>
-          <FieldHint>{t('Each row has an ID (WP and its number), its parent’s ID and the IDs it follows. The columns after Predecessors are for reading; the import ignores them.')}</FieldHint>
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-xs">
+            <ul className="list-disc space-y-1 ps-4">
+              <li>{t('To change many tasks at once: edit this file and import it into the same project — as often as you like. Only the cells you change are updated; nothing is duplicated.')}</li>
+              <li>{t('You can edit Subject, Description, Type, dates, Estimated hours, Done %, Assignee, Accountable, Status, Priority, Version, Category, Story points, Manual scheduling, Parent ID, Predecessors and the project’s own fields.')}</li>
+              <li>{t('Keep the ID column as it is (WP and the task’s number): it is how Import finds each task. Add new rows with your own IDs, or none.')}</li>
+              <li>{t('Work package, Spent hours, Created and Updated are for reading: Import ignores them. Spent hours come from logged time.')}</li>
+              <li>{t('Imported into another project, the file makes a copy of these tasks there.')}</li>
+            </ul>
+          </div>
         </div>
         <DialogFooter>
           <Button disabled={!projectId} loading={busy} onClick={() => void download()}>

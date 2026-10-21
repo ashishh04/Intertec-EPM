@@ -253,8 +253,8 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Project navigation */}
-      <nav aria-label={t('Project sections')} className="epm-scroll -mx-1 overflow-x-auto">
-        <ul className="flex min-w-max items-center gap-4 border-b border-border px-1">
+      <nav aria-label={t('Project sections')} className="epm-scroll -mx-1 overflow-x-auto px-1 pb-1">
+        <ul className="inline-flex min-w-max items-center gap-1 rounded-full bg-muted p-1">
           {PROJECT_TABS.map((tab) => (
             <li key={tab.segment || 'overview'}>
               <NavLink
@@ -262,11 +262,11 @@ export default function ProjectDetailPage() {
                 end={!tab.segment}
                 className={({ isActive }) =>
                   cn(
-                    '-mb-px block border-b-2 px-0.5 pb-2.5 pt-1 text-xs font-medium transition-colors',
+                    'block whitespace-nowrap rounded-full px-3 py-1.5 font-display text-xs font-medium transition-all',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     isActive
-                      ? 'border-primary text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground',
+                      ? 'bg-surface text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground',
                   )
                 }
               >
