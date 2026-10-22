@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { env } from '../config/env.js';
+import { budgetExposure, riskExposure } from './analysis-tools.js';
 import type { ChatTool } from './bedrock.js';
 import type {
   DashboardMetrics,
@@ -1046,6 +1047,9 @@ export const TOOLS: readonly ToolDefinition[] = [
   earnedValue,
   resourceOverload,
   scenarios,
+  // The analyses (BR-501, BR-502), in a file of their own.
+  riskExposure,
+  budgetExposure,
 ];
 
 const byName = new Map(TOOLS.map((tool) => [tool.name, tool]));

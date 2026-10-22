@@ -41,6 +41,8 @@ const listQuery = z.object({
   status: z.preprocess(csv, z.array(z.string()).optional()),
   priority: z.preprocess(csv, z.array(z.string()).optional()),
   type: z.preprocess(csv, z.array(z.string()).optional()),
+  /** The instance's own type ids, where EPM's categories are too coarse — the Risk type, say. */
+  typeId: z.preprocess(csv, z.array(z.string().regex(/^\d+$/)).optional()),
   sprintId: z.string().optional(),
   search: z.string().optional(),
   bucket: z.enum(['open', 'today', 'upcoming', 'overdue', 'completed', 'all']).optional(),
@@ -143,6 +145,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
     const typeIds = expandIds(query.type as never, catalog.typeIdsByEpm as never);
     if (typeIds) filters.push({ field: 'type', operator: '=', values: typeIds });
+    if (query.typeId?.length) filters.push({ field: 'type', operator: '=', values: query.typeId });
 
     const page = resolvePage(query.page, query.pageSize);
     const sortField = query.sortBy ? OP_SORT_FIELD[query.sortBy] : undefined;
