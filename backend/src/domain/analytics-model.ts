@@ -37,7 +37,7 @@ import {
   type UserRow,
   type VersionRow,
 } from './analytics-extract.js';
-import { automationUserId } from './automation-account.js';
+import { nonPersonIds } from './service-account.js';
 import { INSTANCE_ID, withLease } from './job-lease.js';
 import { clauses, notifyAnalyticsProblem } from './notifications.js';
 
@@ -160,7 +160,8 @@ async function extract(kind: RefreshKind, state: Map<string, string>, startedAt:
   const journalStart = full ? null : state.get(STATE.journalCursor) || null;
   const costStart = full ? null : state.get(STATE.costCursor) || null;
   const timeSince = full ? null : state.get(STATE.timeSince) || null;
-  const serviceId = await automationUserId().catch(() => undefined);
+  // The automation and service accounts: kept, marked as services, counted as nobody's capacity.
+  const serviceIds = await nonPersonIds().catch(() => new Set<string>());
 
   // The small lists and the organisation, in full every time: cheap, and a
   // renamed project or a moved person is a change worth having promptly.
@@ -174,8 +175,8 @@ async function extract(kind: RefreshKind, state: Map<string, string>, startedAt:
       readPortfolios(),
       readDepartments(),
       readTeams(),
-      readUsers(serviceId, signal),
-      readMemberships(serviceId, signal),
+      readUsers(serviceIds, signal),
+      readMemberships(serviceIds, signal),
       readVersions(signal),
     ]);
 

@@ -5,6 +5,7 @@ import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
 import { message, msg } from '../lib/i18n.js';
 import { openProject } from '../openproject/client.js';
+import { EVERY_USER } from '../openproject/people.js';
 import type { ExternalAccessView, ExternalPermission, ExternalRoleView } from '../types/epm.js';
 import { withAudit } from './audit.js';
 
@@ -164,7 +165,7 @@ export async function deleteExternalRole(id: string, actorId: string): Promise<v
 export async function listExternalAccess(): Promise<ExternalAccessView[]> {
   const rows = await prisma.externalAccess.findMany({ include: { role: true }, orderBy: { grantedAt: 'desc' } });
   const [users, projects] = await Promise.all([
-    runAsSystem(() => openProject.getAll<{ id: number; name: string }>('/users', { pageSize: 1000 })).catch(() => ({ items: [] as { id: number; name: string }[] })),
+    runAsSystem(() => openProject.getAll<{ id: number; name: string }>('/principals', { pageSize: 1000, filters: EVERY_USER })).catch(() => ({ items: [] as { id: number; name: string }[] })),
     runAsSystem(() => openProject.getAll<{ id: number; name: string }>('/projects', { pageSize: 1000 })).catch(() => ({ items: [] as { id: number; name: string }[] })),
   ]);
   const userName = new Map(users.items.map((user) => [String(user.id), user.name]));
@@ -215,13 +216,17 @@ export async function grantExternalAccess(input: unknown, actorId: string): Prom
   if (!parsed.success) throw EpmError.validation('Choose the person, the project and the role.');
   const { userId, projectId, roleId } = parsed.data;
   if (userId === actorId) throw EpmError.validation('You cannot make yourself external.');
-  const [role, user] = await Promise.all([
+  const [role, user, administrators] = await Promise.all([
     prisma.externalRole.findUnique({ where: { id: roleId } }),
-    runAsSystem(() => openProject.request<{ id: number; name: string; admin?: boolean }>(`/users/${userId}`)).catch(() => null),
+    runAsSystem(() => openProject.request<{ id: number; name: string }>(`/users/${userId}`)).catch(() => null),
+    // From the add-on, not the user record: API v3 shows the flag to
+    // administrators only, and the system key is not one (NFR06). Refused, not
+    // guessed, when it cannot be read.
+    runAsSystem(() => openProject.request<{ ids: string[] }>('/epm_admin/users/administrators', { root: true })),
   ]);
   if (!role) throw EpmError.notFound('That role');
   if (!user) throw EpmError.notFound('That person');
-  if (user.admin) throw EpmError.validation('An administrator cannot be an external user.');
+  if (administrators.ids.includes(String(user.id))) throw EpmError.validation('An administrator cannot be an external user.');
 
   // A member of the project upstream, with the least privileged role that covers the matrix.
   const memberships = await runAsSystem(() =>

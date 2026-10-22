@@ -379,7 +379,7 @@ Rails.application.config.to_prepare do
 
     def authenticate!
       user = resolve_user
-      unless user&.admin? && user.active?
+      unless user&.active? && (user.admin? || (defined?(EpmService) && EpmService.allowed?(user, self)))
         return render json: { message: "This endpoint is for administrators." }, status: :forbidden
       end
 

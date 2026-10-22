@@ -17,6 +17,7 @@ import { publishCatalogue } from './domain/measures-store.js';
 import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createTimesheetReminders } from './scheduler/timesheet-reminders.js';
+import { createIntegrationRetry } from './scheduler/integration-retry.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createBurndownSampler } from './scheduler/burndown-sampler.js';
 import { createScheduleCheck } from './scheduler/schedule-check.js';
@@ -345,6 +346,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   const timesheetReminders = createTimesheetReminders({ log: app.log });
   timesheetReminders.start();
 
+  // Inbound integration events that failed are retried, then dead-lettered (BR-506).
+  const integrationRetry = createIntegrationRetry({ log: app.log });
+  integrationRetry.start();
+
   // The health sweep. On by default, unlike the schedulers above: it is what
   // keeps stored health true when changes happen where EPM cannot see them.
   const healthSweep = createHealthSweep({ log: app.log });
@@ -446,6 +451,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     burndownSampler.stop();
     dueReminders.stop();
     timesheetReminders.stop();
+    integrationRetry.stop();
     snapshots.stop();
     emailWorker.stop();
     await disconnectPrisma();

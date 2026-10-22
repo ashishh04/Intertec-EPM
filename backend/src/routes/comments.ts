@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
 import { notifyCommentAdded } from '../domain/collaboration-notifications.js';
-import { EpmError } from '../lib/errors.js';
+import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { getUsers } from '../mapping/users.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
@@ -200,12 +200,19 @@ export const commentRoutes: FastifyPluginAsync = async (app) => {
 
       const signal = requestSignal(request);
 
-      const updated = await openProject.request<OpActivity>(`/activities/${commentId}`, {
-        method: 'PATCH',
-        // A bare string. The nested form used on create is rejected here.
-        body: { comment: body },
-        signal,
-      });
+      const updated = await openProject
+        .request<OpActivity>(`/activities/${commentId}`, {
+          method: 'PATCH',
+          // A bare string. The nested form used on create is rejected here.
+          body: { comment: body },
+          signal,
+        })
+        .catch((error: unknown) => {
+          // OpenProject 17 can offer the edit link and still refuse the edit:
+          // its refusal is the person's, not a fault upstream.
+          if (error instanceof OpenProjectError && error.upstreamStatus === 403) throw EpmError.forbidden(error.message);
+          throw error;
+        });
 
       return toEpmComment(updated, await authorNames(signal));
     },

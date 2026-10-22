@@ -54,7 +54,10 @@ Rails.application.config.to_prepare do
             { key: "name", label: "Name", type: "string", required: true },
             { key: "isMilestone", label: "Milestone", type: "boolean",
               help: "A milestone marks a date rather than a span of work." },
+            # Since 17.9 this is the base variant's, not the type's: the
+            # column moved to type_variants.enabled_in_new_projects.
             { key: "isDefault", label: "Active by default", type: "boolean",
+              variant: "enabled_in_new_projects",
               help: "Enabled in a project the moment it is created." },
             { key: "isInRoadmap", label: "Show in roadmap", type: "boolean" },
             { key: "colorId", label: "Colour", type: "enum", options: :color_options }
@@ -238,7 +241,7 @@ Rails.application.config.to_prepare do
 
     def authenticate!
       user = resolve_user
-      unless user&.admin? && user.active?
+      unless user&.active? && (user.admin? || (defined?(EpmService) && EpmService.allowed?(user, self)))
         return render json: { message: "This endpoint is for administrators." }, status: :forbidden
       end
 
@@ -311,7 +314,12 @@ Rails.application.config.to_prepare do
 
     def read_attribute(record, field)
       name = underscore(field[:key])
-      value = record.public_send(name) if record.respond_to?(name)
+      value =
+        if field[:variant]
+          record.default_variant&.public_send(field[:variant])
+        elsif record.respond_to?(name)
+          record.public_send(name)
+        end
 
       case field[:type]
       when "boolean" then !!value
@@ -336,6 +344,15 @@ Rails.application.config.to_prepare do
         next unless body.key?(key)
 
         value = coerce(field, body[key])
+        if field[:variant]
+          # Built here on create, so the type's own before_validation sees a
+          # base variant already and does not add a second one. Saved with the
+          # type: `variants` is autosaved.
+          variant = record.default_variant || record.variants.build(is_default_variant: true, variant_name: nil)
+          variant.public_send("#{field[:variant]}=", value)
+          next
+        end
+
         name = underscore(key)
         next unless record.respond_to?("#{name}=")
 
@@ -383,7 +400,8 @@ Rails.application.config.to_prepare do
     # Each returns a sentence explaining the refusal, or nil when it may go.
 
     def type_deletable?(type)
-      return "#{type.name} is a standard type and cannot be removed." if type.is_standard?
+      # Standard types went with 17.9's type variants; kept for older instances.
+      return "#{type.name} is a standard type and cannot be removed." if type.respond_to?(:is_standard?) && type.is_standard?
 
       count = WorkPackage.where(type_id: type.id).count
       return "#{type.name} is still used by #{count} work #{'package'.pluralize(count)}." if count.positive?

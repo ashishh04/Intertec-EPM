@@ -114,6 +114,9 @@ services:
       # Cost types and cost entries (/epm_admin/costs/*), which API v3 cannot
       # create: approved expense claims become cost entries (Module 10).
       - ./zzz_epm_costs.rb:/app/config/initializers/zzz_epm_costs.rb:ro
+      # EPM's service account (NFR06): which add-on endpoints it may call, and
+      # membership of every new project. setup/service-account.rb makes the account.
+      - ./zzz_epm_service.rb:/app/config/initializers/zzz_epm_service.rb:ro
 
 volumes:
   openproject-db:

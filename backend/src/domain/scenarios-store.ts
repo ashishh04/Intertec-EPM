@@ -1,7 +1,7 @@
 import type { ApprovalRequest } from '@prisma/client';
 import { z } from 'zod';
 
-import { runAsSystem } from '../auth/context.js';
+import { runAsAutomation, runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { EpmError } from '../lib/errors.js';
@@ -13,6 +13,7 @@ import { registerSubjectAdapter, submitSubject, type LoadedSubject } from './app
 import { withAudit } from './audit.js';
 import { modelFacts } from './measure-facts.js';
 import { scenarioProfile, shiftDate, type ScenarioProjectInput, type ScenarioWorkInput } from './scenarios.js';
+import { automationConfigured, ensureAutomationMembership } from './automation-account.js';
 
 /**
  * Portfolio scenarios (Module 7: BR-220 to BR-222).
@@ -348,6 +349,9 @@ async function promote(scenario: Loaded, deciderId: string | null, comment: stri
     });
     applied.projects.push(project.name);
     if (project.shiftMonths === 0 && project.shiftDays === 0) continue;
+    // An approval's outcome, so the automation account makes it (BR-217), as
+    // every approval outcome is: not the service account, which edits no work.
+    if (automationConfigured()) await ensureAutomationMembership(String(project.projectId)).catch(() => undefined);
     for (const item of scenario.work.filter((work) => work.projectId === project.projectId)) {
       const live = await runAsSystem(() => openProject.request<OpWork>(`/work_packages/${item.workPackageId}`)).catch(() => null);
       if (!live) {
@@ -364,9 +368,8 @@ async function promote(scenario: Loaded, deciderId: string | null, comment: stri
       const body = item.isMilestone
         ? { lockVersion: live.lockVersion, date: move(item.dueDate ?? item.startDate) }
         : { lockVersion: live.lockVersion, ...(item.startDate ? { startDate: move(item.startDate) } : {}), ...(item.dueDate ? { dueDate: move(item.dueDate) } : {}) };
-      const done = await runAsSystem(() =>
-        openProject.request(`/work_packages/${item.workPackageId}`, { method: 'PATCH', body, query: { notify: 'false' } }),
-      ).then(
+      const write = () => openProject.request(`/work_packages/${item.workPackageId}`, { method: 'PATCH', body, query: { notify: 'false' } });
+      const done = await (automationConfigured() ? runAsAutomation(write) : runAsSystem(write)).then(
         () => true,
         () => false,
       );

@@ -571,16 +571,18 @@ export async function surfaceChecks(ctx: SurfaceContext): Promise<void> {
   // Logged the way the main suite logs it: an instance that insists on an
   // activity names one in the project's form.
   let activityId: string | undefined;
+  // From OpenProject 17 time belongs to a work package: a task to log it on.
+  const timeTask = (await json<{ id?: string }>(await call('/tasks', { method: 'POST', cookie: admin, body: { projectId, subject: 'Authz surfaces probe time' } }))).id;
   const logTime = (cookie: string) =>
     call('/time-entries', {
       method: 'POST',
       cookie,
-      body: { projectId, hours: 1, spentOn: today, comment: 'Authz surfaces probe', ...(activityId ? { activityId } : {}) },
+      body: { projectId, workPackageId: timeTask, hours: 1, spentOn: today, comment: 'Authz surfaces probe', ...(activityId ? { activityId } : {}) },
     });
   let logged = await logTime(admin);
   if (logged.status !== 201) {
     const form = JSON.stringify(
-      await json(await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId } })),
+      await json(await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId, workPackageId: timeTask } })),
     );
     activityId = /time_entries\/activities\/(\d+)/.exec(form)?.[1];
     logged = await logTime(admin);

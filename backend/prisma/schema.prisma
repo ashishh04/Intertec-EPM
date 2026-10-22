@@ -2187,3 +2187,33 @@ model AssistantPolicy {
 
   @@map("assistant_policy")
 }
+
+/// An inbound integration event (BR-506): each delivery kept once, keyed on
+/// its identity, so a redelivery or a replay is processed no more than once
+/// in effect; retried with back-off, dead-lettered when retries run out, and
+/// replayable by an operator.
+model IntegrationEvent {
+  id            String    @id @default(cuid())
+  /// Where it came from: "openproject" for the instance's webhook.
+  source        String
+  /// The event's identity: the sender's id, or a hash of the delivery's bytes.
+  eventKey      String
+  action        String
+  payload       Json
+  /// pending, done, failed (to be retried) or dead (retries exhausted).
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  lastError     String?
+  /// How many times the same event arrived.
+  deliveries    Int       @default(1)
+  receivedAt    DateTime  @default(now())
+  nextAttemptAt DateTime?
+  processedAt   DateTime?
+  replayedBy    String?
+  replayedAt    DateTime?
+
+  @@unique([source, eventKey])
+  @@index([status, nextAttemptAt])
+  @@index([receivedAt])
+  @@map("integration_events")
+}

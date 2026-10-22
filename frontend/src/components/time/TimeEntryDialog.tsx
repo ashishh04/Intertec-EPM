@@ -36,9 +36,9 @@ import type { EpmTimeEntry, ID } from '@/types';
  * This is the standalone form, as opposed to `tasks/LogTimeDialog`, which logs
  * against a work package already on screen and therefore needs no pickers. Here
  * the entry has no context: the person is filling in a week, so the project is
- * theirs to choose and the task is optional — time logged to a project with no
- * work package attached is legitimate in OpenProject and is how overheads are
- * usually recorded.
+ * theirs to choose, then the task. From OpenProject 17 time belongs to a work
+ * package (or a meeting), so a task is required: overheads go on a task kept
+ * for them.
  *
  * Activities come from OpenProject's own time entry form rather than a list held
  * here, and that call doubles as the permission check: EPM has no capability for
@@ -172,6 +172,10 @@ export function TimeEntryDialog({
       setError(t('Choose the project the time was spent on.'));
       return;
     }
+    if (!entry && !workPackageId) {
+      setError(t('Choose the task the time was spent on.'));
+      return;
+    }
 
     const body = {
       hours: value,
@@ -263,11 +267,11 @@ export function TimeEntryDialog({
                   disabled={!projectId}
                   loading={tasksQuery.isLoading}
                   emptyLabel={t('No open tasks in this project')}
-                  placeholder={projectId ? t('Optional') : t('Choose a project first')}
+                  placeholder={projectId ? t('Choose a task') : t('Choose a project first')}
                   onChange={setWorkPackageId}
                 />
                 <FieldHint>
-                  {t('Leave empty to log against the project itself.')}
+                  {t('Time is logged against a task; overheads go on a task kept for them.')}
                 </FieldHint>
               </div>
             </>

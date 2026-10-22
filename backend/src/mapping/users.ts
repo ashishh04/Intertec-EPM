@@ -3,7 +3,7 @@ import { referenceCache, userScopedKey } from '../lib/cache.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AvatarAccent, ID, EpmUser } from '../types/epm.js';
-import { automationUserId } from '../domain/automation-account.js';
+import { nonPersonIds } from '../domain/service-account.js';
 
 /**
  * People.
@@ -123,10 +123,10 @@ async function readRoles(signal?: AbortSignal): Promise<Map<string, string>> {
 }
 
 async function loadUsers(signal?: AbortSignal): Promise<EpmUser[]> {
-  const [principals, roles, automationId] = await Promise.all([
+  const [principals, roles, nonPersons] = await Promise.all([
     openProject.getAll<OpPrincipal>('/principals', { pageSize: MAX_PAGE_SIZE }, { signal }),
     loadRoles(signal).catch(() => new Map<string, string>()),
-    automationUserId().catch(() => undefined),
+    nonPersonIds().catch(() => new Set<string>()),
   ]);
 
   const overlays = await optional(
@@ -141,11 +141,11 @@ async function loadUsers(signal?: AbortSignal): Promise<EpmUser[]> {
   const overlayById = new Map(overlays.map((row) => [row.openProjectId, row]));
 
   return principals.items
-    // Not a person: EPM's automation account acts for rules and holds no
-    // capacity, team or assignments of its own.
+    // Not people: EPM's automation account acts for rules and its service
+    // account for EPM itself; neither holds capacity, a team or assignments.
     .filter(
       (principal) =>
-        principal._type !== 'Group' && principal._type !== 'PlaceholderUser' && String(principal.id) !== automationId,
+        principal._type !== 'Group' && principal._type !== 'PlaceholderUser' && !nonPersons.has(String(principal.id)),
     )
     .map((principal) =>
       toEpmUser(principal, {

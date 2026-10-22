@@ -13,6 +13,7 @@
 #   PATCH  /epm_admin/settings/users   partial object -> updated object
 #   GET    /epm_admin/enterprise       Enterprise-gated features this instance allows
 #   GET    /epm_admin/users/logins     when each person last signed in
+#   GET    /epm_admin/users/administrators  who is an administrator (ids only)
 #   PATCH  /epm_admin/days/week       which weekdays are working days
 #   POST   /epm_admin/days/non_working  add a public holiday
 #   DELETE /epm_admin/days/non_working/:id
@@ -152,6 +153,13 @@ Rails.application.config.to_prepare do
       end
 
       render json: { logins: logins }
+    end
+
+    # Who is an administrator, as ids only. API v3 shows the flag to
+    # administrators alone, and EPM's service account is not one (NFR06), yet
+    # EPM must know it: an administrator may never be made an external user.
+    def administrators
+      render json: { ids: User.where(type: "User", admin: true).pluck(:id).map(&:to_s) }
     end
 
     # ------------------------------------------------------------- permissions
@@ -312,7 +320,7 @@ Rails.application.config.to_prepare do
 
     def authenticate!
       user = resolve_user
-      unless user&.admin? && user.active?
+      unless user&.active? && (user.admin? || (defined?(EpmService) && EpmService.allowed?(user, self)))
         return render json: { message: "This endpoint is for administrators." }, status: :forbidden
       end
 
@@ -621,6 +629,7 @@ Rails.application.routes.prepend do
     patch "settings/users", action: :update_settings_users
     get "enterprise", action: :enterprise
     get "users/logins", action: :user_logins
+    get "users/administrators", action: :administrators
     get "permissions", action: :permissions
     get "roles", action: :roles
     post "roles", action: :create_role

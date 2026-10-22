@@ -1,16 +1,18 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { FastifyBaseLogger, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { env } from '../config/env.js';
 import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
 import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
+import { eventKeyOf, receiveEvent, registerProcessor } from '../domain/integration-inbox.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { EpmError } from '../lib/errors.js';
 import { t, toLanguage, type Language } from '../lib/i18n.js';
+import { appLog } from '../lib/log.js';
 import { linkId, linkTitle } from '../openproject/client.js';
 import type { HalLinks } from '../openproject/types.js';
 import { noteRuleEvent, noteWebhookReceived } from '../domain/rule-events.js';
@@ -27,9 +29,13 @@ import { noteRuleEvent, noteWebhookReceived } from '../domain/rule-events.js';
  * API sees a change.
  *
  * Once the signature checks out, a delivery never fails loudly. OpenProject
- * retries a non-2xx and disables a webhook that keeps failing, so a bug in
- * the handler is logged and answered 204 rather than allowed to switch the
- * integration off.
+ * retries a non-2xx and disables a webhook that keeps failing, so it is
+ * answered 204 whatever happens next — and kept (BR-506): every delivery goes
+ * into the integration inbox once, keyed on a hash of its bytes, so a
+ * redelivery is only counted; it is processed there, and a failure is retried
+ * with back-off and dead-lettered when the retries run out, for an operator to
+ * replay. Processing is idempotent — emails and rule events are keyed, the
+ * recalculations ask for a pass — so a replay changes nothing twice.
  */
 
 declare module 'fastify' {
@@ -106,7 +112,7 @@ function taskKeyOf(workPackage: WebhookWorkPackage): string {
   return identifier ? `${identifier.slice(0, 6).toUpperCase()}-${workPackage.id}` : `WP-${workPackage.id}`;
 }
 
-async function handleWorkPackage(action: string, body: WebhookBody, log: FastifyBaseLogger): Promise<void> {
+async function handleWorkPackage(action: string, body: WebhookBody, log: { warn(obj: object, msg: string): void }): Promise<void> {
   const workPackage = body.work_package;
   if (!workPackage || typeof workPackage.id !== 'number') {
     log.warn({ action }, 'Webhook payload had no work package');
@@ -191,53 +197,10 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
     noteWebhookReceived();
 
     const action = request.body?.action ?? '';
-
-    // For the rules (BR-216): the same change EPM made itself is keyed on the
-    // same lockVersion and so considered once.
-    const workPackage = request.body?.work_package;
-    if ((action === 'work_package:created' || action === 'work_package:updated') && typeof workPackage?.id === 'number') {
-      await noteRuleEvent({
-        source: 'webhook',
-        kind: action === 'work_package:created' ? 'work_package.created' : 'work_package.updated',
-        subjectType: 'work_package',
-        subjectId: String(workPackage.id),
-        projectId: linkId(workPackage._links, 'project'),
-        version: typeof workPackage.lockVersion === 'number' ? workPackage.lockVersion : undefined,
-      });
-    } else if ((action === 'project:created' || action === 'project:updated') && typeof request.body?.project?.id === 'number') {
-      const id = String(request.body.project.id);
-      await noteRuleEvent({
-        source: 'webhook',
-        kind: action === 'project:created' ? 'project.created' : 'project.updated',
-        subjectType: 'project',
-        subjectId: id,
-        projectId: id,
-      });
+    const outcome = await receiveEvent({ source: 'openproject', eventKey: eventKeyOf(request.rawBody ?? ''), action, payload: request.body ?? {} });
+    if (outcome.status === 'failed' || outcome.status === 'dead') {
+      request.log.warn({ action, event: outcome.id, status: outcome.status }, 'Webhook processing failed; kept for a retry');
     }
-
-    // Before anything that can fail: a delivery that changes a project's
-    // health is worth a recalculation whatever happens to its email.
-    const projectId = healthRelevantProject(action, request.body ?? {});
-    if (projectId) {
-      if (action.startsWith('time_entry:')) invalidateProjectCost(projectId);
-      requestHealthRecalc(projectId);
-    }
-    // A work package created or changed upstream can move float anywhere its
-    // relations reach; the pass works out whether it did.
-    if (action.startsWith('work_package:')) requestScheduleRecalc();
-    // Calculated fields read work packages and the time logged on them.
-    if (action.startsWith('work_package:') || action.startsWith('time_entry:')) requestCalculatedRecalc();
-
-    if (HANDLED_ACTIONS.has(action)) {
-      try {
-        await handleWorkPackage(action, request.body, request.log);
-      } catch (error) {
-        request.log.warn({ err: error, action }, 'Webhook handling failed; delivery acknowledged anyway');
-      }
-    } else {
-      request.log.debug({ action }, 'Webhook action ignored');
-    }
-
     reply.code(204);
   };
 
@@ -247,3 +210,53 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: WebhookBody }>('/webhooks/delivery', receive);
   app.post<{ Body: WebhookBody }>('/webhooks/openproject', receive);
 };
+
+/**
+ * What a delivery does, once it is in the inbox: run first on arrival, again
+ * on a retry or a replay. Throws when something failed, so it is retried.
+ */
+export async function processOpenProjectEvent(action: string, payload: unknown, meta?: { receivedAt: Date }): Promise<void> {
+  const body = (payload ?? {}) as WebhookBody;
+
+  // For the rules (BR-216): the same change EPM made itself is keyed on the
+  // same lockVersion and so considered once.
+  const workPackage = body.work_package;
+  if ((action === 'work_package:created' || action === 'work_package:updated') && typeof workPackage?.id === 'number') {
+    await noteRuleEvent({
+      source: 'webhook',
+      kind: action === 'work_package:created' ? 'work_package.created' : 'work_package.updated',
+      subjectType: 'work_package',
+      subjectId: String(workPackage.id),
+      projectId: linkId(workPackage._links, 'project'),
+      version: typeof workPackage.lockVersion === 'number' ? workPackage.lockVersion : undefined,
+    });
+  } else if ((action === 'project:created' || action === 'project:updated') && typeof body.project?.id === 'number') {
+    const id = String(body.project.id);
+    await noteRuleEvent({
+      source: 'webhook',
+      kind: action === 'project:created' ? 'project.created' : 'project.updated',
+      subjectType: 'project',
+      subjectId: id,
+      projectId: id,
+      at: meta?.receivedAt,
+    });
+  }
+
+  // Before anything that can fail: a delivery that changes a project's
+  // health is worth a recalculation whatever happens to its email.
+  const projectId = healthRelevantProject(action, body);
+  if (projectId) {
+    if (action.startsWith('time_entry:')) invalidateProjectCost(projectId);
+    requestHealthRecalc(projectId);
+  }
+  // A work package created or changed upstream can move float anywhere its
+  // relations reach; the pass works out whether it did.
+  if (action.startsWith('work_package:')) requestScheduleRecalc();
+  // Calculated fields read work packages and the time logged on them.
+  if (action.startsWith('work_package:') || action.startsWith('time_entry:')) requestCalculatedRecalc();
+
+  // A failure here throws, and the inbox retries the event.
+  if (HANDLED_ACTIONS.has(action)) await handleWorkPackage(action, body, appLog);
+}
+
+registerProcessor('openproject', processOpenProjectEvent);

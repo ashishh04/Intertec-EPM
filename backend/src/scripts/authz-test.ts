@@ -1672,6 +1672,22 @@ async function main() {
       break;
     }
   }
+  // On a busy instance the first candidates are other projects' newest work:
+  // start from what the restricted caller can read, and find one on offer.
+  if (!other) {
+    const readable = (((await (await call('/tasks?pageSize=25', { cookie: restricted })).json()) as { items?: { id: string; subject: string }[] }).items ?? []).filter(
+      (task) => task.id !== target,
+    );
+    for (const task of readable) {
+      const offered = (await (await call(`/work-packages/${target}/relatable?q=${encodeURIComponent(task.subject.slice(0, 12))}`, { cookie: admin })).json()) as { id: string; subject: string }[];
+      const match = offered.find((w) => w.id === task.id);
+      if (match) {
+        other = match.id;
+        if (!relatable.some((w) => w.id === match.id)) relatable.push(match);
+        break;
+      }
+    }
+  }
   if (!other) throw new Error('No second work package available to relate to.');
 
   const searched = (await (
@@ -3494,17 +3510,19 @@ async function main() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
+  // From OpenProject 17 time belongs to a work package: a task to log it on.
+  const healthTask = ((await (await call('/tasks', { method: 'POST', cookie: admin, body: { projectId: healthProjectId, subject: 'Health budget probe time' } })).json()) as { id?: string }).id;
   const logTime = async (activityId?: string) =>
     call('/time-entries', {
       method: 'POST',
       cookie: admin,
-      body: { projectId: healthProjectId, hours: 10, spentOn: today, comment: 'Health budget probe', ...(activityId ? { activityId } : {}) },
+      body: { projectId: healthProjectId, workPackageId: healthTask, hours: 10, spentOn: today, comment: 'Health budget probe', ...(activityId ? { activityId } : {}) },
     });
   let logged = await logTime();
   if (logged.status !== 201) {
     // The instance wants an activity; take the first it offers this project.
     const form = JSON.stringify(
-      await (await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId: healthProjectId } })).json(),
+      await (await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId: healthProjectId, workPackageId: healthTask } })).json(),
     );
     const activity = /time_entries\/activities\/(\d+)/.exec(form)?.[1];
     logged = await logTime(activity);
@@ -7101,16 +7119,18 @@ async function main() {
     const openProject = theirProjects.find((id) => allProjects.some((project) => String(project.id) === id && project.status !== 'paused'));
     check('the restricted account can read an active project besides the suite’s', openProject !== undefined, true);
 
-    // Cost behind the suite's project: two hours by the administrator.
+    // Cost behind the suite's project: two hours by the administrator, on a
+    // task of its own (from OpenProject 17 time belongs to a work package).
+    const viewTask = ((await json('/tasks', admin, { method: 'POST', body: { projectId: suiteProject, subject: 'Portfolio view probe time' } })) as { id?: string }).id;
     const logTime = (activityId?: string) =>
       call('/time-entries', {
         method: 'POST',
         cookie: admin,
-        body: { projectId: suiteProject, hours: 2, spentOn: todayDay, comment: 'Portfolio view probe', ...(activityId ? { activityId } : {}) },
+        body: { projectId: suiteProject, workPackageId: viewTask, hours: 2, spentOn: todayDay, comment: 'Portfolio view probe', ...(activityId ? { activityId } : {}) },
       });
     let logged = await logTime();
     if (logged.status !== 201) {
-      const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: suiteProject } }));
+      const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: suiteProject, workPackageId: viewTask } }));
       logged = await logTime(/time_entries\/activities\/(\d+)/.exec(form)?.[1]);
     }
     check('time can be logged on the suite’s project', logged.status, 201);

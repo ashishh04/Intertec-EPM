@@ -34,6 +34,11 @@ export interface RuleEventInput {
   actorId?: string;
   /** For events with no version: what makes a repeat a repeat. */
   dedupeKey?: string;
+  /**
+   * When the change happened, for the version-less key: the time an inbound
+   * event was received, so processing it again later (BR-506) gives the same key.
+   */
+  at?: Date;
 }
 
 let listener: (() => void) | undefined;
@@ -51,7 +56,7 @@ function keyFor(input: RuleEventInput): string {
   if (input.version !== undefined) return `${input.subjectType}:${input.subjectId}:v${input.version}`;
   // No version (projects): the same change reported by EPM and by the webhook
   // within a few seconds is one change.
-  return `${input.subjectType}:${input.subjectId}:${input.kind}:${Math.floor(Date.now() / 10_000)}`;
+  return `${input.subjectType}:${input.subjectId}:${input.kind}:${Math.floor((input.at?.getTime() ?? Date.now()) / 10_000)}`;
 }
 
 /**

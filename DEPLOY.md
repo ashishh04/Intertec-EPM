@@ -112,8 +112,24 @@ cannot be undone this way — restore the database alongside it.
 OpenProject starts empty, and three of its values have to come out of a running
 instance and go into `.env.prod`:
 
-1. `OPENPROJECT_API_KEY` — sign in as an administrator → My account → Access
-   tokens → API.
+1. `OPENPROJECT_API_KEY` — the key of EPM's service account, never a
+   person's. Create the account once (the script is in the `epm-openproject`
+   image) and take its key from the file it writes:
+
+   ```bash
+   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T -e TOKEN_FILE=/tmp/epm-service.token openproject \
+     bundle exec rails runner /app/epm-setup/service-account.rb
+   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openproject sh -c 'cat /tmp/epm-service.token && rm /tmp/epm-service.token'
+   ```
+
+   "EPM Service" is not an administrator (NFR06). It holds a directory role
+   (every person, and their email) and, in every project, a role that reads
+   it and manages its members; the add-on `zzz_epm_service.rb` adds it to each
+   new project and lets it call only the add-on endpoints EPM's own work uses.
+   Run the script again after an upgrade: it only adds what is missing.
+   A server set up before October 2026 used an administrator's key here:
+   create the account, set its key, `up -d backend`, check, then revoke the
+   administrator's key in OpenProject (My account → Access tokens).
 2. `OPENPROJECT_OAUTH_CLIENT_ID` / `..._SECRET` — Administration →
    Authentication → OAuth applications. Sign-in needs these: EPM exchanges a
    person's credentials for a token on their behalf.
