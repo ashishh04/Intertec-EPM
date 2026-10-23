@@ -67,13 +67,19 @@ export async function countsByProject(
  * list can change. So a newly created project appears on the next read rather
  * than up to a TTL later.
  */
-export function listProjects(signal?: AbortSignal): Promise<OpProject[]> {
-  return aggregateCache.get(userScopedKey('projects:all'), async () => {
-    const projects = await openProject
-      .getAll<OpProject>('/projects', { pageSize: 200 }, { signal })
-      .catch(() => ({ items: [] as OpProject[] }));
-    return projects.items;
-  });
+export async function listProjects(signal?: AbortSignal): Promise<OpProject[]> {
+  const key = userScopedKey('projects:all');
+  const read = () => aggregateCache.get(key, async () => (await openProject.getAll<OpProject>('/projects', { pageSize: 200 }, { signal })).items);
+  // A failed read is not cached: an empty list stored for everyone would show
+  // "no projects" on every page until it expired. Concurrent callers share the
+  // first caller's read, so one cancelled request fails the others too — those
+  // still waiting read again on their own.
+  try {
+    return await read();
+  } catch {
+    if (signal?.aborted) return [];
+    return read().catch(() => []);
+  }
 }
 
 /** Project id → identifier, for the task key shown throughout the UI. */
