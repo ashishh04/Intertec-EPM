@@ -1,16 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { ListSkeleton } from '@/components/common/DataTable';
 import { PageHeader } from '@/components/common/PageHeader';
+import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/input';
+import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { t } from '@/lib/i18n';
 import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
@@ -57,6 +59,22 @@ interface Recommendation {
   applyError: string | null;
 }
 
+interface ForecastPage {
+  run: { finishedAt: string | null; status: string } | null;
+  forecasts: Forecast[];
+  total: number;
+  page: number;
+}
+
+interface RecommendationPage {
+  items: Recommendation[];
+  total: number;
+  page: number;
+  counts: { proposed: number; decided: number };
+}
+
+type RecommendationTab = 'proposed' | 'decided';
+
 interface Backtest {
   verdict: 'pass' | 'fail' | 'insufficient';
   basis: 'projects' | 'workPackages';
@@ -83,15 +101,37 @@ export default function ForecastsPage() {
   const [params] = useSearchParams();
   const project = params.get('project') ?? undefined;
   const [comments, setComments] = useState<Record<string, string>>({});
+  // Both lists are paged on the server: projects most at risk first, then
+  // recommendations waiting for a decision or decided, newest first.
+  const [forecastPage, setForecastPage] = useState(1);
+  const [forecastPageSize, setForecastPageSize] = useState(10);
+  const [tab, setTab] = useState<RecommendationTab>('proposed');
+  const [recPage, setRecPage] = useState(1);
+  const [recPageSize, setRecPageSize] = useState(5);
+
+  useEffect(() => {
+    setForecastPage(1);
+    setRecPage(1);
+  }, [project]);
 
   const forecasts = useQuery({
-    queryKey: ['forecasts', project],
-    queryFn: () => apiClient.get<{ run: { finishedAt: string | null; status: string } | null; forecasts: Forecast[] }>('/forecasts', project ? { projectId: project } : undefined),
+    queryKey: ['forecasts', project, forecastPage, forecastPageSize],
+    queryFn: () => apiClient.get<ForecastPage>('/forecasts', { projectId: project, page: forecastPage, pageSize: forecastPageSize }),
+    placeholderData: keepPreviousData,
   });
   const recommendations = useQuery({
-    queryKey: ['recommendations', project],
-    queryFn: () => apiClient.get<Recommendation[]>('/recommendations', project ? { projectId: project } : undefined),
+    queryKey: ['recommendations', project, tab, recPage, recPageSize],
+    queryFn: () => apiClient.get<RecommendationPage>('/recommendations', { projectId: project, status: tab, page: recPage, pageSize: recPageSize }),
+    placeholderData: keepPreviousData,
   });
+
+  // Deciding the last recommendation on a page empties it: step back to the
+  // last page that still has some.
+  const recTotal = recommendations.data?.total ?? 0;
+  useEffect(() => {
+    const last = Math.max(1, Math.ceil(recTotal / recPageSize));
+    if (!recommendations.isPlaceholderData && recPage > last) setRecPage(last);
+  }, [recTotal, recPage, recPageSize, recommendations.isPlaceholderData]);
   const backtest = useQuery({ queryKey: ['forecasts', 'backtest'], queryFn: () => apiClient.get<{ backtest: Backtest | null }>('/forecasts/backtest'), enabled: admin });
 
   const refresh = () => {
@@ -123,8 +163,8 @@ export default function ForecastsPage() {
     onError: (error) => toast.error(t('The decision was not recorded'), { description: error instanceof Error ? error.message : undefined }),
   });
 
-  const proposed = (recommendations.data ?? []).filter((rec) => rec.status === 'proposed');
-  const decided = (recommendations.data ?? []).filter((rec) => rec.status !== 'proposed').slice(0, 10);
+  const recs = recommendations.data?.items ?? [];
+  const counts = recommendations.data?.counts;
   const lastRun = forecasts.data?.run;
 
   return (
@@ -212,6 +252,22 @@ export default function ForecastsPage() {
             )}
           </QueryBoundary>
         </CardContent>
+        {forecasts.data && forecasts.data.total > 0 ? (
+          <Pagination
+            className="border-t border-border"
+            page={forecasts.data.page}
+            pageSize={forecastPageSize}
+            total={forecasts.data.total}
+            onPageChange={setForecastPage}
+            onPageSizeChange={(next) => {
+              setForecastPageSize(next);
+              setForecastPage(1);
+            }}
+            pageSizeOptions={[10, 25, 50]}
+            itemLabel={t('project')}
+            itemLabelPlural={t('projects')}
+          />
+        ) : null}
       </Card>
 
       <Card>
@@ -220,56 +276,101 @@ export default function ForecastsPage() {
           <CardDescription>{t('Each cites the evidence it rests on and the effect expected. Approving applies its one change, as you and with your permissions; rejecting changes nothing. Both are journalled.')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 pt-4">
+          <Tabs
+            value={tab}
+            onValueChange={(value) => {
+              setTab(value as RecommendationTab);
+              setRecPage(1);
+            }}
+          >
+            <TabsList variant="underline">
+              <TabsTrigger value="proposed" variant="underline">
+                {t('Waiting for a decision')}
+                {counts ? ` (${formatNumber(counts.proposed)})` : ''}
+              </TabsTrigger>
+              <TabsTrigger value="decided" variant="underline">
+                {t('Decided')}
+                {counts ? ` (${formatNumber(counts.decided)})` : ''}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <QueryBoundary isLoading={recommendations.isLoading} isError={recommendations.isError} error={recommendations.error} onRetry={() => void recommendations.refetch()} errorTitle={t('The recommendations could not be loaded')} skeleton={<ListSkeleton rows={3} />}>
-            {proposed.length === 0 ? <p className="text-2xs text-muted-foreground">{t('No actions are recommended right now.')}</p> : null}
-            {proposed.map((rec) => (
-              <div key={rec.id} className="space-y-2 rounded-lg border border-border p-3">
-                <p className="text-sm font-medium" dir="auto">
-                  {rec.title}
-                </p>
-                <p className="text-2xs text-muted-foreground" dir="auto">
-                  {rec.rationale}
-                </p>
-                <ul className="space-y-0.5 text-2xs">
-                  {rec.evidence.map((item) => (
-                    <li key={`${item.kind}-${item.id}`}>
-                      <Link to={item.link} className="hover:underline" dir="auto">
-                        {item.label}
-                      </Link>
-                      {item.value !== undefined && item.value !== null ? <span className="text-muted-foreground"> — {String(item.value)}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-2xs">
-                  {t('Expected effect: {summary} ({before} → {after})', { summary: rec.expectedEffect.summary, before: effectValue(rec.expectedEffect.before), after: effectValue(rec.expectedEffect.after) })}
-                </p>
-                <Textarea rows={2} placeholder={t('A note for the journal (optional)')} value={comments[rec.id] ?? ''} onChange={(event) => setComments({ ...comments, [rec.id]: event.target.value })} />
-                <div className="flex gap-2">
-                  <Button size="sm" loading={decide.isPending && decide.variables?.id === rec.id && decide.variables.decision === 'approve'} onClick={() => decide.mutate({ id: rec.id, decision: 'approve' })}>
-                    {t('Approve and apply')}
-                  </Button>
-                  <Button size="sm" variant="secondary" loading={decide.isPending && decide.variables?.id === rec.id && decide.variables.decision === 'reject'} onClick={() => decide.mutate({ id: rec.id, decision: 'reject' })}>
-                    {t('Reject')}
-                  </Button>
-                </div>
-              </div>
-            ))}
-            {decided.length > 0 ? (
-              <div className="space-y-1 pt-2">
-                <p className="epm-eyebrow">{t('Decided')}</p>
-                {decided.map((rec) => (
-                  <p key={rec.id} className="text-2xs text-muted-foreground" dir="auto">
-                    <Badge size="sm" tone={rec.status === 'applied' ? 'success' : rec.status === 'failed' ? 'danger' : 'neutral'}>
-                      {rec.status === 'applied' ? t('Applied') : rec.status === 'rejected' ? t('Rejected') : rec.status === 'failed' ? t('Refused') : t('Superseded')}
-                    </Badge>{' '}
-                    {rec.title}
-                    {rec.decidedAt ? ` · ${formatDateTime(rec.decidedAt)}` : ''}
-                  </p>
-                ))}
-              </div>
+            {recs.length === 0 ? (
+              <p className="text-2xs text-muted-foreground">{tab === 'proposed' ? t('No actions are recommended right now.') : t('No recommendation has been decided yet.')}</p>
             ) : null}
+            {tab === 'proposed'
+              ? recs.map((rec) => (
+                  <div key={rec.id} className="space-y-2 rounded-lg border border-border p-3">
+                    <p className="text-sm font-medium" dir="auto">
+                      {rec.title}
+                    </p>
+                    <p className="text-2xs text-muted-foreground" dir="auto">
+                      {rec.rationale}
+                    </p>
+                    <ul className="space-y-0.5 text-2xs">
+                      {rec.evidence.map((item) => (
+                        <li key={`${item.kind}-${item.id}`}>
+                          <Link to={item.link} className="hover:underline" dir="auto">
+                            {item.label}
+                          </Link>
+                          {item.value !== undefined && item.value !== null ? <span className="text-muted-foreground"> — {String(item.value)}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-2xs">
+                      {t('Expected effect: {summary} ({before} → {after})', { summary: rec.expectedEffect.summary, before: effectValue(rec.expectedEffect.before), after: effectValue(rec.expectedEffect.after) })}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        className="h-8 min-w-48 flex-1 text-2xs"
+                        placeholder={t('A note for the journal (optional)')}
+                        aria-label={t('A note for the journal (optional)')}
+                        value={comments[rec.id] ?? ''}
+                        onChange={(event) => setComments({ ...comments, [rec.id]: event.target.value })}
+                      />
+                      <Button size="sm" loading={decide.isPending && decide.variables?.id === rec.id && decide.variables.decision === 'approve'} onClick={() => decide.mutate({ id: rec.id, decision: 'approve' })}>
+                        {t('Approve and apply')}
+                      </Button>
+                      <Button size="sm" variant="secondary" loading={decide.isPending && decide.variables?.id === rec.id && decide.variables.decision === 'reject'} onClick={() => decide.mutate({ id: rec.id, decision: 'reject' })}>
+                        {t('Reject')}
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              : recs.map((rec) => (
+                  <div key={rec.id} className="space-y-1 rounded-lg border border-border px-3 py-2">
+                    <p className="text-2xs" dir="auto">
+                      <Badge size="sm" tone={rec.status === 'applied' ? 'success' : rec.status === 'failed' ? 'danger' : 'neutral'}>
+                        {rec.status === 'applied' ? t('Applied') : rec.status === 'rejected' ? t('Rejected') : t('Refused')}
+                      </Badge>{' '}
+                      <span className="font-medium">{rec.title}</span>
+                      {rec.decidedAt ? <span className="text-muted-foreground"> · {formatDateTime(rec.decidedAt)}</span> : null}
+                    </p>
+                    {rec.status === 'failed' && rec.applyError ? (
+                      <p className="text-2xs text-muted-foreground" dir="auto">
+                        {rec.applyError}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
           </QueryBoundary>
         </CardContent>
+        {recommendations.data && recommendations.data.total > 0 ? (
+          <Pagination
+            className="border-t border-border"
+            page={recommendations.data.page}
+            pageSize={recPageSize}
+            total={recommendations.data.total}
+            onPageChange={setRecPage}
+            onPageSizeChange={(next) => {
+              setRecPageSize(next);
+              setRecPage(1);
+            }}
+            pageSizeOptions={[5, 10, 25]}
+            itemLabel={t('recommendation')}
+            itemLabelPlural={t('recommendations')}
+          />
+        ) : null}
       </Card>
 
       {admin ? (

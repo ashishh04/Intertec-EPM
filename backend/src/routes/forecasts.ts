@@ -6,6 +6,7 @@ import * as guard from '../auth/guard.js';
 import { backtest, latestBacktest, latestForecasts, latestRun, reproduceForecast, runForecasts } from '../domain/forecasting-store.js';
 import { decideRecommendation, listRecommendations, recommendationProject } from '../domain/recommendations.js';
 import { EpmError } from '../lib/errors.js';
+import { paginated, resolvePage } from '../lib/pagination.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { listProjects } from '../mapping/projects.js';
 
@@ -23,12 +24,16 @@ async function visibleProjectIds(request: FastifyRequest): Promise<number[]> {
 }
 
 export const forecastRoutes: FastifyPluginAsync = async (app) => {
-  app.get<{ Querystring: { projectId?: string } }>('/forecasts', async (request) => {
+  /** One page of the forecasts the caller can see, most at risk first. */
+  app.get<{ Querystring: { projectId?: string; page?: string; pageSize?: string } }>('/forecasts', async (request) => {
+    const query = z
+      .object({ projectId: z.string().regex(/^\d+$/).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).optional() })
+      .parse(request.query);
     const visible = await visibleProjectIds(request);
-    const only = request.query.projectId ? Number(request.query.projectId) : undefined;
-    const ids = only !== undefined ? visible.filter((id) => id === only) : visible;
-    const [forecasts, run] = await Promise.all([latestForecasts(ids), latestRun()]);
-    return { run, forecasts };
+    const ids = query.projectId ? visible.filter((id) => id === Number(query.projectId)) : visible;
+    const page = resolvePage(query.page, query.pageSize);
+    const [forecasts, run] = await Promise.all([latestForecasts(ids, page), latestRun()]);
+    return { run, forecasts: forecasts.items, total: forecasts.total, page: page.page, pageSize: page.pageSize };
   });
 
   app.get<{ Params: { id: string } }>('/forecasts/:id/reproduce', async (request) => {
@@ -63,12 +68,20 @@ export const forecastRoutes: FastifyPluginAsync = async (app) => {
     return backtest(input, request.auth!.userId);
   });
 
-  app.get<{ Querystring: { status?: string; projectId?: string } }>('/recommendations', async (request) => {
-    const { status, projectId } = z
-      .object({ status: z.enum(['proposed', 'applied', 'rejected', 'failed']).optional(), projectId: z.string().regex(/^\d+$/).optional() })
+  /** One page of the caller's projects' recommendations: waiting, decided, or one status. */
+  app.get<{ Querystring: { status?: string; projectId?: string; page?: string; pageSize?: string } }>('/recommendations', async (request) => {
+    const query = z
+      .object({
+        status: z.enum(['proposed', 'decided', 'applied', 'rejected', 'failed']).optional(),
+        projectId: z.string().regex(/^\d+$/).optional(),
+        page: z.coerce.number().int().min(1).optional(),
+        pageSize: z.coerce.number().int().min(1).optional(),
+      })
       .parse(request.query);
     const visible = await visibleProjectIds(request);
-    return listRecommendations(projectId ? visible.filter((id) => id === Number(projectId)) : visible, status);
+    const page = resolvePage(query.page, query.pageSize);
+    const result = await listRecommendations(query.projectId ? visible.filter((id) => id === Number(query.projectId)) : visible, { status: query.status, ...page });
+    return { ...paginated(result.items, result.total, page), counts: result.counts };
   });
 
   app.post<{ Params: { id: string }; Body: unknown }>('/recommendations/:id/decision', async (request) => {

@@ -212,9 +212,14 @@ export const deliveryForecast: ToolDefinition = {
   label: () => 'Looked up the delivery forecasts',
   async execute(context, args) {
     const projectId = typeof args.projectId === 'string' && args.projectId.trim() ? args.projectId.trim() : undefined;
-    const data = await get<{ run: unknown; forecasts: Record<string, unknown>[] }>(context, `/forecasts${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`);
+    // Most at risk first, so the first page is the one worth reading.
+    const data = await get<{ run: unknown; forecasts: Record<string, unknown>[]; total: number }>(
+      context,
+      `/forecasts?pageSize=${FINDINGS_CAP}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`,
+    );
     return {
-      forecasts: data.forecasts.slice(0, FINDINGS_CAP).map((row) => ({
+      total: data.total,
+      forecasts: data.forecasts.map((row) => ({
         id: row.id,
         project: row.name,
         projectId: row.projectId,
@@ -241,9 +246,13 @@ export const recommendedActions: ToolDefinition = {
   label: () => 'Looked up recommended actions',
   async execute(context, args) {
     const projectId = typeof args.projectId === 'string' && args.projectId.trim() ? args.projectId.trim() : undefined;
-    const rows = await get<Record<string, unknown>[]>(context, `/recommendations?status=proposed${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`);
+    const data = await get<{ items: Record<string, unknown>[]; total: number }>(
+      context,
+      `/recommendations?status=proposed&pageSize=${FINDINGS_CAP}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`,
+    );
     return {
-      recommendations: rows.slice(0, FINDINGS_CAP).map((row) => ({ id: row.id, title: row.title, rationale: row.rationale, evidence: row.evidence, expectedEffect: row.expectedEffect, change: row.change })),
+      waiting: data.total,
+      recommendations: data.items.map((row) => ({ id: row.id, title: row.title, rationale: row.rationale, evidence: row.evidence, expectedEffect: row.expectedEffect, change: row.change })),
       howToApply: 'A person with the right to make the change approves it under Insights → Forecasts; nothing changes until then.',
       link: '/forecasts',
     };

@@ -152,18 +152,23 @@ export async function runForecasts(trigger: 'schedule' | 'manual', actorId: stri
   }
 }
 
-/** The latest forecast of each of these projects. */
-export async function latestForecasts(projectIds: number[]): Promise<ForecastView[]> {
-  if (projectIds.length === 0) return [];
-  const rows = await prisma.projectForecast.findMany({
-    where: { projectId: { in: projectIds } },
-    orderBy: { createdAt: 'desc' },
-    include: { run: { select: { model: true, status: true } } },
-    take: projectIds.length * 3,
-  });
-  const latest = new Map<number, (typeof rows)[number]>();
-  for (const row of rows) if (row.run.status === 'done' && !latest.has(row.projectId)) latest.set(row.projectId, row);
-  return [...latest.values()].map((row) => toView(row, row.run.model as unknown as ForecastModel | null));
+/**
+ * The forecasts of these projects from the latest completed run — a project
+ * with no open work then has none, rather than a stale one — most at risk
+ * first (lowest chance of finishing on time; those without a planned finish
+ * last), and one page of them.
+ */
+export async function latestForecasts(projectIds: number[], page: { page: number; pageSize: number }): Promise<{ items: ForecastView[]; total: number }> {
+  if (projectIds.length === 0) return { items: [], total: 0 };
+  const run = await prisma.forecastRun.findFirst({ where: { kind: 'forecast', status: 'done' }, orderBy: { startedAt: 'desc' }, select: { id: true, model: true } });
+  if (!run) return { items: [], total: 0 };
+  const rows = await prisma.projectForecast.findMany({ where: { runId: run.id, projectId: { in: projectIds } } });
+  const model = run.model as unknown as ForecastModel | null;
+  const views = rows
+    .map((row) => toView(row, model))
+    .sort((a, b) => (a.probabilityOnTime ?? 2) - (b.probabilityOnTime ?? 2) || a.name.localeCompare(b.name) || a.projectId - b.projectId);
+  const start = (page.page - 1) * page.pageSize;
+  return { items: views.slice(start, start + page.pageSize), total: views.length };
 }
 
 /**

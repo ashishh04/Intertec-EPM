@@ -254,14 +254,29 @@ const toView = (row: Row): RecommendationView => {
   };
 };
 
-export async function listRecommendations(projectIds: number[], status?: string): Promise<RecommendationView[]> {
-  if (projectIds.length === 0) return [];
-  const rows = await prisma.recommendation.findMany({
-    where: { projectId: { in: projectIds }, ...(status ? { status } : { status: { not: 'superseded' } }) },
-    orderBy: { createdAt: 'desc' },
-    take: 200,
-  });
-  return rows.map(toView);
+const DECIDED = ['applied', 'rejected', 'failed'];
+
+/**
+ * One page of the recommendations of these projects — waiting ('proposed'),
+ * decided (applied, rejected or failed) or one status — newest first, with how
+ * many are waiting and decided in all.
+ */
+export async function listRecommendations(
+  projectIds: number[],
+  filter: { status?: string; page: number; pageSize: number },
+): Promise<{ items: RecommendationView[]; total: number; counts: { proposed: number; decided: number } }> {
+  if (projectIds.length === 0) return { items: [], total: 0, counts: { proposed: 0, decided: 0 } };
+  const scope = { projectId: { in: projectIds } };
+  const status =
+    filter.status === 'decided' ? { in: DECIDED } : filter.status ? filter.status : { not: 'superseded' };
+  const where = { ...scope, status };
+  const [rows, total, proposed, decided] = await Promise.all([
+    prisma.recommendation.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (filter.page - 1) * filter.pageSize, take: filter.pageSize }),
+    prisma.recommendation.count({ where }),
+    prisma.recommendation.count({ where: { ...scope, status: 'proposed' } }),
+    prisma.recommendation.count({ where: { ...scope, status: { in: DECIDED } } }),
+  ]);
+  return { items: rows.map(toView), total, counts: { proposed, decided } };
 }
 
 export async function recommendationProject(id: string): Promise<number | null> {
