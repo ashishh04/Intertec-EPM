@@ -18,6 +18,7 @@ import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createTimesheetReminders } from './scheduler/timesheet-reminders.js';
 import { createIntegrationRetry } from './scheduler/integration-retry.js';
+import { createForecastRefresh } from './scheduler/forecast-refresh.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createBurndownSampler } from './scheduler/burndown-sampler.js';
 import { createScheduleCheck } from './scheduler/schedule-check.js';
@@ -350,6 +351,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   const integrationRetry = createIntegrationRetry({ log: app.log });
   integrationRetry.start();
 
+  // Delivery forecasts and their recommendations, refreshed every six hours (BR-509, BR-511).
+  const forecastRefresh = createForecastRefresh({ log: app.log });
+  forecastRefresh.start();
+
   // The health sweep. On by default, unlike the schedulers above: it is what
   // keeps stored health true when changes happen where EPM cannot see them.
   const healthSweep = createHealthSweep({ log: app.log });
@@ -452,6 +457,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     dueReminders.stop();
     timesheetReminders.stop();
     integrationRetry.stop();
+    forecastRefresh.stop();
     snapshots.stop();
     emailWorker.stop();
     await disconnectPrisma();

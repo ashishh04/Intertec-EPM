@@ -52,6 +52,7 @@ const TimesheetPage = lazy(() => import('@/pages/TimesheetPage'));
 const ExpensesPage = lazy(() => import('@/pages/ExpensesPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const ScenariosPage = lazy(() => import('@/pages/ScenariosPage'));
+const ForecastsPage = lazy(() => import('@/pages/ForecastsPage'));
 const ScenarioPage = lazy(() => import('@/pages/ScenarioPage'));
 const ExpenseClaimPage = lazy(() => import('@/pages/ExpenseClaimPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
@@ -290,6 +291,7 @@ export function App() {
           <Route path="/timesheets/people/:personId" element={<TimesheetPage />} />
           <Route path="/timesheets/:id" element={<TimesheetPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
+          <Route path="/forecasts" element={<ForecastsPage />} />
           <Route
             path="/scenarios"
             element={

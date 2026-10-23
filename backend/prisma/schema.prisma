@@ -2217,3 +2217,75 @@ model IntegrationEvent {
   @@index([receivedAt])
   @@map("integration_events")
 }
+
+/// A forecasting run (BR-509, BR-510): the model trained on the organisation's
+/// own delivery history and the forecasts made with it; or a back-test.
+model ForecastRun {
+  id           String            @id @default(cuid())
+  /// forecast or backtest.
+  kind         String
+  /// schedule or manual.
+  trigger      String
+  /// running, done or failed.
+  status       String            @default("running")
+  modelVersion String?
+  /// The trained model, so every forecast can be reproduced from it.
+  model        Json?
+  summary      Json?
+  error        String?
+  startedBy    String?
+  startedAt    DateTime          @default(now())
+  finishedAt   DateTime?
+  forecasts    ProjectForecast[]
+
+  @@index([kind, startedAt])
+  @@map("forecast_runs")
+}
+
+/// One project's forecast in a run, with the inputs it was made from (BR-510:
+/// reproducible from what is stored).
+model ProjectForecast {
+  id        String      @id @default(cuid())
+  runId     String
+  run       ForecastRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  projectId Int
+  inputs    Json
+  output    Json
+  createdAt DateTime    @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([runId])
+  @@map("project_forecasts")
+}
+
+/// A recommended action (BR-511), with its evidence and expected effect, that
+/// changes nothing until a person approves it (BR-512).
+model Recommendation {
+  id              String    @id @default(cuid())
+  forecastId      String?
+  projectId       Int
+  kind            String
+  /// What it would change, so one proposal stands per target.
+  targetKey       String
+  title           String
+  rationale       String
+  evidence        Json
+  expectedEffect  Json
+  /// Title, rationale and effect as message templates, for readers in other languages.
+  messages        Json      @default("{}")
+  /// { entity, id, field, from, to }: the one change approving it makes.
+  change          Json
+  /// proposed, applied, rejected, failed or superseded.
+  status          String    @default("proposed")
+  decidedBy       String?
+  decidedAt       DateTime?
+  decisionComment String?
+  appliedAt       DateTime?
+  applyError      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([targetKey, status])
+  @@map("recommendations")
+}

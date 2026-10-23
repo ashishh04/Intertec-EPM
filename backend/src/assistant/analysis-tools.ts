@@ -201,3 +201,51 @@ export const budgetExposure: ToolDefinition = {
     };
   },
 };
+
+export const deliveryForecast: ToolDefinition = {
+  name: 'delivery_forecast',
+  description:
+    'Delivery forecasts for the projects the asker can see, from a model trained on the organisation’s own finished work: ' +
+    'the probability of finishing by the planned date, the finish range (P10, P50, P90), effort and cost at completion against budget, ' +
+    'and the work that most often decides the finish. Use for "will we finish on time", "how likely", "when will it really finish".',
+  parameters: { type: 'object', properties: { projectId: { type: 'string' } }, additionalProperties: false },
+  label: () => 'Looked up the delivery forecasts',
+  async execute(context, args) {
+    const projectId = typeof args.projectId === 'string' && args.projectId.trim() ? args.projectId.trim() : undefined;
+    const data = await get<{ run: unknown; forecasts: Record<string, unknown>[] }>(context, `/forecasts${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`);
+    return {
+      forecasts: data.forecasts.slice(0, FINDINGS_CAP).map((row) => ({
+        id: row.id,
+        project: row.name,
+        projectId: row.projectId,
+        probabilityOnTime: row.probabilityOnTime,
+        plannedFinish: row.plannedFinish,
+        finish: row.finish,
+        effort: row.effort,
+        cost: row.cost,
+        factors: row.factors,
+        trainedOn: row.trainedOn,
+        link: `/forecasts?project=${String(row.projectId)}`,
+      })),
+      note: 'Forecasts are made from history; each can be reproduced from its stored inputs.',
+    };
+  },
+};
+
+export const recommendedActions: ToolDefinition = {
+  name: 'recommended_actions',
+  description:
+    'Recommended actions waiting for a decision, for the projects the asker can see: each with its evidence, expected effect and the one ' +
+    'change approving it would make. You cannot approve or apply them: a person does so under Insights → Forecasts.',
+  parameters: { type: 'object', properties: { projectId: { type: 'string' } }, additionalProperties: false },
+  label: () => 'Looked up recommended actions',
+  async execute(context, args) {
+    const projectId = typeof args.projectId === 'string' && args.projectId.trim() ? args.projectId.trim() : undefined;
+    const rows = await get<Record<string, unknown>[]>(context, `/recommendations?status=proposed${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`);
+    return {
+      recommendations: rows.slice(0, FINDINGS_CAP).map((row) => ({ id: row.id, title: row.title, rationale: row.rationale, evidence: row.evidence, expectedEffect: row.expectedEffect, change: row.change })),
+      howToApply: 'A person with the right to make the change approves it under Insights → Forecasts; nothing changes until then.',
+      link: '/forecasts',
+    };
+  },
+};
