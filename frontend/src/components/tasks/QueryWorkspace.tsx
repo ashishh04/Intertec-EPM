@@ -603,6 +603,12 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
                   toast.success(
                     t('{count, plural, one {Updated # task} other {Updated # tasks}}', { count: updated.length }),
                   ),
+                // The server's reason, e.g. a workflow that does not allow that
+                // status for one of them; without it the menu looked inert.
+                onError: (error) =>
+                  toast.error(t('Unable to save changes'), {
+                    description: error instanceof Error ? error.message : undefined,
+                  }),
               },
             )
           }

@@ -39,7 +39,7 @@ import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
 import { TableCard, TableSkeleton } from '@/components/common/DataTable';
-import { ALL_TASK_PRIORITIES, ALL_TASK_STATUSES, TASK_PRIORITY_META, TASK_STATUS_META } from '@/lib/domain';
+import { usePriorities, useStatuses } from '@/hooks/useCatalog';
 import {
   cn,
   describeDueDate,
@@ -248,6 +248,13 @@ export function TaskTable({
   emptyAction,
 }: TaskTableProps) {
   const [selected, setSelected] = useState<Set<ID>>(new Set());
+  // The bulk menus offer the instance's own statuses and priorities, the names
+  // every row, filter and task page shows. EPM's categories are a grouping for
+  // display: offered here, they listed "Backlog" and "Review" beside a task
+  // page with no such status, and saved whichever status stood for the
+  // category — or none, where no status did, while reporting the task updated.
+  const statuses = useStatuses();
+  const priorities = usePriorities();
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(
     hideProjectColumn ? DEFAULT_COLUMNS.filter((column) => column !== 'project') : DEFAULT_COLUMNS,
   );
@@ -416,49 +423,27 @@ export function TaskTable({
             </Button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="secondary">
-                  {t('Change status')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{t('Set status')}</DropdownMenuLabel>
-                {ALL_TASK_STATUSES.map((status) => (
-                  <DropdownMenuItem
-                    key={status}
-                    onSelect={() => {
-                      onBulkUpdate?.(selectedIds, { status });
-                      setSelected(new Set());
-                    }}
-                  >
-                    {TASK_STATUS_META[status].label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <BulkValueMenu
+              label={t('Change status')}
+              heading={t('Set status')}
+              values={statuses.data}
+              loading={statuses.isLoading}
+              onPick={(statusId) => {
+                onBulkUpdate?.(selectedIds, { statusId });
+                setSelected(new Set());
+              }}
+            />
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="secondary">
-                  {t('Priority')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{t('Set priority')}</DropdownMenuLabel>
-                {ALL_TASK_PRIORITIES.map((priority) => (
-                  <DropdownMenuItem
-                    key={priority}
-                    onSelect={() => {
-                      onBulkUpdate?.(selectedIds, { priority });
-                      setSelected(new Set());
-                    }}
-                  >
-                    {TASK_PRIORITY_META[priority].label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <BulkValueMenu
+              label={t('Priority')}
+              heading={t('Set priority')}
+              values={priorities.data}
+              loading={priorities.isLoading}
+              onPick={(priorityId) => {
+                onBulkUpdate?.(selectedIds, { priorityId });
+                setSelected(new Set());
+              }}
+            />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -820,6 +805,42 @@ export function TaskTable({
         </Table>
       )}
     </TableCard>
+  );
+}
+
+/** A bulk action that sets one of the instance's values on every selected task. */
+function BulkValueMenu({
+  label,
+  heading,
+  values,
+  loading,
+  onPick,
+}: {
+  label: string;
+  heading: string;
+  values?: { id: ID; name: string }[];
+  loading: boolean;
+  onPick: (id: ID) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="secondary">
+          {label}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
+        <DropdownMenuLabel>{heading}</DropdownMenuLabel>
+        {(values ?? []).map((value) => (
+          <DropdownMenuItem key={value.id} onSelect={() => onPick(value.id)}>
+            {value.name}
+          </DropdownMenuItem>
+        ))}
+        {!values?.length ? (
+          <DropdownMenuItem disabled>{loading ? t('Loading…') : t('Nothing to choose from.')}</DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
