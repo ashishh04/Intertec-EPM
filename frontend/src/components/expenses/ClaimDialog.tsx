@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ComboSelect } from '@/components/common/ComboSelect';
@@ -12,9 +13,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useProjects } from '@/hooks/useProjects';
 import { useTasks } from '@/hooks/useTasks';
 import { useCurrencies } from '@/hooks/useFinance';
-import { useCreateClaim, useExpenseCategories, useTimeSettings, useUpdateClaim } from '@/hooks/useTimesheets';
+import {
+  useCreateClaim,
+  useCreateExpenseCategory,
+  useExpenseCategories,
+  useTimeSettings,
+  useUpdateClaim,
+} from '@/hooks/useTimesheets';
 import { t } from '@/lib/i18n';
 import { toISODateOnly } from '@/lib/utils';
+import { useAuth } from '@/providers/AuthProvider';
 import type { ExpenseClaimView } from '@/types';
 
 /**
@@ -37,6 +45,14 @@ export function ClaimDialog({
   const pending = create.isPending || update.isPending;
   const settings = useTimeSettings(open);
   const categories = useExpenseCategories();
+  // Whoever may add a category can do it here. A new instance has none, and
+  // the field is required: an administrator drafting the first claim met a
+  // dead end, told to go to another page to make the claim possible at all.
+  const { can } = useAuth();
+  const mayAddCategory = can('time:configure') || can('expenses:manage');
+  const createCategory = useCreateExpenseCategory();
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
   const projects = useProjects();
 
   const [projectId, setProjectId] = useState<string>();
@@ -59,6 +75,8 @@ export function ClaimDialog({
     setSpentOn(claim?.spentOn ?? toISODateOnly(new Date()));
     setDescription(claim?.description ?? '');
     setError(undefined);
+    setAddingCategory(false);
+    setNewCategory('');
   }, [open, claim]);
 
   const tasks = useTasks({ projectId, pageSize: 100 }, { enabled: open && Boolean(projectId) });
@@ -73,6 +91,22 @@ export function ClaimDialog({
   const usual = settings.data?.settings.expenses.currency ?? '';
   const currency = claimCurrency ?? usual;
   const threshold = settings.data?.settings.expenses.receiptThreshold;
+  const noCategories = categories.data?.length === 0;
+
+  const addCategory = () => {
+    const name = newCategory.trim();
+    if (!name) return;
+    setError(undefined);
+    createCategory.mutate(name, {
+      onSuccess: (created) => {
+        toast.success(t('Category added'));
+        setCategoryId(created.id);
+        setNewCategory('');
+        setAddingCategory(false);
+      },
+      onError: (failure) => setError(failure instanceof Error ? failure.message : t('The cost type was not added')),
+    });
+  };
 
   const save = () => {
     setError(undefined);
@@ -168,8 +202,43 @@ export function ClaimDialog({
                 ))}
               </SelectContent>
             </Select>
-            {categories.data && categories.data.length === 0 ? (
+            {noCategories && !mayAddCategory ? (
               <FieldHint>{t('There are no categories yet: an administrator adds them under Administration, Time and costs, Cost types.')}</FieldHint>
+            ) : null}
+            {noCategories && mayAddCategory ? (
+              <FieldHint>{t('There are no categories yet: add the first one here.')}</FieldHint>
+            ) : null}
+            {mayAddCategory && (noCategories || addingCategory) ? (
+              <div className="flex gap-2">
+                <Input
+                  aria-label={t('New category')}
+                  placeholder={t('e.g. Travel')}
+                  value={newCategory}
+                  onChange={(event) => setNewCategory(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Enter adds the category rather than submitting anything.
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      addCategory();
+                    }
+                  }}
+                  dir="auto"
+                />
+                <Button
+                  variant="secondary"
+                  onClick={addCategory}
+                  disabled={!newCategory.trim()}
+                  loading={createCategory.isPending}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {t('Add')}
+                </Button>
+              </div>
+            ) : null}
+            {mayAddCategory && !noCategories && !addingCategory && categories.data ? (
+              <Button variant="link" size="sm" className="h-auto px-0" onClick={() => setAddingCategory(true)}>
+                {t('Add a category')}
+              </Button>
             ) : null}
           </div>
           <div className="grid grid-cols-2 gap-3">
