@@ -14,6 +14,8 @@ const LandingPage = lazy(() => import('@/pages/LandingPage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SetPasswordPage = lazy(() => import('@/pages/SetPasswordPage'));
 const InvitePage = lazy(() => import('@/pages/InvitePage'));
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const MyWorkPage = lazy(() => import('@/pages/MyWorkPage'));
 const MyTimePage = lazy(() => import('@/pages/MyTimePage'));
@@ -184,6 +186,8 @@ export function App() {
             here has no password yet, and an administrator testing the link
             should see what they will see. */}
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
 
         <Route
           element={

@@ -87,6 +87,13 @@ routes consume (see `docs/administration-design.md`, "Users and permissions").
 | GET | `/epm_admin/permissions` | Every settable permission, grouped by module as the role form groups them |
 | GET, POST | `/epm_admin/roles` | Roles with their permissions; create one |
 | PATCH, DELETE | `/epm_admin/roles/:id` | Rename or re-permission; delete (refused for built-in or assigned roles) |
+| POST | `/epm_admin/users/password_reset_target` | Whom a forgotten-password request names (login or email): id, email, first name, and whether a password may be set from a link |
+| PATCH | `/epm_admin/users/:id/password` | Sets a password from an invitation or a reset link, through the `User` model so the instance's rules apply, and revokes the person's OAuth tokens. Never for an administrator who has signed in, or for EPM's own accounts (403) |
+
+The two password actions are also open to EPM's service account (its
+allow-list is in `zzz_epm_service.rb`): EPM's forgotten-password and invitation
+pages set a password for someone who is not signed in, and that account is not
+an administrator.
 
 **Admin only.** The caller is identified the way API v3 identifies it (an OAuth
 bearer token or `apikey:<key>` Basic auth) and refused with 403 unless that

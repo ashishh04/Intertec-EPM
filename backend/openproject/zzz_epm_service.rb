@@ -29,7 +29,9 @@ module EpmService
     "EpmScheduleController" => %w[network fingerprint values],
     "EpmCalculatedController" => %w[fields configure inputs fingerprint values],
     "EpmCostsController" => %w[types create_type entry create_entry destroy_entry],
-    "EpmAdminController" => %w[roles administrators],
+    # Passwords: set from an invitation or a forgotten-password link, for the
+    # people EpmAdminController#password_status allows.
+    "EpmAdminController" => %w[roles administrators password_reset_target set_password],
     # Only the custom fields that calculated fields are mirrored into.
     "EpmAdminCatalogController" => { resource: "custom-fields", actions: %w[show create update destroy] }
   }.freeze

@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label, FieldHint } from '@/components/ui/label';
+import { Label } from '@/components/ui/label';
 import { AuthBackdrop } from '@/components/common/AuthBackdrop';
 import { EpmMark } from '@/components/common/EpmLogo';
 import { safeDestination } from '@/lib/navigation';
@@ -31,7 +31,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string>();
-  const [resetHintOpen, setResetHintOpen] = useState(false);
 
   const rise = (delay = 0) =>
     reduceMotion
@@ -132,17 +131,12 @@ export default function LoginPage() {
                 <Label htmlFor="login-password" required>
                   {t('Password')}
                 </Label>
-                {/* No reset flow exists yet: passwords are reset by IT, so this
-                    says so rather than linking somewhere that cannot help.
-                    TODO: link to the self-service reset once it ships. */}
-                <button
-                  type="button"
-                  onClick={() => setResetHintOpen((open) => !open)}
-                  aria-expanded={resetHintOpen}
+                <Link
+                  to="/forgot-password"
                   className="rounded text-2xs text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {t('Forgot password?')}
-                </button>
+                </Link>
               </div>
 
               <div className="relative">
@@ -170,11 +164,6 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              {resetHintOpen ? (
-                <FieldHint>
-                  {t('Passwords are reset by IT support. Contact the service desk to regain access.')}
-                </FieldHint>
-              ) : null}
             </div>
 
             <Button type="submit" size="lg" className="h-11 w-full" loading={pending}>

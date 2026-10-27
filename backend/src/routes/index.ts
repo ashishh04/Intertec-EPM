@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { adminRoutes } from './admin.js';
 import { assistantRoutes } from './assistant.js';
 import { invitesRoutes } from './invites.js';
+import { passwordResetRoutes } from './password-reset.js';
 import { preferencesRoutes } from './preferences.js';
 import { webhooksRoutes } from './webhooks.js';
 import { attachmentRoutes } from './attachments.js';
@@ -124,6 +125,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(preferencesRoutes);
   await app.register(sessionRoutes);
   await app.register(invitesRoutes);
+  await app.register(passwordResetRoutes);
   await app.register(webhooksRoutes);
   await app.register(assistantRoutes);
   // Collaboration: EPM's own records, because OpenProject's meetings, news and

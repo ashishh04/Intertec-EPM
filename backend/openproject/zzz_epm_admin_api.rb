@@ -162,6 +162,49 @@ Rails.application.config.to_prepare do
       render json: { ids: User.where(type: "User", admin: true).pluck(:id).map(&:to_s) }
     end
 
+    # --------------------------------------------------------------- passwords
+
+    # EPM's forgotten-password page and its invitations set a password for
+    # someone who is not signed in, so EPM writes it itself, as its service
+    # account, which is not an administrator (NFR06). These two actions are all
+    # that account may do with passwords. They never reach an account that
+    # runs the instance: an administrator who has signed in, or EPM's own
+    # accounts. An administrator who has never signed in is an invitation
+    # being accepted, and is allowed.
+
+    # Whom a forgotten-password request names, by login or email, ignoring
+    # case. EPM tells the requester nothing either way; this is how it learns
+    # whom to email, and whether a link may be sent at all.
+    def password_reset_target
+      identifier = json_body["identifier"].to_s.strip.downcase
+      user = if identifier.present? && identifier.length <= 255
+               User.where(type: "User").where("LOWER(login) = :value OR LOWER(mail) = :value", value: identifier).first
+             end
+      return render(json: { message: "Not found." }, status: :not_found) unless user
+
+      render json: { id: user.id.to_s, email: user.mail.to_s, firstName: user.firstname.to_s, status: password_status(user) }
+    end
+
+    # Sets the password through the model, so the instance's own rules apply
+    # (length, character classes, recently used passwords). Then it revokes
+    # every OAuth token the person holds, which signs them out of EPM
+    # everywhere: a reset also shuts out whoever else was signed in as them.
+    def set_password
+      user = User.where(type: "User").find(params[:id])
+      unless password_status(user) == "settable"
+        return render json: { message: "This account's password cannot be set this way." }, status: :forbidden
+      end
+
+      password = json_body["password"].to_s
+      user.password = password
+      user.password_confirmation = password
+      user.force_password_change = false
+      return render(json: { message: user.errors.full_messages.join(" ") }, status: :unprocessable_entity) unless user.save
+
+      Doorkeeper::AccessToken.where(resource_owner_id: user.id, revoked_at: nil).find_each(&:revoke)
+      render json: { login: user.login }
+    end
+
     # ------------------------------------------------------------- permissions
 
     def permissions
@@ -315,6 +358,17 @@ Rails.application.config.to_prepare do
     end
 
     private
+
+    # settable: active, and not an administrator unless one who has never
+    # signed in (an invitation). administrator: an active administrator who
+    # has signed in. unavailable: anyone else, EPM's own accounts included.
+    def password_status(user)
+      own = [ENV.fetch("EPM_SERVICE_LOGIN", "epm-service"), ENV.fetch("EPM_AUTOMATION_LOGIN", "epm-automation")]
+      return "unavailable" if !user.active? || own.include?(user.login)
+      return "administrator" if user.admin? && user.last_login_on.present?
+
+      "settable"
+    end
 
     # ------------------------------------------------------------------ auth
 
@@ -630,6 +684,8 @@ Rails.application.routes.prepend do
     get "enterprise", action: :enterprise
     get "users/logins", action: :user_logins
     get "users/administrators", action: :administrators
+    post "users/password_reset_target", action: :password_reset_target
+    patch "users/:id/password", action: :set_password, constraints: { id: /\d+/ }
     get "permissions", action: :permissions
     get "roles", action: :roles
     post "roles", action: :create_role

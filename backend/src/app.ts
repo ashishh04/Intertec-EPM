@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -49,6 +49,14 @@ import { registerRoutes } from './routes/index.js';
  * against explicit origins — the browser rejects `*` when the client sends
  * `credentials: 'include'`, which the EPM ApiClient always does.
  */
+/**
+ * A link's token travels in its path (an invitation, a password reset) and is a
+ * key to an account until it is used, so the request log keeps the route and
+ * never the token: whoever can read the logs must not be able to use them.
+ */
+const TOKEN_IN_PATH = /(\/(?:invites|password-reset)\/)[^/?#]+/g;
+const withoutTokens = (url: string): string => url.replace(TOKEN_IN_PATH, '$1[redacted]');
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -68,6 +76,15 @@ export async function buildApp(): Promise<FastifyInstance> {
           'password',
         ],
         censor: '[redacted]',
+      },
+      serializers: {
+        req: (request: FastifyRequest) => ({
+          method: request.method,
+          url: withoutTokens(request.url),
+          hostname: request.hostname,
+          remoteAddress: request.ip,
+          remotePort: request.socket?.remotePort,
+        }),
       },
       ...(isProduction ? {} : { transport: { target: 'pino-pretty' } }),
     },

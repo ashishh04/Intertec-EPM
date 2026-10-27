@@ -2289,3 +2289,25 @@ model Recommendation {
   @@index([targetKey, status])
   @@map("recommendations")
 }
+
+/// A link for someone who has forgotten their password (Module 1). Only a
+/// SHA-256 of the token is kept: the token itself exists in one place, the
+/// email. One live link per account; a newer request retires the older one.
+model PasswordResetToken {
+  id            String    @id @default(cuid())
+  openProjectId String
+  tokenHash     String    @unique
+  email         String
+  expiresAt     DateTime
+  /// Set when the link can no longer be used: the password was reset with
+  /// it, or a newer link replaced it.
+  usedAt        DateTime?
+  /// Set when a newer request retired this link, so its page can say so.
+  replacedAt    DateTime?
+  /// Where the request came from, for an administrator looking into one.
+  requestedFrom String?
+  createdAt     DateTime  @default(now())
+
+  @@index([openProjectId, createdAt])
+  @@map("password_reset_tokens")
+}
