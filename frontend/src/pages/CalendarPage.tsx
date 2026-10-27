@@ -15,14 +15,12 @@ import {
   startOfWeek,
   subMonths,
 } from 'date-fns';
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, Plus } from 'lucide-react';
 import { PageHeader, SectionHeader } from '@/components/common/PageHeader';
-import { EmptyState } from '@/components/common/EmptyState';
-import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { ErrorState } from '@/components/common/ErrorState';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvents } from '@/hooks/useDashboard';
 import { useUI } from '@/providers/UIProvider';
 import { t } from '@/lib/i18n';
@@ -143,6 +141,12 @@ export default function CalendarPage() {
         </div>
 
         <SectionHeader title={title} className="min-w-0" />
+        {eventsQuery.isFetching ? (
+          <span role="status" className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            {t('Loading…')}
+          </span>
+        ) : null}
 
         <Tabs
           value={view}
@@ -167,92 +171,99 @@ export default function CalendarPage() {
         ))}
       </div>
 
-      <QueryBoundary
-        isLoading={eventsQuery.isLoading}
-        isError={eventsQuery.isError}
-        error={eventsQuery.error}
-        onRetry={() => eventsQuery.refetch()}
-        errorTitle={t('Unable to load the calendar')}
-        skeleton={<Skeleton className="h-[32rem] w-full rounded-xl" />}
-      >
-        {view === 'day' ? (
-          <DayView date={anchor} events={eventsByDay.get(toISODateOnly(anchor)) ?? []} />
-        ) : (
-          <Card className="overflow-hidden">
-            <div className="grid grid-cols-7 border-b border-border bg-surface-sunken/60">
-              {[t('Mon'), t('Tue'), t('Wed'), t('Thu'), t('Fri'), t('Sat'), t('Sun')].map((label) => (
+      {/*
+        * The grid is drawn at once and filled in when the events arrive. It used
+        * to be replaced by one grey block while each period loaded — on a slow
+        * instance, ten seconds and more after every change of view, which read
+        * as a calendar with no week or day view at all.
+        */}
+      {eventsQuery.isError && !eventsQuery.data ? (
+        <ErrorState
+          title={t('Unable to load the calendar')}
+          description={eventsQuery.error instanceof Error ? eventsQuery.error.message : undefined}
+          onRetry={() => eventsQuery.refetch()}
+        />
+      ) : view === 'day' ? (
+        <DayView
+          date={anchor}
+          events={eventsByDay.get(toISODateOnly(anchor)) ?? []}
+          loading={eventsQuery.isFetching}
+        />
+      ) : (
+        <Card className="overflow-hidden" aria-busy={eventsQuery.isFetching || undefined}>
+          <div className="grid grid-cols-7 border-b border-border bg-surface-sunken/60">
+            {[t('Mon'), t('Tue'), t('Wed'), t('Thu'), t('Fri'), t('Sat'), t('Sun')].map((label) => (
+              <div
+                key={label}
+                className="px-2 py-2 text-center text-2xs font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className={cn('grid grid-cols-7', view === 'week' && 'min-h-[24rem]')}>
+            {days.map((day) => {
+              const key = toISODateOnly(day);
+              const dayEvents = eventsByDay.get(key) ?? [];
+              const outside = view === 'month' && !isSameMonth(day, anchor);
+
+              return (
                 <div
-                  key={label}
-                  className="px-2 py-2 text-center text-2xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  key={key}
+                  className={cn(
+                    'min-h-24 border-b border-e border-border p-1.5 last:border-e-0 [&:nth-child(7n)]:border-e-0',
+                    view === 'week' && 'min-h-[24rem]',
+                    outside && 'bg-surface-sunken/40',
+                  )}
                 >
-                  {label}
-                </div>
-              ))}
-            </div>
-
-            <div className={cn('grid grid-cols-7', view === 'week' && 'min-h-[24rem]')}>
-              {days.map((day) => {
-                const key = toISODateOnly(day);
-                const dayEvents = eventsByDay.get(key) ?? [];
-                const outside = view === 'month' && !isSameMonth(day, anchor);
-
-                return (
-                  <div
-                    key={key}
-                    className={cn(
-                      'min-h-24 border-b border-e border-border p-1.5 last:border-e-0 [&:nth-child(7n)]:border-e-0',
-                      view === 'week' && 'min-h-[24rem]',
-                      outside && 'bg-surface-sunken/40',
-                    )}
-                  >
-                    <div className="mb-1 flex items-center justify-between">
-                      <span
-                        className={cn(
-                          'inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 font-mono text-2xs',
-                          isToday(day)
-                            ? 'bg-primary font-semibold text-primary-foreground'
-                            : outside
-                              ? 'text-muted-foreground/50'
-                              : 'text-muted-foreground',
-                        )}
-                      >
-                        {day.getDate()}
+                  <div className="mb-1 flex items-center justify-between">
+                    <span
+                      className={cn(
+                        'inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 font-mono text-2xs',
+                        isToday(day)
+                          ? 'bg-primary font-semibold text-primary-foreground'
+                          : outside
+                            ? 'text-muted-foreground/50'
+                            : 'text-muted-foreground',
+                      )}
+                    >
+                      {day.getDate()}
+                    </span>
+                    {dayEvents.length > 3 ? (
+                      <span className="font-mono text-2xs tabular-nums text-muted-foreground">
+                        {formatNumber(dayEvents.length)}
                       </span>
-                      {dayEvents.length > 3 ? (
-                        <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                          {formatNumber(dayEvents.length)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <ul className="space-y-1">
-                      {dayEvents.slice(0, view === 'week' ? 12 : 3).map((event) => (
-                        <li key={event.id}>
-                          <EventChip event={event} />
-                        </li>
-                      ))}
-                      {dayEvents.length > 3 && view === 'month' ? (
-                        <li>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAnchor(day);
-                              setView('day');
-                            }}
-                            className="w-full rounded px-1 text-start text-2xs text-muted-foreground hover:text-foreground"
-                          >
-                            {t('+{count} more', { count: dayEvents.length - 3 })}
-                          </button>
-                        </li>
-                      ) : null}
-                    </ul>
+                    ) : null}
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
-      </QueryBoundary>
+
+                  <ul className="space-y-1">
+                    {dayEvents.slice(0, view === 'week' ? 12 : 3).map((event) => (
+                      <li key={event.id}>
+                        <EventChip event={event} />
+                      </li>
+                    ))}
+                    {dayEvents.length > 3 && view === 'month' ? (
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAnchor(day);
+                            setView('day');
+                          }}
+                          className="w-full rounded px-1 text-start text-2xs text-muted-foreground hover:text-foreground"
+                        >
+                          {t('+{count} more', { count: dayEvents.length - 3 })}
+                        </button>
+                      </li>
+                    ) : null}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -281,20 +292,28 @@ function EventChip({ event }: { event: CalendarEvent }) {
   );
 }
 
-function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
-  const hours = Array.from({ length: 12 }, (_, index) => index + 8); // 08:00 – 19:00
-
+/** The day's hours are always drawn, scheduled or not, so the view reads as a day. */
+function DayView({ date, events, loading }: { date: Date; events: CalendarEvent[]; loading: boolean }) {
   const timed = events.filter((event) => !event.allDay);
   const allDay = events.filter((event) => event.allDay);
 
+  // 08:00 to 19:00, widened to any hour something starts at: an early or late
+  // meeting was counted in the header and then drawn nowhere.
+  const startHours = timed.map((event) => parseISO(event.date).getHours());
+  const firstHour = startHours.reduce((earliest, hour) => Math.min(earliest, hour), 8);
+  const lastHour = startHours.reduce((latest, hour) => Math.max(latest, hour), 19);
+  const hours = Array.from({ length: lastHour - firstHour + 1 }, (_, index) => index + firstHour);
+
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" aria-busy={loading || undefined}>
       <CardHeader variant="compact">
         <CardTitle>{formatWeekdayDate(date)}</CardTitle>
         <CardDescription className="text-2xs">
-          {events.length === 0
-            ? t('Nothing scheduled')
-            : t('{count, plural, one {# scheduled item} other {# scheduled items}}', { count: events.length })}
+          {events.length > 0
+            ? t('{count, plural, one {# scheduled item} other {# scheduled items}}', { count: events.length })
+            : loading
+              ? t('Loading…')
+              : t('Nothing scheduled')}
         </CardDescription>
       </CardHeader>
 
@@ -307,33 +326,25 @@ function DayView({ date, events }: { date: Date; events: CalendarEvent[] }) {
         </div>
       ) : null}
 
-      {events.length === 0 ? (
-        <EmptyState
-          icon={CalendarDays}
-          title={t('Nothing scheduled')}
-          description={t('Deadlines and ceremonies for this day will appear here.')}
-        />
-      ) : (
-        <ul className="divide-y divide-border">
-          {hours.map((hour) => {
-            const slotEvents = timed.filter(
-              (event) => parseISO(event.date).getHours() === hour && isSameDay(parseISO(event.date), date),
-            );
-            return (
-              <li key={hour} className="flex gap-3 px-4 py-2">
-                <span className="w-12 shrink-0 pt-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
-                  {String(hour).padStart(2, '0')}:00
-                </span>
-                <div className="min-h-5 flex-1 space-y-1">
-                  {slotEvents.map((event) => (
-                    <EventChip key={event.id} event={event} />
-                  ))}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <ul className="divide-y divide-border">
+        {hours.map((hour) => {
+          const slotEvents = timed.filter(
+            (event) => parseISO(event.date).getHours() === hour && isSameDay(parseISO(event.date), date),
+          );
+          return (
+            <li key={hour} className="flex gap-3 px-4 py-2">
+              <span className="w-12 shrink-0 pt-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
+                {String(hour).padStart(2, '0')}:00
+              </span>
+              <div className="min-h-5 flex-1 space-y-1">
+                {slotEvents.map((event) => (
+                  <EventChip key={event.id} event={event} />
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </Card>
   );
 }

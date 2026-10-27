@@ -363,21 +363,33 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         }),
       );
 
-    const workEvents = workPackages.items.map((workPackage): CalendarEvent => {
+    /*
+     * Work is shown on its deadline and a milestone on its date: the calendar's
+     * legend says "Task deadline" and the dashboard's "Coming up" says due
+     * dates. Shown on its start date, a task looked due the day it began, a
+     * week's view held none of the work due in it (only what started in it),
+     * and "Coming up" listed work that began weeks ago. The filter above also
+     * returns work that merely spans the period; it is left for the period its
+     * deadline falls in.
+     */
+    const workEvents = workPackages.items.flatMap((workPackage): CalendarEvent[] => {
       const typeId = linkId(workPackage._links, 'type');
       const isMilestone = typeId ? milestoneTypeIds.includes(typeId) : false;
-      const date = workPackage.startDate ?? workPackage.date ?? workPackage.dueDate ?? from;
+      const date = workPackage.dueDate ?? workPackage.date ?? workPackage.startDate;
+      if (!date || date < from || date > to) return [];
 
-      return {
-        id: String(workPackage.id),
-        title: workPackage.subject,
-        kind: isMilestone ? 'milestone' : 'task',
-        date,
-        endDate: workPackage.dueDate ?? undefined,
-        projectId: linkId(workPackage._links, 'project'),
-        taskId: String(workPackage.id),
-        allDay: true,
-      };
+      return [
+        {
+          id: String(workPackage.id),
+          title: workPackage.subject,
+          kind: isMilestone ? 'milestone' : 'task',
+          date,
+          endDate: workPackage.dueDate ?? undefined,
+          projectId: linkId(workPackage._links, 'project'),
+          taskId: String(workPackage.id),
+          allDay: true,
+        },
+      ];
     });
     return [...workEvents, ...sprintEvents, ...meetingEvents];
   });
