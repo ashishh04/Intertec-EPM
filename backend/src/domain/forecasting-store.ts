@@ -10,6 +10,7 @@ import {
   forecastProject,
   groupOf,
   hashOf,
+  MIN_GROUP,
   trainModel,
   type BacktestCase,
   type Calendar,
@@ -32,15 +33,31 @@ import { generateRecommendations } from './recommendations.js';
 /** How far a back-test may miss and still pass (configurable per run). */
 export const DEFAULT_TOLERANCE = { brier: 0.25, calibrationError: 0.15, minCases: 20 };
 
+/**
+ * At most this many work packages are forecast at each cut-off, chosen evenly
+ * by id so a rerun picks the same ones: enough to measure calibration, and a
+ * back-test of a large instance still finishes in minutes.
+ */
+const CASES_PER_CUTOFF = 500;
+
+/** A back-test still running after this long has died with its server; another may start. */
+const BACKTEST_STALE_MS = 30 * 60_000;
+
+/**
+ * Lets the server answer other requests before carrying on. A back-test runs
+ * inside the API server, so a long stretch of forecasting without a pause would
+ * hold up every request until it ended.
+ */
+const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 const calendarOf = (facts: ModelFacts): Calendar => ({ nonWorking: facts.calendar.nonWorking, workingWeekdays: facts.calendar.workingWeekdays });
 const dayOfStamp = (stamp: string) => dayOf(stamp.slice(0, 10));
 const todayDay = () => dayOf(new Date().toISOString().slice(0, 10));
 
-/** What history teaches: every work package closed with a due date, closed before `before` if given. */
-function historyOf(work: WorkFact[], before?: number): HistoryItem[] {
+/** What history teaches: every work package closed with a due date. */
+function historyOf(work: WorkFact[]): HistoryItem[] {
   return work
     .filter((item) => item.isClosed && item.closedAt && item.dueDate && !item.isMilestone)
-    .filter((item) => before === undefined || dayOfStamp(item.closedAt!) < before)
     .map((item) => ({
       id: item.id,
       group: groupOf(item.typeCategory, item.estimatedHours),
@@ -68,7 +85,7 @@ function inputsFor(facts: ModelFacts, projectId: number, work: WorkFact[], today
     projectId,
     name: project.name,
     today,
-    plannedFinish: project.plannedFinish ? dayOf(project.plannedFinish) : dues.length ? Math.max(...dues.map(dayOf)) : null,
+    plannedFinish: project.plannedFinish ? dayOf(project.plannedFinish) : dues.length ? dues.reduce((last, due) => Math.max(last, dayOf(due)), -Infinity) : null,
     budget: project.budget,
     spentCost: Math.round(labour + other),
     spentHours: Math.round(time.reduce((sum, entry) => sum + entry.hours, 0) * 100) / 100,
@@ -190,6 +207,10 @@ export async function reproduceForecast(id: string): Promise<{ identical: boolea
 export interface BacktestResult {
   runId: string;
   cutoffs: string[];
+  /** Cut-offs with enough history before them to train on; the others are skipped. */
+  cutoffsUsed: number;
+  /** Cut-offs where more work packages qualified than CASES_PER_CUTOFF, and a sample was taken. */
+  sampledAt: string[];
   tolerance: typeof DEFAULT_TOLERANCE;
   /** Projects as forecast at each cut-off, against how they actually finished. */
   projects: Calibration;
@@ -198,6 +219,74 @@ export interface BacktestResult {
   /** Pass, fail, or not enough history to say. */
   verdict: 'pass' | 'fail' | 'insufficient';
   basis: 'projects' | 'workPackages';
+  /**
+   * The history there is to learn from — work packages finished with a due
+   * date, and when — and how many must have finished before a cut-off for it
+   * to be used: what "not enough history" means on this instance.
+   */
+  history: { finished: number; firstClosed: string | null; lastClosed: string | null; minToLearn: number };
+}
+
+/** A back-test attempt, for showing that one is running or why it did not finish. */
+export interface BacktestRunView {
+  id: string;
+  status: 'running' | 'done' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  /** Why it failed; null when it was abandoned (its server stopped). */
+  error: string | null;
+}
+
+const runView = (row: { id: string; status: string; startedAt: Date; finishedAt: Date | null; error: string | null }): BacktestRunView => {
+  const abandoned = row.status === 'running' && row.startedAt.getTime() < Date.now() - BACKTEST_STALE_MS;
+  return {
+    id: row.id,
+    status: abandoned ? 'failed' : (row.status as BacktestRunView['status']),
+    startedAt: row.startedAt.toISOString(),
+    finishedAt: row.finishedAt?.toISOString() ?? null,
+    error: abandoned ? null : row.error,
+  };
+};
+
+/** Work packages by project, in their order. */
+function groupByProject(items: WorkFact[]): Map<number, WorkFact[]> {
+  const groups = new Map<number, WorkFact[]>();
+  for (const item of items) {
+    const list = groups.get(item.projectId);
+    if (list) list.push(item);
+    else groups.set(item.projectId, [item]);
+  }
+  return groups;
+}
+
+/** Every n-th of `items` by id, at most `limit` of them: the same ones on every run. */
+function evenly<T extends { id: number }>(items: T[], limit: number): T[] {
+  if (items.length <= limit) return items;
+  const sorted = [...items].sort((a, b) => a.id - b.id);
+  return Array.from({ length: limit }, (_, index) => sorted[Math.floor((index * sorted.length) / limit)]!);
+}
+
+/**
+ * Starts a back-test unless one is already running, and answers at once: a
+ * back-test of a large instance takes longer than anyone should wait on a
+ * request. `result` settles when it ends (null when one was already running);
+ * either way the run records how it ended.
+ */
+export async function startBacktest(
+  options: { months?: number; stepDays?: number; tolerance?: Partial<typeof DEFAULT_TOLERANCE> },
+  actorId: string | null,
+): Promise<{ run: BacktestRunView; started: boolean; result: Promise<BacktestResult> | null }> {
+  const { row, started } = await prisma.$transaction(async (tx) => {
+    // One at a time across servers: the check and the start are one step.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('epm-forecast-backtest', 0))`;
+    const running = await tx.forecastRun.findFirst({
+      where: { kind: 'backtest', status: 'running', startedAt: { gt: new Date(Date.now() - BACKTEST_STALE_MS) } },
+      orderBy: { startedAt: 'desc' },
+    });
+    if (running) return { row: running, started: false };
+    return { row: await tx.forecastRun.create({ data: { kind: 'backtest', trigger: 'manual', startedBy: actorId } }), started: true };
+  });
+  return { run: runView(row), started, result: started ? backtest(row.id, options, actorId) : null };
 }
 
 /**
@@ -207,29 +296,46 @@ export interface BacktestResult {
  * within tolerance passes. Projects are the measure where enough of them have
  * since finished; otherwise work packages, which there are many more of.
  */
-export async function backtest(options: { months?: number; stepDays?: number; tolerance?: Partial<typeof DEFAULT_TOLERANCE> }, actorId: string | null): Promise<BacktestResult> {
+async function backtest(runId: string, options: { months?: number; stepDays?: number; tolerance?: Partial<typeof DEFAULT_TOLERANCE> }, actorId: string | null): Promise<BacktestResult> {
   const tolerance = { ...DEFAULT_TOLERANCE, ...(options.tolerance ?? {}) };
   const months = Math.min(Math.max(options.months ?? 12, 1), 36);
   const step = Math.min(Math.max(options.stepDays ?? 30, 7), 120);
-  const run = await prisma.forecastRun.create({ data: { kind: 'backtest', trigger: 'manual', startedBy: actorId } });
+  const run = { id: runId };
   try {
     const facts = await modelFacts();
     const calendar = calendarOf(facts);
     const now = todayDay();
     const closedAt = new Map(facts.workPackages.filter((item) => item.closedAt).map((item) => [item.id, dayOfStamp(item.closedAt!)]));
+    // The whole finished history, once: each cut-off learns from the part of it finished before.
+    const finishedHistory = historyOf(facts.workPackages);
+    const finishedDays = finishedHistory.map((item) => item.finished);
+    const history = {
+      finished: finishedDays.length,
+      firstClosed: finishedDays.length ? isoOf(finishedDays.reduce((a, b) => Math.min(a, b))) : null,
+      lastClosed: finishedDays.length ? isoOf(finishedDays.reduce((a, b) => Math.max(a, b))) : null,
+      minToLearn: MIN_GROUP,
+    };
     const projectCases: BacktestCase[] = [];
     const workCases: BacktestCase[] = [];
     const cutoffs: string[] = [];
+    const sampledAt: string[] = [];
+    let cutoffsUsed = 0;
     for (let cutoff = now - months * 30; cutoff <= now - step; cutoff += step) {
       cutoffs.push(isoOf(cutoff));
-      const model = trainModel(historyOf(facts.workPackages, cutoff), calendar);
+      const model = trainModel(finishedHistory.filter((item) => item.finished < cutoff), calendar);
       if (model.trainedOn.items < model.minGroupSize) continue;
+      cutoffsUsed += 1;
       const state = await workFactsAsAt(new Date(`${isoOf(cutoff)}T23:59:59Z`), facts);
       const open = state.filter((item) => !item.isClosed && !item.isMilestone && item.dueDate);
       // Work packages: open and dated then, finished since.
-      for (const item of open) {
+      const finishedSince = open.filter((item) => {
         const finished = closedAt.get(item.id);
-        if (finished === undefined || finished <= cutoff) continue;
+        return finished !== undefined && finished > cutoff;
+      });
+      if (finishedSince.length > CASES_PER_CUTOFF) sampledAt.push(isoOf(cutoff));
+      for (const [index, item] of evenly(finishedSince, CASES_PER_CUTOFF).entries()) {
+        if (index > 0 && index % 50 === 0) await breathe();
+        const finished = closedAt.get(item.id)!;
         const single: ProjectInput = {
           projectId: item.projectId, name: '', today: cutoff, plannedFinish: dayOf(item.dueDate!), budget: null, spentCost: 0, spentHours: 0, costPerHour: null,
           open: [{ id: item.id, subject: '', group: groupOf(item.typeCategory, item.estimatedHours), due: dayOf(item.dueDate!), estimatedHours: null, spentHours: 0 }],
@@ -237,17 +343,21 @@ export async function backtest(options: { months?: number; stepDays?: number; to
         const forecast = forecastProject(single, model, calendar, 400);
         workCases.push({ probability: forecast.probabilityOnTime ?? 0, onTime: finished <= dayOf(item.dueDate!) });
       }
-      // Projects: all of whose work open then has finished since.
-      const byProject = new Map<number, WorkFact[]>();
-      for (const item of open) byProject.set(item.projectId, [...(byProject.get(item.projectId) ?? []), item]);
+      // Projects: all of whose work open then has finished since. Each project's
+      // work is gathered once, rather than the whole state searched per project.
+      const byProject = groupByProject(open);
+      const stateByProject = groupByProject(state);
       for (const [projectId, items] of byProject) {
         const finishes = items.map((item) => closedAt.get(item.id));
         if (finishes.some((day) => day === undefined || day <= cutoff)) continue;
-        const inputs = inputsFor(facts, projectId, state, cutoff);
+        await breathe();
+        const inputs = inputsFor(facts, projectId, stateByProject.get(projectId) ?? [], cutoff);
         if (!inputs) continue;
-        const planned = Math.max(...items.map((item) => dayOf(item.dueDate!)));
+        // reduce, not Math.max(...): a project's work can outnumber the arguments a call may take.
+        const planned = items.reduce((latest, item) => Math.max(latest, dayOf(item.dueDate!)), -Infinity);
+        const finished = (finishes as number[]).reduce((latest, day) => Math.max(latest, day), -Infinity);
         const forecast = forecastProject({ ...inputs, plannedFinish: planned }, model, calendar, 600);
-        projectCases.push({ probability: forecast.probabilityOnTime ?? 0, onTime: Math.max(...(finishes as number[])) <= planned });
+        projectCases.push({ probability: forecast.probabilityOnTime ?? 0, onTime: finished <= planned });
       }
     }
     const projects = calibrate(projectCases);
@@ -260,7 +370,7 @@ export async function backtest(options: { months?: number; stepDays?: number; to
         : (measured.brier ?? 1) <= tolerance.brier && (measured.calibrationError ?? 1) <= tolerance.calibrationError
           ? 'pass'
           : 'fail';
-    const result = { runId: run.id, cutoffs, tolerance, projects, workPackages, verdict, basis } as BacktestResult;
+    const result: BacktestResult = { runId: run.id, cutoffs, cutoffsUsed, sampledAt, tolerance, projects, workPackages, verdict, basis, history };
     await withAudit(
       (tx) => tx.forecastRun.update({ where: { id: run.id }, data: { status: 'done', finishedAt: new Date(), summary: result as unknown as Prisma.InputJsonValue } }),
       () => ({
@@ -279,10 +389,20 @@ export async function backtest(options: { months?: number; stepDays?: number; to
   }
 }
 
-/** The latest back-test, if any. */
-export async function latestBacktest(): Promise<BacktestResult | null> {
-  const row = await prisma.forecastRun.findFirst({ where: { kind: 'backtest', status: 'done' }, orderBy: { startedAt: 'desc' } });
-  return (row?.summary as unknown as BacktestResult | undefined) ?? null;
+/**
+ * The latest completed back-test and when it finished, and the latest attempt
+ * — which may still be running, or have failed after that result.
+ */
+export async function latestBacktest(): Promise<{ backtest: (BacktestResult & { finishedAt: string | null }) | null; run: BacktestRunView | null }> {
+  const [done, latest] = await Promise.all([
+    prisma.forecastRun.findFirst({ where: { kind: 'backtest', status: 'done' }, orderBy: { startedAt: 'desc' } }),
+    prisma.forecastRun.findFirst({ where: { kind: 'backtest' }, orderBy: { startedAt: 'desc' } }),
+  ]);
+  const result = done?.summary as unknown as BacktestResult | undefined;
+  return {
+    backtest: result ? { ...result, finishedAt: done!.finishedAt?.toISOString() ?? null } : null,
+    run: latest ? runView(latest) : null,
+  };
 }
 
 /** The latest forecasting run, for the status line. */

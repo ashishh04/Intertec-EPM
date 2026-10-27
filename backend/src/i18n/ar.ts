@@ -27,6 +27,7 @@ export const ar: Readonly<Record<string, string>> = {
   "% complete, from 0 to 100.": "نسبة الإنجاز، من 0 إلى 100.",
   "0/100": "0/100",
   "50/50": "50/50",
+  "A back-test is already running; its result appears here when it finishes.": "يجري اختبار رجعي حاليًا؛ وتظهر نتيجته هنا عند انتهائه.",
   "A booking ends on or after the day it starts.": "ينتهي الحجز في يوم بدايته أو بعده.",
   "A booking is a project, who, the dates and the hours a week.": "الحجز هو مشروع وشخص محجوز وتواريخ وساعات في الأسبوع.",
   "A booking is for one person or one placeholder.": "الحجز لشخص واحد أو لموظف مرتقب واحد.",

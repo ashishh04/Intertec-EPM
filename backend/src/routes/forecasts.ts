@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { allows } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
-import { backtest, latestBacktest, latestForecasts, latestRun, reproduceForecast, runForecasts } from '../domain/forecasting-store.js';
+import { latestBacktest, latestForecasts, latestRun, reproduceForecast, runForecasts, startBacktest } from '../domain/forecasting-store.js';
 import { decideRecommendation, listRecommendations, recommendationProject } from '../domain/recommendations.js';
 import { EpmError } from '../lib/errors.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -48,11 +48,17 @@ export const forecastRoutes: FastifyPluginAsync = async (app) => {
     return runForecasts('manual', request.auth!.userId);
   });
 
+  /** The latest back-test result, and the latest attempt: running, done or failed. */
   app.get('/forecasts/backtest', async (request) => {
     await guard.require(request, 'users:manage');
-    return { backtest: await latestBacktest() };
+    return latestBacktest();
   });
 
+  /**
+   * Starts a back-test and answers at once with the run, which the result
+   * replaces when it ends; one already running is answered instead of a
+   * second. `wait` holds the answer until it ends.
+   */
   app.post<{ Body: unknown }>('/forecasts/backtest', async (request, reply) => {
     await guard.require(request, 'users:manage');
     const input = z
@@ -62,10 +68,20 @@ export const forecastRoutes: FastifyPluginAsync = async (app) => {
         tolerance: z
           .object({ brier: z.number().min(0).max(1).optional(), calibrationError: z.number().min(0).max(1).optional(), minCases: z.number().int().min(1).max(10_000).optional() })
           .optional(),
+        wait: z.boolean().optional(),
       })
       .parse(request.body ?? {});
-    reply.code(201);
-    return backtest(input, request.auth!.userId);
+    const { wait, ...options } = input;
+    const { run, started, result } = await startBacktest(options, request.auth!.userId);
+    if (wait) {
+      if (!result) throw EpmError.conflict('A back-test is already running; its result appears here when it finishes.');
+      reply.code(201);
+      return result;
+    }
+    // The run records how it ends; the log keeps why, should it fail.
+    result?.catch((error: unknown) => request.log.error({ err: error, runId: run.id }, 'Forecast back-test failed'));
+    reply.code(202);
+    return { run, started };
   });
 
   /** One page of the caller's projects' recommendations: waiting, decided, or one status. */

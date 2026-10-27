@@ -82,6 +82,17 @@ interface Backtest {
   projects: { cases: number; brier: number | null; calibrationError: number | null };
   workPackages: { cases: number; brier: number | null; calibrationError: number | null };
   cutoffs: string[];
+  finishedAt: string | null;
+  /** Absent from back-tests run before it was recorded. */
+  history?: { finished: number; firstClosed: string | null; lastClosed: string | null; minToLearn: number };
+}
+
+interface BacktestRun {
+  id: string;
+  status: 'running' | 'done' | 'failed';
+  startedAt: string;
+  finishedAt: string | null;
+  error: string | null;
 }
 
 const probabilityTone = (value: number | null) => (value === null ? 'neutral' : value >= 0.7 ? 'success' : value >= 0.4 ? 'warning' : 'danger');
@@ -132,7 +143,16 @@ export default function ForecastsPage() {
     const last = Math.max(1, Math.ceil(recTotal / recPageSize));
     if (!recommendations.isPlaceholderData && recPage > last) setRecPage(last);
   }, [recTotal, recPage, recPageSize, recommendations.isPlaceholderData]);
-  const backtest = useQuery({ queryKey: ['forecasts', 'backtest'], queryFn: () => apiClient.get<{ backtest: Backtest | null }>('/forecasts/backtest'), enabled: admin });
+  // A back-test runs on the server after the button answers. Its state is
+  // polled while one runs, or while the one started here has not yet been seen
+  // to end; that one is reported when it does.
+  const [awaitedRun, setAwaitedRun] = useState<BacktestRun | null>(null);
+  const backtest = useQuery({
+    queryKey: ['forecasts', 'backtest'],
+    queryFn: () => apiClient.get<{ backtest: Backtest | null; run: BacktestRun | null }>('/forecasts/backtest'),
+    enabled: admin,
+    refetchInterval: (query) => (awaitedRun || query.state.data?.run?.status === 'running' ? 2000 : false),
+  });
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['forecasts'] });
@@ -147,10 +167,38 @@ export default function ForecastsPage() {
     onError: () => toast.error(t('The forecasts could not be made')),
   });
   const test = useMutation({
-    mutationFn: () => apiClient.post<Backtest>('/forecasts/backtest', {}),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['forecasts', 'backtest'] }),
-    onError: () => toast.error(t('The back-test could not be run')),
+    mutationFn: () => apiClient.post<{ run: BacktestRun; started: boolean }>('/forecasts/backtest', {}),
+    onSuccess: (outcome) => {
+      setAwaitedRun(outcome.run);
+      if (!outcome.started) toast.info(t('A back-test is already running; its result appears here when it finishes.'));
+      void client.invalidateQueries({ queryKey: ['forecasts', 'backtest'] });
+    },
+    onError: (error) => toast.error(t('The back-test could not be started'), { description: error instanceof Error ? error.message : undefined }),
   });
+  useEffect(() => {
+    const latest = backtest.data?.run;
+    if (!awaitedRun || !latest) return;
+    if (latest.id !== awaitedRun.id) {
+      // Only one runs at a time: a later one means the awaited one has ended,
+      // and someone else has started another since. (An earlier one is the
+      // state from before the click, still to be refreshed.)
+      if (latest.startedAt > awaitedRun.startedAt) setAwaitedRun(null);
+      return;
+    }
+    if (latest.status === 'running') return;
+    setAwaitedRun(null);
+    if (latest.status === 'failed') {
+      toast.error(t('The back-test did not finish'), { description: latest.error ?? undefined });
+      return;
+    }
+    const verdict = backtest.data?.backtest?.verdict;
+    toast.success(verdict === 'pass' ? t('Back-test finished: within tolerance') : verdict === 'fail' ? t('Back-test finished: outside tolerance') : t('Back-test finished: not enough history yet to judge'));
+  }, [awaitedRun, backtest.data]);
+  // Busy from the click until the run it started is seen to end, not just until
+  // the server answers — unless the state cannot be read, so the button can be
+  // pressed again (the server answers with the run already going, if one is).
+  const backtestRunning = test.isPending || (!backtest.isError && (awaitedRun !== null || backtest.data?.run?.status === 'running'));
+  const backtestFailed = backtest.data?.run?.status === 'failed' ? backtest.data.run : null;
   const decide = useMutation({
     mutationFn: (input: { id: string; decision: 'approve' | 'reject' }) =>
       apiClient.post<Recommendation>(`/recommendations/${input.id}/decision`, { decision: input.decision, comment: comments[input.id]?.trim() || null }),
@@ -386,30 +434,62 @@ export default function ForecastsPage() {
                 const measured = result.basis === 'projects' ? result.projects : result.workPackages;
                 return (
                   <>
-                    <Badge tone={result.verdict === 'pass' ? 'success' : result.verdict === 'fail' ? 'danger' : 'neutral'} size="sm">
-                      {result.verdict === 'pass' ? t('Within tolerance') : result.verdict === 'fail' ? t('Outside tolerance') : t('Not enough history yet')}
-                    </Badge>
-                    <p>
-                      {t('{cases} cases ({basis}); Brier score {brier} (at most {brierTolerance}); calibration error {error} (at most {errorTolerance}).', {
-                        cases: formatNumber(measured.cases),
-                        basis: result.basis === 'projects' ? t('projects') : t('work packages'),
-                        brier: measured.brier ?? '—',
-                        brierTolerance: result.tolerance.brier,
-                        error: measured.calibrationError ?? '—',
-                        errorTolerance: result.tolerance.calibrationError,
-                      })}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={result.verdict === 'pass' ? 'success' : result.verdict === 'fail' ? 'danger' : 'neutral'} size="sm">
+                        {result.verdict === 'pass' ? t('Within tolerance') : result.verdict === 'fail' ? t('Outside tolerance') : t('Not enough history yet')}
+                      </Badge>
+                      {result.finishedAt ? <span className="text-muted-foreground">{t('Last back-test {when}', { when: formatDateTime(result.finishedAt) })}</span> : null}
+                    </div>
+                    {measured.cases > 0 ? (
+                      <p>
+                        {t('{cases} cases ({basis}); Brier score {brier} (at most {brierTolerance}); calibration error {error} (at most {errorTolerance}).', {
+                          cases: formatNumber(measured.cases),
+                          basis: result.basis === 'projects' ? t('projects') : t('work packages'),
+                          brier: measured.brier ?? '—',
+                          brierTolerance: result.tolerance.brier,
+                          error: measured.calibrationError ?? '—',
+                          errorTolerance: result.tolerance.calibrationError,
+                        })}
+                      </p>
+                    ) : null}
                     {result.verdict === 'insufficient' ? (
-                      <p className="text-muted-foreground">{t('At least {count} finished cases are needed to judge; they build up as work is finished with due dates.', { count: result.tolerance.minCases })}</p>
+                      result.history ? (
+                        <div className="space-y-1 text-muted-foreground">
+                          <p>
+                            {result.history.finished === 0
+                              ? t('No work has been finished with a due date yet.')
+                              : t('{count, plural, one {# work package has been finished with a due date so far} other {# work packages have been finished with a due date so far}}, between {first} and {last}.', {
+                                  count: result.history.finished,
+                                  first: result.history.firstClosed ? formatShortDate(result.history.firstClosed) : '—',
+                                  last: result.history.lastClosed ? formatShortDate(result.history.lastClosed) : '—',
+                                })}
+                          </p>
+                          <p>
+                            {t('To judge, the model needs at least {learn} finished before a date in the past to learn from, and at least {cases} finished after it to check against. These build up as work is finished.', {
+                              learn: formatNumber(result.history.minToLearn),
+                              cases: formatNumber(result.tolerance.minCases),
+                            })}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-muted-foreground">{t('At least {count} finished cases are needed to judge; they build up as work is finished with due dates.', { count: result.tolerance.minCases })}</p>
+                      )
                     ) : null}
                   </>
                 );
               })()
-            ) : (
+            ) : backtestRunning ? null : (
               <p className="text-muted-foreground">{t('No back-test has been run yet.')}</p>
             )}
-            <Button size="sm" variant="secondary" loading={test.isPending} onClick={() => test.mutate()}>
-              {t('Run a back-test')}
+            {backtestFailed && !backtestRunning ? (
+              <p className="text-danger" dir="auto">
+                {backtestFailed.error
+                  ? t('The last back-test, started {when}, failed: {error}', { when: formatDateTime(backtestFailed.startedAt), error: backtestFailed.error })
+                  : t('The last back-test, started {when}, did not finish.', { when: formatDateTime(backtestFailed.startedAt) })}
+              </p>
+            ) : null}
+            <Button size="sm" variant="secondary" loading={backtestRunning} onClick={() => test.mutate()}>
+              {backtestRunning ? t('Running the back-test…') : t('Run a back-test')}
             </Button>
           </CardContent>
         </Card>
