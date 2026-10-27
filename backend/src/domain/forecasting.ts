@@ -98,7 +98,7 @@ export interface ProjectForecast {
   factors: Factor[];
 }
 
-const MIN_GROUP = 10;
+export const MIN_GROUP = 10;
 export const RUNS = 2000;
 
 /* ------------------------------------------------------------------ calendar */
@@ -181,12 +181,13 @@ export function trainModel(history: HistoryItem[], calendar: Calendar, minGroupS
     stats.slips.sort((a, b) => a - b);
     stats.effortRatios.sort((a, b) => a - b);
   }
-  const finishes = history.map((item) => item.finished);
+  // reduce, not Math.min(...): past about 120,000 finished work packages the
+  // spread exceeds the arguments a call may take, and training would throw.
   const trainedOn = {
     items: history.length,
     withEstimates,
-    from: finishes.length ? Math.min(...finishes) : null,
-    to: finishes.length ? Math.max(...finishes) : null,
+    from: history.length ? history.reduce((first, item) => Math.min(first, item.finished), Infinity) : null,
+    to: history.length ? history.reduce((last, item) => Math.max(last, item.finished), -Infinity) : null,
   };
   const body = { groups, overall, minGroupSize };
   return { version: hashOf(body), trainedOn, ...body };
@@ -230,19 +231,33 @@ export function forecastProject(input: ProjectInput, model: ForecastModel, calen
   const drivers = new Map<number, number>();
   const dated = input.open.filter((item) => item.due !== null);
 
+  // What does not change from run to run is worked out once per work package —
+  // how late it already is, the slips it may draw, its effort ratios — and the
+  // day each slip lands on once per due date. Draws are made in the same order
+  // as before, so a stored forecast still reproduces exactly; a large history
+  // no longer costs its full length on every run of every work package.
+  const landings = new Map<number, Map<number, number>>();
+  const plans = input.open.map((item) => {
+    if (item.due === null) return { item, lateBy: 0, pool: [] as number[], landsOn: null };
+    // Work already late can only finish later still: draw among the slips
+    // at least as late as it already is.
+    const lateBy = Math.max(0, workingDaysBetween(calendar, item.due, input.today));
+    const slips = statsFor(model, item.group).slips;
+    let landsOn = landings.get(item.due);
+    if (!landsOn) landings.set(item.due, (landsOn = new Map()));
+    return { item, lateBy, pool: lateBy > 0 ? slips.filter((slip) => slip >= lateBy) : slips, landsOn };
+  });
+
   for (let run = 0; run < runs; run += 1) {
     let last = input.today;
     let lastId: number | null = null;
     let hours = 0;
-    for (const item of input.open) {
-      const stats = statsFor(model, item.group);
+    for (const { item, lateBy, pool, landsOn } of plans) {
       if (item.due !== null) {
-        // Work already late can only finish later still: draw among the slips
-        // at least as late as it already is.
-        const lateBy = Math.max(0, workingDaysBetween(calendar, item.due, input.today));
-        const pool = lateBy > 0 ? stats.slips.filter((slip) => slip >= lateBy) : stats.slips;
         const slip = pool.length ? pool[Math.floor(random() * pool.length)]! : lateBy + 1;
-        const finish = Math.max(input.today, addWorkingDays(calendar, item.due, slip));
+        let landed = landsOn!.get(slip);
+        if (landed === undefined) landsOn!.set(slip, (landed = addWorkingDays(calendar, item.due, slip)));
+        const finish = Math.max(input.today, landed);
         if (finish > last || lastId === null) {
           last = finish;
           lastId = item.id;
