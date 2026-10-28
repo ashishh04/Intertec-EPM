@@ -455,6 +455,7 @@ export const ar: Readonly<Record<string, string>> = {
   "From {start} to {end}.": "من {start} إلى {end}.",
   "Generated": "تاريخ الإنشاء",
   "Git": "Git",
+  "Give a date that exists, e.g. 2026-10-31.": "حدّد تاريخًا صحيحًا، مثل 2026-10-31.",
   "Give the amount the milestone bills.": "حدّد المبلغ الذي يفوتره المعلم.",
   "Give the fewest hours a timesheet may have.": "حدّد أقل عدد من الساعات يمكن أن يتضمنه كشف الساعات.",
   "Give the most hours a timesheet may have.": "حدّد أكثر عدد من الساعات يمكن أن يتضمنه كشف الساعات.",

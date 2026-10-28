@@ -103,6 +103,28 @@ export const analyticsRoutes: FastifyPluginAsync = async (app) => {
 
   /** A metric series, straight from the snapshots. */
   app.get('/analytics/trends', async (request) => {
+    // The snapshots are captured with the service key, so they count every
+    // project and every person whoever reads them later (BRL-01). Series about
+    // the organisation are for those who manage analytics; a personal series
+    // is for its owner. Everyone's own view of the organisation, limited to
+    // their access, is the Insights dashboards (Module 12).
+    //
+    // Settled before anything else about the request is checked: someone
+    // refused organisation-wide trends was told instead that a metric was
+    // missing, as if the series would be theirs once they named one.
+    const asked = request.query as { scopeType?: unknown; scopeId?: unknown };
+    const manager = await guard.holds(request, 'analytics:manage');
+    if (!manager) {
+      if ((asked.scopeType ?? 'instance') !== 'user') {
+        throw EpmError.forbidden(
+          'Organisation-wide trends are for people who manage analytics. Your own view of the organisation is under Insights.',
+        );
+      }
+      if (asked.scopeId !== undefined && asked.scopeId !== request.auth?.userId) {
+        throw EpmError.forbidden("You can read your own trends, not another person's.");
+      }
+    }
+
     const query = trendQuery.parse(request.query);
 
     const metrics = (query.metrics ?? '')
@@ -117,23 +139,7 @@ export const analyticsRoutes: FastifyPluginAsync = async (app) => {
     if (!SCOPE_TYPES.includes(scopeType)) {
       throw EpmError.badRequest(message('{value} is not a scope type.', { value: query.scopeType }));
     }
-
-    // The snapshots are captured with the service key, so they count every
-    // project and every person whoever reads them later (BRL-01). Series about
-    // the organisation are for those who manage analytics; a personal series
-    // is for its owner. Everyone's own view of the organisation, limited to
-    // their access, is the Insights dashboards (Module 12).
-    const manager = await guard.holds(request, 'analytics:manage');
-    if (scopeType === 'user') {
-      if (!query.scopeId) throw EpmError.badRequest('A personal series needs scopeId.');
-      if (!manager && query.scopeId !== request.auth?.userId) {
-        throw EpmError.forbidden("You can read your own trends, not another person's.");
-      }
-    } else if (!manager) {
-      throw EpmError.forbidden(
-        'Organisation-wide trends are for people who manage analytics. Your own view of the organisation is under Insights.',
-      );
-    }
+    if (scopeType === 'user' && !query.scopeId) throw EpmError.badRequest('A personal series needs scopeId.');
 
     return trends({
       metrics,
