@@ -57,6 +57,24 @@ import { registerRoutes } from './routes/index.js';
 const TOKEN_IN_PATH = /(\/(?:invites|password-reset)\/)[^/?#]+/g;
 const withoutTokens = (url: string): string => url.replace(TOKEN_IN_PATH, '$1[redacted]');
 
+/**
+ * Where the rate limit is always per address: signing in, and the links a
+ * token opens (an invitation, a password reset). A session is not a bucket
+ * there, or one account signed in a few times would be a fresh allowance of
+ * guesses each time.
+ */
+function perAddress(url: string): boolean {
+  const path = url.split('?')[0] ?? '';
+  if (!path.startsWith(env.API_PREFIX)) return false;
+  const relative = path.slice(env.API_PREFIX.length);
+  return (
+    relative === '/auth/login' ||
+    relative === '/password-reset' ||
+    relative.startsWith('/password-reset/') ||
+    relative.startsWith('/invites/')
+  );
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -149,11 +167,18 @@ export async function buildApp(): Promise<FastifyInstance> {
      * dashboard load is 14 requests, so a shared 600/min ceiling is about 43
      * page loads per minute for the whole company.
      *
-     * Signed-in traffic is therefore limited per person. Unauthenticated
-     * traffic — the login endpoint above all — still keys on IP, which is
-     * what you want for credential stuffing.
+     * Signed-in traffic is therefore limited per person, by a session cookie
+     * this server signed: any other value would let a client pick a fresh
+     * bucket for every request and slip the limit entirely. Unauthenticated
+     * traffic, and the sign-in and token routes whoever calls them, key on the
+     * address, which is what you want for credential stuffing.
      */
-    keyGenerator: (request) => request.cookies?.[SESSION_COOKIE] ?? request.ip,
+    keyGenerator: (request) => {
+      if (perAddress(request.url)) return `ip:${request.ip}`;
+      const raw = request.cookies?.[SESSION_COOKIE];
+      const unsigned = raw ? request.unsignCookie(raw) : undefined;
+      return unsigned?.valid && unsigned.value ? `session:${unsigned.value}` : `ip:${request.ip}`;
+    },
     // `statusCode` has to be on the returned object: the plugin throws it as
     // the error, and without it the handler below sees no status and reports a
     // 500 — which reads as a server fault rather than a deliberate refusal.
