@@ -58,7 +58,11 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
 
   app.put<{ Body: unknown }>('/time/settings', async (request) => {
     await guard.require(request, 'time:configure');
-    return saveTimeSettings(request.body, request.auth!.userId);
+    // The settings alone, or the whole of what GET answers with them inside:
+    // reading the rules and saving them back was refused as "not complete".
+    const body = request.body as { settings?: unknown; timesheets?: unknown } | null;
+    const settings = body && typeof body === 'object' && body.timesheets === undefined && body.settings ? body.settings : body;
+    return saveTimeSettings(settings, request.auth!.userId);
   });
 
   /* ----------------------------------------------------------- timesheets */

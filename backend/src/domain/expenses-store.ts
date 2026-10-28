@@ -465,7 +465,7 @@ export async function postClaim(id: string, actorId: string | null): Promise<Exp
         entityType: 'expense-claim',
         entityId: id,
         action: 'expense.posted',
-        summary: message('Expense claim {key} posted to the project as OpenProject cost entry {entry}.', { key: claimKey(id), entry: entry.id }),
+        summary: message('Expense claim {key} posted to the project as cost entry {entry}.', { key: claimKey(id), entry: entry.id }),
         after: { costEntryId: entry.id, amount, units, currency: claim.currency, claimed: money(claim.amount), rate: converted.rate },
       },
     );
@@ -704,7 +704,7 @@ export async function exportClaims(from: string, to: string, viewer: ExpenseView
           word('Currency'),
           word('Status'),
           word('Approved'),
-          word('OpenProject cost entry'),
+          word('Cost entry'),
         ],
         rows,
       },

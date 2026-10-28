@@ -135,7 +135,9 @@ function requireCreateFields(
   email: string;
   password: string;
 } {
-  const login = text(body.login);
+  // `username` as well as `login`: sign-in calls it the username, and so does
+  // the message below, so a caller writing what both say was refused.
+  const login = text(body.login) || text(body.username);
   const firstName = text(body.firstName);
   const lastName = text(body.lastName);
   const email = text(body.email);

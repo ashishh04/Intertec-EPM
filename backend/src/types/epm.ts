@@ -450,6 +450,8 @@ export interface JournalPage {
   total: number;
   page: number;
   pageSize: number;
+  /** Whether a later page has entries, as on every other paged list. */
+  hasMore: boolean;
   /** Every kind of record the journal holds entries about, for the filter. */
   entityTypes: string[];
 }

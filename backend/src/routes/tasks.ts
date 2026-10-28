@@ -412,8 +412,16 @@ async function patchWorkPackage(
   catalog: Awaited<ReturnType<typeof getCatalog>>,
   signal: AbortSignal,
 ): Promise<WorkPackageWithPoints> {
-  const current = await openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, { signal });
   const body = buildWorkPackageBody(patch, catalog);
+  // Nothing the API knows, such as a misspelt field or a status category no
+  // status on this instance stands for, was sent upstream as an empty change
+  // and answered 200 with the task as it was, which read as success.
+  if (Object.keys(body).length === 0) {
+    throw EpmError.badRequest(
+      'Nothing to change: none of the fields sent is one a task has, such as subject, dueDate, statusId, priorityId or assigneeId.',
+    );
+  }
+  const current = await openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, { signal });
 
   // A status an approval chain owns is reached through the chain, not here.
   const links = body._links as Record<string, { href: string | null }> | undefined;
