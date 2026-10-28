@@ -98,6 +98,7 @@ function PasswordCard() {
   const { changePassword } = useAuth();
   const { data: policy } = usePasswordPolicy();
 
+  const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [visible, setVisible] = useState(false);
@@ -112,13 +113,15 @@ function PasswordCard() {
     event.preventDefault();
     setProblem(undefined);
 
+    if (!current) return setProblem(t('Enter your current password.'));
     if (!strong) return setProblem(t('That password does not meet the requirements below.'));
     if (!matches) return setProblem(t('The two passwords do not match.'));
 
     setSaving(true);
     try {
-      await changePassword(password);
+      await changePassword(current, password);
       toast.success(t('Password changed'));
+      setCurrent('');
       setPassword('');
       setConfirmation('');
     } catch (error) {
@@ -139,6 +142,19 @@ function PasswordCard() {
       <CardContent className="p-4">
         <form onSubmit={submit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2 sm:max-w-[calc(50%-0.5rem)]">
+              <Label htmlFor="security-current" required>
+                {t('Current password')}
+              </Label>
+              <Input
+                id="security-current"
+                type={visible ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={current}
+                onChange={(event) => setCurrent(event.target.value)}
+              />
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="security-password" required>
                 {t('New password')}

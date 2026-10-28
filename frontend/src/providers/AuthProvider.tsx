@@ -67,7 +67,8 @@ interface AuthContextValue {
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => void;
   /** Sets the caller's own password and clears the gate. */
-  changePassword: (password: string) => Promise<void>;
+  /** The current password as well as the new one: a session alone does not change a password. */
+  changePassword: (currentPassword: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -106,8 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const changePassword = useCallback(
-    async (password: string) => {
-      await apiClient.post('/me/password', { password });
+    async (currentPassword: string, password: string) => {
+      await apiClient.post('/me/password', { password, currentPassword });
       // Refetched rather than assumed: the gate is cleared by the backend, and
       // reading it back is what proves the change actually landed.
       await queryClient.invalidateQueries({ queryKey: ['current-user'] });

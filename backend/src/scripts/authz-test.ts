@@ -6406,12 +6406,32 @@ async function main() {
     );
 
     const CHANGED_PASSWORD = 'Th31rOwn!Choice2026';
+    // The instance wants the current password for a change of one's own: a
+    // session alone is not enough.
+    check(
+      'a new password without the current one is refused',
+      await status('/me/password', {
+        method: 'POST',
+        cookie: theirSession,
+        body: { password: CHANGED_PASSWORD },
+      }),
+      400,
+    );
+    check(
+      'and with a wrong current one',
+      await status('/me/password', {
+        method: 'POST',
+        cookie: theirSession,
+        body: { password: CHANGED_PASSWORD, currentPassword: 'Not-Their-Password-1!' },
+      }),
+      400,
+    );
     check(
       'they can set their own password',
       await status('/me/password', {
         method: 'POST',
         cookie: theirSession,
-        body: { password: CHANGED_PASSWORD },
+        body: { password: CHANGED_PASSWORD, currentPassword: ACCOUNT_PASSWORD },
       }),
       204,
     );

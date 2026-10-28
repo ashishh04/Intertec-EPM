@@ -63,6 +63,9 @@ Changes since 1.1.0 (21 October 2026).
 
 - An invited person can set their password on a server that runs on the
   service account (it failed there before).
+- Changing your own password works again. It now asks for your current
+  password, which OpenProject 17 requires, and a person given a starting
+  password enters that one first.
 - A cancelled request no longer leaves every page showing no projects for up
   to 20 seconds.
 - "Run a back-test" gave no sign it had run. It now runs in the background,
