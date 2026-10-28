@@ -372,9 +372,15 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     const projectId = numeric(query.projectId, 'project');
     if (projectId) filters.push({ field: 'project', operator: '=', values: [projectId] });
 
+    // OpenProject 17 logs time against an entity, a work package or a meeting,
+    // and filters on the two together; the old `work_package` filter is gone and
+    // asking for it was answered 400, which reached the caller as a 502.
     const workPackageId = numeric(query.workPackageId, 'work package');
     if (workPackageId) {
-      filters.push({ field: 'work_package', operator: '=', values: [workPackageId] });
+      filters.push(
+        { field: 'entity_type', operator: '=', values: ['WorkPackage'] },
+        { field: 'entity_id', operator: '=', values: [workPackageId] },
+      );
     }
 
     const userId = principal(query.userId, 'person');

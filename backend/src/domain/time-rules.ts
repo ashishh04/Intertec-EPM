@@ -5,7 +5,7 @@ import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { addDays, daysBetween, startOfIsoWeek, today as todayIso } from '../lib/dates.js';
 import { durationToHours } from '../lib/duration.js';
-import { EpmError } from '../lib/errors.js';
+import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { dateOf, message, msg, type Message } from '../lib/i18n.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { linkId, linkTitle, openProject } from '../openproject/client.js';
@@ -181,7 +181,17 @@ export async function entriesOf(personId: string, from: string, to: string): Pro
       ],
       pageSize: 200,
     }),
-  );
+  ).catch((error: unknown) => {
+    // OpenProject's user filter takes only people who belong to some project
+    // and answers anyone else with "User filter has invalid values". Such a
+    // person has no time anybody can see (an administrator, whom OpenProject
+    // never adds to the projects they create, is the usual one), so their
+    // timesheet is empty. It was a 502 that left them no timesheet at all.
+    if (error instanceof OpenProjectError && error.upstreamStatus === 400 && /user filter has invalid values/i.test(error.message)) {
+      return { items: [] as OpTimeEntry[], total: 0, truncated: false };
+    }
+    throw error;
+  });
   return collection.items.map((entry) => ({
     id: String(entry.id),
     hours: durationToHours(entry.hours) ?? 0,
