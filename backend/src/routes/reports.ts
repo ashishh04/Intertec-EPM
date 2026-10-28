@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
-import { addDays, daysBetween, today as todayIso } from '../lib/dates.js';
+import { addDays, daysBetween, isCalendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { healthViews, unassessedView } from '../domain/health.js';
 import { modelFacts } from '../domain/measure-facts.js';
@@ -36,11 +36,11 @@ import type {
  * work assigned to its people and the time they logged.
  */
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const day = z.string().refine(isCalendarDay, { message: 'Give a date that exists, e.g. 2026-10-31.' });
 
 const filtersQuery = z.object({
-  from: z.string().regex(DAY).optional(),
-  to: z.string().regex(DAY).optional(),
+  from: day.optional(),
+  to: day.optional(),
   projectId: z.string().regex(/^\d+$/).optional(),
   portfolioId: z.string().optional(),
   teamId: z.string().optional(),

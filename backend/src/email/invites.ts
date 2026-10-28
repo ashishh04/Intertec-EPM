@@ -13,7 +13,8 @@ import { prisma } from '../db/prisma.js';
  *
  * One live token per account. Creating a new one retires any earlier unused
  * ones, so a resent invitation makes the previous link stop working rather
- * than leaving two doors open.
+ * than leaving two doors open. A retired link is marked replaced as well as
+ * used, so its page says to look for the newer email.
  */
 
 export const INVITE_TTL_DAYS = 7;
@@ -32,11 +33,12 @@ export async function createInvite(input: {
 }): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString('base64url');
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const retiredAt = new Date();
 
   await prisma.$transaction([
     prisma.inviteToken.updateMany({
       where: { openProjectId: input.openProjectId, usedAt: null },
-      data: { usedAt: new Date() },
+      data: { usedAt: retiredAt, replacedAt: retiredAt },
     }),
     prisma.inviteToken.create({
       data: {

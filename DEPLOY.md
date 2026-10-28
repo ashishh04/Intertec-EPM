@@ -1,6 +1,7 @@
 # Deploying EPM
 
-Two ways to run the stack. They produce the same four containers.
+Two ways to run the stack. They produce the same five containers, six with the
+analytics replica.
 
 | | Builds on the host | Use when |
 |---|---|---|
@@ -89,11 +90,29 @@ docker compose -f docker-compose.deploy.yml --env-file .env.prod up -d
 docker compose -f docker-compose.deploy.yml --env-file .env.prod ps
 ```
 
-The backend applies pending Prisma migrations as it starts (`migrate deploy`,
-which only ever applies and never resets or prompts), so there is no separate
-migration step. It reports unhealthy until both Postgres and OpenProject answer;
-that is the readiness check doing its job, and it can take a minute on a cold
-start while OpenProject boots.
+The backend applies pending Prisma migrations as it starts: its image runs
+`prisma migrate deploy` before the server (`backend/Dockerfile`), which only
+ever applies and never resets or prompts. So there is no separate migration
+step, and a migration that fails keeps the backend from starting. It reports
+unhealthy until both Postgres and OpenProject answer; that is the readiness
+check doing its job, and it can take a minute on a cold start while OpenProject
+boots.
+
+The three images share `EPM_IMAGE_TAG` and are built together from one tag, so
+the `pull` and `up -d` above replace the backend and `epm-openproject` at once.
+Keep them together rather than recreating the backend on its own: the backend
+calls the add-ons baked into `epm-openproject`, and a release can change both.
+The add-ons changed after 1.1.0. `zzz_epm_service.rb` is new, and lists the
+add-on actions EPM's service account may call. `zzz_epm_admin_api.rb` has five
+new actions, all on that list: `administrators`; `password_reset_target` and
+`set_password`, which invitations and forgotten passwords use; and `document`
+and `document_content`, which serve the documents filed under a project. A
+backend from a release with these, beside an older `epm-openproject`, finds
+none of them: an invitation cannot be accepted, no reset link is ever sent,
+and documents filed under a project drop out of the library. Recreating
+`openproject` restarts it, and no one can sign in until it is back. The rest of
+a release (the backup first, what to check, how to roll back) is in
+`deploy/runbooks/upgrades.md`.
 
 Pin a version rather than tracking `latest`. With a version, `docker ps` tells
 you what is deployed and a rollback is one edited line:
@@ -112,8 +131,24 @@ cannot be undone this way — restore the database alongside it.
 OpenProject starts empty, and three of its values have to come out of a running
 instance and go into `.env.prod`:
 
-1. `OPENPROJECT_API_KEY` — sign in as an administrator → My account → Access
-   tokens → API.
+1. `OPENPROJECT_API_KEY` — the key of EPM's service account, never a
+   person's. Create the account once (the script is in the `epm-openproject`
+   image) and take its key from the file it writes:
+
+   ```bash
+   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T -e TOKEN_FILE=/tmp/epm-service.token openproject \
+     bundle exec rails runner /app/epm-setup/service-account.rb
+   docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openproject sh -c 'cat /tmp/epm-service.token && rm /tmp/epm-service.token'
+   ```
+
+   "EPM Service" is not an administrator (NFR06). It holds a directory role
+   (every person, and their email) and, in every project, a role that reads
+   it and manages its members; the add-on `zzz_epm_service.rb` adds it to each
+   new project and lets it call only the add-on endpoints EPM's own work uses.
+   Run the script again after an upgrade: it only adds what is missing.
+   A server set up before October 2026 used an administrator's key here:
+   create the account, set its key, `up -d backend`, check, then revoke the
+   administrator's key in OpenProject (My account → Access tokens).
 2. `OPENPROJECT_OAUTH_CLIENT_ID` / `..._SECRET` — Administration →
    Authentication → OAuth applications. Sign-in needs these: EPM exchanges a
    person's credentials for a token on their behalf.
@@ -172,6 +207,61 @@ and updated, to `https://<host>/api/webhooks/delivery` (the older
 way. Rules and escalation policies are defined in EPM, under Administration →
 Rules and escalation.
 
+## Email
+
+Invitations and forgotten-password links reach people only by email, so a
+server that is to have either needs mail that is really delivered. The backend
+sends through SMTP when `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` are all
+set, otherwise through Resend when `RESEND_API_KEY` is, and otherwise writes
+each email to its log and sends nothing; the startup log says which. Resend
+delivers to anyone but its own account owner only once a sending domain has
+been verified in DNS. Mail goes out from `EMAIL_FROM`, and only while the email
+worker runs (`EPM_EMAIL_WORKER_ENABLED`, on by default in the compose file).
+The links in emails are built from `APP_BASE_URL`, which the compose file sets
+to `https://<EPM_DOMAIN>`.
+
+With neither SMTP nor Resend, EPM says so rather than pretending to send:
+Administration → Users and permissions → Users shows a warning, inviting
+someone is refused with the reason (give them a temporary password instead),
+and the forgot-password page tells whoever asks that reset by email is not set
+up on this server. A reset link works once, within 60 minutes;
+`backend/SECURITY.md` has the rest.
+
+## The assistant
+
+Pragnya, the assistant, is Claude on Amazon Bedrock in US East (N. Virginia),
+`us-east-1`. Until it is configured it reports itself unavailable, and nothing
+else is affected. To switch it on:
+
+1. In the Amazon Bedrock console, in US East (N. Virginia), enable the Claude
+   model that `BEDROCK_MODEL_ID` will name: choose it in the model catalog and
+   run it once in the playground. Bedrock enables a model for the account on
+   its first use, which needs someone allowed to subscribe in AWS Marketplace.
+2. Give the instance role (or whoever the backend's AWS credentials belong to)
+   `bedrock-mantle:CreateInference`, or attach the AWS managed policy
+   `AmazonBedrockMantleInferenceAccess`, which includes it. It is the only
+   action the backend needs: it makes one kind of call, the Messages API,
+   streamed, on Bedrock's Mantle endpoint
+   (`https://bedrock-mantle.us-east-1.api.aws/anthropic`), signed for the
+   `bedrock-mantle` service (`backend/src/assistant/bedrock.ts`). The
+   `bedrock:InvokeModel` actions are for Bedrock's other endpoint and do not
+   apply. A refusal reaches the assistant as "The assistant was refused by AWS.
+   Check the caller has bedrock-mantle:CreateInference."
+3. In `.env.prod`, set `AWS_REGION=us-east-1`, `EPM_ASSISTANT_REGIONS=us-east-1`
+   and `BEDROCK_MODEL_ID` to the model's single-region id, the one that starts
+   `anthropic.`. Leave `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` empty:
+   the SDK finds the instance role's credentials through the AWS credential
+   chain. On an instance that requires IMDSv2, set its metadata hop limit to 2,
+   or the container may not reach them, and the assistant then says only that
+   it could not be reached. Then `up -d`.
+
+`EPM_ASSISTANT_REGIONS` keeps what the assistant reads inside the regions it
+lists. The assistant stays off unless `AWS_REGION` is one of them, the model id
+is a single-region `anthropic.` id rather than a cross-region inference profile
+(`global.`, `us.`, `eu.`), and no endpoint override
+(`ANTHROPIC_BEDROCK_MANTLE_BASE_URL`) is set. Left empty in production, the
+backend logs a warning at startup that residency is not restricted.
+
 ## Critical path
 
 EPM computes the critical path and the float of every scheduled work package
@@ -218,8 +308,8 @@ is priced at the rate for unpriced work, if one is set, and otherwise left out
 and counted. That rate and each work package type's earning rule are set under
 Administration → Projects → Earned value; until rules are saved, every type
 earns by % complete. Changing them needs the `evm:configure` permission, which
-the administrators in `EPM_ADMIN_USER_IDS` hold and the Permissions page can
-grant.
+the administrators in `EPM_ADMIN_USER_IDS` hold and the EPM permissions page
+can grant.
 
 A project is measured against its latest baseline once one is set, from its
 Earned value dashboard by anyone who may edit the project. A baseline cannot be
@@ -238,10 +328,10 @@ itself — Delivery → Resources — and adds nothing to OpenProject but the da
 a planner applies. Nothing needs starting. Seeing everyone's load, booking
 planned work and levelling need the `resources:plan` permission; the heatmap's
 thresholds, the length of a working day and what counts as billable
-(Administration → Users → Resource rules) need `resources:configure`. The
-administrators in `EPM_ADMIN_USER_IDS` hold both, and the Permissions page can
-grant them. Schedules, time off, HR imports and resource roles go with
-`employees:manage`.
+(Administration → Users and permissions → Resource rules) need
+`resources:configure`. The administrators in `EPM_ADMIN_USER_IDS` hold both,
+and the EPM permissions page can grant them. Schedules, time off, HR imports
+and resource roles go with `employees:manage`.
 
 Until a person has a work schedule, their available hours are their weekly
 capacity (Employees) spread over OpenProject's working days, less its
@@ -270,8 +360,8 @@ policies and expenses, changed with `time:configure`; the policies and the
 reminders for outstanding timesheets stay off until someone switches them on.
 `timesheets:manage` reads everyone's timesheets and reopens approved ones;
 `expenses:manage` reads every claim and exports them for finance. The
-administrators in `EPM_ADMIN_USER_IDS` hold all three, and the Permissions page
-can grant them.
+administrators in `EPM_ADMIN_USER_IDS` hold all three, and the EPM permissions
+page can grant them.
 
 Two approval chains are seeded by the migration, "Timesheets" and "Expense
 claims", and can be edited under Approval chains like any other. A timesheet
@@ -359,9 +449,15 @@ pruned once a day.
 
 Defining reports and reading their log needs `reports:schedule`; approving an
 outside address needs `reports:approve`, held by someone other than whoever
-added it. Both are EPM permissions: the administrators in `EPM_ADMIN_USER_IDS`
-hold them; anyone else needs a row in `epm_permission_grants` (OpenProject user
-id, permission) until roles can grant them.
+added it. Both are EPM permissions. Administrators (whoever OpenProject lets
+manage users, and the people in `EPM_ADMIN_USER_IDS`) hold every one. Anyone
+else gets them from an administrator, under Administration → Users and
+permissions: EPM permissions grants one permission to one person, and Access
+roles gives a person one of four roles (Manager, HR, Employee or External),
+each of which brings a fixed set (`ROLE_PERMISSIONS` in
+`backend/src/auth/roles.ts`) on top of their grants. Manager brings
+`reports:schedule`; `reports:approve` comes with none of the four, so it is
+always a grant.
 
 ## What is in each image
 
@@ -369,18 +465,30 @@ id, permission) until roles can grant them.
 |---|---|
 | `epm-backend` | `dist`, production modules, the generated Prisma client, the Prisma CLI for migrations |
 | `epm-web` | the built bundle plus Caddy and the Caddyfile; no domain baked in |
-| `epm-openproject` | `openproject/openproject:15` plus the six EPM initializers and the setup scripts (governance types, automation account, schedule fields) |
+| `epm-openproject` | `openproject/openproject:17.9.2`, pinned by digest, plus the nine EPM initializers and the four setup scripts (below) |
 | `postgres:17-alpine` | pulled from the official library, nothing of ours in it |
 
-`epm-openproject` exists because EPM cannot use a stock OpenProject: sign-in
-depends on `zzz_epm_password_grant.rb` being loaded inside that container, and
-the other five add the administrative endpoints EPM reads, the history its
-analytics model loads and the bridge its critical path pass reads and writes
-through. They
-used to be bind-mounted from a checkout, which made the host depend on this
-repository being present at the right commit — and a stack that comes up with
-the mount missing starts cleanly and then refuses every sign-in. Baked into the
-image, they travel with the tag.
+`epm-openproject` exists because EPM cannot use a stock OpenProject. Its nine
+initializers go into `/app/config/initializers`: `zzz_epm_password_grant.rb`,
+which sign-in depends on; `zzz_epm_admin_api.rb`, `zzz_epm_admin_settings.rb`
+and `zzz_epm_admin_catalog.rb`, the administrative endpoints EPM reads and
+writes, the password and document actions among them;
+`zzz_epm_analytics_api.rb`, the history its analytics model loads;
+`zzz_epm_schedule.rb` and `zzz_epm_calculated.rb`, the bridges its critical
+path pass and its calculated fields read and write through; `zzz_epm_costs.rb`,
+the cost entries approved expense claims become; and `zzz_epm_service.rb`,
+which add-on actions the service account may call, and its membership of every
+new project. The four setup scripts go into `/app/epm-setup` and are run by
+hand, as the sections above describe: `service-account.rb`,
+`governance-types.rb`, `automation-account.rb` and `schedule-fields.rb`. The
+image also sets `OPENPROJECT_ATTACHMENTS__GRACE__PERIOD`, so OpenProject's
+nightly clean-up of abandoned uploads leaves the document library's files
+alone.
+
+The initializers used to be bind-mounted from a checkout, which made the host
+depend on this repository being present at the right commit — and a stack that
+comes up with the mount missing starts cleanly and then refuses every sign-in.
+Baked into the image, they travel with the tag.
 
 `epm-web` carries no domain because `src/config/env.ts` resolves the API to the
 relative path `/api` in production, which the browser takes as the origin that

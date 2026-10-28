@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { taskService } from '@/services';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
-import type { CreateTaskInput, ID, TaskFilters, UpdateTaskInput } from '@/types';
+import type { CreateTaskInput, EpmTask, ID, TaskFilters, UpdateTaskInput } from '@/types';
 
 export function useTasks(filters: TaskFilters = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
@@ -88,11 +88,39 @@ export function useCreateTask() {
   });
 }
 
+type TaskList = { items: EpmTask[] };
+
 export function useUpdateTask() {
+  const queryClient = useQueryClient();
   const invalidate = useTaskInvalidation();
   return useMutation({
     mutationFn: (input: UpdateTaskInput) => taskService.updateTask(input),
-    onSuccess: invalidate,
+    /*
+     * A move to another column shows at once. The card used to stay where it
+     * was until the save and the board's reload had both come back — over three
+     * seconds on a busy instance — so a drop looked as if it had not taken.
+     * Only the column is known before the server answers; its task replaces
+     * this guess when the lists reload, and a refusal puts the card back.
+     */
+    onMutate: async (input) => {
+      const category = input.status;
+      if (!category) return undefined;
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+      const previous = queryClient
+        .getQueriesData<TaskList>({ queryKey: ['tasks'] })
+        .filter(([, data]) => Array.isArray(data?.items) && data.items.some((task) => task.id === input.id));
+      for (const [key, data] of previous) {
+        queryClient.setQueryData<TaskList>(key, {
+          ...data!,
+          items: data!.items.map((task) => (task.id === input.id ? { ...task, statusCategory: category } : task)),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      for (const [key, data] of context?.previous ?? []) queryClient.setQueryData(key, data);
+    },
+    onSettled: invalidate,
   });
 }
 
@@ -101,7 +129,9 @@ export function useBulkUpdateTasks() {
   return useMutation({
     mutationFn: ({ ids, patch }: { ids: ID[]; patch: Partial<UpdateTaskInput> }) =>
       taskService.bulkUpdate(ids, patch),
-    onSuccess: invalidate,
+    // Settled, not succeeded: the tasks are changed one at a time and a refusal
+    // stops the rest, so the ones before it have changed either way.
+    onSettled: invalidate,
   });
 }
 

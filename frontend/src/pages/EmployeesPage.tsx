@@ -213,7 +213,7 @@ export default function EmployeesPage() {
           mayManageAccounts ? (
             <Button size="sm" onClick={openCreate}>
               <UserPlus className="h-3.5 w-3.5" />
-              {t('Add person')}
+              {t('Add user')}
             </Button>
           ) : null
         }

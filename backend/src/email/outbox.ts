@@ -40,6 +40,12 @@ export interface EnqueueInput<Name extends TemplateName = TemplateName> {
    */
   gate?: keyof UserPreferences['email'];
   /**
+   * A message the person asked for themselves (a password reset): sent
+   * whatever their email settings or a notification pause say, since turning
+   * email off must not lock someone out of their account.
+   */
+  required?: boolean;
+  /**
    * An address with no account behind it — a scheduled report's external
    * recipient. Sent to as given: there is no person to look up and no
    * preferences to consult, and `recipientId` should name it (`external:…`).
@@ -91,7 +97,7 @@ export async function enqueueEmail<Name extends TemplateName>(
     }
 
     const preferences = await getPreferences(input.recipientId);
-    if (!preferences.email.enabled || (input.gate && !preferences.email[input.gate])) {
+    if (!input.required && (!preferences.email.enabled || (input.gate && !preferences.email[input.gate]))) {
       emailLog.debug({ ...context, gate: input.gate ?? 'enabled' }, 'Email skipped: turned off in preferences');
       return 'opted-out';
     }
@@ -111,7 +117,7 @@ export async function enqueueEmail<Name extends TemplateName>(
      * person, and a colleague's message is not the system's noise.
      */
     const day = today();
-    if (notificationsPaused(preferences, day)) {
+    if (!input.required && notificationsPaused(preferences, day)) {
       emailLog.debug(context, 'Email skipped: notifications are paused');
       return 'paused';
     }
@@ -169,6 +175,20 @@ export async function markSent(id: string, providerId: string): Promise<void> {
     where: { id },
     data: { status: 'sent', providerId, sentAt: new Date(), lastError: null },
   });
+  await forgetLink(id);
+}
+
+/**
+ * Drops the link from an invitation or a password reset once the email has
+ * gone, or never will. The link carries the only copy of its token, a key to
+ * an account until it is used; it stays while the email may still be sent,
+ * because a row is rendered at send time, and not a moment longer, so the
+ * outbox (backed up, read by whoever is looking into mail) holds no keys.
+ */
+async function forgetLink(id: string): Promise<void> {
+  await prisma.$executeRaw`
+    UPDATE "email_outbox" SET "payload" = "payload" - 'inviteUrl' - 'resetUrl'
+     WHERE "id" = ${id} AND "template" IN ('invite', 'password-reset')`;
 }
 
 /** Waits between attempts: a minute, five, half an hour, two hours. */
@@ -202,6 +222,7 @@ export async function markFailed(
         }
       : { status: 'failed', attempts, lastError: error },
   });
+  if (!again) await forgetLink(row.id);
 
   return again ? 'requeued' : 'failed';
 }

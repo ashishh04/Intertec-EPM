@@ -247,9 +247,10 @@ function copyableFields(projectId: string, typeId: string): Promise<Set<string>>
   const cached = fieldCache.get(key);
   if (cached && Date.now() - cached.at < CALENDAR_TTL_MS) return cached.fields;
   const fields = (async () => {
-    const schema = await runAsSystem(() =>
-      openProject.request<Record<string, { name?: string; writable?: boolean } | unknown>>(`/work_packages/schemas/${key}`),
-    );
+    // As the account that makes the tasks: `writable` is the reader's own right
+    // to write a field, and the system key's service account edits no work.
+    const read = () => openProject.request<Record<string, { name?: string; writable?: boolean } | unknown>>(`/work_packages/schemas/${key}`);
+    const schema = await (automationConfigured() ? runAsAutomation(read) : runAsSystem(read));
     const computed = new Set<string>();
     for (const source of computedFieldSources) {
       for (const field of await source().catch(() => [] as string[])) computed.add(field);
@@ -581,8 +582,9 @@ export async function generateSeries(seriesId: string, now = new Date(), budget 
   try {
     const milestone = await isMilestone(template);
     const typeId = linkId(template._links, 'type') ?? '';
-    const copyable = typeId ? await copyableFields(projectId, typeId) : new Set<string>();
+    // A member first: the fields it may write are read as the automation account.
     await ensureMember(projectId);
+    const copyable = typeId ? await copyableFields(projectId, typeId) : new Set<string>();
 
     for (const occurrence of due) {
       const claimed = await claim(row.id, row.version, occurrence);

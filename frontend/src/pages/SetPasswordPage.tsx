@@ -36,6 +36,7 @@ const noPaste = {
 export default function SetPasswordPage() {
   const { user, changePassword, signOut } = useAuth();
 
+  const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -59,6 +60,11 @@ export default function SetPasswordPage() {
     event.preventDefault();
     setProblem(undefined);
 
+    if (!current) {
+      setProblem(t('Enter the password you were given.'));
+      return;
+    }
+
     if (!password) {
       setProblem(t('Choose a password.'));
       return;
@@ -76,7 +82,7 @@ export default function SetPasswordPage() {
 
     setSaving(true);
     try {
-      await changePassword(password);
+      await changePassword(current, password);
       // Nothing to do on success: the gate clears and the application renders.
     } catch (error) {
       // The instance owns the rules, so its message is the useful one.
@@ -115,6 +121,21 @@ export default function SetPasswordPage() {
         <CardContent>
           <form className="space-y-4" onSubmit={submit}>
             <div className="space-y-1.5">
+              <Label htmlFor="current-password" required>
+                {t('The password you were given')}
+              </Label>
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                autoFocus
+                value={current}
+                onChange={(event) => setCurrent(event.target.value)}
+              />
+              <FieldHint>{t('The one you signed in with just now.')}</FieldHint>
+            </div>
+
+            <div className="space-y-1.5">
               <Label htmlFor="new-password" required>
                 {t('New password')}
               </Label>
@@ -123,7 +144,6 @@ export default function SetPasswordPage() {
                   id="new-password"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="new-password"
-                  autoFocus
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   aria-describedby="password-rules"

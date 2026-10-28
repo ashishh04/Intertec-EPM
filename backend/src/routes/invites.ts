@@ -9,7 +9,6 @@ import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import { checkPassword } from '../domain/password-policy.js';
 import { recordAuditQuietly } from '../domain/audit.js';
-import type { OpPrincipal } from '../openproject/types.js';
 import type { InviteInfo } from '../types/epm.js';
 import { listOf, message } from '../lib/i18n.js';
 
@@ -23,9 +22,15 @@ import { listOf, message } from '../lib/i18n.js';
  * token is never returned; the token is the only handle the visitor gets.
  *
  * The password is written upstream with the service key, because there is no
- * session to write it with. That is the one place in EPM an unauthenticated
- * request leads to an administrative write, and it is gated on possessing an
- * unexpired, unused token that only the invitee's inbox ever saw.
+ * session to write it with. That is an administrative write reached without a
+ * session, so it is gated on possessing an unexpired, unused token that only
+ * the invitee's inbox ever saw.
+ *
+ * Both upstream calls go through EPM's add-on rather than `/users`. The
+ * service key is not an administrator (NFR06): OpenProject's own `/users`
+ * hides a person who is in no project yet from it and refuses it a password
+ * write, so on a server running on that key the page greeted nobody and every
+ * accepted invitation failed with "The requested resource could not be found".
  */
 
 const ORGANISATION = 'Intertec Systems';
@@ -46,7 +51,34 @@ async function inviteByToken(token: string) {
   return invite;
 }
 
-function stateOf(invite: { usedAt: Date | null; expiresAt: Date }): InviteInfo['state'] {
+/** The add-on's view of a person whose password EPM sets without a session. */
+interface PasswordTarget {
+  id: string;
+  email: string;
+  firstName: string;
+  status: 'settable' | 'administrator' | 'unavailable';
+}
+
+/**
+ * The invitee as the add-on sees them, or null. Found by the address the
+ * invitation went to, and trusted only if it is the same account: the lookup
+ * also matches logins, and a login equal to that address would otherwise
+ * greet somebody else.
+ */
+async function invitee(email: string, accountId: string, signal: AbortSignal): Promise<PasswordTarget | null> {
+  const target = await openProject
+    .request<PasswordTarget>('/epm_admin/users/password_reset_target', {
+      root: true,
+      method: 'POST',
+      body: { identifier: email },
+      signal,
+    })
+    .catch(() => null);
+  return target?.id === accountId ? target : null;
+}
+
+function stateOf(invite: { usedAt: Date | null; replacedAt: Date | null; expiresAt: Date }): InviteInfo['state'] {
+  if (invite.replacedAt) return 'replaced';
   if (invite.usedAt) return 'used';
   if (invite.expiresAt.getTime() < Date.now()) return 'expired';
   return 'valid';
@@ -58,12 +90,10 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
 
     // The name is read live rather than stored with the token, so a
     // correction made after the invitation went out shows on the page.
-    const account = await openProject
-      .request<OpPrincipal>(`/users/${invite.openProjectId}`, { signal: requestSignal(request) })
-      .catch(() => null);
+    const account = await invitee(invite.email, invite.openProjectId, requestSignal(request));
 
     return {
-      firstName: account?.firstName?.trim() || account?.name || '',
+      firstName: account?.firstName.trim() ?? '',
       email: invite.email,
       organisation: ORGANISATION,
       expiresAt: invite.expiresAt.toISOString(),
@@ -84,6 +114,9 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
       const invite = await inviteByToken(request.params.token);
 
       const state = stateOf(invite);
+      if (state === 'replaced') {
+        throw EpmError.gone('A newer invitation replaced this link. Use the one in your latest email.');
+      }
       if (state === 'used') throw EpmError.gone('This invitation has already been used.');
       if (state === 'expired') {
         throw EpmError.gone('This invitation has expired. Ask your administrator to send a new one.');
@@ -110,11 +143,15 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
       });
       if (claim.count !== 1) throw EpmError.gone('This invitation has already been used.');
 
-      let account: OpPrincipal;
+      // Sent once: a retried write that had already landed is refused as a
+      // recently used password, which would report a success as a failure.
+      let account: { login: string };
       try {
-        account = await openProject.request<OpPrincipal>(`/users/${invite.openProjectId}`, {
+        account = await openProject.request<{ login: string }>(`/epm_admin/users/${invite.openProjectId}/password`, {
+          root: true,
           method: 'PATCH',
           body: { password },
+          once: true,
           signal: requestSignal(request),
         });
       } catch (error) {

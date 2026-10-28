@@ -16,7 +16,7 @@ import { getUsers } from '../mapping/users.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
 import type { EpmTimeEntry, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
-import { automationUserId } from '../domain/automation-account.js';
+import { nonPersonIds } from '../domain/service-account.js';
 import { mayViewRates } from '../auth/guard.js';
 import { message } from '../lib/i18n.js';
 
@@ -340,15 +340,15 @@ async function reportablePeople(signal: AbortSignal): Promise<{ id: string; name
     )
     .catch(() => ({ items: [] as { _links?: { principal?: { href?: string; title?: string } } }[] }));
 
-  const automationId = await automationUserId().catch(() => undefined);
+  const nonPersons = await nonPersonIds().catch(() => new Set<string>());
   const byId = new Map<string, string>();
   for (const membership of memberships.items) {
     const principal = membership._links?.principal;
     const href = principal?.href ?? '';
     // Only `/users/:id`; `/groups/:id` and `/placeholder_users/:id` are skipped,
-    // and so is the automation account, which logs no time.
+    // and so are the automation and service accounts, which log no time.
     const match = /\/users\/(\d+)$/.exec(href);
-    if (match && principal?.title && match[1] !== automationId) byId.set(match[1]!, principal.title);
+    if (match && principal?.title && !nonPersons.has(match[1]!)) byId.set(match[1]!, principal.title);
   }
 
   return [...byId.entries()]
@@ -372,9 +372,15 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     const projectId = numeric(query.projectId, 'project');
     if (projectId) filters.push({ field: 'project', operator: '=', values: [projectId] });
 
+    // OpenProject 17 logs time against an entity, a work package or a meeting,
+    // and filters on the two together; the old `work_package` filter is gone and
+    // asking for it was answered 400, which reached the caller as a 502.
     const workPackageId = numeric(query.workPackageId, 'work package');
     if (workPackageId) {
-      filters.push({ field: 'work_package', operator: '=', values: [workPackageId] });
+      filters.push(
+        { field: 'entity_type', operator: '=', values: ['WorkPackage'] },
+        { field: 'entity_id', operator: '=', values: [workPackageId] },
+      );
     }
 
     const userId = principal(query.userId, 'person');
@@ -561,8 +567,10 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Body: unknown }>('/time-entries', async (request, reply) => {
     const input = writeBody.parse(request.body ?? {});
 
-    if (!input.projectId && !input.workPackageId) {
-      throw EpmError.badRequest('Log time against a project or a work package.');
+    // From OpenProject 17 time belongs to a work package (or a meeting): a
+    // project alone is refused upstream as "Logged for can't be blank".
+    if (!input.workPackageId) {
+      throw EpmError.validation('Time is logged against a task: choose the one it was spent on.');
     }
 
     // EPM's rules before OpenProject's (BR-304, BR-317): a day on a submitted

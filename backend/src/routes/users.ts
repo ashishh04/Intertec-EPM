@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 import { permissionsFor } from '../auth/guard.js';
 import { toNested } from '../auth/permissions.js';
-import { EpmError } from '../lib/errors.js';
+import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { prisma } from '../db/prisma.js';
 import { referenceCache } from '../lib/cache.js';
@@ -49,6 +49,8 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       ...user,
       permissions: toNested(permissions.global),
       projectPermissions,
+      // Picks the sidebar and the screens; the permissions above already include its bundle.
+      appRole: permissions.role,
       mustChangePassword: profile?.mustChangePassword ?? false,
       external: profile?.external ?? false,
     };
@@ -173,23 +175,37 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     getPasswordPolicy(requestSignal(request)),
   );
 
-  app.post<{ Body: { password?: unknown } }>('/me/password', async (request, reply) => {
+  app.post<{ Body: { password?: unknown; currentPassword?: unknown } }>('/me/password', async (request, reply) => {
     const userId = request.auth?.userId;
     if (!userId) throw EpmError.unauthorized();
 
     const password = typeof request.body?.password === 'string' ? request.body.password : '';
     if (!password) throw EpmError.badRequest('A new password is required.');
+    // The instance asks for the current password whenever someone changes
+    // their own: a session alone is not enough to change it.
+    const currentPassword = typeof request.body?.currentPassword === 'string' ? request.body.currentPassword : '';
+    if (!currentPassword) throw EpmError.badRequest('Enter your current password.');
 
     const failures = await checkPassword(password, requestSignal(request));
     if (failures.length > 0) {
       throw EpmError.badRequest(message('That password needs: {failures}.', { failures: listOf(failures) }));
     }
 
-    await openProject.request<unknown>(`/users/${userId}`, {
-      method: 'PATCH',
-      body: { password },
-      signal: requestSignal(request),
-    });
+    await openProject
+      .request<unknown>(`/users/${userId}`, {
+        method: 'PATCH',
+        body: { password, currentPassword },
+        signal: requestSignal(request),
+        // Once: a retried write could be refused as a recently used password
+        // after the first one had already succeeded.
+        once: true,
+      })
+      .catch((error: unknown) => {
+        if (error instanceof OpenProjectError && error.upstreamStatus === 422 && /current password/i.test(error.message)) {
+          throw EpmError.badRequest('Your current password is not right.');
+        }
+        throw error;
+      });
 
     await prisma.userProfile
       .updateMany({ where: { openProjectId: userId }, data: { mustChangePassword: false } })

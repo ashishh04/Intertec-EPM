@@ -2,9 +2,9 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { useAuth } from '@/providers/AuthProvider';
-import type { Permission } from '@/types';
+import type { AppRole, Permission } from '@/types';
 import { safeDestination } from '@/lib/navigation';
-import { isAdministrator } from '@/config/navigation';
+import { isAdministrator, ROLE_ACCESS } from '@/config/navigation';
 
 /**
  * Routes are code-split so the initial bundle only carries the shell and the
@@ -14,6 +14,8 @@ const LandingPage = lazy(() => import('@/pages/LandingPage'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SetPasswordPage = lazy(() => import('@/pages/SetPasswordPage'));
 const InvitePage = lazy(() => import('@/pages/InvitePage'));
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const MyWorkPage = lazy(() => import('@/pages/MyWorkPage'));
 const MyTimePage = lazy(() => import('@/pages/MyTimePage'));
@@ -52,6 +54,7 @@ const TimesheetPage = lazy(() => import('@/pages/TimesheetPage'));
 const ExpensesPage = lazy(() => import('@/pages/ExpensesPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const ScenariosPage = lazy(() => import('@/pages/ScenariosPage'));
+const ForecastsPage = lazy(() => import('@/pages/ForecastsPage'));
 const ScenarioPage = lazy(() => import('@/pages/ScenarioPage'));
 const ExpenseClaimPage = lazy(() => import('@/pages/ExpenseClaimPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
@@ -153,6 +156,16 @@ function RequirePermission({
   return <>{children}</>;
 }
 
+/**
+ * Areas that belong to some roles only (ROLE_ACCESS). The sidebar hides them
+ * from everyone else; this refuses the typed or bookmarked address the same way.
+ */
+function RequireRole({ roles, children }: { roles: readonly AppRole[]; children: React.ReactNode }) {
+  const { role } = useAuth();
+  if (!roles.includes(role)) return <ForbiddenPage reason="role" />;
+  return <>{children}</>;
+}
+
 export function App() {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -183,6 +196,8 @@ export function App() {
             here has no password yet, and an administrator testing the link
             should see what they will see. */}
         <Route path="/invite/:token" element={<InvitePage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
 
         <Route
           element={
@@ -196,10 +211,17 @@ export function App() {
           {/* Time tracking is two surfaces, not one: your own week, which you
               edit, and the organisation's hours, which you read. Neither is
               permission-gated here — OpenProject scopes both to what the caller
-              may see, per project, and a gate in front of them would refuse
-              people the instance would have answered. */}
+              may see, per project. The organisation's hours are a reporting
+              screen, so they follow the role (managers and HR), not a permission. */}
           <Route path="/my-time" element={<MyTimePage />} />
-          <Route path="/time-and-costs" element={<TimeCostsPage />} />
+          <Route
+            path="/time-and-costs"
+            element={
+              <RequireRole roles={ROLE_ACCESS.reporting}>
+                <TimeCostsPage />
+              </RequireRole>
+            }
+          />
 
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />}>
@@ -269,20 +291,55 @@ export function App() {
               who simply clicked the portfolio their project is in. The page
               still checks `portfolios:manage` before offering edit or archive. */}
           <Route path="/portfolios/:portfolioId" element={<PortfolioDetailPage />} />
-          {/* Saved portfolio views (BR-203). Open to everyone signed in: a view
-              shows each person only the projects they may read, and the
-              backend refuses a view that is not shared with them. */}
-          <Route path="/portfolio-views" element={<PortfolioViewsPage />} />
+          {/* Saved portfolio views (BR-203). The list is for managers; a single view
+              opens for anyone it was shared with, showing only the projects they
+              may read, and the backend refuses a view not shared with them. */}
+          <Route
+            path="/portfolio-views"
+            element={
+              <RequireRole roles={ROLE_ACCESS.insights}>
+                <PortfolioViewsPage />
+              </RequireRole>
+            }
+          />
           <Route path="/portfolio-views/:viewId" element={<PortfolioViewPage />} />
 
           <Route path="/teams" element={<TeamsPage />} />
           <Route path="/teams/:teamId" element={<TeamDetailPage />} />
 
           <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/agile" element={<AgilePage />} />
-          <Route path="/boards" element={<BoardsPage />} />
-          <Route path="/sprints" element={<SprintsPage />} />
-          <Route path="/gantt" element={<GanttPage />} />
+          <Route
+            path="/agile"
+            element={
+              <RequireRole roles={ROLE_ACCESS.delivery}>
+                <AgilePage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/boards"
+            element={
+              <RequireRole roles={ROLE_ACCESS.delivery}>
+                <BoardsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/sprints"
+            element={
+              <RequireRole roles={ROLE_ACCESS.delivery}>
+                <SprintsPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/gantt"
+            element={
+              <RequireRole roles={ROLE_ACCESS.delivery}>
+                <GanttPage />
+              </RequireRole>
+            }
+          />
           <Route path="/resources" element={<ResourcesPage />} />
           {/* Timesheets and expense claims (Module 10). Everyone has their own;
               who may read more is the backend's decision. */}
@@ -290,6 +347,14 @@ export function App() {
           <Route path="/timesheets/people/:personId" element={<TimesheetPage />} />
           <Route path="/timesheets/:id" element={<TimesheetPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
+          <Route
+            path="/forecasts"
+            element={
+              <RequireRole roles={ROLE_ACCESS.insights}>
+                <ForecastsPage />
+              </RequireRole>
+            }
+          />
           <Route
             path="/scenarios"
             element={
@@ -316,11 +381,26 @@ export function App() {
           />
           <Route path="/expenses/:id" element={<ExpenseClaimPage />} />
 
-          {/* The executive and PMO dashboards (BR-405). Open to everyone signed in:
-              every figure is scoped server-side to the projects the person can read. */}
-          <Route path="/insights" element={<InsightsPage />} />
+          {/* The executive and PMO dashboards (BR-405), for managers. Every figure is
+              scoped server-side to the projects the person can read. A single
+              dashboard stays open to anyone it was shared with. */}
+          <Route
+            path="/insights"
+            element={
+              <RequireRole roles={ROLE_ACCESS.insights}>
+                <InsightsPage />
+              </RequireRole>
+            }
+          />
           <Route path="/insights/:dashboardId" element={<InsightsPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
+          <Route
+            path="/reports"
+            element={
+              <RequireRole roles={ROLE_ACCESS.reporting}>
+                <ReportsPage />
+              </RequireRole>
+            }
+          />
           {/* Scheduled distribution (BRQ-08). The backend refuses its endpoints
               without `reports:schedule` too; this gate keeps the page honest. */}
           <Route

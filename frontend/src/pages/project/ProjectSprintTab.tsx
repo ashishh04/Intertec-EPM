@@ -92,7 +92,7 @@ export default function ProjectSprintTab() {
                   title={t('Nothing committed to this sprint')}
                   description={t('Add work packages to the sprint from the project backlog.')}
                   action={{
-                    label: t('Create a task'),
+                    label: t('Create task'),
                     onClick: () => openTaskDrawer({ projectId, sprintId: sprintQuery.data?.id }),
                   }}
                 />

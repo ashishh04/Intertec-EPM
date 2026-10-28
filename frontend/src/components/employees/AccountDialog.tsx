@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Check, Copy, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, Check, Copy, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Alert } from '@/components/ui/alert';
@@ -15,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { FieldHint, Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { roleLabel } from '@/config/navigation';
 import {
   Select,
   SelectContent,
@@ -27,7 +29,7 @@ import { useAdminEmailStatus } from '@/hooks/useAdmin';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useTeams } from '@/hooks/useTeams';
 import { t } from '@/lib/i18n';
-import type { EpmAccount } from '@/types';
+import type { AppRole, EpmAccount } from '@/types';
 
 /**
  * Add a person, or edit their account details.
@@ -79,6 +81,24 @@ function suggestPassword(): string {
 
 const NONE = '__none__';
 
+/** The roles offered, Administrator first, and what each one means for the person. */
+const ROLES: AppRole[] = ['admin', 'manager', 'hr', 'employee', 'external'];
+
+function roleHint(role: AppRole): string {
+  switch (role) {
+    case 'admin':
+      return t('Full access to every project and setting.');
+    case 'manager':
+      return t('Runs projects and people: resources, health, scenarios, finance and reports.');
+    case 'hr':
+      return t('Looks after people: departments, teams, staffing, rates and everyone\'s timesheets.');
+    case 'external':
+      return t('A client or vendor: sees only the portal, and in it only the projects granted to them.');
+    default:
+      return t('Their own work, time, timesheets, expenses and collaboration.');
+  }
+}
+
 interface AccountDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -102,7 +122,9 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [login, setLogin] = useState('');
-  const [admin, setAdmin] = useState(false);
+  // One choice for both halves: Administrator is the instance administrator
+  // flag; the other three are EPM's own role, saved with the account.
+  const [role, setRole] = useState<AppRole>('employee');
   const [password, setPassword] = useState('');
   const [sendInvite, setSendInvite] = useState(true);
   // Brief confirmation on the copy button; the toast says it too, but the
@@ -122,7 +144,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     setLastName(account?.lastName ?? '');
     setEmail(account?.email ?? '');
     setLogin(account?.login ?? '');
-    setAdmin(account?.admin ?? false);
+    setRole(account?.appRole ?? (account?.admin ? 'admin' : 'employee'));
     setPassword(isEdit ? '' : suggestPassword());
     setSendInvite(true);
     setDepartmentId(NONE);
@@ -165,7 +187,8 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
             firstName: firstName.trim(),
             lastName: lastName.trim(),
             email: email.trim(),
-            admin,
+            admin: role === 'admin',
+            ...(role === 'admin' ? {} : { appRole: role }),
           },
         },
         {
@@ -190,7 +213,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     }
 
     const hours = Number(capacity);
-    if (!Number.isFinite(hours) || hours < 0) {
+    if (role !== 'external' && (!Number.isFinite(hours) || hours < 0)) {
       setProblem(t('Capacity must be a number of hours.'));
       return;
     }
@@ -205,10 +228,16 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
         // sees, and one typed here would be a second secret to leak.
         password: inviting ? undefined : password,
         sendInvite: inviting,
-        admin,
-        departmentId: departmentId === NONE ? undefined : departmentId,
-        teamId: teamId === NONE ? undefined : teamId,
-        hoursCapacity: hours,
+        admin: role === 'admin',
+        ...(role === 'admin' ? {} : { appRole: role }),
+        // A client or vendor is not placed in the organisation.
+        ...(role === 'external'
+          ? {}
+          : {
+              departmentId: departmentId === NONE ? undefined : departmentId,
+              teamId: teamId === NONE ? undefined : teamId,
+              hoursCapacity: hours,
+            }),
       },
       {
         onSuccess: (created) => {
@@ -244,7 +273,7 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? t('Edit user') : t('Add a user')}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Edit user') : t('Add user')}</DialogTitle>
           <DialogDescription>
             {isEdit
               ? t('Their account details.')
@@ -376,18 +405,39 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
               </div>
             )}
 
-            {/* The same toggle row as the settings page, so a switch reads the
-                same wherever it appears. */}
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border px-4 py-3">
-              <div className="min-w-0">
-                <Label htmlFor="account-admin">{t('Instance administrator')}</Label>
-                <FieldHint className="mt-0.5">{t('Full access to every project and setting.')}</FieldHint>
-              </div>
-              <Switch id="account-admin" checked={admin} onCheckedChange={setAdmin} />
+            {/* Picks their screens and sidebar, and takes effect when saved. */}
+            <div className="space-y-1.5">
+              <Label htmlFor="account-role">{t('Role')}</Label>
+              <Select value={role} onValueChange={(value) => setRole(value as AppRole)}>
+                <SelectTrigger id="account-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {roleLabel(option)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint>{roleHint(role)}</FieldHint>
+              {role === 'external' ? (
+                <p className="text-2xs text-muted-foreground">
+                  {t('Which projects they see, and whether as a client or a vendor on each, is set on the External users page.')}{' '}
+                  <Link
+                    to="/admin/users/external-access"
+                    onClick={() => onOpenChange(false)}
+                    className="inline-flex items-center gap-1 font-medium text-primary underline-offset-2 hover:underline"
+                  >
+                    {t('Open External users')}
+                    <ArrowRight className="h-3 w-3 rtl:rotate-180" aria-hidden />
+                  </Link>
+                </p>
+              ) : null}
             </div>
           </section>
 
-          {isEdit ? null : (
+          {isEdit || role === 'external' ? null : (
             <section className="space-y-3 border-t border-border pt-4">
               <p className="epm-eyebrow">{t('Organisation')}</p>
 

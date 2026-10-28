@@ -25,7 +25,7 @@ import { env } from '../config/env.js';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
 import type { HealthCriterion, HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
-import { automationUserId } from '../domain/automation-account.js';
+import { nonPersonIds } from '../domain/service-account.js';
 import { clauses } from '../domain/notifications.js';
 import { contextLanguage, contextReader, dateOf, listOf, message, type Message } from '../lib/i18n.js';
 import { forgetProjectBaselines } from '../domain/earned-value-store.js';
@@ -38,20 +38,20 @@ const listQuery = z.object({
 
 /** Project members, grouped in one pass over memberships. */
 async function membersByProject(signal?: AbortSignal): Promise<Map<string, string[]>> {
-  const [memberships, automationId] = await Promise.all([
+  const [memberships, nonPersons] = await Promise.all([
     openProject
       .getAll<OpMembership>('/memberships', { pageSize: MAX_PAGE_SIZE }, { signal })
       .catch(() => ({ items: [] as OpMembership[] })),
-    automationUserId().catch(() => undefined),
+    nonPersonIds().catch(() => new Set<string>()),
   ]);
 
   const byProject = new Map<string, string[]>();
   for (const membership of memberships.items) {
     const projectId = linkId(membership._links, 'project');
     const principalId = linkId(membership._links, 'principal');
-    // The automation account is a member where a rule acts, not one of the
-    // team: it would otherwise be counted in a portfolio's people and capacity.
-    if (!projectId || !principalId || principalId === automationId) continue;
+    // The automation and service accounts are members, not of the team: they
+    // would otherwise be counted in a portfolio's people and capacity.
+    if (!projectId || !principalId || nonPersons.has(principalId)) continue;
 
     const existing = byProject.get(projectId) ?? [];
     if (!existing.includes(principalId)) existing.push(principalId);

@@ -1,3 +1,4 @@
+import { roleOfAccount } from '../auth/roles.js';
 import type { HalLinks, OpPrincipal } from '../openproject/types.js';
 import type { AccountStatus, EpmAccount } from '../types/epm.js';
 
@@ -29,7 +30,11 @@ function statusOf(value: unknown): AccountStatus {
 
 const has = (links: HalLinks | undefined, key: string) => Boolean(links && Object.hasOwn(links, key));
 
-export function toEpmAccount(principal: OpPrincipal): EpmAccount {
+/**
+ * `storedRole` is the EPM role on the person's profile, absent reading as
+ * employee; `external` is the profile's portal flag.
+ */
+export function toEpmAccount(principal: OpPrincipal, storedRole?: string | null, external = false): EpmAccount {
   const links = principal._links;
 
   return {
@@ -40,6 +45,7 @@ export function toEpmAccount(principal: OpPrincipal): EpmAccount {
     name: principal.name,
     email: principal.email ?? '',
     admin: principal.admin ?? false,
+    appRole: roleOfAccount(String(principal.id), principal.admin ?? false, storedRole, external),
     status: statusOf(principal.status),
     language: principal.language,
     createdAt: principal.createdAt ?? '',

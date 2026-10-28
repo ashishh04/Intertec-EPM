@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
 import { env } from '../config/env.js';
 import { optional, prisma } from '../db/prisma.js';
+import { listEvents, replayEvents } from '../domain/integration-inbox.js';
 import { lastWebhookReceived } from '../domain/rule-events.js';
+import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
 import type { OpRoot } from '../openproject/types.js';
@@ -174,6 +177,30 @@ export const integrationRoutes: FastifyPluginAsync = async (app) => {
     await recordRun(probe, startedAt);
 
     return toStatus(probe, probe.checkedAt);
+  });
+
+  /*
+   * Inbound events (BR-506): what arrived, what failed and what was
+   * dead-lettered, and the operator's replay. Administrators only.
+   */
+  app.get<{ Querystring: { status?: string; limit?: string } }>('/integrations/events', async (request) => {
+    await guard.require(request, 'users:manage');
+    const { status, limit } = z
+      .object({ status: z.enum(['pending', 'done', 'failed', 'dead']).optional(), limit: z.coerce.number().int().min(1).max(200).optional() })
+      .parse(request.query);
+    return listEvents({ status, limit });
+  });
+
+  app.post<{ Params: { id: string } }>('/integrations/events/:id/replay', async (request) => {
+    await guard.require(request, 'users:manage');
+    return replayEvents({ id: request.params.id }, request.auth!.userId);
+  });
+
+  app.post<{ Body: unknown }>('/integrations/events/replay', async (request) => {
+    await guard.require(request, 'users:manage');
+    const parsed = z.object({ status: z.enum(['dead', 'failed', 'done']) }).safeParse(request.body ?? {});
+    if (!parsed.success) throw EpmError.validation('Say which events to replay: dead, failed or done.');
+    return replayEvents({ status: parsed.data.status }, request.auth!.userId);
   });
 };
 

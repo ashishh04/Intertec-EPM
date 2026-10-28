@@ -8,7 +8,7 @@ may have leaked. Secrets live in the secret store and reach the containers by en
 | Secret | Effect of rotating | Steps |
 | --- | --- | --- |
 | `SESSION_SECRET` | Every session ends; stored OpenProject tokens become unreadable, so everyone signs in again. | New value (`openssl rand -hex 32`); `dc up -d backend`. The old session rows are no longer usable and expire on their own. |
-| `OPENPROJECT_API_KEY` (service key) | None for users. | In OpenProject, create a new API key for the service account and revoke the old one; set it; `dc up -d backend`. |
+| `OPENPROJECT_API_KEY` (service key) | None for users; background work pauses until set. | `dc exec -T -e ROTATE=1 -e TOKEN_FILE=/tmp/epm-service.token openproject bundle exec rails runner /app/epm-setup/service-account.rb` issues a new key for "EPM Service" and revokes the old; take it from the file and delete the file; set it; `dc up -d backend`. |
 | `OPENPROJECT_AUTOMATION_API_KEY` | Rules and approval outcomes pause until set. | `dc exec -T -e ROTATE=1 openproject bundle exec rails runner /app/epm-setup/automation-account.rb` prints a new key and revokes the old; set it; `dc up -d backend`. |
 | `OPENPROJECT_OAUTH_CLIENT_SECRET` | Sign-in fails until both sides agree; existing sessions keep working until their token refreshes. | In OpenProject (Administration → OAuth applications), regenerate EPM's secret; set it; `dc up -d backend` straight away. |
 | `OPENPROJECT_WEBHOOK_SECRET` | Deliveries are refused until both sides agree. | Set the new secret in OpenProject's webhook and in EPM together; `dc up -d backend`. |

@@ -8,6 +8,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AddWidgetDialog, WidgetFrame } from '@/components/dashboard/WidgetFrame';
+import { RoleWorkspace } from '@/components/dashboard/RoleWorkspace';
 import { WIDGETS_BY_ID, SUGGESTED_WIDGET_IDS } from '@/components/dashboard/widgets';
 import { DEFAULT_PREFERENCES, usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
@@ -128,6 +129,9 @@ export default function DashboardPage() {
           </>
         }
       />
+
+      {/* Differs by role (Admin, Manager, HR, Employee); hidden while arranging widgets. */}
+      {customising ? null : <RoleWorkspace />}
 
       {resolved.length === 0 ? (
         <Card>

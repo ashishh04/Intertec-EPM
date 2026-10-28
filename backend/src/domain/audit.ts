@@ -208,6 +208,7 @@ export async function listInstanceJournal(query: InstanceJournalQuery): Promise<
   total: number;
   page: number;
   pageSize: number;
+  hasMore: boolean;
   entityTypes: string[];
 }> {
   const occurredAt: Prisma.DateTimeFilter = {};
@@ -233,7 +234,14 @@ export async function listInstanceJournal(query: InstanceJournalQuery): Promise<
     skip: (page - 1) * pageSize,
     take: pageSize,
   });
-  return { items: rows.map(toAuditEvent), total, page, pageSize, entityTypes: kinds.map((row) => row.entityType) };
+  return {
+    items: rows.map(toAuditEvent),
+    total,
+    page,
+    pageSize,
+    hasMore: page * pageSize < total,
+    entityTypes: kinds.map((row) => row.entityType),
+  };
 }
 
 /** Newest first, paged by sequence number. */

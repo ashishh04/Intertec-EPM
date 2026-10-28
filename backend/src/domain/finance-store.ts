@@ -914,6 +914,14 @@ async function approvedTime(projectId: number, from: string, to: string): Promis
 
 const claimKey = (id: string) => `EX-${id.slice(-6).toUpperCase()}`;
 
+/** The current calendar month, first day to last. */
+function thisMonth(): { from: string; to: string } {
+  const day = todayIso();
+  // Day 0 of the next month is the last of this one; months here count from 1.
+  const last = new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate();
+  return { from: `${day.slice(0, 7)}-01`, to: `${day.slice(0, 7)}-${String(last).padStart(2, '0')}` };
+}
+
 function periodOf(query: { from?: unknown; to?: unknown }): { from: string; to: string } {
   const from = typeof query.from === 'string' && DAY.test(query.from) ? query.from : null;
   const to = typeof query.to === 'string' && DAY.test(query.to) ? query.to : null;
@@ -1042,9 +1050,13 @@ function itemView(row: Awaited<ReturnType<typeof prisma.billableItem.findFirstOr
   };
 }
 
-/** The billable items of a project's period, against what was approved for it. */
+/**
+ * The billable items of a project's period, against what was approved for it.
+ * Reading without a period shows this month, as the other period reports
+ * default theirs; creating billable items still needs the period named.
+ */
 export async function billingView(projectId: number, query: { from?: unknown; to?: unknown }): Promise<BillingView> {
-  const { from, to } = periodOf(query);
+  const { from, to } = periodOf(query.from === undefined && query.to === undefined ? thisMonth() : query);
   const contract = (await contractsOf([projectId])).get(projectId)!;
   const [rows, expected] = await Promise.all([
     prisma.billableItem.findMany({ where: { projectId, day: { gte: new Date(from), lte: new Date(to) } }, orderBy: [{ day: 'asc' }, { kind: 'asc' }, { id: 'asc' }] }),

@@ -35,6 +35,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   get expenses() { return t('Expense claims'); },
   get finance() { return t('Finance'); },
   get scenarios() { return t('Scenarios'); },
+  get forecasts() { return t('Forecasts'); },
   get reports() { return t('Reports'); },
   get scheduled() { return t('Scheduled reports'); },
   get analytics() { return t('Analytics'); },

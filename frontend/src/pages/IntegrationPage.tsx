@@ -3,6 +3,7 @@ import { Lock, RefreshCw, Server, ShieldCheck, Webhook } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { EmptyState } from '@/components/common/EmptyState';
+import { InboundEventsCard } from '@/components/integration/InboundEventsCard';
 import { FactList } from '@/components/common/FactList';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -232,6 +233,7 @@ export default function IntegrationPage() {
           </>
         ) : null}
       </QueryBoundary>
+      {isAdmin ? <InboundEventsCard /> : null}
     </div>
   );
 }

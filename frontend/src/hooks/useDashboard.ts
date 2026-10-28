@@ -24,5 +24,8 @@ export function useCalendarEvents(range: { from: string; to: string }) {
     queryKey: queryKeys.calendarEvents(range),
     queryFn: () => dashboardService.getCalendarEvents(range),
     staleTime: 60_000,
+    // Events are placed by their own dates, so the last period's stay correct
+    // on the days the next one shares while it loads.
+    placeholderData: (previous) => previous,
   });
 }

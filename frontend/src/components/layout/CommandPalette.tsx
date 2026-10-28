@@ -40,6 +40,8 @@ import { useUsers } from '@/hooks/useUsers';
 import { useTeams } from '@/hooks/useTeams';
 import { useDebounce } from '@/hooks/useDebounce';
 import { featureFlags } from '@/config/env';
+import { ROLE_ACCESS } from '@/config/navigation';
+import { useAuth } from '@/providers/AuthProvider';
 import { t } from '@/lib/i18n';
 
 /** Each group shows this many before asking for a narrower search. */
@@ -52,6 +54,10 @@ const LIMITS = { projects: 5, tasks: 6, users: 4, teams: 3 };
 export function CommandPalette() {
   const { commandPaletteOpen, setCommandPaletteOpen, openTaskDrawer, openPragnya } = useUI();
   const navigate = useNavigate();
+  // Offers only the areas the person's role works in, like the sidebar.
+  const { role } = useAuth();
+  const delivery = (ROLE_ACCESS.delivery as readonly string[]).includes(role);
+  const reporting = (ROLE_ACCESS.reporting as readonly string[]).includes(role);
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 200);
 
@@ -161,21 +167,27 @@ export function CommandPalette() {
             <Clock />
             {t('Open my timesheet')}
           </CommandItem>
-          <CommandItem value="current sprint agile" onSelect={() => run(() => navigate('/agile'))}>
-            <Timer />
-            {t('Open current sprint')}
-          </CommandItem>
-          <CommandItem value="reports" onSelect={() => run(() => navigate('/reports'))}>
-            <FileText />
-            {t('Open reports')}
-          </CommandItem>
-          <CommandItem
-            value="time and costs cost report hours spend"
-            onSelect={() => run(() => navigate('/time-and-costs'))}
-          >
-            <Coins />
-            {t('Open time and costs')}
-          </CommandItem>
+          {delivery ? (
+            <CommandItem value="current sprint agile" onSelect={() => run(() => navigate('/agile'))}>
+              <Timer />
+              {t('Open current sprint')}
+            </CommandItem>
+          ) : null}
+          {reporting ? (
+            <>
+              <CommandItem value="reports" onSelect={() => run(() => navigate('/reports'))}>
+                <FileText />
+                {t('Open reports')}
+              </CommandItem>
+              <CommandItem
+                value="time and costs cost report hours spend"
+                onSelect={() => run(() => navigate('/time-and-costs'))}
+              >
+                <Coins />
+                {t('Open time and costs')}
+              </CommandItem>
+            </>
+          ) : null}
           <CommandItem value="resources capacity heatmap levelling over-allocation" onSelect={() => run(() => navigate('/resources'))}>
             <UsersRound />
             {t('Open resources')}

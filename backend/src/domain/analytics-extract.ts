@@ -2,6 +2,7 @@ import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { durationToHours } from '../lib/duration.js';
 import { linkId, openProject } from '../openproject/client.js';
+import { EVERY_USER } from '../openproject/people.js';
 import type {
   HalLink,
   OpMembership,
@@ -415,16 +416,16 @@ export async function readTeams(): Promise<TeamRow[]> {
 
 /**
  * Every account, with where EPM places it and its weekly capacity. The
- * automation account is kept, marked `service`: it is who made a rule's
- * changes, so the journal needs it, and it is nobody's capacity.
+ * automation and service accounts are kept, marked `service`: they made
+ * changes the journal names, and they are nobody's capacity.
  */
 export function readUsers(
-  automationUserId: string | undefined,
+  serviceIds: ReadonlySet<string>,
   signal?: AbortSignal,
 ): Promise<{ rows: UserRow[]; sourceTotal: number }> {
   return runAsSystem(async () => {
     const [users, profiles] = await Promise.all([
-      everything<OpPrincipal>('/users', { pageSize: 200 }, signal),
+      everything<OpPrincipal>('/principals', { pageSize: 200, filters: EVERY_USER }, signal),
       prisma.userProfile.findMany({
         select: { openProjectId: true, departmentId: true, teamId: true, hoursCapacity: true },
       }),
@@ -433,7 +434,7 @@ export function readUsers(
 
     const rows = users.items.map((user): UserRow => {
       const profile = overlay.get(String(user.id));
-      const service = automationUserId !== undefined && String(user.id) === automationUserId;
+      const service = serviceIds.has(String(user.id));
       return {
         userId: user.id,
         name: user.name,
@@ -454,7 +455,7 @@ export function readUsers(
  * automation account is left out, as everywhere people are counted.
  */
 export function readMemberships(
-  automationUserId: string | undefined,
+  serviceIds: ReadonlySet<string>,
   signal?: AbortSignal,
 ): Promise<{ rows: MembershipRow[]; sourceTotal: number }> {
   return runAsSystem(async () => {
@@ -466,7 +467,7 @@ export function readMemberships(
       const userId = num(linkId(membership._links, 'principal'));
       if (projectId === null || userId === null) continue;
       if (!principal?.href?.includes('/users/')) continue;
-      if (automationUserId !== undefined && String(userId) === automationUserId) continue;
+      if (serviceIds.has(String(userId))) continue;
 
       const roles = ((membership._links?.roles as HalLink[] | undefined) ?? [])
         .map((role) => role.title ?? '')

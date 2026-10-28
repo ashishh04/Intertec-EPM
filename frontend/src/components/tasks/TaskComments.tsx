@@ -195,7 +195,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
       {canComment ? (
         <form onSubmit={submit} className="mt-4 space-y-2 border-t border-border pt-4">
           <label htmlFor="task-comment" className="sr-only">
-            {t('Add a comment')}
+            {t('Add comment')}
           </label>
           <Textarea
             id="task-comment"

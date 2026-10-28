@@ -9,6 +9,7 @@ import { contextConventions, contextLanguage, message, render, t, type Message }
 import { buildWorkbook } from '../lib/xlsx.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { idFromHref, openProject } from '../openproject/client.js';
+import { EVERY_USER } from '../openproject/people.js';
 import type { TaskImportChange, TaskImportProblem, TaskImportStatus, TaskImportView } from '../types/epm.js';
 import { withAudit } from './audit.js';
 import { requestCalculatedRecalc } from './calculated-fields.js';
@@ -341,7 +342,7 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
     : [null, null];
   const offered = await projectFields(projectId, types.items.map((type) => String(type.id)));
   const memberIds = new Set(memberships.items.map((row) => idFromHref(row._links.principal?.href)).filter((id): id is string => Boolean(id)));
-  const people = await runAsSystem(() => openProject.getAll<{ id: number; login?: string; email?: string; name?: string }>('/users', { pageSize: 1000 }));
+  const people = await runAsSystem(() => openProject.getAll<{ id: number; login?: string; email?: string; name?: string }>('/principals', { pageSize: 1000, filters: EVERY_USER }));
   const members = new Map<string, string>();
   const memberNames: string[] = [];
   for (const person of people.items) {

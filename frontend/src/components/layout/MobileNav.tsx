@@ -39,9 +39,9 @@ export function MobileBottomNav() {
   const navigate = useNavigate();
   const unread = useUnreadCount();
   const { openTaskDrawer, setMobileNavOpen } = useUI();
-  const { can } = useAuth();
+  const { can, role } = useAuth();
   // Everything past Overview and Work, filtered the same way as the sidebar.
-  const moreSections = visibleNavSections(can).slice(2);
+  const moreSections = visibleNavSections(can, role).slice(2);
 
   const isActive = (to: string, matchNested?: boolean) =>
     matchNested ? location.pathname.startsWith(to) : location.pathname === to;

@@ -114,6 +114,11 @@ model UserProfile {
   /// An external user — a client or a vendor (BR-611): sees only the portal,
   /// and in it only what their external roles allow on the projects granted.
   external           Boolean     @default(false)
+  /// The person's role in EPM — `manager`, `hr` or `employee` — which decides
+  /// their sidebar, their screens and a bundle of EPM permissions
+  /// (`auth/roles.ts`). Null reads as `employee`. Administrators are not
+  /// stored: they are the instance's administrator accounts.
+  appRole            String?
   /// Set when an administrator created this account with a starting password
   /// they chose. Cleared the moment the person sets their own.
   ///
@@ -1030,7 +1035,11 @@ model InviteToken {
   email         String
   createdBy     String
   expiresAt     DateTime
+  /// Set when the link can no longer be used: accepted, or replaced.
   usedAt        DateTime?
+  /// Set when a newer invitation retired this one, so the page can say the
+  /// link was replaced rather than claim it was used.
+  replacedAt    DateTime?
   createdAt     DateTime  @default(now())
 
   @@index([openProjectId])
@@ -2186,4 +2195,128 @@ model AssistantPolicy {
   updatedAt     DateTime @updatedAt
 
   @@map("assistant_policy")
+}
+
+/// An inbound integration event (BR-506): each delivery kept once, keyed on
+/// its identity, so a redelivery or a replay is processed no more than once
+/// in effect; retried with back-off, dead-lettered when retries run out, and
+/// replayable by an operator.
+model IntegrationEvent {
+  id            String    @id @default(cuid())
+  /// Where it came from: "openproject" for the instance's webhook.
+  source        String
+  /// The event's identity: the sender's id, or a hash of the delivery's bytes.
+  eventKey      String
+  action        String
+  payload       Json
+  /// pending, done, failed (to be retried) or dead (retries exhausted).
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  lastError     String?
+  /// How many times the same event arrived.
+  deliveries    Int       @default(1)
+  receivedAt    DateTime  @default(now())
+  nextAttemptAt DateTime?
+  processedAt   DateTime?
+  replayedBy    String?
+  replayedAt    DateTime?
+
+  @@unique([source, eventKey])
+  @@index([status, nextAttemptAt])
+  @@index([receivedAt])
+  @@map("integration_events")
+}
+
+/// A forecasting run (BR-509, BR-510): the model trained on the organisation's
+/// own delivery history and the forecasts made with it; or a back-test.
+model ForecastRun {
+  id           String            @id @default(cuid())
+  /// forecast or backtest.
+  kind         String
+  /// schedule or manual.
+  trigger      String
+  /// running, done or failed.
+  status       String            @default("running")
+  modelVersion String?
+  /// The trained model, so every forecast can be reproduced from it.
+  model        Json?
+  summary      Json?
+  error        String?
+  startedBy    String?
+  startedAt    DateTime          @default(now())
+  finishedAt   DateTime?
+  forecasts    ProjectForecast[]
+
+  @@index([kind, startedAt])
+  @@map("forecast_runs")
+}
+
+/// One project's forecast in a run, with the inputs it was made from (BR-510:
+/// reproducible from what is stored).
+model ProjectForecast {
+  id        String      @id @default(cuid())
+  runId     String
+  run       ForecastRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  projectId Int
+  inputs    Json
+  output    Json
+  createdAt DateTime    @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([runId])
+  @@map("project_forecasts")
+}
+
+/// A recommended action (BR-511), with its evidence and expected effect, that
+/// changes nothing until a person approves it (BR-512).
+model Recommendation {
+  id              String    @id @default(cuid())
+  forecastId      String?
+  projectId       Int
+  kind            String
+  /// What it would change, so one proposal stands per target.
+  targetKey       String
+  title           String
+  rationale       String
+  evidence        Json
+  expectedEffect  Json
+  /// Title, rationale and effect as message templates, for readers in other languages.
+  messages        Json      @default("{}")
+  /// { entity, id, field, from, to }: the one change approving it makes.
+  change          Json
+  /// proposed, applied, rejected, failed or superseded.
+  status          String    @default("proposed")
+  decidedBy       String?
+  decidedAt       DateTime?
+  decisionComment String?
+  appliedAt       DateTime?
+  applyError      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([projectId, status])
+  @@index([targetKey, status])
+  @@map("recommendations")
+}
+
+/// A link for someone who has forgotten their password (Module 1). Only a
+/// SHA-256 of the token is kept: the token itself exists in one place, the
+/// email. One live link per account; a newer request retires the older one.
+model PasswordResetToken {
+  id            String    @id @default(cuid())
+  openProjectId String
+  tokenHash     String    @unique
+  email         String
+  expiresAt     DateTime
+  /// Set when the link can no longer be used: the password was reset with
+  /// it, or a newer link replaced it.
+  usedAt        DateTime?
+  /// Set when a newer request retired this link, so its page can say so.
+  replacedAt    DateTime?
+  /// Where the request came from, for an administrator looking into one.
+  requestedFrom String?
+  createdAt     DateTime  @default(now())
+
+  @@index([openProjectId, createdAt])
+  @@map("password_reset_tokens")
 }

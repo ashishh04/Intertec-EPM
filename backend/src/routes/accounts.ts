@@ -2,6 +2,9 @@ import { randomInt } from 'node:crypto';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { forgetPermissions } from '../auth/capabilities.js';
+import { isAssignableRole, isStoredRole, type AssignableRole } from '../auth/roles.js';
+import { assignRole } from '../domain/app-roles.js';
 import { EpmError } from '../lib/errors.js';
 import { referenceCache } from '../lib/cache.js';
 import { requestSignal } from '../lib/request-signal.js';
@@ -132,7 +135,9 @@ function requireCreateFields(
   email: string;
   password: string;
 } {
-  const login = text(body.login);
+  // `username` as well as `login`: sign-in calls it the username, and so does
+  // the message below, so a caller writing what both say was refused.
+  const login = text(body.login) || text(body.username);
   const firstName = text(body.firstName);
   const lastName = text(body.lastName);
   const email = text(body.email);
@@ -204,6 +209,43 @@ async function sendInvitation(input: {
   return outcome === 'queued';
 }
 
+interface StoredRole {
+  appRole: string | null;
+  external: boolean;
+}
+
+/** The EPM role stored for each account, and whether it is external, for `toEpmAccount`. Unreadable reads as none. */
+async function storedRoles(ids?: string[]): Promise<Map<string, StoredRole>> {
+  const { prisma } = await import('../db/prisma.js');
+  const rows = await prisma.userProfile
+    .findMany({
+      where: {
+        OR: [{ appRole: { not: null } }, { external: true }],
+        ...(ids ? { openProjectId: { in: ids } } : {}),
+      },
+      select: { openProjectId: true, appRole: true, external: true },
+    })
+    .catch(() => []);
+  return new Map(rows.map((row) => [row.openProjectId, { appRole: row.appRole, external: row.external }]));
+}
+
+async function withRole(principal: OpPrincipal): Promise<EpmAccount> {
+  const stored = (await storedRoles([String(principal.id)])).get(String(principal.id));
+  return toEpmAccount(principal, stored?.appRole, stored?.external);
+}
+
+/** The role in a request body: absent, or one an administrator may give. */
+function roleFrom(body: Record<string, unknown>): AssignableRole | undefined {
+  if (body.appRole === undefined) return undefined;
+  if (!isAssignableRole(body.appRole)) throw EpmError.badRequest('Choose Manager, HR, Employee or External.');
+  return body.appRole;
+}
+
+/** An administrator is never an external user: the portal would hold them to it. */
+function refuseExternalAdministrator(admin: boolean, role: AssignableRole | undefined): void {
+  if (admin && role === 'external') throw EpmError.validation('An administrator cannot be an external user.');
+}
+
 export const accountRoutes: FastifyPluginAsync = async (app) => {
   /**
    * The account directory.
@@ -221,12 +263,18 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       { signal: requestSignal(request) },
     );
 
-    return collection.items.map(toEpmAccount).sort((a, b) => a.name.localeCompare(b.name));
+    const roles = await storedRoles();
+    return collection.items
+      .map((principal) => {
+        const stored = roles.get(String(principal.id));
+        return toEpmAccount(principal, stored?.appRole, stored?.external);
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   });
 
   app.get<{ Params: { id: string } }>('/accounts/:id', async (request) => {
     await guard.require(request, 'users:manage');
-    return toEpmAccount(await accountOf(request, request.params.id));
+    return withRole(await accountOf(request, request.params.id));
   });
 
   /**
@@ -261,6 +309,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       const fields = requireCreateFields(body, { passwordRequired: !sendInvite });
       const { login, firstName, lastName, email } = fields;
       const password = fields.password || generatePassword();
+      // Employee is the default, so it is stored as nothing; an administrator has
+      // no stored role, and External is the profile's flag (domain/app-roles.ts).
+      const role = roleFrom(body);
+      refuseExternalAdministrator(body.admin === true, role);
+      const external = role === 'external';
+      const storedRole = body.admin !== true && isStoredRole(role) ? role : undefined;
 
       // Only what an administrator typed. `generatePassword` guarantees one
       // character from each class at 24 long, so checking it would be checking
@@ -303,8 +357,8 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
       await prisma.userProfile
         .upsert({
           where: { openProjectId: id },
-          create: { openProjectId: id, mustChangePassword: true },
-          update: { mustChangePassword: true },
+          create: { openProjectId: id, mustChangePassword: true, appRole: storedRole ?? null, external },
+          update: { mustChangePassword: true, appRole: storedRole ?? null, external },
         })
         .catch(() => undefined);
 
@@ -365,14 +419,17 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
               handover: sendInvite ? (inviteSent ? 'invited' : 'failed') : 'password',
             },
           ),
-          after: accountFields(created, ['login', 'email', 'admin', 'status']),
+          after: {
+            ...accountFields(created, ['login', 'email', 'admin', 'status']),
+            role: created.admin ? 'admin' : external ? 'external' : (storedRole ?? 'employee'),
+          },
         },
       ]);
 
       reply.code(201);
 
       const account: EpmAccount & { placementProblems?: string[]; inviteSent: boolean; inviteProblem?: string } = {
-        ...toEpmAccount(created),
+        ...toEpmAccount(created, storedRole, external),
         inviteSent,
       };
       if (placementProblems.length > 0) account.placementProblems = placementProblems;
@@ -439,15 +496,36 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      if (typeof body.admin === 'boolean') patch.admin = body.admin;
+      if (typeof body.admin === 'boolean' && body.admin !== account.admin) patch.admin = body.admin;
+      const role = roleFrom(body);
+      refuseExternalAdministrator(patch.admin === true || (account.admin === true && patch.admin !== false), role);
 
-      if (Object.keys(patch).length === 0) throw EpmError.badRequest('Nothing to change.');
+      if (Object.keys(patch).length === 0 && role === undefined) throw EpmError.badRequest('Nothing to change.');
 
-      const updated = await openProject.request<OpPrincipal>(`/users/${id}`, {
-        method: 'PATCH',
-        body: patch,
-        signal: requestSignal(request),
-      });
+      // Becoming an administrator ends being external, and that is refused while
+      // they still hold external access — so it is settled before anything is
+      // written upstream, and a refusal changes nothing.
+      if (patch.admin === true) {
+        await assignRole({ userId: id, personName: accountName(account), role: 'employee', actorId: request.auth!.userId });
+      }
+
+      const updated =
+        Object.keys(patch).length === 0
+          ? account
+          : await openProject.request<OpPrincipal>(`/users/${id}`, {
+              method: 'PATCH',
+              body: patch,
+              signal: requestSignal(request),
+            });
+
+      // The EPM role, beside the account, journalled on its own. An
+      // administrator keeps none: their role is the administrator flag.
+      if (!updated.admin && role !== undefined) {
+        await assignRole({ userId: id, personName: accountName(updated), role, actorId: request.auth!.userId });
+      }
+      // Their sidebar and permissions follow at once on this server, rather
+      // than after the minute permissions are cached for.
+      if ('admin' in patch) forgetPermissions(id);
 
       // Name and email are carried in the cached directory — and the address
       // the outbox resolves to, which must not keep going to the old one.
@@ -456,24 +534,28 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
       const changed = ACCOUNT_FIELDS.filter((field) => field in patch);
       await recordAuditQuietly([
-        {
-          entityType: 'account',
-          entityId: id,
-          action: 'admin' in patch ? 'account.admin.changed' : 'account.updated',
-          summary:
-            'admin' in patch
-              ? message('{admin, select, yes {Gave administrator rights to {name}} other {Removed administrator rights from {name}}}', {
-                  admin: patch.admin ? 'yes' : 'no',
-                  name: accountName(updated),
-                })
-              : // The fields by their keys, as they always read; each is a phrase in the catalogue.
-                message('Changed {fields} for {name}', { fields: listOf(changed), name: accountName(updated) }),
-          before: accountFields(account, changed),
-          after: accountFields(updated, changed),
-        },
+        ...(changed.length === 0
+          ? []
+          : [
+              {
+                entityType: 'account',
+                entityId: id,
+                action: 'admin' in patch ? 'account.admin.changed' : 'account.updated',
+                summary:
+                  'admin' in patch
+                    ? message('{admin, select, yes {Gave administrator rights to {name}} other {Removed administrator rights from {name}}}', {
+                        admin: patch.admin ? 'yes' : 'no',
+                        name: accountName(updated),
+                      })
+                    : // The fields by their keys, as they always read; each is a phrase in the catalogue.
+                      message('Changed {fields} for {name}', { fields: listOf(changed), name: accountName(updated) }),
+                before: accountFields(account, changed),
+                after: accountFields(updated, changed),
+              },
+            ]),
       ]);
 
-      return toEpmAccount(updated);
+      return withRole(updated);
     },
   );
 
@@ -509,7 +591,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         summary: message('Deactivated {name}', { name: accountName(account) }),
       },
     ]);
-    return toEpmAccount(locked);
+    return withRole(locked);
   });
 
   /** Reactivates a locked account. */
@@ -535,7 +617,7 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
         summary: message('Reactivated {name}', { name: accountName(account) }),
       },
     ]);
-    return toEpmAccount(unlocked);
+    return withRole(unlocked);
   });
 
   /**

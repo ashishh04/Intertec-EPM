@@ -345,10 +345,11 @@ export class OpenProjectClient {
    * bytes are never held in memory here and never re-encoded. Retries are
    * skipped deliberately: a stream cannot be replayed once it has started.
    */
-  async stream(path: string, signal?: AbortSignal): Promise<Response> {
+  /** `root` streams from a path under the instance root (an add-on) rather than `/api/v3`. */
+  async stream(path: string, signal?: AbortSignal, options: { root?: boolean } = {}): Promise<Response> {
     const timeout = AbortSignal.timeout(env.OPENPROJECT_TIMEOUT_MS);
 
-    return fetch(this.url(path), {
+    return fetch(this.url(path, {}, options.root ?? false), {
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: { ...FORWARDED_HEADERS, Authorization: this.authorization, Accept: '*/*' },
     });

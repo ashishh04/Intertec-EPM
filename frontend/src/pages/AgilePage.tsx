@@ -389,7 +389,7 @@ export default function AgilePage() {
                 title={t('No work in this sprint')}
                 description={t('Commit work packages from the backlog to plan this sprint.')}
                 action={{
-                  label: t('Create a task'),
+                  label: t('Create task'),
                   onClick: () => openTaskDrawer({ sprintId: sprint.id }),
                 }}
               />

@@ -13,6 +13,17 @@ export function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * A real calendar day as YYYY-MM-DD. The shape alone lets 2026-13-01 through,
+ * which then fails date arithmetic as a server error, and 2026-02-30, which
+ * would quietly mean 2 March.
+ */
+export function isCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 /** `day` shifted by `days`, which may be negative. */
 export function addDays(day: string, days: number): string {
   const date = new Date(`${day}T00:00:00Z`);

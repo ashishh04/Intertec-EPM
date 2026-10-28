@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { contextLanguage, contextReader, t } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
-import { openProject, linkId, type OpFilter } from '../openproject/client.js';
+import { MAX_PAGE_SIZE, openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { getCurrentUser } from '../mapping/users.js';
@@ -304,40 +304,61 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     const { from, to } = z.object({ from: z.string(), to: z.string() }).parse(request.query);
     const signal = requestSignal(request);
 
-    const catalog = await getCatalog(signal);
+    /*
+     * Everything at once rather than one after another, and the work packages
+     * with only the fields an event is made of. A month is a few hundred work
+     * packages; asked for in full, each arrived with fifty links and its
+     * embedded resources, and the four pages took 7–10 seconds. With `select`
+     * the same rows take about 0.3 s. Still the caller's own token, so
+     * OpenProject still decides which work they may see.
+     */
+    type OpVersion = { id: number; name: string; startDate?: string | null; endDate?: string | null; _links: Record<string, { href?: string } | undefined> };
+    const [catalog, workPackages, viewer, versions] = await Promise.all([
+      getCatalog(signal),
+      openProject
+        .getAll<OpWorkPackage>(
+          '/work_packages',
+          {
+            filters: [{ field: 'datesInterval', operator: '<>d', values: [from, to] }],
+            pageSize: MAX_PAGE_SIZE,
+            select: [
+              'total',
+              'count',
+              'pageSize',
+              'offset',
+              'elements/id',
+              'elements/subject',
+              'elements/startDate',
+              'elements/dueDate',
+              'elements/date',
+              'elements/type',
+              'elements/project',
+            ],
+          },
+          { signal },
+        )
+        .catch(() => ({ items: [] as OpWorkPackage[] })),
+      viewerOf(request),
+      openProject
+        .getAll<OpVersion>('/versions', { pageSize: 500 }, { signal })
+        .catch(() => ({ items: [] as OpVersion[] })),
+    ]);
     const milestoneTypeIds = catalog.typeIdsByEpm.get('milestone') ?? [];
-
-    const workPackages = await openProject
-      .getAll<OpWorkPackage>(
-        '/work_packages',
-        {
-          filters: [{ field: 'datesInterval', operator: '<>d', values: [from, to] }],
-          pageSize: 100,
-        },
-        { signal },
-      )
-      .catch(() => ({ items: [] as OpWorkPackage[] }));
 
     // Meetings are EPM's own records, and sprints OpenProject's versions: the
     // calendar shows both beside the work, as it says it does.
-    const viewer = await viewerOf(request);
     const visible = [...viewer.visibleProjectIds].map(String);
-    const [meetings, versions] = await Promise.all([
-      prisma.meeting
-        .findMany({
-          where: {
-            startsAt: { gte: new Date(`${addDays(from, -1)}T00:00:00Z`), lte: new Date(`${addDays(to, 1)}T23:59:59Z`) },
-            state: { not: 'cancelled' },
-            OR: [{ projectId: null }, { projectId: { in: visible } }],
-          },
-          orderBy: { startsAt: 'asc' },
-          take: 1000,
-        })
-        .catch(() => []),
-      openProject
-        .getAll<{ id: number; name: string; startDate?: string | null; endDate?: string | null; _links: Record<string, { href?: string } | undefined> }>('/versions', { pageSize: 500 }, { signal })
-        .catch(() => ({ items: [] as { id: number; name: string; startDate?: string | null; endDate?: string | null; _links: Record<string, { href?: string } | undefined> }[] })),
-    ]);
+    const meetings = await prisma.meeting
+      .findMany({
+        where: {
+          startsAt: { gte: new Date(`${addDays(from, -1)}T00:00:00Z`), lte: new Date(`${addDays(to, 1)}T23:59:59Z`) },
+          state: { not: 'cancelled' },
+          OR: [{ projectId: null }, { projectId: { in: visible } }],
+        },
+        orderBy: { startsAt: 'asc' },
+        take: 1000,
+      })
+      .catch(() => []);
     const meetingEvents = meetings.map(
       (meeting): CalendarEvent => ({
         id: `meeting-${meeting.id}`,
@@ -363,21 +384,33 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         }),
       );
 
-    const workEvents = workPackages.items.map((workPackage): CalendarEvent => {
+    /*
+     * Work is shown on its deadline and a milestone on its date: the calendar's
+     * legend says "Task deadline" and the dashboard's "Coming up" says due
+     * dates. Shown on its start date, a task looked due the day it began, a
+     * week's view held none of the work due in it (only what started in it),
+     * and "Coming up" listed work that began weeks ago. The filter above also
+     * returns work that merely spans the period; it is left for the period its
+     * deadline falls in.
+     */
+    const workEvents = workPackages.items.flatMap((workPackage): CalendarEvent[] => {
       const typeId = linkId(workPackage._links, 'type');
       const isMilestone = typeId ? milestoneTypeIds.includes(typeId) : false;
-      const date = workPackage.startDate ?? workPackage.date ?? workPackage.dueDate ?? from;
+      const date = workPackage.dueDate ?? workPackage.date ?? workPackage.startDate;
+      if (!date || date < from || date > to) return [];
 
-      return {
-        id: String(workPackage.id),
-        title: workPackage.subject,
-        kind: isMilestone ? 'milestone' : 'task',
-        date,
-        endDate: workPackage.dueDate ?? undefined,
-        projectId: linkId(workPackage._links, 'project'),
-        taskId: String(workPackage.id),
-        allDay: true,
-      };
+      return [
+        {
+          id: String(workPackage.id),
+          title: workPackage.subject,
+          kind: isMilestone ? 'milestone' : 'task',
+          date,
+          endDate: workPackage.dueDate ?? undefined,
+          projectId: linkId(workPackage._links, 'project'),
+          taskId: String(workPackage.id),
+          allDay: true,
+        },
+      ];
     });
     return [...workEvents, ...sprintEvents, ...meetingEvents];
   });

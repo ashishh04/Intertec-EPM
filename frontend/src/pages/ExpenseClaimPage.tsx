@@ -186,7 +186,7 @@ function ClaimDetail({ claim }: { claim: ExpenseClaimView }) {
                     />
                     <Button size="sm" variant="secondary" loading={addReceipt.isPending} onClick={() => fileInput.current?.click()}>
                       <Upload className="h-3.5 w-3.5" />
-                      {t('Add a receipt')}
+                      {t('Add receipt')}
                     </Button>
                   </>
                 ) : null

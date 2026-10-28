@@ -1672,6 +1672,22 @@ async function main() {
       break;
     }
   }
+  // On a busy instance the first candidates are other projects' newest work:
+  // start from what the restricted caller can read, and find one on offer.
+  if (!other) {
+    const readable = (((await (await call('/tasks?pageSize=25', { cookie: restricted })).json()) as { items?: { id: string; subject: string }[] }).items ?? []).filter(
+      (task) => task.id !== target,
+    );
+    for (const task of readable) {
+      const offered = (await (await call(`/work-packages/${target}/relatable?q=${encodeURIComponent(task.subject.slice(0, 12))}`, { cookie: admin })).json()) as { id: string; subject: string }[];
+      const match = offered.find((w) => w.id === task.id);
+      if (match) {
+        other = match.id;
+        if (!relatable.some((w) => w.id === match.id)) relatable.push(match);
+        break;
+      }
+    }
+  }
   if (!other) throw new Error('No second work package available to relate to.');
 
   const searched = (await (
@@ -3494,17 +3510,19 @@ async function main() {
   );
 
   const today = new Date().toISOString().slice(0, 10);
+  // From OpenProject 17 time belongs to a work package: a task to log it on.
+  const healthTask = ((await (await call('/tasks', { method: 'POST', cookie: admin, body: { projectId: healthProjectId, subject: 'Health budget probe time' } })).json()) as { id?: string }).id;
   const logTime = async (activityId?: string) =>
     call('/time-entries', {
       method: 'POST',
       cookie: admin,
-      body: { projectId: healthProjectId, hours: 10, spentOn: today, comment: 'Health budget probe', ...(activityId ? { activityId } : {}) },
+      body: { projectId: healthProjectId, workPackageId: healthTask, hours: 10, spentOn: today, comment: 'Health budget probe', ...(activityId ? { activityId } : {}) },
     });
   let logged = await logTime();
   if (logged.status !== 201) {
     // The instance wants an activity; take the first it offers this project.
     const form = JSON.stringify(
-      await (await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId: healthProjectId } })).json(),
+      await (await call('/forms/time-entries', { method: 'POST', cookie: admin, body: { projectId: healthProjectId, workPackageId: healthTask } })).json(),
     );
     const activity = /time_entries\/activities\/(\d+)/.exec(form)?.[1];
     logged = await logTime(activity);
@@ -6388,12 +6406,32 @@ async function main() {
     );
 
     const CHANGED_PASSWORD = 'Th31rOwn!Choice2026';
+    // The instance wants the current password for a change of one's own: a
+    // session alone is not enough.
+    check(
+      'a new password without the current one is refused',
+      await status('/me/password', {
+        method: 'POST',
+        cookie: theirSession,
+        body: { password: CHANGED_PASSWORD },
+      }),
+      400,
+    );
+    check(
+      'and with a wrong current one',
+      await status('/me/password', {
+        method: 'POST',
+        cookie: theirSession,
+        body: { password: CHANGED_PASSWORD, currentPassword: 'Not-Their-Password-1!' },
+      }),
+      400,
+    );
     check(
       'they can set their own password',
       await status('/me/password', {
         method: 'POST',
         cookie: theirSession,
-        body: { password: CHANGED_PASSWORD },
+        body: { password: CHANGED_PASSWORD, currentPassword: ACCOUNT_PASSWORD },
       }),
       204,
     );
@@ -7101,16 +7139,18 @@ async function main() {
     const openProject = theirProjects.find((id) => allProjects.some((project) => String(project.id) === id && project.status !== 'paused'));
     check('the restricted account can read an active project besides the suite’s', openProject !== undefined, true);
 
-    // Cost behind the suite's project: two hours by the administrator.
+    // Cost behind the suite's project: two hours by the administrator, on a
+    // task of its own (from OpenProject 17 time belongs to a work package).
+    const viewTask = ((await json('/tasks', admin, { method: 'POST', body: { projectId: suiteProject, subject: 'Portfolio view probe time' } })) as { id?: string }).id;
     const logTime = (activityId?: string) =>
       call('/time-entries', {
         method: 'POST',
         cookie: admin,
-        body: { projectId: suiteProject, hours: 2, spentOn: todayDay, comment: 'Portfolio view probe', ...(activityId ? { activityId } : {}) },
+        body: { projectId: suiteProject, workPackageId: viewTask, hours: 2, spentOn: todayDay, comment: 'Portfolio view probe', ...(activityId ? { activityId } : {}) },
       });
     let logged = await logTime();
     if (logged.status !== 201) {
-      const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: suiteProject } }));
+      const form = JSON.stringify(await json('/forms/time-entries', admin, { method: 'POST', body: { projectId: suiteProject, workPackageId: viewTask } }));
       logged = await logTime(/time_entries\/activities\/(\d+)/.exec(form)?.[1]);
     }
     check('time can be logged on the suite’s project', logged.status, 201);
@@ -9257,6 +9297,150 @@ async function main() {
       ['department', 'team'].every((kind) => organisation.entityTypes.includes(kind)),
       true,
     );
+  }
+
+  // --- Forecasts and recommended actions (BR-509 to BR-512) -----------------
+  // Each person sees the forecasts and recommendations of the projects they can
+  // see, and only an administrator runs the model or back-tests it. Nothing is
+  // approved here: a decision is only ever tried by someone refused it.
+  console.log('\nForecasts and recommended actions');
+  {
+    // What the restricted account can see: forecasts and recommendations follow it exactly.
+    const visibleProjects = new Set(
+      ((await (await call('/projects', { cookie: restricted })).json()) as { id: string | number }[]).map((project) => String(project.id)),
+    );
+    const seen = (await (await call('/forecasts?pageSize=200', { cookie: restricted })).json()) as { forecasts?: { projectId: number }[] };
+    check(
+      'someone sees forecasts only for the projects they can see',
+      (seen.forecasts ?? []).every((forecast) => visibleProjects.has(String(forecast.projectId))),
+      true,
+    );
+    const offered = (await (await call('/recommendations?pageSize=200', { cookie: restricted })).json()) as { items?: { projectId: string }[] };
+    check(
+      'and recommended actions only for those projects',
+      (offered.items ?? []).every((recommendation) => visibleProjects.has(String(recommendation.projectId))),
+      true,
+    );
+    check('only an administrator runs the model', await status('/forecasts/run', { method: 'POST', cookie: restricted }), 403);
+    check('or reads the back-test', await status('/forecasts/backtest', { cookie: restricted }), 403);
+    check('or starts one', await status('/forecasts/backtest', { method: 'POST', cookie: restricted, body: {} }), 403);
+
+    // Tried only on a project the restricted account cannot see, so nothing can be approved here.
+    const proposed = (await (await call('/recommendations?status=proposed&pageSize=200', { cookie: admin })).json()) as {
+      items?: { id: string; projectId: string }[];
+    };
+    const unseenRecommendation = proposed.items?.find((recommendation) => !visibleProjects.has(String(recommendation.projectId)));
+    if (unseenRecommendation) {
+      check(
+        "someone who cannot see a recommendation's project cannot decide it",
+        await status(`/recommendations/${unseenRecommendation.id}/decision`, { method: 'POST', cookie: restricted, body: { decision: 'approve' } }),
+        404,
+      );
+    } else {
+      console.log('  SKIP  no waiting recommendation is in a project the restricted account cannot see');
+    }
+    const forecasts = (await (await call('/forecasts?pageSize=200', { cookie: admin })).json()) as { forecasts?: { id: string; projectId: number }[] };
+    const unseenForecast = forecasts.forecasts?.find((forecast) => !visibleProjects.has(String(forecast.projectId)));
+    if (unseenForecast) {
+      check(
+        'nor reproduce a forecast of a project they cannot see',
+        await status(`/forecasts/${unseenForecast.id}/reproduce`, { cookie: restricted }),
+        404,
+      );
+    } else {
+      console.log('  SKIP  no forecast is of a project the restricted account cannot see');
+    }
+  }
+
+  // --- Integration events (BR-506) ------------------------------------------
+  console.log('\nIntegration events');
+  check('only an administrator reads the inbound events', await status('/integrations/events', { cookie: restricted }), 403);
+  check('or replays them', await status('/integrations/events/replay', { method: 'POST', cookie: restricted, body: {} }), 403);
+  check('or one of them', await status('/integrations/events/no-such-event/replay', { method: 'POST', cookie: restricted }), 403);
+  check('an administrator reads them', await status('/integrations/events', { cookie: admin }), 200);
+
+  // --- Forgotten passwords ---------------------------------------------------
+  // Public, since whoever asks cannot sign in. Asked here only for a name that
+  // matches nobody, so no email goes anywhere. Not counted against a status:
+  // with mail unset the server says so (503), and a few runs in a quarter of an
+  // hour meet the per-address limit (429).
+  console.log('\nForgotten passwords');
+  {
+    const asked = await call('/password-reset', { method: 'POST', body: { identifier: `nobody-${Date.now()}@example.invalid` } });
+    check('asking for a link needs no session', asked.status !== 401, true);
+    check('an unknown link is not found, without a session', await status('/password-reset/not-a-real-token-but-long-enough-to-look-like-one'), 404);
+    check(
+      'and cannot be used',
+      await status('/password-reset/not-a-real-token-but-long-enough-to-look-like-one', { method: 'POST', body: { password: 'Irrelevant-1234!' } }),
+      404,
+    );
+  }
+
+  // --- EPM roles ---------------------------------------------------------------
+  // Manager, HR, Employee or External, given by an administrator; a role brings
+  // its permissions at once. The restricted account is lent a role and given
+  // back the one it had, whatever happens.
+  console.log('\nEPM roles');
+  {
+    check('only an administrator lists the roles', await status('/admin/app-roles', { cookie: restricted }), 403);
+    const restrictedMe = (await (await call('/me', { cookie: restricted })).json()) as {
+      id: string;
+      permissions?: Record<string, Record<string, boolean>>;
+    };
+    const restrictedId = restrictedMe.id;
+    const roles = (await (await call('/admin/app-roles', { cookie: admin })).json()) as { people?: { userId: string; role: string }[] };
+    const before = roles.people?.find((person) => person.userId === restrictedId)?.role ?? 'employee';
+
+    check('or gives one', await status(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: restricted, body: { role: 'manager' } }), 403);
+    check('an administrator is not given a role there', await status(`/admin/app-roles/${adminId}`, { method: 'PUT', cookie: admin, body: { role: 'employee' } }), 400);
+    check('a role that is not one of the four is refused', await status(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: admin, body: { role: 'admin' } }), 400);
+
+    // Administrators get every grantable permission through their role, which
+    // is read after OpenProject says who may manage users.
+    const adminMe = (await (await call('/me', { cookie: admin })).json()) as { permissions?: Record<string, Record<string, boolean>> };
+    check('an administrator reads the journal', adminMe.permissions?.audit?.view, true);
+    check('and the rates', adminMe.permissions?.rates?.view, true);
+
+    try {
+      check('an administrator gives someone the Manager role', await status(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: admin, body: { role: 'manager' } }), 200);
+      check('which takes effect at once: a manager reads finance', await status('/finance/batches', { cookie: restricted }), 200);
+      await call(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: admin, body: { role: 'employee' } });
+      if (restrictedMe.permissions?.finance?.view) {
+        console.log('  SKIP  the restricted account holds finance:view as a grant, so an employee check proves nothing');
+      } else {
+        check('and as an employee again, they cannot', await status('/finance/batches', { cookie: restricted }), 403);
+      }
+    } finally {
+      await call(`/admin/app-roles/${restrictedId}`, {
+        method: 'PUT',
+        cookie: admin,
+        body: { role: before === 'admin' ? 'employee' : before },
+      }).catch(() => undefined);
+    }
+  }
+
+  // --- Library documents -------------------------------------------------------
+  // A document filed under a project is read for the project's members through
+  // the service account; someone outside the project neither sees nor opens it.
+  console.log('\nLibrary documents');
+  if (createdId) {
+    const form = new FormData();
+    form.append('projectId', createdId);
+    form.append('shared', 'true');
+    form.append('file', new Blob(['authz'], { type: 'text/plain' }), 'authz-document.txt');
+    const uploaded = await fetch(`${BASE}/documents`, { method: 'POST', headers: { cookie: admin }, body: form });
+    const documentId = ((await uploaded.json().catch(() => ({}))) as { id?: string }).id;
+    check('an administrator files a document under the project', uploaded.ok && Boolean(documentId), true);
+    if (documentId) {
+      try {
+        check('someone outside the project cannot open it', await status(`/documents/${documentId}/content`, { cookie: restricted }), 404);
+        const listed = (await (await call(`/documents?projectId=${createdId}`, { cookie: restricted })).json()) as unknown[];
+        check('nor sees it listed', Array.isArray(listed) ? listed.length : -1, 0);
+        check('nor deletes it', await status(`/documents/${documentId}`, { method: 'DELETE', cookie: restricted }), 404);
+      } finally {
+        await call(`/documents/${documentId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+      }
+    }
   }
 
   // --- Session lifecycle ---------------------------------------------------

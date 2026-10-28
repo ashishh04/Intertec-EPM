@@ -48,6 +48,10 @@ function useAccountInvalidation() {
     // The administration's per-person reads: invitations, last sign-ins and
     // project memberships all move with an account.
     void client.invalidateQueries({ queryKey: ['admin', 'users'] });
+    // A role or administrator change moves the Access roles list, and the
+    // signed-in person's own sidebar when they changed themselves.
+    void client.invalidateQueries({ queryKey: ['governance', 'app-roles'] });
+    void client.invalidateQueries({ queryKey: ['current-user'] });
   };
 }
 

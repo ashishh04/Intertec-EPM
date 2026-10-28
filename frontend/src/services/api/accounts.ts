@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { AccountRevocation, EpmAccount, ID } from '@/types';
+import type { AccountRevocation, AppRole, EpmAccount, ID } from '@/types';
 
 /**
  * User accounts.
@@ -27,6 +27,8 @@ export interface AccountInput {
    * because otherwise nobody created that way could ever sign in.
    */
   password?: string;
+  /** Their EPM role when they are not an administrator. Saved with the account. */
+  appRole?: Exclude<AppRole, 'admin'>;
   /**
    * Email the person a link to set their own password. The server defaults
    * this to true when an email address is given, so it is only worth sending

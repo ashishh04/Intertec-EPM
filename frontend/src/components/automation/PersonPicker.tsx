@@ -21,7 +21,7 @@ export function PersonPicker({
   kinds,
   single = false,
   emptyText = t('Nobody yet'),
-  label = t('Add a person'),
+  label = t('Add person'),
 }: {
   value: PersonSpec[];
   onChange: (value: PersonSpec[]) => void;

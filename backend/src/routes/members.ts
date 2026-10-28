@@ -13,7 +13,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { toEpmMemberCandidate, toEpmProjectMember, toEpmRole } from '../mapping/members.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpRole } from '../openproject/types.js';
-import { automationUserId } from '../domain/automation-account.js';
+import { nonPersonIds } from '../domain/service-account.js';
 import { forgetViewRoles } from '../domain/portfolio-views.js';
 
 /**
@@ -181,16 +181,17 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
     const permissions = await permissionsFor(request);
     const canManage = allows(permissions, 'member:manage', id);
 
-    const [memberships, automationId] = await Promise.all([
+    const [memberships, nonPersons] = await Promise.all([
       membershipsOf(id, requestSignal(request)),
-      automationUserId(),
+      nonPersonIds(),
     ]);
 
-    // The automation account is made a member where a rule acts; it is not
-    // part of the team, and removing it here would only be undone next time.
+    // The automation account is made a member where a rule acts, and the
+    // service account of every project; neither is part of the team, and
+    // removing them here would only be undone next time.
     return memberships.items
       .map((membership) => toEpmProjectMember(membership, canManage))
-      .filter((member) => member.userId !== automationId);
+      .filter((member) => !nonPersons.has(member.userId));
   });
 
   /**
@@ -214,9 +215,9 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
     // Users only. Groups and placeholder users come back from this endpoint
     // too, and adding those stays an OpenProject operation — EPM has no group
     // concept and inventing half of one here would be worse than omitting them.
-    const automationId = await automationUserId();
+    const nonPersons = await nonPersonIds();
     return collection.items
-      .filter((principal) => principal._type === 'User' && String(principal.id) !== automationId)
+      .filter((principal) => principal._type === 'User' && !nonPersons.has(String(principal.id)))
       .map(toEpmMemberCandidate)
       .sort((a, b) => a.name.localeCompare(b.name));
   });

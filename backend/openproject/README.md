@@ -52,6 +52,8 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_calculated.rb` | The calculated-field bridge (BR-406 to BR-408): what EPM's formulas read — each work package's own fields, time, custom values and place in the tree — out in one query, and the values EPM computes back into the custom fields it made for them (marked `editable = false`), written only where changed and kept out of the journal, like float. |
 | `zzz_epm_costs.rb` | Cost types and cost entries, which API v3 cannot create: lists and adds cost types, and makes the cost entry an approved expense claim becomes, the way OpenProject's own "Log unit costs" form does (Module 10). |
 | `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
+| `zzz_epm_service.rb` | EPM's service account (NFR06): which add-on endpoints the non-administrator "EPM Service" may call (`EpmService::ALLOWED`; everything else refuses it), and its membership of every new project. Every add-on still admits administrators. |
+| `setup/service-account.rb` | Not an initializer: run by hand. Creates "EPM Service" — the account EPM's system key belongs to — not an administrator, with a directory role (view all principals, view user email), a project role that reads a project and manages its members, membership of every project, and its API key (written to `TOKEN_FILE`, or printed once; `ROTATE=1` issues a new one). Run again after an upgrade. |
 | `setup/automation-account.rb` | Not an initializer: run by hand, like the one below. Creates EPM's automation account — the service principal rules act as — and its minimal "EPM Automation" project role with a complete workflow, and prints the account's API key once (`ROTATE=1` issues a new one). Not an administrator; EPM adds it to a project when a rule first acts there. |
 | `setup/schedule-fields.rb` | Not an initializer: run by hand. Creates the Total float (days), Free float (days) and On critical path work package fields, for all projects and usable as filters, and activates them on every type. Run it again after adding a type. Copied to `/app/epm-setup/` in the image. |
 | `setup/governance-types.rb` | Not an initializer: a one-off `rails runner` script, run by hand. Creates the Change Request and Risk types, the Pending approval / Approved / Rejected statuses with their workflow, and the Change value field that approval thresholds read. Creates only what is missing, so it is safe to run again. Copied to `/app/epm-setup/` in the image. |
@@ -85,6 +87,13 @@ routes consume (see `docs/administration-design.md`, "Users and permissions").
 | GET | `/epm_admin/permissions` | Every settable permission, grouped by module as the role form groups them |
 | GET, POST | `/epm_admin/roles` | Roles with their permissions; create one |
 | PATCH, DELETE | `/epm_admin/roles/:id` | Rename or re-permission; delete (refused for built-in or assigned roles) |
+| POST | `/epm_admin/users/password_reset_target` | Whom a forgotten-password request names (login or email): id, email, first name, and whether a password may be set from a link |
+| PATCH | `/epm_admin/users/:id/password` | Sets a password from an invitation or a reset link, through the `User` model so the instance's rules apply, and revokes the person's OAuth tokens. Never for an administrator who has signed in, or for EPM's own accounts (403) |
+
+The two password actions are also open to EPM's service account (its
+allow-list is in `zzz_epm_service.rb`): EPM's forgotten-password and invitation
+pages set a password for someone who is not signed in, and that account is not
+an administrator.
 
 **Admin only.** The caller is identified the way API v3 identifies it (an OAuth
 bearer token or `apikey:<key>` Basic auth) and refused with 403 unless that

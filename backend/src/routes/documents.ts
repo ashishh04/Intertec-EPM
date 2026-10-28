@@ -1,7 +1,9 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
+import { allows } from '../auth/capabilities.js';
+import { runAsSystem } from '../auth/context.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { contentDispositionFor, maxUploadBytes } from '../lib/uploads.js';
 import { requestSignal } from '../lib/request-signal.js';
@@ -53,6 +55,68 @@ function kindOf(fileName: string, contentType: string): DocumentKind {
   return 'doc';
 }
 
+/**
+ * Whether this document is read for the caller as the service.
+ *
+ * Documents are container-less attachments upstream (see the upload below),
+ * and OpenProject lets only the uploader read one of those. So a file filed
+ * under a project was invisible to every other member of it. EPM files it,
+ * so EPM decides: anyone who may see the project may read what is filed
+ * there, and the service fetches it for them. A document filed nowhere stays
+ * the uploader's own, read with their token as before.
+ *
+ * The service is not an administrator (NFR06), and OpenProject hides such a
+ * file from it too; it reads through the admin add-on's document endpoints,
+ * which serve container-less files only (zzz_epm_admin_api.rb).
+ */
+async function readsAsService(request: FastifyRequest, projectId: string | null | undefined): Promise<boolean> {
+  if (!projectId) return false;
+  return allows(await guard.permissionsFor(request), 'project:view', projectId);
+}
+
+/** A document's file, however it was read. */
+interface DocumentFile {
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+  createdAt: string;
+  authorId?: string;
+  /** OpenProject's own answer, when the file was read with the caller's token. */
+  deleteLink?: boolean;
+}
+
+async function readAttachment(
+  request: FastifyRequest,
+  id: string,
+  projectId: string | null | undefined,
+): Promise<{ attachment: DocumentFile | null; viaService: boolean }> {
+  const signal = requestSignal(request);
+  const viaService = await readsAsService(request, projectId);
+
+  if (viaService) {
+    const file = await runAsSystem(() =>
+      openProject.request<{ fileName: string; fileSize: number; contentType: string; createdAt: string; authorId?: string }>(
+        `/epm_admin/documents/${id}`,
+        { signal, root: true },
+      ),
+    ).catch(() => null);
+    return { attachment: file, viaService };
+  }
+
+  const own = await openProject.request<OpAttachment>(`/attachments/${id}`, { signal }).catch(() => null);
+  return {
+    attachment: own && {
+      fileName: own.fileName,
+      fileSize: own.fileSize,
+      contentType: own.contentType,
+      createdAt: own.createdAt,
+      authorId: linkId(own._links, 'author'),
+      deleteLink: Object.hasOwn(own._links ?? {}, 'delete'),
+    },
+    viaService,
+  };
+}
+
 export const documentRoutes: FastifyPluginAsync = async (app) => {
   /**
    * The document library.
@@ -75,8 +139,6 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       .object({ projectId: z.string().optional(), search: z.string().optional() })
       .parse(request.query);
 
-    const signal = requestSignal(request);
-
     // Filtered in the database where it can be, so the fan-out below is over
     // the rows that can actually match.
     const needle = search?.trim().toLowerCase();
@@ -92,11 +154,12 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       [],
     );
 
+    const callerId = request.auth?.userId ?? '';
+    const administrator = (await guard.permissionsFor(request)).global['users:manage'] === true;
+
     const documents = await Promise.all(
       overlays.map(async (overlay): Promise<EpmDocument | null> => {
-        const attachment = await openProject
-          .request<OpAttachment>(`/attachments/${overlay.openProjectId}`, { signal })
-          .catch(() => null);
+        const { attachment, viaService } = await readAttachment(request, overlay.openProjectId, overlay.projectId);
 
         // Gone upstream, or not readable by this caller. Either way it is not
         // theirs to see, and a row pointing at nothing helps no one.
@@ -110,13 +173,18 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
           kind:
             (overlay.kind as DocumentKind) ?? kindOf(attachment.fileName, attachment.contentType),
           projectId: overlay.projectId ?? undefined,
-          ownerId: linkId(attachment._links, 'author') ?? '',
+          ownerId: attachment.authorId ?? '',
           sizeBytes: attachment.fileSize,
           updatedAt: attachment.createdAt,
           shared: overlay.shared,
           // Whether the delete action is offered at all. Taken per document,
-          // because OpenProject decides per document.
-          can: { delete: Object.hasOwn(attachment._links ?? {}, 'delete') },
+          // because OpenProject decides per document — but a read made as the
+          // service carries no answer for the caller, so there it is the
+          // uploader or an administrator, which is who the delete route lets
+          // through.
+          can: {
+            delete: viaService ? attachment.authorId === callerId || administrator : attachment.deleteLink === true,
+          },
         };
       }),
     );
@@ -272,16 +340,19 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params;
     if (!/^\d+$/.test(id)) throw EpmError.notFound('That document');
 
-    const attachment = await openProject
-      .request<OpAttachment>(`/attachments/${id}`, { signal: requestSignal(request) })
-      .catch(() => null);
+    // Read the way the library listed it: as the service for a project's
+    // members, with the caller's own token otherwise.
+    const overlay = await optional(
+      () => prisma.documentMeta.findUnique({ where: { openProjectId: id }, select: { projectId: true } }),
+      null,
+    );
+    const { attachment, viaService } = await readAttachment(request, id, overlay?.projectId);
 
     if (!attachment) throw EpmError.notFound('That document');
 
-    const upstream = await openProject.stream(
-      `/attachments/${id}/content`,
-      requestSignal(request),
-    );
+    const upstream = viaService
+      ? await runAsSystem(() => openProject.stream(`/epm_admin/documents/${id}/content`, requestSignal(request), { root: true }))
+      : await openProject.stream(`/attachments/${id}/content`, requestSignal(request));
 
     if (!upstream.ok || !upstream.body) throw EpmError.notFound('That document');
 

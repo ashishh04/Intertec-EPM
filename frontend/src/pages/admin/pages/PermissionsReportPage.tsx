@@ -155,7 +155,12 @@ function ReportMatrix({
     }))
     .filter((module) => module.byRole.some((list) => list.length > 0));
 
-  const stickyCell = 'sticky start-0 z-10 bg-surface';
+  // Fixed widths on both axes. Left to size itself, the permission column grew
+  // to the length of its longest explanation (well over a screen) and pushed
+  // the role columns out of view; role headings sized to their names and sat
+  // off-centre from the checkboxes beneath them.
+  const stickyCell = 'sticky start-0 z-10 w-[24rem] min-w-[24rem] max-w-[24rem] border-e border-border bg-surface';
+  const roleCell = 'w-32 min-w-32 max-w-32 text-center';
 
   return (
     <div className="space-y-4">
@@ -172,7 +177,7 @@ function ReportMatrix({
         <Table className="min-w-max">
           <TableHeader sticky>
             <TableRow>
-              <TableHead className={cn(stickyCell, 'z-20 min-w-64 bg-surface-sunken')}>
+              <TableHead className={cn(stickyCell, 'z-20 bg-surface-sunken')}>
                 {t('Permission')}
               </TableHead>
               {roles.map((role) => {
@@ -180,12 +185,12 @@ function ReportMatrix({
                 return (
                   <TableHead
                     key={role.id}
-                    className="min-w-28 max-w-40 align-bottom normal-case tracking-normal"
+                    className={cn(roleCell, 'whitespace-normal align-bottom normal-case tracking-normal')}
                   >
-                    <span className="flex flex-col items-start gap-1 py-2">
+                    <span className="flex flex-col items-center gap-1 py-2">
                       <Link
                         to={`${ROLES_PATH}/${role.id}`}
-                        className="rounded text-xs font-semibold text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="rounded text-center text-xs font-semibold leading-tight text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         dir="auto"
                       >
                         {role.name}
@@ -253,13 +258,13 @@ function ReportMatrix({
                   </TableCell>
                   {roles.map((role, index) => {
                     const list = module.byRole[index];
-                    if (list.length === 0) return <TableCell key={role.id} className="py-2" />;
+                    if (list.length === 0) return <TableCell key={role.id} className={cn(roleCell, 'py-2')} />;
                     const grants = grantsFor(role);
                     const granted = list.filter((item) => grants.has(item.name)).length;
                     const state =
                       granted === 0 ? false : granted === list.length ? true : 'indeterminate';
                     return (
-                      <TableCell key={role.id} className="py-2 text-center">
+                      <TableCell key={role.id} className={cn(roleCell, 'py-2')}>
                         <Checkbox
                           checked={state}
                           disabled={saving}
@@ -296,10 +301,10 @@ function ReportMatrix({
                         </TableCell>
                         {roles.map((role) => {
                           if (!permissionAppliesTo(permission, role.kind)) {
-                            return <TableCell key={role.id} className="py-2" />;
+                            return <TableCell key={role.id} className={cn(roleCell, 'py-2')} />;
                           }
                           return (
-                            <TableCell key={role.id} className="py-2 text-center">
+                            <TableCell key={role.id} className={cn(roleCell, 'py-2')}>
                               <Checkbox
                                 checked={grantsFor(role).has(permission.name)}
                                 disabled={saving}

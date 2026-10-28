@@ -4,6 +4,7 @@ import { render as digest, type DigestPayload } from './digest.js';
 import { render as invite, type InvitePayload } from './invite.js';
 import { emailLocale, type EmailLocale, type RenderedEmail } from './layout.js';
 import { render as notification, type NotificationPayload } from './notification.js';
+import { render as passwordReset, type PasswordResetPayload } from './password-reset.js';
 import {
   render as projectMemberAdded,
   type ProjectMemberAddedPayload,
@@ -28,6 +29,7 @@ import { render as taskUpdated, type TaskUpdatedPayload } from './task-updated.j
 
 export interface TemplatePayloads {
   invite: InvitePayload;
+  'password-reset': PasswordResetPayload;
   'task-assigned': TaskAssignedPayload;
   'task-due': TaskDuePayload;
   'project-member-added': ProjectMemberAddedPayload;
@@ -47,6 +49,7 @@ type Renderers = {
 
 const renderers: Renderers = {
   invite,
+  'password-reset': passwordReset,
   'task-assigned': taskAssigned,
   'task-due': taskDue,
   'project-member-added': projectMemberAdded,

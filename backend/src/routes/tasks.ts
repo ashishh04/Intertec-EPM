@@ -41,6 +41,8 @@ const listQuery = z.object({
   status: z.preprocess(csv, z.array(z.string()).optional()),
   priority: z.preprocess(csv, z.array(z.string()).optional()),
   type: z.preprocess(csv, z.array(z.string()).optional()),
+  /** The instance's own type ids, where EPM's categories are too coarse — the Risk type, say. */
+  typeId: z.preprocess(csv, z.array(z.string().regex(/^\d+$/)).optional()),
   sprintId: z.string().optional(),
   search: z.string().optional(),
   bucket: z.enum(['open', 'today', 'upcoming', 'overdue', 'completed', 'all']).optional(),
@@ -143,6 +145,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
     const typeIds = expandIds(query.type as never, catalog.typeIdsByEpm as never);
     if (typeIds) filters.push({ field: 'type', operator: '=', values: typeIds });
+    if (query.typeId?.length) filters.push({ field: 'type', operator: '=', values: query.typeId });
 
     const page = resolvePage(query.page, query.pageSize);
     const sortField = query.sortBy ? OP_SORT_FIELD[query.sortBy] : undefined;
@@ -409,8 +412,16 @@ async function patchWorkPackage(
   catalog: Awaited<ReturnType<typeof getCatalog>>,
   signal: AbortSignal,
 ): Promise<WorkPackageWithPoints> {
-  const current = await openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, { signal });
   const body = buildWorkPackageBody(patch, catalog);
+  // Nothing the API knows, such as a misspelt field or a status category no
+  // status on this instance stands for, was sent upstream as an empty change
+  // and answered 200 with the task as it was, which read as success.
+  if (Object.keys(body).length === 0) {
+    throw EpmError.badRequest(
+      'Nothing to change: none of the fields sent is one a task has, such as subject, dueDate, statusId, priorityId or assigneeId.',
+    );
+  }
+  const current = await openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, { signal });
 
   // A status an approval chain owns is reached through the chain, not here.
   const links = body._links as Record<string, { href: string | null }> | undefined;

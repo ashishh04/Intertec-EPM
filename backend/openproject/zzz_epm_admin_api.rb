@@ -13,6 +13,7 @@
 #   PATCH  /epm_admin/settings/users   partial object -> updated object
 #   GET    /epm_admin/enterprise       Enterprise-gated features this instance allows
 #   GET    /epm_admin/users/logins     when each person last signed in
+#   GET    /epm_admin/users/administrators  who is an administrator (ids only)
 #   PATCH  /epm_admin/days/week       which weekdays are working days
 #   POST   /epm_admin/days/non_working  add a public holiday
 #   DELETE /epm_admin/days/non_working/:id
@@ -152,6 +153,97 @@ Rails.application.config.to_prepare do
       end
 
       render json: { logins: logins }
+    end
+
+    # Who is an administrator, as ids only. API v3 shows the flag to
+    # administrators alone, and EPM's service account is not one (NFR06), yet
+    # EPM must know it: an administrator may never be made an external user.
+    def administrators
+      render json: { ids: User.where(type: "User", admin: true).pluck(:id).map(&:to_s) }
+    end
+
+    # --------------------------------------------------------------- passwords
+
+    # EPM's forgotten-password page and its invitations set a password for
+    # someone who is not signed in, so EPM writes it itself, as its service
+    # account, which is not an administrator (NFR06). These two actions are all
+    # that account may do with passwords. They never reach an account that
+    # runs the instance: an administrator who has signed in, or EPM's own
+    # accounts. An administrator who has never signed in is an invitation
+    # being accepted, and is allowed.
+
+    # Whom a forgotten-password request names, by login or email, ignoring
+    # case. EPM tells the requester nothing either way; this is how it learns
+    # whom to email, and whether a link may be sent at all.
+    def password_reset_target
+      identifier = json_body["identifier"].to_s.strip.downcase
+      user = if identifier.present? && identifier.length <= 255
+               User.where(type: "User").where("LOWER(login) = :value OR LOWER(mail) = :value", value: identifier).first
+             end
+      return render(json: { message: "Not found." }, status: :not_found) unless user
+
+      render json: { id: user.id.to_s, email: user.mail.to_s, firstName: user.firstname.to_s, status: password_status(user) }
+    end
+
+    # Sets the password through the model, so the instance's own rules apply
+    # (length, character classes, recently used passwords). Then it revokes
+    # every OAuth token the person holds, which signs them out of EPM
+    # everywhere: a reset also shuts out whoever else was signed in as them.
+    def set_password
+      user = User.where(type: "User").find(params[:id])
+      unless password_status(user) == "settable"
+        return render json: { message: "This account's password cannot be set this way." }, status: :forbidden
+      end
+
+      password = json_body["password"].to_s
+      user.password = password
+      user.password_confirmation = password
+      user.force_password_change = false
+      return render(json: { message: user.errors.full_messages.join(" ") }, status: :unprocessable_entity) unless user.save
+
+      Doorkeeper::AccessToken.where(resource_owner_id: user.id, revoked_at: nil).find_each(&:revoke)
+      render json: { login: user.login }
+    end
+
+    # --------------------------------------------------------------- documents
+
+    # EPM's document library (backend/src/routes/documents.ts). EPM stores each
+    # document as a file with no container and files it under a project in its
+    # own index; OpenProject shows such a file to its uploader alone, so nobody
+    # else on the project could open it. EPM decides who may — anyone who may
+    # see the project it is filed under — and reads the file here as its
+    # service account, which is not an administrator (NFR06). Container-less
+    # files only: an attachment on a work package or a wiki page keeps its own
+    # permissions and is never served here.
+    def document
+      file = document_file
+      render json: {
+        id: file.id.to_s,
+        fileName: file.filename,
+        fileSize: file.filesize,
+        contentType: file.content_type,
+        createdAt: file.created_at&.iso8601,
+        authorId: file.author_id&.to_s
+      }
+    end
+
+    # The bytes, refused the way OpenProject refuses them: quarantined, or not
+    # yet scanned for viruses.
+    def document_content
+      file = document_file
+      if file.status_quarantined? || (file.respond_to?(:pending_virus_scan?) && file.pending_virus_scan?)
+        return render json: { message: "This file is not available." }, status: :forbidden
+      end
+      return redirect_to(file.external_url.to_s, allow_other_host: true) if file.external_storage?
+
+      local = file.diskfile
+      return render(json: { message: "Not found." }, status: :not_found) if local.nil?
+
+      response.headers["X-Content-Type-Options"] = "nosniff"
+      send_file local.path,
+                type: file.served_content_type.presence || "application/octet-stream",
+                disposition: "attachment",
+                filename: file.filename
     end
 
     # ------------------------------------------------------------- permissions
@@ -308,11 +400,26 @@ Rails.application.config.to_prepare do
 
     private
 
+    # settable: active, and not an administrator unless one who has never
+    # signed in (an invitation). administrator: an active administrator who
+    # has signed in. unavailable: anyone else, EPM's own accounts included.
+    def password_status(user)
+      own = [ENV.fetch("EPM_SERVICE_LOGIN", "epm-service"), ENV.fetch("EPM_AUTOMATION_LOGIN", "epm-automation")]
+      return "unavailable" if !user.active? || own.include?(user.login)
+      return "administrator" if user.admin? && user.last_login_on.present?
+
+      "settable"
+    end
+
+    def document_file
+      Attachment.where(container_type: nil, container_id: nil).find(params[:id])
+    end
+
     # ------------------------------------------------------------------ auth
 
     def authenticate!
       user = resolve_user
-      unless user&.admin? && user.active?
+      unless user&.active? && (user.admin? || (defined?(EpmService) && EpmService.allowed?(user, self)))
         return render json: { message: "This endpoint is for administrators." }, status: :forbidden
       end
 
@@ -621,6 +728,11 @@ Rails.application.routes.prepend do
     patch "settings/users", action: :update_settings_users
     get "enterprise", action: :enterprise
     get "users/logins", action: :user_logins
+    get "users/administrators", action: :administrators
+    post "users/password_reset_target", action: :password_reset_target
+    patch "users/:id/password", action: :set_password, constraints: { id: /\d+/ }
+    get "documents/:id", action: :document, constraints: { id: /\d+/ }
+    get "documents/:id/content", action: :document_content, constraints: { id: /\d+/ }
     get "permissions", action: :permissions
     get "roles", action: :roles
     post "roles", action: :create_role

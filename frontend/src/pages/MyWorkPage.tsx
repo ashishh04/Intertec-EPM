@@ -215,7 +215,7 @@ export default function MyWorkPage() {
               icon={CheckCircle2}
               title={t('No tasks found')}
               description={t('Your work queue is clear. Adjust the filters or create something new.')}
-              action={{ label: t('Create a task'), onClick: () => openTaskDrawer({ assigneeId: user?.id }) }}
+              action={{ label: t('Create task'), onClick: () => openTaskDrawer({ assigneeId: user?.id }) }}
             />
           </Card>
         }

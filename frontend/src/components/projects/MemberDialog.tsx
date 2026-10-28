@@ -132,7 +132,7 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? t('Change role') : t('Add a member')}</DialogTitle>
+          <DialogTitle>{isEdit ? t('Change role') : t('Add member')}</DialogTitle>
           <DialogDescription>
             {isEdit
               ? t('Their role on this project, and what they can do in it.')

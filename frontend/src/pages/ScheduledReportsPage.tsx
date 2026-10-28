@@ -739,7 +739,7 @@ function ScheduleEditor({
                   set({ recipientUserIds: people.flatMap((person) => (person.kind === 'user' ? [person.userId] : [])) })
                 }
                 emptyText={t('Nobody yet')}
-                label={t('Add a recipient')}
+                label={t('Add recipient')}
               />
               <FieldHint>{t('Each gets the report as they would see it in EPM.')}</FieldHint>
             </div>

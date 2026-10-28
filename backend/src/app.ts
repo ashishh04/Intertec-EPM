@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
 import helmet from '@fastify/helmet';
@@ -17,6 +17,8 @@ import { publishCatalogue } from './domain/measures-store.js';
 import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createTimesheetReminders } from './scheduler/timesheet-reminders.js';
+import { createIntegrationRetry } from './scheduler/integration-retry.js';
+import { createForecastRefresh } from './scheduler/forecast-refresh.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createBurndownSampler } from './scheduler/burndown-sampler.js';
 import { createScheduleCheck } from './scheduler/schedule-check.js';
@@ -47,6 +49,32 @@ import { registerRoutes } from './routes/index.js';
  * against explicit origins — the browser rejects `*` when the client sends
  * `credentials: 'include'`, which the EPM ApiClient always does.
  */
+/**
+ * A link's token travels in its path (an invitation, a password reset) and is a
+ * key to an account until it is used, so the request log keeps the route and
+ * never the token: whoever can read the logs must not be able to use them.
+ */
+const TOKEN_IN_PATH = /(\/(?:invites|password-reset)\/)[^/?#]+/g;
+const withoutTokens = (url: string): string => url.replace(TOKEN_IN_PATH, '$1[redacted]');
+
+/**
+ * Where the rate limit is always per address: signing in, and the links a
+ * token opens (an invitation, a password reset). A session is not a bucket
+ * there, or one account signed in a few times would be a fresh allowance of
+ * guesses each time.
+ */
+function perAddress(url: string): boolean {
+  const path = url.split('?')[0] ?? '';
+  if (!path.startsWith(env.API_PREFIX)) return false;
+  const relative = path.slice(env.API_PREFIX.length);
+  return (
+    relative === '/auth/login' ||
+    relative === '/password-reset' ||
+    relative.startsWith('/password-reset/') ||
+    relative.startsWith('/invites/')
+  );
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -66,6 +94,15 @@ export async function buildApp(): Promise<FastifyInstance> {
           'password',
         ],
         censor: '[redacted]',
+      },
+      serializers: {
+        req: (request: FastifyRequest) => ({
+          method: request.method,
+          url: withoutTokens(request.url),
+          hostname: request.hostname,
+          remoteAddress: request.ip,
+          remotePort: request.socket?.remotePort,
+        }),
       },
       ...(isProduction ? {} : { transport: { target: 'pino-pretty' } }),
     },
@@ -130,11 +167,18 @@ export async function buildApp(): Promise<FastifyInstance> {
      * dashboard load is 14 requests, so a shared 600/min ceiling is about 43
      * page loads per minute for the whole company.
      *
-     * Signed-in traffic is therefore limited per person. Unauthenticated
-     * traffic — the login endpoint above all — still keys on IP, which is
-     * what you want for credential stuffing.
+     * Signed-in traffic is therefore limited per person, by a session cookie
+     * this server signed: any other value would let a client pick a fresh
+     * bucket for every request and slip the limit entirely. Unauthenticated
+     * traffic, and the sign-in and token routes whoever calls them, key on the
+     * address, which is what you want for credential stuffing.
      */
-    keyGenerator: (request) => request.cookies?.[SESSION_COOKIE] ?? request.ip,
+    keyGenerator: (request) => {
+      if (perAddress(request.url)) return `ip:${request.ip}`;
+      const raw = request.cookies?.[SESSION_COOKIE];
+      const unsigned = raw ? request.unsignCookie(raw) : undefined;
+      return unsigned?.valid && unsigned.value ? `session:${unsigned.value}` : `ip:${request.ip}`;
+    },
     // `statusCode` has to be on the returned object: the plugin throws it as
     // the error, and without it the handler below sees no status and reports a
     // 500 — which reads as a server fault rather than a deliberate refusal.
@@ -345,6 +389,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   const timesheetReminders = createTimesheetReminders({ log: app.log });
   timesheetReminders.start();
 
+  // Inbound integration events that failed are retried, then dead-lettered (BR-506).
+  const integrationRetry = createIntegrationRetry({ log: app.log });
+  integrationRetry.start();
+
+  // Delivery forecasts and their recommendations, refreshed every six hours (BR-509, BR-511).
+  const forecastRefresh = createForecastRefresh({ log: app.log });
+  forecastRefresh.start();
+
   // The health sweep. On by default, unlike the schedulers above: it is what
   // keeps stored health true when changes happen where EPM cannot see them.
   const healthSweep = createHealthSweep({ log: app.log });
@@ -446,6 +498,8 @@ export async function buildApp(): Promise<FastifyInstance> {
     burndownSampler.stop();
     dueReminders.stop();
     timesheetReminders.stop();
+    integrationRetry.stop();
+    forecastRefresh.stop();
     snapshots.stop();
     emailWorker.stop();
     await disconnectPrisma();

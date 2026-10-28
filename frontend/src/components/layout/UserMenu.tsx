@@ -9,12 +9,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { useAuth } from '@/providers/AuthProvider';
-import { isAdministrator } from '@/config/navigation';
+import { isAdministrator, roleLabel } from '@/config/navigation';
 import { t } from '@/lib/i18n';
 
 /** Avatar button in the header: identity and sign-out. */
 export function UserMenu() {
-  const { user, signOut, can } = useAuth();
+  const { user, signOut, can, role } = useAuth();
   const administrator = isAdministrator(can);
   const navigate = useNavigate();
 
@@ -32,7 +32,7 @@ export function UserMenu() {
           <UserAvatar user={user} size="lg" />
           <div className="min-w-0">
             <p className="truncate text-xs font-medium">{user?.name ?? t('Signed in')}</p>
-            <p className="truncate text-2xs text-muted-foreground">{user?.role}</p>
+            <p className="truncate text-2xs text-muted-foreground">{roleLabel(role)}</p>
             <p className="truncate font-mono text-2xs text-muted-foreground/80">{user?.email}</p>
           </div>
         </div>

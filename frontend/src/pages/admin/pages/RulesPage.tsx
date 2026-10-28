@@ -465,7 +465,7 @@ function RuleEditor({
                 }}
               >
                 <Plus className="h-3.5 w-3.5" />
-                {t('Add a condition')}
+                {t('Add condition')}
               </Button>
             ) : null}
           </section>
@@ -489,7 +489,7 @@ function RuleEditor({
               <div className="w-64">
                 <Select value="" onValueChange={(type) => set({ actions: [...draft.actions, freshAction(type as RuleAction['type'], draft.subjectType, options)] })}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder={t('Add an action…')} />
+                    <SelectValue placeholder={t('Add action…')} />
                   </SelectTrigger>
                   <SelectContent>
                     {ACTIONS_BY_SUBJECT[draft.subjectType].map((type) => (

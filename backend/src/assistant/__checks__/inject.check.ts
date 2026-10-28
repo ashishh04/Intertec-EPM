@@ -32,7 +32,7 @@ await app.register(
         });
         // Every tool, as this caller, against the live API. A ToolError is a
         // legitimate answer (no sprints, say); a thrown anything-else is not.
-        const context: ToolContext = { app: inner, request, userId: request.auth?.userId ?? '' };
+        const context: ToolContext = { app: inner, request, userId: request.auth?.userId ?? '', role: 'admin' };
         const runs: Array<Record<string, unknown>> = [];
         let firstProject: string | undefined;
         let firstMeeting: string | undefined;

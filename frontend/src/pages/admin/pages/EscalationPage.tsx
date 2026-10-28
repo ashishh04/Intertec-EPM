@@ -409,7 +409,7 @@ function PolicyEditor({
                 }
               >
                 <Plus className="h-3.5 w-3.5" />
-                {t('Add a level')}
+                {t('Add level')}
               </Button>
             ) : null}
           </section>

@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { adminRoutes } from './admin.js';
 import { assistantRoutes } from './assistant.js';
 import { invitesRoutes } from './invites.js';
+import { passwordResetRoutes } from './password-reset.js';
 import { preferencesRoutes } from './preferences.js';
 import { webhooksRoutes } from './webhooks.js';
 import { attachmentRoutes } from './attachments.js';
@@ -45,6 +46,7 @@ import { taskImportRoutes } from './task-imports.js';
 import { portalRoutes } from './portal.js';
 import { externalAdminRoutes } from './external-admin.js';
 import { assistantAdminRoutes } from './assistant-admin.js';
+import { forecastRoutes } from './forecasts.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
 import { sprintRoutes } from './sprints.js';
@@ -57,6 +59,7 @@ import { watcherRoutes } from './watchers.js';
 import { wikiRoutes } from './wiki.js';
 import { workPackageRoutes } from './work-packages.js';
 import { permissionGrantRoutes } from './permission-grants.js';
+import { appRoleRoutes } from './app-roles.js';
 import { journalRoutes } from './journal.js';
 
 /**
@@ -103,6 +106,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(portalRoutes);
   await app.register(externalAdminRoutes);
   await app.register(assistantAdminRoutes);
+  await app.register(forecastRoutes);
   await app.register(commentRoutes);
   await app.register(memberRoutes);
   await app.register(accountRoutes);
@@ -118,10 +122,12 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(adminRoutes);
   // Governance (Module 16): EPM's own permission grants, and the whole journal.
   await app.register(permissionGrantRoutes);
+  await app.register(appRoleRoutes);
   await app.register(journalRoutes);
   await app.register(preferencesRoutes);
   await app.register(sessionRoutes);
   await app.register(invitesRoutes);
+  await app.register(passwordResetRoutes);
   await app.register(webhooksRoutes);
   await app.register(assistantRoutes);
   // Collaboration: EPM's own records, because OpenProject's meetings, news and
