@@ -205,6 +205,47 @@ Rails.application.config.to_prepare do
       render json: { login: user.login }
     end
 
+    # --------------------------------------------------------------- documents
+
+    # EPM's document library (backend/src/routes/documents.ts). EPM stores each
+    # document as a file with no container and files it under a project in its
+    # own index; OpenProject shows such a file to its uploader alone, so nobody
+    # else on the project could open it. EPM decides who may — anyone who may
+    # see the project it is filed under — and reads the file here as its
+    # service account, which is not an administrator (NFR06). Container-less
+    # files only: an attachment on a work package or a wiki page keeps its own
+    # permissions and is never served here.
+    def document
+      file = document_file
+      render json: {
+        id: file.id.to_s,
+        fileName: file.filename,
+        fileSize: file.filesize,
+        contentType: file.content_type,
+        createdAt: file.created_at&.iso8601,
+        authorId: file.author_id&.to_s
+      }
+    end
+
+    # The bytes, refused the way OpenProject refuses them: quarantined, or not
+    # yet scanned for viruses.
+    def document_content
+      file = document_file
+      if file.status_quarantined? || (file.respond_to?(:pending_virus_scan?) && file.pending_virus_scan?)
+        return render json: { message: "This file is not available." }, status: :forbidden
+      end
+      return redirect_to(file.external_url.to_s, allow_other_host: true) if file.external_storage?
+
+      local = file.diskfile
+      return render(json: { message: "Not found." }, status: :not_found) if local.nil?
+
+      response.headers["X-Content-Type-Options"] = "nosniff"
+      send_file local.path,
+                type: file.served_content_type.presence || "application/octet-stream",
+                disposition: "attachment",
+                filename: file.filename
+    end
+
     # ------------------------------------------------------------- permissions
 
     def permissions
@@ -368,6 +409,10 @@ Rails.application.config.to_prepare do
       return "administrator" if user.admin? && user.last_login_on.present?
 
       "settable"
+    end
+
+    def document_file
+      Attachment.where(container_type: nil, container_id: nil).find(params[:id])
     end
 
     # ------------------------------------------------------------------ auth
@@ -686,6 +731,8 @@ Rails.application.routes.prepend do
     get "users/administrators", action: :administrators
     post "users/password_reset_target", action: :password_reset_target
     patch "users/:id/password", action: :set_password, constraints: { id: /\d+/ }
+    get "documents/:id", action: :document, constraints: { id: /\d+/ }
+    get "documents/:id/content", action: :document_content, constraints: { id: /\d+/ }
     get "permissions", action: :permissions
     get "roles", action: :roles
     post "roles", action: :create_role
