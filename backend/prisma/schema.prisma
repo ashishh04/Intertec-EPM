@@ -114,6 +114,11 @@ model UserProfile {
   /// An external user — a client or a vendor (BR-611): sees only the portal,
   /// and in it only what their external roles allow on the projects granted.
   external           Boolean     @default(false)
+  /// The person's role in EPM — `manager`, `hr` or `employee` — which decides
+  /// their sidebar, their screens and a bundle of EPM permissions
+  /// (`auth/roles.ts`). Null reads as `employee`. Administrators are not
+  /// stored: they are the instance's administrator accounts.
+  appRole            String?
   /// Set when an administrator created this account with a starting password
   /// they chose. Cleared the moment the person sets their own.
   ///
@@ -1030,7 +1035,11 @@ model InviteToken {
   email         String
   createdBy     String
   expiresAt     DateTime
+  /// Set when the link can no longer be used: accepted, or replaced.
   usedAt        DateTime?
+  /// Set when a newer invitation retired this one, so the page can say the
+  /// link was replaced rather than claim it was used.
+  replacedAt    DateTime?
   createdAt     DateTime  @default(now())
 
   @@index([openProjectId])

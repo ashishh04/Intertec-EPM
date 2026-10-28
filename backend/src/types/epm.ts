@@ -118,6 +118,8 @@ export interface EpmAccount {
   email: string;
   /** Instance administrator upstream. Unrelated to any EPM permission. */
   admin: boolean;
+  /** The EPM role they work in: `admin` follows `admin` above. */
+  appRole: AppRole;
   status: AccountStatus;
   language?: string;
   createdAt: ISODate;
@@ -219,6 +221,43 @@ export type Permission =
 
 /** Nested permission map as returned by `GET /me`. */
 export type PermissionMap = Record<string, Record<string, boolean>>;
+
+/**
+ * A person's EPM role: the screens and sidebar they work in, and a bundle of
+ * EPM permissions. `admin` is the instance's administrator accounts and is
+ * never assigned; the others are set under Administration. `external` is a
+ * client or vendor: the portal only, and in it a client or vendor role on each
+ * project granted to them.
+ */
+export type AppRole = 'admin' | 'manager' | 'hr' | 'employee' | 'external';
+
+/** One person's role, as the Access roles page lists it. */
+export interface AppRoleAssignment {
+  userId: ID;
+  userName: string;
+  email: string;
+  role: AppRole;
+  /** An administrator account: shown, but its role is not changed here. */
+  administrator: boolean;
+  /** For an external person: the projects they see in the portal, and their role on each. */
+  externalAccess?: { projectName: string; roleName: string }[];
+}
+
+export interface AppRoleDefinition {
+  role: AppRole;
+  label: string;
+  description: string;
+  assignable: boolean;
+  /** The EPM permissions the role brings, by label. */
+  permissions: string[];
+  /** For External: the client and vendor roles a person can hold on a project. */
+  kinds?: string[];
+}
+
+export interface AppRoles {
+  catalogue: AppRoleDefinition[];
+  people: AppRoleAssignment[];
+}
 
 /* -------------------------------------------------------------------------- */
 /* Projects                                                                    */
@@ -1426,8 +1465,12 @@ export interface InviteInfo {
   email: string;
   organisation: string;
   expiresAt: ISODate;
-  /** `expired` and `used` are both terminal; the page explains which. */
-  state: 'valid' | 'expired' | 'used';
+  /**
+   * Only `valid` can set a password. `replaced` means a newer invitation
+   * retired this link; `expired` and `used` are terminal too, and the page
+   * explains which.
+   */
+  state: 'valid' | 'expired' | 'used' | 'replaced';
 }
 
 /* -------------------------------------------------------------------------- */

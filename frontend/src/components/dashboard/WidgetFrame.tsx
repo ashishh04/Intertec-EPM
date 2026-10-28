@@ -135,7 +135,7 @@ export function AddWidgetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t('Add a widget')}</DialogTitle>
+          <DialogTitle>{t('Add widget')}</DialogTitle>
           <DialogDescription>
             {t('Everything not already on your Overview. It is added at the bottom, and you can move it from there.')}
           </DialogDescription>

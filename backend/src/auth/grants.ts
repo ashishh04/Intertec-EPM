@@ -18,7 +18,7 @@ import { PERMISSIONS, type Permission, type PermissionSet } from './permissions.
  */
 
 /** Permissions that may be granted here. Anything OpenProject can answer is not. */
-const GRANTABLE = new Set<Permission>([
+export const GRANTABLE_PERMISSIONS: readonly Permission[] = [
   'departments:manage',
   'teams:manage',
   'employees:manage',
@@ -43,7 +43,9 @@ const GRANTABLE = new Set<Permission>([
   'finance:manage',
   'finance:configure',
   'scenarios:manage',
-]);
+];
+
+const GRANTABLE = new Set<Permission>(GRANTABLE_PERMISSIONS);
 
 export function isGrantable(permission: string): permission is Permission {
   return GRANTABLE.has(permission as Permission);
@@ -96,15 +98,9 @@ function isPermission(value: string): value is Permission {
  * row costs one display field, guessing here would hand out an allowance.
  */
 export async function applyEpmGrants(userId: string, global: PermissionSet): Promise<void> {
-  // An instance administrator reads the journal and the rates too. They can
-  // grant either to themselves on the EPM permissions page, so implying them
-  // widens nobody's reach — it saves a step and keeps the screens and the API
-  // agreeing. Nobody can change the journal; the database refuses. Granting
-  // these is for people who are not administrators: audit, finance.
-  if (global['users:manage']) {
-    global['audit:view'] = true;
-    global['rates:view'] = true;
-  }
+  // An instance administrator gets every grantable permission through their
+  // role (`roles.ts`), applied after OpenProject has said who may manage users.
+  // This runs before that answer, on an empty set, so it cannot tell.
 
   if (env.EPM_ADMIN_USER_IDS.includes(userId)) {
     for (const permission of GRANTABLE) global[permission] = true;

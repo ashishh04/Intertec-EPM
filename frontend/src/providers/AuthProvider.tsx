@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/services/api/client';
-import type { EpmUser, ID, Permission, PermissionMap } from '@/types';
+import type { AppRole, EpmUser, ID, Permission, PermissionMap } from '@/types';
 import { useCurrentUser } from '@/hooks/useUsers';
 import { clearPersistedCache, reconcilePersistedCacheOwner } from '@/lib/queryPersister';
 
@@ -28,6 +28,7 @@ interface MeResponse extends EpmUser {
   permissions?: PermissionMap;
   projectPermissions?: Record<string, PermissionMap>;
   mustChangePassword?: boolean;
+  appRole?: AppRole;
 }
 
 interface AuthContextValue {
@@ -57,6 +58,12 @@ interface AuthContextValue {
   mustChangePassword: boolean;
   /** A client or vendor: they see only the portal (BR-611). */
   external: boolean;
+  /**
+   * Admin, Manager, HR or Employee: which sidebar and screens this person gets.
+   * Like the permissions, a courtesy for the UI — the backend applies the
+   * role's permissions itself.
+   */
+  role: AppRole;
   signIn: (username: string, password: string) => Promise<void>;
   signOut: () => void;
   /** Sets the caller's own password and clears the gate. */
@@ -155,6 +162,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       mustChangePassword: me?.mustChangePassword ?? false,
       external: me?.external === true,
+      // A backend older than roles sends none: its administrators stay administrators.
+      role: me?.appRole ?? (lookup(global, 'users:manage') ? 'admin' : 'employee'),
 
       signIn,
       signOut,

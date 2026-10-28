@@ -77,7 +77,8 @@ async function invitee(email: string, accountId: string, signal: AbortSignal): P
   return target?.id === accountId ? target : null;
 }
 
-function stateOf(invite: { usedAt: Date | null; expiresAt: Date }): InviteInfo['state'] {
+function stateOf(invite: { usedAt: Date | null; replacedAt: Date | null; expiresAt: Date }): InviteInfo['state'] {
+  if (invite.replacedAt) return 'replaced';
   if (invite.usedAt) return 'used';
   if (invite.expiresAt.getTime() < Date.now()) return 'expired';
   return 'valid';
@@ -113,6 +114,9 @@ export const invitesRoutes: FastifyPluginAsync = async (app) => {
       const invite = await inviteByToken(request.params.token);
 
       const state = stateOf(invite);
+      if (state === 'replaced') {
+        throw EpmError.gone('A newer invitation replaced this link. Use the one in your latest email.');
+      }
       if (state === 'used') throw EpmError.gone('This invitation has already been used.');
       if (state === 'expired') {
         throw EpmError.gone('This invitation has expired. Ask your administrator to send a new one.');

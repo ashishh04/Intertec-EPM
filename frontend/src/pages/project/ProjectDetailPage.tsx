@@ -39,7 +39,7 @@ import { MemberDialog } from '@/components/projects/MemberDialog';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
 import { exceptDetailOf, invalidationGroups } from '@/lib/queryKeys';
 import { projectWriteService } from '@/services';
-import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
+import { useUI } from '@/providers/UIProvider';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { t } from '@/lib/i18n';
@@ -117,7 +117,8 @@ export default function ProjectDetailPage() {
     }
   };
   const [editOpen, setEditOpen] = useState(false);
-  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  // The same form as every other place work is added from.
+  const { openTaskDrawer } = useUI();
   const [inviteOpen, setInviteOpen] = useState(false);
   const { data: project, isLoading, isError, refetch } = useProject(projectId);
   const users = useUserMap();
@@ -182,7 +183,7 @@ export default function ProjectDetailPage() {
             </Button>
             <Button
               size="sm"
-              onClick={() => setNewTaskOpen(true)}
+              onClick={() => openTaskDrawer({ projectId: project.id })}
               disabled={!canInProject(projectId, 'task:create')}
             >
               <Plus className="h-4 w-4" />
@@ -280,11 +281,6 @@ export default function ProjectDetailPage() {
       <Outlet />
 
       <ProjectDialog open={editOpen} onOpenChange={setEditOpen} projectId={project.id} />
-      <WorkPackageDialog
-        open={newTaskOpen}
-        onOpenChange={setNewTaskOpen}
-        projectId={project.id}
-      />
       <MemberDialog open={inviteOpen} onOpenChange={setInviteOpen} projectId={project.id} />
 
       <Dialog

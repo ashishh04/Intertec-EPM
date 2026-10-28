@@ -160,6 +160,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('A matrix of every permission against every role.'); },
       },
       {
+        id: 'app-roles',
+        get label() { return t('Access roles'); },
+        kind: 'live',
+        get description() { return t('Whether each person works as a manager, HR, an employee or an external user (a client or vendor): their screens, their sidebar and the EPM permissions that come with it.'); },
+      },
+      {
         id: 'epm-permissions',
         get label() { return t('EPM permissions'); },
         kind: 'live',

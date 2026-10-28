@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
+import type { AppRole } from '../auth/roles.js';
 import { env } from '../config/env.js';
+import { DELIVERY_ROLES, MANAGEMENT_ROLES, PEOPLE_ROLES } from './tool-roles.js';
 import { budgetExposure, deliveryForecast, recommendedActions, riskExposure } from './analysis-tools.js';
 import type { ChatTool } from './bedrock.js';
 import type {
@@ -35,6 +37,8 @@ export interface ToolContext {
   app: FastifyInstance;
   request: FastifyRequest;
   userId: string;
+  /** The asker's EPM role. Employee until their permissions are read. */
+  role: AppRole;
 }
 
 export interface ToolDefinition {
@@ -50,6 +54,12 @@ export interface ToolDefinition {
    * keeps the model from even trying what would only be refused.
    */
   allowed?(access: ToolAccess): boolean;
+  /**
+   * The EPM roles this tool is for, matching the screens each role works in
+   * (`tool-roles.ts`). Absent means every internal role. Checked before
+   * `allowed`, offered and again when the tool runs.
+   */
+  roles?: readonly AppRole[];
 }
 
 export interface ToolAccess {
@@ -57,6 +67,8 @@ export interface ToolAccess {
   can(permission: string): boolean;
   allowFinance: boolean;
   allowPeople: boolean;
+  /** The asker's EPM role. */
+  role: AppRole;
 }
 
 /** Ceiling on a tool result, in JSON characters, before it is truncated. */
@@ -382,6 +394,7 @@ const listProjects: ToolDefinition = {
 };
 
 const teamWorkload: ToolDefinition = {
+  roles: PEOPLE_ROLES,
   name: 'team_workload',
   allowed: (access) => access.allowPeople,
   description:
@@ -425,6 +438,7 @@ const teamWorkload: ToolDefinition = {
 };
 
 const getSprint: ToolDefinition = {
+  roles: DELIVERY_ROLES,
   name: 'get_sprint',
   description:
     'A sprint: state, dates, committed and completed points, projects. Without a name ' +
@@ -800,7 +814,8 @@ const timeSummary: ToolDefinition = {
     'hours belonging to somebody with no hourly rate count as hours but are left out of the ' +
     'money, and the result says how many those were. Report that gap rather than hiding it. ' +
     'When costHidden is true the person asking may not see hourly rates or costs: give hours ' +
-    'only and say that costs are not shown to them — never estimate a cost.',
+    'only and say that costs are not shown to them — never estimate a cost. For an employee it ' +
+    'covers only their own hours, whatever is asked.',
   parameters: {
     type: 'object',
     properties: {
@@ -833,7 +848,9 @@ const timeSummary: ToolDefinition = {
       to,
       groupBy: str(args.groupBy) ?? 'project',
       projectId: str(args.projectId),
-      userId: str(args.userId),
+      // An employee's reach is their own time (My Time); the organisation's
+      // hours are a reporting screen for managers and HR.
+      userId: context.role === 'employee' ? context.userId : str(args.userId),
     });
 
     return {
@@ -884,6 +901,7 @@ const myTimesheet: ToolDefinition = {
 };
 
 const teamTimesheets: ToolDefinition = {
+  roles: PEOPLE_ROLES,
   name: 'team_timesheets',
   description:
     'Timesheets of a period for the people the asker manages (or everyone, for whoever manages timesheets): ' +
@@ -952,6 +970,7 @@ const approvalsWaiting: ToolDefinition = {
 };
 
 const financeFigures: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'finance_figures',
   description:
     'Finance for one project, a portfolio, or every project the asker can see: kind cash_flow (planned ' +
@@ -986,6 +1005,7 @@ const financeFigures: ToolDefinition = {
 };
 
 const earnedValue: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'earned_value',
   description:
     'Earned value for one project, a portfolio or the instance: planned value, earned value, actual cost, SPI, CPI, EAC. ' +
@@ -1001,6 +1021,7 @@ const earnedValue: ToolDefinition = {
 };
 
 const resourceOverload: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'resource_overload',
   description:
     'Who is over-allocated in the coming weeks, and by how much: committed hours against available ' +
@@ -1015,6 +1036,7 @@ const resourceOverload: ToolDefinition = {
 };
 
 const scenarios: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'scenarios',
   description: 'Portfolio scenarios: their names, status (draft, awaiting approval, applied, rejected) and when they were made. For whoever plans scenarios.',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
@@ -1060,9 +1082,18 @@ export function findTool(name: string): ToolDefinition | undefined {
   return byName.get(name);
 }
 
+/** Whether this person may use a tool: their role first, then what they hold and the policy. */
+export function toolAllowed(tool: ToolDefinition, access: ToolAccess): boolean {
+  // Not one tool for a client or vendor. Pragnya is refused to them before any
+  // of this runs (service.ts); this holds even if that check ever did not.
+  if (access.role === 'external') return false;
+  if (tool.roles && !tool.roles.includes(access.role)) return false;
+  return !tool.allowed || tool.allowed(access);
+}
+
 /** The tools this person is offered, in the shape the Messages API expects. */
 export function toolSchemas(access?: ToolAccess): ChatTool[] {
-  return TOOLS.filter((tool) => !access || !tool.allowed || tool.allowed(access)).map((tool) => ({
+  return TOOLS.filter((tool) => !access || toolAllowed(tool, access)).map((tool) => ({
     name: tool.name,
     description: tool.description,
     input_schema: tool.parameters as ChatTool['input_schema'],

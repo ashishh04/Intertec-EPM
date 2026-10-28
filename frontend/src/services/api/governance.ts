@@ -1,9 +1,9 @@
 import { apiClient } from './client';
-import type { ID, JournalPage, Permission, PermissionGrant, PermissionGrants } from '@/types';
+import type { AppRole, AppRoles, ID, JournalPage, Permission, PermissionGrant, PermissionGrants } from '@/types';
 
 /**
- * Governance (Module 16): EPM's own permission grants, and the instance-wide
- * journal of every change EPM recorded.
+ * Governance (Module 16): EPM's own permission grants, the role each person
+ * works in, and the instance-wide journal of every change EPM recorded.
  */
 
 export interface JournalQuery {
@@ -32,6 +32,14 @@ export const governanceService = {
     return apiClient.delete<void>(
       `/admin/permission-grants/${encodeURIComponent(userId)}/${encodeURIComponent(permission)}`,
     );
+  },
+
+  getAppRoles(): Promise<AppRoles> {
+    return apiClient.get<AppRoles>('/admin/app-roles');
+  },
+
+  setAppRole(userId: ID, role: Exclude<AppRole, 'admin'>): Promise<{ userId: ID; role: AppRole }> {
+    return apiClient.put<{ userId: ID; role: AppRole }>(`/admin/app-roles/${encodeURIComponent(userId)}`, { role });
   },
 
   getJournal(query: JournalQuery): Promise<JournalPage> {

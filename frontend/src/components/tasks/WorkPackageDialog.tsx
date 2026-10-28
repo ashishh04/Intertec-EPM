@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -12,97 +12,56 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { useProjectTypes } from '@/hooks/useCatalog';
 import { useSchemaForm } from '@/hooks/useSchemaForm';
-import { useProjects } from '@/hooks/useProjects';
 import { invalidationGroups } from '@/lib/queryKeys';
 import { formService, workPackageService } from '@/services';
 import { t } from '@/lib/i18n';
 import type { ID } from '@/types';
 
 /**
- * Create or edit a work package with every field the instance defines.
+ * Edit a work package with every field the instance defines ("Edit all
+ * fields" on a task).
  *
- * The curated task drawer covers the common path deliberately. This is the
- * complete one: fields, allowed values and validation all come from
- * OpenProject's schema, so custom fields and instance-specific configuration
- * appear without any change here.
+ * Fields, allowed values and validation all come from OpenProject's schema,
+ * so custom fields and instance-specific configuration appear without any
+ * change here.
+ *
+ * Edit only. Creating a work package has one form wherever it starts — the
+ * task drawer (`openTaskDrawer`) — so people learn one way to add work; the
+ * fields the drawer does not carry are set here afterwards.
  */
 
 interface WorkPackageDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Omit to create. */
-  workPackageId?: ID;
-  /** Pre-selects the project when creating. */
-  projectId?: ID;
+  workPackageId: ID;
 }
 
-export function WorkPackageDialog({
-  open,
-  onOpenChange,
-  workPackageId,
-  projectId: initialProjectId,
-}: WorkPackageDialogProps) {
-  const isEdit = Boolean(workPackageId);
+export function WorkPackageDialog({ open, onOpenChange, workPackageId }: WorkPackageDialogProps) {
   const queryClient = useQueryClient();
-
-  const projectsQuery = useProjects();
-  const [projectId, setProjectId] = useState<ID | undefined>(initialProjectId);
-  const [typeId, setTypeId] = useState<string>();
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    if (open) setProjectId(initialProjectId);
-  }, [open, initialProjectId]);
-
-  const typesQuery = useProjectTypes(isEdit ? undefined : projectId);
-
-  // Type drives which fields exist, so it is chosen before the schema loads
-  // rather than rendered as one field among many. It travels as an id: the
-  // backend builds the link, so the shape of the upstream API stays out of the
-  // browser.
   const load = useCallback(
-    (payload: Record<string, unknown>) =>
-      isEdit
-        ? formService.workPackageEditForm(workPackageId!, payload)
-        : formService.workPackageCreateForm(projectId!, payload, typeId || undefined),
-    [isEdit, workPackageId, projectId, typeId],
+    (payload: Record<string, unknown>) => formService.workPackageEditForm(workPackageId, payload),
+    [workPackageId],
   );
 
-  const form = useSchemaForm(load, {
-    enabled: open && (isEdit || Boolean(projectId)),
-  });
+  const form = useSchemaForm(load, { enabled: open });
 
   const save = async () => {
     setIsSaving(true);
     try {
       // The draft holds only what the user changed plus OpenProject's own
       // defaulting, which is exactly what should be written.
-      const payload = form.draft;
-
-      if (isEdit) {
-        await workPackageService.update(workPackageId!, payload);
-        toast.success(t('Work package updated'));
-      } else {
-        await workPackageService.create(projectId!, payload, typeId || undefined);
-        toast.success(t('Work package created'));
-      }
+      await workPackageService.update(workPackageId, form.draft);
+      toast.success(t('Work package updated'));
 
       for (const key of invalidationGroups.taskWrite) {
         await queryClient.invalidateQueries({ queryKey: key });
       }
       onOpenChange(false);
     } catch (error) {
-      toast.error(isEdit ? t('Could not update work package') : t('Could not create work package'), {
+      toast.error(t('Could not update work package'), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -110,14 +69,11 @@ export function WorkPackageDialog({
     }
   };
 
-  const projects = projectsQuery.data ?? [];
-  const types = typesQuery.data ?? [];
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? t('Edit work package') : t('New work package')}</DialogTitle>
+          <DialogTitle>{t('Edit work package')}</DialogTitle>
           <DialogDescription>
             {t('Every field configured for this workspace, including custom fields.')}
           </DialogDescription>
@@ -126,63 +82,19 @@ export function WorkPackageDialog({
         {/* Scrolls, so the actions stay pinned however many fields the
             instance has configured on this type. */}
         <div className="epm-dialog-body epm-scroll -me-1 space-y-4 pe-2">
-          {!isEdit ? (
-            <>
-              <div className="space-y-1.5">
-                <Label htmlFor="wp-project" required>
-                  {t('Project')}
-                </Label>
-                <Select value={projectId ?? ''} onValueChange={(value) => setProjectId(value)}>
-                  <SelectTrigger id="wp-project">
-                    <SelectValue placeholder={t('Select a project')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {projectId ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="wp-type" required>
-                    {t('Type')}
-                  </Label>
-                  <Select value={typeId ?? ''} onValueChange={setTypeId}>
-                    <SelectTrigger id="wp-type">
-                      <SelectValue placeholder={t('Select a type')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {types.map((type) => (
-                        <SelectItem key={type.id} value={type.id}>
-                          {type.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-            </>
-          ) : null}
-
-          {isEdit || projectId ? (
-            <SchemaForm
-              form={form.form}
-              values={form.draft}
-              errors={form.errors}
-              onChange={form.setValue}
-              isLoading={form.isLoading}
-              // Chosen above; rendering them again would let the two disagree.
-              exclude={['project', 'type']}
-              // OpenProject's own sections — People, Estimates and progress,
-              // Details — because this is the whole record and forty fields in
-              // one column is a wall rather than a form.
-              grouped
-            />
-          ) : null}
+          <SchemaForm
+            form={form.form}
+            values={form.draft}
+            errors={form.errors}
+            onChange={form.setValue}
+            isLoading={form.isLoading}
+            // The project and type are the record's identity, not edited here.
+            exclude={['project', 'type']}
+            // OpenProject's own sections — People, Estimates and progress,
+            // Details — because this is the whole record and forty fields in
+            // one column is a wall rather than a form.
+            grouped
+          />
 
           {form.error ? (
             <p role="alert" className="text-2xs font-medium text-danger">
@@ -202,7 +114,7 @@ export function WorkPackageDialog({
             // invalid, which is a better gate than anything computed here.
             disabled={!form.canSubmit || isSaving}
           >
-            {isEdit ? t('Save changes') : t('Create')}
+            {t('Save changes')}
           </Button>
         </DialogFooter>
       </DialogContent>

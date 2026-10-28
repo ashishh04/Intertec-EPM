@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { MANAGEMENT_ROLES } from './tool-roles.js';
 import type { ToolContext, ToolDefinition } from './tools.js';
 
 /**
@@ -69,6 +70,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const cite = (task: Task) => ({ id: task.id, subject: task.subject, due: task.dueDate ?? null, priority: task.priority ?? null, link: `/tasks/${task.id}` });
 
 export const riskExposure: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'risk_exposure',
   description:
     'Risk exposure across the projects the asker can see: where open risks concentrate (by project and severity), ' +
@@ -128,6 +130,7 @@ export const riskExposure: ToolDefinition = {
 };
 
 export const budgetExposure: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'budget_exposure',
   description:
     'Budget exposure across the projects the asker can see: spend so far against progress, the spend at completion ' +
@@ -203,6 +206,7 @@ export const budgetExposure: ToolDefinition = {
 };
 
 export const deliveryForecast: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'delivery_forecast',
   description:
     'Delivery forecasts for the projects the asker can see, from a model trained on the organisation’s own finished work: ' +
@@ -238,6 +242,7 @@ export const deliveryForecast: ToolDefinition = {
 };
 
 export const recommendedActions: ToolDefinition = {
+  roles: MANAGEMENT_ROLES,
   name: 'recommended_actions',
   description:
     'Recommended actions waiting for a decision, for the projects the asker can see: each with its evidence, expected effect and the one ' +

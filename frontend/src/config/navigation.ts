@@ -33,7 +33,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { t } from '@/lib/i18n';
-import type { Permission } from '@/types';
+import type { AppRole, Permission } from '@/types';
 
 export interface NavItem {
   label: string;
@@ -49,12 +49,47 @@ export interface NavItem {
    * courtesy, not the boundary.
    */
   permission?: Permission;
+  /** Shown only to these roles. Absent means every role. */
+  roles?: readonly AppRole[];
 }
 
 export interface NavSection {
   /** Section eyebrow. The first section is unlabelled. */
   title?: string;
+  /** Shown only to these roles. Absent means every role. */
+  roles?: readonly AppRole[];
   items: NavItem[];
+}
+
+/**
+ * Which roles work in which areas. Shared by the sidebar and the router
+ * (App.tsx), so a link that is hidden is also an address that is refused.
+ *
+ * - Delivery (agile, boards, sprints, Gantt) is for the people running and
+ *   doing project work; HR does not plan sprints.
+ * - Portfolio insight (dashboards, portfolio views, forecasts) is for managers.
+ * - Reporting (reports, time and costs) is for managers and HR.
+ */
+export const ROLE_ACCESS = {
+  delivery: ['admin', 'manager', 'employee'],
+  insights: ['admin', 'manager'],
+  reporting: ['admin', 'manager', 'hr'],
+} as const satisfies Record<string, readonly AppRole[]>;
+
+/** What each role is called on screen. */
+export function roleLabel(role: AppRole): string {
+  switch (role) {
+    case 'admin':
+      return t('Administrator');
+    case 'manager':
+      return t('Manager');
+    case 'hr':
+      return t('HR');
+    case 'external':
+      return t('External');
+    default:
+      return t('Employee');
+  }
 }
 
 /**
@@ -85,6 +120,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     get title() { return t('Delivery'); },
+    roles: ROLE_ACCESS.delivery,
     items: [
       { get label() { return t('Agile'); }, to: '/agile', icon: Timer },
       { get label() { return t('Boards'); }, to: '/boards', icon: SquareKanban },
@@ -96,14 +132,23 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     get title() { return t('Insights'); },
     items: [
-      { get label() { return t('Dashboards'); }, to: '/insights', icon: PieChart, matchNested: true },
-      { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true },
+      { get label() { return t('Dashboards'); }, to: '/insights', icon: PieChart, matchNested: true, roles: ROLE_ACCESS.insights },
+      { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true, roles: ROLE_ACCESS.insights },
       { get label() { return t('Scenarios'); }, to: '/scenarios', icon: GitCompare, matchNested: true, permission: 'scenarios:manage' },
-      { get label() { return t('Forecasts'); }, to: '/forecasts', icon: TrendingUp },
-      { get label() { return t('Reports'); }, to: '/reports', icon: FileText },
+      { get label() { return t('Forecasts'); }, to: '/forecasts', icon: TrendingUp, roles: ROLE_ACCESS.insights },
+      { get label() { return t('Reports'); }, to: '/reports', icon: FileText, roles: ROLE_ACCESS.reporting },
       { get label() { return t('Scheduled reports'); }, to: '/reports/scheduled', icon: MailCheck, permission: 'reports:schedule' },
-      { get label() { return t('Time & Costs'); }, to: '/time-and-costs', icon: Coins },
+      { get label() { return t('Time & Costs'); }, to: '/time-and-costs', icon: Coins, roles: ROLE_ACCESS.reporting },
       { get label() { return t('Finance'); }, to: '/finance', icon: Landmark, permission: 'finance:view' },
+    ],
+  },
+  {
+    // HR's home: the organisation and the people in it. Gated on permissions
+    // rather than a role, so an administrator, or anyone granted them, sees it too.
+    get title() { return t('People'); },
+    items: [
+      { get label() { return t('Employees'); }, to: '/employees', icon: UserRound, permission: 'employees:manage' },
+      { get label() { return t('Departments'); }, to: '/departments', icon: Building2, permission: 'departments:manage' },
     ],
   },
   {
@@ -128,8 +173,6 @@ export const NAV_SECTIONS: NavSection[] = [
       },
       { get label() { return t('Portfolios'); }, to: '/portfolios', icon: Briefcase, permission: 'portfolios:manage' },
       { get label() { return t('Analytics'); }, to: '/analytics', icon: BarChart3, permission: 'analytics:manage' },
-      { get label() { return t('Departments'); }, to: '/departments', icon: Building2, permission: 'departments:manage' },
-      { get label() { return t('Employees'); }, to: '/employees', icon: UserRound, permission: 'employees:manage' },
       { get label() { return t('Integration'); }, to: '/settings/integration', icon: Plug, permission: 'users:manage' },
       { get label() { return t('Audit journal'); }, to: '/journal', icon: ScrollText, permission: 'audit:view' },
     ],
@@ -147,11 +190,14 @@ export const NAV_SECTIONS: NavSection[] = [
  * The sections a given person may see, with items they lack the permission for
  * removed and any section left empty dropped with them.
  */
-export function visibleNavSections(can: (permission: Permission) => boolean): NavSection[] {
-  return NAV_SECTIONS.map((section) => ({
-    ...section,
-    items: section.items.filter((item) => !item.permission || can(item.permission)),
-  })).filter((section) => section.items.length > 0);
+export function visibleNavSections(can: (permission: Permission) => boolean, role: AppRole): NavSection[] {
+  const forRole = (roles?: readonly AppRole[]) => !roles || roles.includes(role);
+  return NAV_SECTIONS.filter((section) => forRole(section.roles))
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => forRole(item.roles) && (!item.permission || can(item.permission))),
+    }))
+    .filter((section) => section.items.length > 0);
 }
 
 /** The Administration section, filtered to what this person may open. */

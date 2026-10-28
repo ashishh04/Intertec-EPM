@@ -1,6 +1,7 @@
 import { referenceCache } from '../lib/cache.js';
 import { openProject } from '../openproject/client.js';
 import { applyEpmGrants } from './grants.js';
+import { applyRole, resolveRole, type AppRole } from './roles.js';
 import {
   emptyPermissions,
   grantFromAction,
@@ -35,6 +36,8 @@ export interface EffectivePermissions {
   global: PermissionSet;
   /** Project id -> permissions within that project. */
   byProject: Map<string, PermissionSet>;
+  /** The person's EPM role (`roles.ts`), already applied to `global`. */
+  role: AppRole;
 }
 
 function actionOf(capability: OpCapability): string | undefined {
@@ -111,7 +114,9 @@ export async function loadPermissions(
      */
     const global = emptyPermissions();
     await applyEpmGrants(userId, global).catch(() => undefined);
-    return { global, byProject: new Map() };
+    const role = await resolveRole(userId, global);
+    applyRole(role, global);
+    return { global, byProject: new Map(), role };
   }
 }
 
@@ -157,7 +162,12 @@ async function readPermissions(
     grantFromAction(set, action);
   }
 
-  return { global, byProject };
+  // After the capabilities, because an administrator is whoever OpenProject
+  // says may manage users.
+  const role = await resolveRole(userId, global);
+  applyRole(role, global);
+
+  return { global, byProject, role };
 }
 
 /**

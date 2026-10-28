@@ -104,7 +104,7 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
           {can?.add ? (
             <Popover open={picking} onOpenChange={setPicking}>
               <PopoverTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-8 px-2" aria-label={t('Add a watcher')}>
+                <Button size="sm" variant="ghost" className="h-8 px-2" aria-label={t('Add watcher')}>
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               </PopoverTrigger>

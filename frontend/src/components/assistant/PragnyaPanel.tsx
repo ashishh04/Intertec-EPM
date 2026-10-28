@@ -6,21 +6,49 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { InfoTooltip } from '@/components/ui/tooltip';
 import { EpmMark } from '@/components/common/EpmLogo';
+import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { useAssistantStatus, useChat } from '@/hooks/useAssistant';
 import { msg, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import type { ID } from '@/types';
+import type { AppRole, ID } from '@/types';
 import { AssistantComposer } from './AssistantComposer';
 import { AssistantMessage } from './AssistantMessage';
 import { ConversationMenu } from './ConversationMenu';
 
-const SUGGESTIONS = [
-  msg('What is overdue on my work?'),
-  msg('How healthy is each project?'),
-  msg('Who has capacity this week?'),
-  msg('Summarise the active sprint'),
-];
+/**
+ * Starter questions for each role, kept to what Pragnya will answer for that
+ * role (the server cuts its tools the same way), so nobody is offered a
+ * question that ends in "that is not part of your role".
+ */
+const SUGGESTIONS: Record<AppRole, string[]> = {
+  admin: [
+    msg('What is overdue on my work?'),
+    msg('How healthy is each project?'),
+    msg('Who has capacity this week?'),
+    msg('What approvals are waiting on me?'),
+  ],
+  manager: [
+    msg('How healthy is each project?'),
+    msg('Who has capacity this week?'),
+    msg('Who is over-allocated in the coming weeks?'),
+    msg('Summarise the active sprint'),
+  ],
+  hr: [
+    msg('Who has not submitted their timesheet?'),
+    msg('Who has capacity this week?'),
+    msg('What approvals are waiting on me?'),
+    msg('What meetings do I have this week?'),
+  ],
+  employee: [
+    msg('What is overdue on my work?'),
+    msg('How many hours have I logged this week?'),
+    msg('Summarise the active sprint'),
+    msg('What approvals are waiting on me?'),
+  ],
+  // Clients and vendors see the portal, where Pragnya is not offered.
+  external: [],
+};
 
 /** How close to the bottom the reader must be for new text to pull the view along. */
 const STICK_THRESHOLD_PX = 48;
@@ -223,6 +251,7 @@ export function PragnyaPanel({ conversationId, onConversationChange, onClose }: 
 }
 
 function Intro({ onPick, disabled }: { onPick: (text: string) => void; disabled: boolean }) {
+  const { role } = useAuth();
   return (
     <div className="flex flex-col items-center gap-3 px-4 pb-6 pt-8 text-center">
       <span
@@ -238,7 +267,7 @@ function Intro({ onPick, disabled }: { onPick: (text: string) => void; disabled:
         </p>
       </div>
       <ul className="mt-1 flex w-full flex-col gap-2" aria-label={t('Suggested questions')}>
-        {SUGGESTIONS.map((suggestion) => (
+        {SUGGESTIONS[role].map((suggestion) => (
           <li key={suggestion}>
             <button
               type="button"

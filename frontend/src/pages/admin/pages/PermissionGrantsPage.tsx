@@ -105,7 +105,7 @@ export default function PermissionGrantsPage() {
         trailing={
           <Button size="sm" onClick={() => setAdding(true)} disabled={catalogue.length === 0}>
             <Plus className="h-3.5 w-3.5" />
-            {t('Grant a permission')}
+            {t('Grant permission')}
           </Button>
         }
       >
@@ -125,7 +125,7 @@ export default function PermissionGrantsPage() {
             icon={KeyRound}
             title={t('No permissions granted')}
             description={t('Nobody holds an EPM permission except through the server\'s configuration.')}
-            action={{ label: t('Grant a permission'), onClick: () => setAdding(true) }}
+            action={{ label: t('Grant permission'), onClick: () => setAdding(true) }}
           />
         }
       >
@@ -274,7 +274,7 @@ function GrantDialog({ open, onOpenChange, catalogue, pending, onSubmit }: Grant
       <DialogContent className="sm:max-w-md">
         <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
           <DialogHeader>
-            <DialogTitle>{t('Grant a permission')}</DialogTitle>
+            <DialogTitle>{t('Grant permission')}</DialogTitle>
             <DialogDescription>{t('One EPM permission to one person. It is journalled.')}</DialogDescription>
           </DialogHeader>
 

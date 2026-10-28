@@ -56,7 +56,7 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
     shortcuts: [
       {
         keys: ['C'],
-        get label() { return t('Create a task'); },
+        get label() { return t('Create task'); },
         get detail() { return t('Only when the cursor is not in a field, so typing a "c" never opens it.'); },
       },
     ],

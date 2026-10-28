@@ -1146,7 +1146,7 @@ function AddPersonDialog({
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('Add a person to {unit}', { unit: unitName })}</DialogTitle>
+          <DialogTitle>{t('Add person to {unit}', { unit: unitName })}</DialogTitle>
           <DialogDescription>{t('A person belongs to one department and at most one team.')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">

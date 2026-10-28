@@ -1,9 +1,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { governanceService, type JournalQuery } from '@/services/api/governance';
-import type { ID, Permission } from '@/types';
+import type { AppRole, ID, Permission } from '@/types';
 
 const governanceKeys = {
   grants: ['governance', 'permission-grants'] as const,
+  roles: ['governance', 'app-roles'] as const,
   journal: (query: JournalQuery) => ['governance', 'journal', query] as const,
 };
 
@@ -43,6 +44,27 @@ export function useRevokePermission() {
     mutationFn: ({ userId, permission }: { userId: ID; permission: Permission }) =>
       governanceService.revokePermission(userId, permission),
     onSuccess: () => void refresh(),
+  });
+}
+
+export function useAppRoles() {
+  return useQuery({
+    queryKey: governanceKeys.roles,
+    queryFn: () => governanceService.getAppRoles(),
+  });
+}
+
+/** A role changes someone's sidebar and permissions; the journal records it. */
+export function useSetAppRole() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, role }: { userId: ID; role: Exclude<AppRole, 'admin'> }) =>
+      governanceService.setAppRole(userId, role),
+    onSuccess: () =>
+      void Promise.all([
+        client.invalidateQueries({ queryKey: governanceKeys.roles }),
+        client.invalidateQueries({ queryKey: ['governance', 'journal'] }),
+      ]),
   });
 }
 

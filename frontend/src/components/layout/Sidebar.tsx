@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
-import { visibleNavSections, type NavItem } from '@/config/navigation';
+import { roleLabel, visibleNavSections, type NavItem } from '@/config/navigation';
 import { featureFlags } from '@/config/env';
 import { cn } from '@/lib/utils';
 import { isRightToLeft, t } from '@/lib/i18n';
@@ -30,13 +30,14 @@ interface SidebarProps {
  */
 export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
   const { sidebarCollapsed, toggleSidebar, openPragnya } = useUI();
-  const { user, can } = useAuth();
+  const { user, can, role } = useAuth();
   const unread = useUnreadCount();
   const waiting = useApprovalInboxCount();
   const location = useLocation();
   // Filtered per person: administration items only appear for those who hold
-  // the permission, so an administrator and a regular user see different rails.
-  const sections = visibleNavSections(can);
+  // the permission, and whole areas follow the person's role (Admin, Manager,
+  // HR, Employee), so each of them sees a different rail.
+  const sections = visibleNavSections(can, role);
 
   const collapsed = variant === 'sheet' ? false : sidebarCollapsed;
 
@@ -187,7 +188,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
               <p className="truncate text-xs font-medium text-sidebar-foreground">
                 {user?.name ?? t('Loading…')}
               </p>
-              <p className="truncate text-2xs text-sidebar-muted">{user?.role ?? ''}</p>
+              <p className="truncate text-2xs text-sidebar-muted">{roleLabel(role)}</p>
             </div>
           ) : null}
         </div>

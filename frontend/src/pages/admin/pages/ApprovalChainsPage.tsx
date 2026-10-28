@@ -440,7 +440,7 @@ function ChainEditor({
             {draft.steps.length < 10 ? (
               <Button size="sm" variant="secondary" onClick={() => setDraft((was) => ({ ...was, steps: [...was.steps, blankStep(was.steps.length)] }))}>
                 <Plus className="h-3.5 w-3.5" />
-                {t('Add a step')}
+                {t('Add step')}
               </Button>
             ) : null}
           </div>
@@ -640,7 +640,7 @@ function ApproverPicker({
           </Badge>
         ))}
       </div>
-      <ComboSelect label={t('Add an approver')} options={choices} value={adding} onChange={add} placeholder={t('Add…')} />
+      <ComboSelect label={t('Add approver')} options={choices} value={adding} onChange={add} placeholder={t('Add…')} />
     </div>
   );
 }

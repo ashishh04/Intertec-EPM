@@ -80,7 +80,7 @@ export default function ProjectBoardTab() {
             <EmptyState
               title={t('No tasks on this board')}
               description={t('Create the first work package to start planning delivery.')}
-              action={{ label: t('Create a task'), onClick: () => openTaskDrawer({ projectId }) }}
+              action={{ label: t('Create task'), onClick: () => openTaskDrawer({ projectId }) }}
             />
           </Card>
         }

@@ -49,6 +49,8 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       ...user,
       permissions: toNested(permissions.global),
       projectPermissions,
+      // Picks the sidebar and the screens; the permissions above already include its bundle.
+      appRole: permissions.role,
       mustChangePassword: profile?.mustChangePassword ?? false,
       external: profile?.external ?? false,
     };

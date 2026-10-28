@@ -291,6 +291,14 @@ export default function InvitePage() {
               </Alert>
               <SignInLink />
             </div>
+          ) : invite.data?.state === 'replaced' ? (
+            <div className="space-y-5">
+              <Greeting firstName={invite.data.firstName} email={invite.data.email} />
+              <Alert tone="warning">
+                {t('A newer invitation replaced this link. Use the link in your latest invitation email.')}
+              </Alert>
+              <SignInLink />
+            </div>
           ) : invite.data?.state === 'used' ? (
             <div className="space-y-5">
               <Greeting firstName={invite.data.firstName} email={invite.data.email} />
@@ -306,7 +314,7 @@ export default function InvitePage() {
             </div>
           ) : invite.data ? (
             <>
-              <Greeting firstName={invite.data.firstName} email={invite.data.email} />
+              <Greeting firstName={invite.data.firstName} email={invite.data.email} settingUp />
 
               <form className="space-y-4" onSubmit={submit} noValidate>
                 <div className="space-y-1.5">
@@ -390,8 +398,12 @@ export default function InvitePage() {
   );
 }
 
-/** The one line that says who this is for, before any state or form. */
-function Greeting({ firstName, email }: { firstName: string; email: string }) {
+/**
+ * The one line that says who this is for, before any state or form. The
+ * set-up sentence is only for a link that can still set a password; on a used,
+ * replaced or expired one it would contradict the notice beneath it.
+ */
+function Greeting({ firstName, email, settingUp = false }: { firstName: string; email: string; settingUp?: boolean }) {
   return (
     <div className="space-y-1.5">
       <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -400,12 +412,16 @@ function Greeting({ firstName, email }: { firstName: string; email: string }) {
       </h2>
       {/* One sentence, so it translates whole; the address is no longer set in
           heavier type, which would split it into fragments. */}
-      <p className="text-xs text-muted-foreground">
-        {t('Set a password to finish setting up your {app} account for {email}.', {
-          app: APP_NAME,
-          email,
-        })}
-      </p>
+      {settingUp ? (
+        <p className="text-xs text-muted-foreground">
+          {t('Set a password to finish setting up your {app} account for {email}.', {
+            app: APP_NAME,
+            email,
+          })}
+        </p>
+      ) : (
+        <p className="font-mono text-xs text-muted-foreground">{email}</p>
+      )}
     </div>
   );
 }
