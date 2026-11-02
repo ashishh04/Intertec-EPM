@@ -38,7 +38,7 @@
 # (/app/docker/prod/postgres-db-upgrade). Upgrades follow the vulnerability and
 # patch process.
 
-FROM openproject/openproject:17.9.2@sha256:3603f071443e16f773ca0e6bbe7f12f66eeeb95cca4540c4f93ec504305a0596
+FROM openproject/openproject:17.9.4@sha256:914bd92c537854ea1fea53b1bbdb0802b1998e3d21bd0942fcf4713e1262ade4
 
 # Library documents are kept
 # --------------------------
