@@ -1,3 +1,4 @@
+import { currentAuth } from '../auth/context.js';
 import { roleOfAccount } from '../auth/roles.js';
 import type { HalLinks, OpPrincipal } from '../openproject/types.js';
 import type { AccountStatus, EpmAccount } from '../types/epm.js';
@@ -36,6 +37,9 @@ const has = (links: HalLinks | undefined, key: string) => Boolean(links && Objec
  */
 export function toEpmAccount(principal: OpPrincipal, storedRole?: string | null, external = false): EpmAccount {
   const links = principal._links;
+  // Upstream offers an administrator the means to lock themselves out. EPM does
+  // not (`routes/accounts.ts`), so it is not on offer on their own account.
+  const own = currentAuth()?.userId === String(principal.id);
 
   return {
     id: String(principal.id),
@@ -51,11 +55,11 @@ export function toEpmAccount(principal: OpPrincipal, storedRole?: string | null,
     createdAt: principal.createdAt ?? '',
     can: {
       update: has(links, 'updateImmediately'),
-      lock: has(links, 'lock'),
+      lock: has(links, 'lock') && !own,
       unlock: has(links, 'unlock'),
       // Named `remove` rather than `delete`, which is a reserved word and
       // reads badly on a property.
-      remove: has(links, 'delete'),
+      remove: has(links, 'delete') && !own,
     },
   };
 }

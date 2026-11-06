@@ -6,17 +6,27 @@ import { t } from '@/lib/i18n';
  * A static abstraction of the signed-in product, used as the hero visual.
  *
  * Deliberately not a screenshot and not live data: it has to stay readable at
- * any width and must never imply real figures. Every number here is
- * illustrative — see ILLUSTRATIVE_* below.
+ * any width and must never imply real figures. So the tiles carry a shape where
+ * the screen has a number: "Portfolios 12" and "Active projects 148" were taken
+ * out of the hero as made-up usage (BR-609) and still read as usage here.
  */
 
 const RAIL_ICONS = [Layers, FolderKanban, ListChecks, TrendingUp, Bell];
 
-/** Illustrative only — not read from the API. */
-const ILLUSTRATIVE_KPIS = [
-  { get label() { return t('Portfolios'); }, value: '12' },
-  { get label() { return t('Active projects'); }, value: '148' },
-  { get label() { return t('On track'); }, value: '82%' },
+/** Each tile's bar: a fill and its share of the bar. Not read from the API. */
+const ILLUSTRATIVE_TILES = [
+  {
+    get label() { return t('Portfolio health'); },
+    segments: [{ fill: 'bg-success', grow: 5 }, { fill: 'bg-warning', grow: 2 }, { fill: 'bg-danger/70', grow: 1 }],
+  },
+  {
+    get label() { return t('Active projects'); },
+    segments: [{ fill: 'bg-primary', grow: 5 }, { fill: 'bg-primary/25', grow: 3 }],
+  },
+  {
+    get label() { return t('On track'); },
+    segments: [{ fill: 'bg-success', grow: 6 }, { fill: 'bg-muted', grow: 2 }],
+  },
 ];
 
 /** Illustrative sprint velocity, as a fraction of the tallest bar. */
@@ -79,23 +89,30 @@ export function ProductPreview({ className }: { className?: string }) {
         </div>
 
         <div className="min-w-0 flex-1 space-y-3 p-3.5">
-          {/* KPI tiles */}
+          {/* Tiles */}
           <div className="grid grid-cols-3 gap-2.5">
-            {ILLUSTRATIVE_KPIS.map((kpi) => (
-              <div key={kpi.label} className="rounded-lg border border-border bg-surface p-2.5">
-                <p className="truncate text-2xs text-muted-foreground">{kpi.label}</p>
-                <p className="mt-1 font-mono text-lg font-semibold leading-none tracking-tight">
-                  {kpi.value}
-                </p>
+            {ILLUSTRATIVE_TILES.map((tile) => (
+              <div key={tile.label} className="rounded-lg border border-border bg-surface p-2.5">
+                <p className="truncate text-2xs text-muted-foreground">{tile.label}</p>
+                <div className="mt-1 flex h-[1.125rem] items-center gap-0.5">
+                  {tile.segments.map((segment) => (
+                    <span
+                      key={segment.fill}
+                      style={{ flexGrow: segment.grow }}
+                      className={cn('h-1.5 rounded-full', segment.fill)}
+                    />
+                  ))}
+                </div>
               </div>
             ))}
           </div>
 
           {/* Velocity */}
           <div className="rounded-lg border border-border bg-surface p-2.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-2xs text-muted-foreground">{t('Velocity · last 12 sprints')}</p>
-              <p className="font-mono text-2xs font-medium text-success-strong">+14%</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-2xs text-muted-foreground">{t('Velocity · recent sprints')}</p>
+              {/* Time runs the other way in Arabic, and the rise with it. */}
+              <TrendingUp className="h-3.5 w-3.5 text-success-strong rtl:-scale-x-100" />
             </div>
             <div className="mt-2.5 flex h-14 items-end gap-1.5">
               {ILLUSTRATIVE_VELOCITY.map((height, index) => (

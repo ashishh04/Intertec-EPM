@@ -12,6 +12,8 @@
  * Money is added up in whole cents, so parts and totals agree exactly.
  */
 
+import type { ProjectStatus, ProjectStatusKey } from '../types/epm.js';
+
 export type BillingModel = 'time_and_materials' | 'fixed_price' | 'non_billable';
 export const BILLING_MODELS: BillingModel[] = ['time_and_materials', 'fixed_price', 'non_billable'];
 
@@ -370,6 +372,25 @@ export interface ProjectForecastInput {
   plannedFinish: string | null;
   /** 0..1. */
   confidence: number;
+}
+
+/**
+ * The status a project's revenue is weighted by.
+ *
+ * A project has two. One is set by hand on the project form and shown nowhere
+ * else; the other is the delivery status EPM shows beside the project, read from
+ * its health. The forecast went by the first alone, so a project every screen
+ * called At Risk was forecast at the confidence of On track: 100%, whatever At
+ * risk was set to. Neither may now make it surer than the other allows. A status
+ * the delivery one has no word for (not started, finished, discontinued) still
+ * stands, being what someone said about the project's life rather than how it
+ * is going.
+ */
+export function forecastStatus(set: ProjectStatusKey, delivery: ProjectStatus): ProjectStatusKey {
+  const unworried = set === 'none' || set === 'on_track';
+  if (delivery === 'delayed' && (unworried || set === 'at_risk')) return 'off_track';
+  if (delivery === 'at_risk' && unworried) return 'at_risk';
+  return set;
 }
 
 /**

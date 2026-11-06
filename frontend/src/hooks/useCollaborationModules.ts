@@ -108,10 +108,14 @@ export function useDeleteMeeting() {
   return useMutation({
     mutationFn: (id: ID) => meetingService.remove(id),
     onSuccess: (_result, id) =>
-      client.invalidateQueries({
-        queryKey: meetingKeys.all,
-        predicate: exceptDetailOf('meetings', id),
-      }),
+      Promise.all([
+        client.invalidateQueries({
+          queryKey: meetingKeys.all,
+          predicate: exceptDetailOf('meetings', id),
+        }),
+        // A meeting is also on the calendar, where a deleted one stayed until a reload.
+        client.invalidateQueries({ queryKey: ['calendar'] }),
+      ]),
   });
 }
 

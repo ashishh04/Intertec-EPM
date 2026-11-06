@@ -18,7 +18,7 @@ const COLUMN_WIDTH = `calc((100% - ${GAP * 2}%) / 3)`;
 const COLUMNS = [
   {
     get name() { return t('Backlog'); },
-    count: 12,
+    count: 9,
     cards: [
       { get title() { return t('Dependency audit'); }, get tag() { return t('Data'); }, who: 'LH', tone: 'bg-white/25' },
       { get title() { return t('Capacity plan · Q4'); }, get tag() { return t('PMO'); }, who: 'AR', tone: 'bg-white/25' },

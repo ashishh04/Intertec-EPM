@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Ellipsis, Eye, Pencil, Repeat, Timer, UserPlus } from 'lucide-react';
+import { Ellipsis, Pencil, Repeat, Timer, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/common/PageHeader';
 import { ErrorState } from '@/components/common/ErrorState';
@@ -31,6 +31,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import NotFoundPage from '@/pages/NotFoundPage';
+import { ApiError } from '@/services/api/client';
 import { useComments } from '@/hooks/useComments';
 import { useTask, useUpdateTask } from '@/hooks/useTasks';
 import { useProject } from '@/hooks/useProjects';
@@ -52,7 +54,7 @@ import { TaskRelations } from '@/components/tasks/TaskRelations';
 import { TaskEarnedValue } from '@/components/tasks/TaskEarnedValue';
 import { TaskCalculatedValues } from '@/components/tasks/TaskCalculatedValues';
 import { TaskSchedule } from '@/components/tasks/TaskSchedule';
-import { TaskWatchers } from '@/components/tasks/TaskWatchers';
+import { TaskWatchers, WatchButton } from '@/components/tasks/TaskWatchers';
 import { HierarchyTrail, TaskSubItems } from '@/components/tasks/TaskHierarchy';
 import { WorkPackageDialog } from '@/components/tasks/WorkPackageDialog';
 import { LogTimeDialog } from '@/components/tasks/LogTimeDialog';
@@ -63,7 +65,7 @@ import { useAuth } from '@/providers/AuthProvider';
 /** Work-package detail. Content on the left, the full metadata panel on the right. */
 export default function TaskDetailPage() {
   const { taskId } = useParams();
-  const { data: task, isLoading, isError, refetch } = useTask(taskId);
+  const { data: task, isLoading, isError, error, refetch } = useTask(taskId);
   const { data: project } = useProject(task?.projectId);
   // Read here only for the tab's count. TaskComments asks for the same data and
   // React Query serves both from one request.
@@ -75,11 +77,18 @@ export default function TaskDetailPage() {
   // Declared with the other hooks: the guards below return early, and a hook
   // after them runs on some renders and not others.
   const { canInProject } = useAuth();
+  /*
+   * Whether this person may change the work package, or only read it.
+   *
+   * A public project lets anyone signed in read its work. The page offered such a
+   * reader Assign, Status and Priority as well, only for the server to refuse each.
+   */
+  const canEdit = canInProject(task?.projectId, 'task:edit');
   const statuses = useStatuses();
   const priorities = usePriorities();
   // What this work package may actually be moved to, as opposed to what the
-  // instance defines. See useWorkPackageOptions.
-  const { data: allowed } = useWorkPackageOptions(taskId);
+  // instance defines. See useWorkPackageOptions. Its form is refused to a reader.
+  const { data: allowed } = useWorkPackageOptions(canEdit ? taskId : undefined);
   const [editingAllFields, setEditingAllFields] = useState(false);
   const [loggingTime, setLoggingTime] = useState(false);
   // Recurring tasks (BR-105): whether this one already is a template or a task a series made.
@@ -88,9 +97,14 @@ export default function TaskDetailPage() {
   // The project's members, not the directory: OpenProject refuses an assignee
   // who is not one with "The chosen user is not allowed to be 'Assignee' for
   // this work package".
-  const { data: assignees } = useProjectAssignees(task?.projectId);
+  const { data: assignees } = useProjectAssignees(canEdit ? task?.projectId : undefined);
 
   if (isError) {
+    // A task this person may not see answers the same as one that does not exist,
+    // so that an id confirms nothing. That is a page not found, not a failure to
+    // retry: "Something went wrong" promised a fault that was not there.
+    if (error instanceof ApiError && error.isNotFound) return <NotFoundPage />;
+
     return (
       <ErrorState
         title={t('Unable to load task')}
@@ -134,6 +148,10 @@ export default function TaskDetailPage() {
 
   const statusOptions = withCurrent(allowed?.statuses, statuses.data, task.status);
   const priorityOptions = withCurrent(allowed?.priorities, priorities.data, task.priorityRef);
+  // Commenting, relating and logging time each have a permission of their own,
+  // which only the record's own offer answers. Reasoned from `task:edit` until a
+  // task read before these existed has been read again.
+  const may = task.can ?? { comment: canEdit, relate: canEdit, logTime: canEdit };
 
   const assignee = task.assigneeId ? users.get(task.assigneeId) : undefined;
   const author = users.get(task.authorId);
@@ -189,71 +207,59 @@ export default function TaskDetailPage() {
               * shows, custom fields included, with their own allowed values and
               * validation. Nothing about which fields exist is decided here.
               */}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setEditingAllFields(true)}
-              disabled={!canInProject(task.projectId, 'task:edit')}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              {t('Edit all fields')}
-            </Button>
+            {canEdit ? (
+              <Button variant="secondary" size="sm" onClick={() => setEditingAllFields(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+                {t('Edit all fields')}
+              </Button>
+            ) : null}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm">
-                  <UserPlus className="h-3.5 w-3.5" />
-                  {t('Assign')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
-                <DropdownMenuLabel>{t('Assign to')}</DropdownMenuLabel>
-                {(assignees ?? []).map((person) => (
-                  <DropdownMenuItem
-                    key={person.id}
-                    onSelect={() => patch({ id: task.id, assigneeId: person.id })}
-                  >
-                    {person.name}
-                  </DropdownMenuItem>
-                ))}
+            {canEdit ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="sm">
+                    <UserPlus className="h-3.5 w-3.5" />
+                    {t('Assign')}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
+                  <DropdownMenuLabel>{t('Assign to')}</DropdownMenuLabel>
+                  {(assignees ?? []).map((person) => (
+                    <DropdownMenuItem
+                      key={person.id}
+                      onSelect={() => patch({ id: task.id, assigneeId: person.id })}
+                    >
+                      {person.name}
+                    </DropdownMenuItem>
+                  ))}
 
-                {/*
-                  Nobody assignable is a real answer, not a loading state.
+                  {/*
+                    Nobody assignable is a real answer, not a loading state.
 
-                  OpenProject will only accept an assignee who is a member of the
-                  project — an administrator who is not a member is refused just
-                  like anybody else, with "The chosen user is not allowed to be
-                  'Assignee' for this work package". So an empty list here is
-                  correct, and the menu has to say why: it previously showed a
-                  heading over nothing, which reads as the feature being broken.
-                */}
-                {(assignees ?? []).length === 0 ? (
-                  <div className="px-2 py-1.5">
-                    <p className="text-2xs text-muted-foreground">
-                      {t(
-                        'Nobody can be assigned yet — this project has no members. Add people on the project’s Team tab first.',
-                      )}
-                    </p>
-                    <Button asChild variant="ghost" size="sm" className="mt-1.5 w-full text-2xs">
-                      <Link to={`/projects/${task.projectId}/team`}>{t('Open the Team tab')}</Link>
-                    </Button>
-                  </div>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    OpenProject will only accept an assignee who is a member of the
+                    project — an administrator who is not a member is refused just
+                    like anybody else, with "The chosen user is not allowed to be
+                    'Assignee' for this work package". So an empty list here is
+                    correct, and the menu has to say why: it previously showed a
+                    heading over nothing, which reads as the feature being broken.
+                  */}
+                  {(assignees ?? []).length === 0 ? (
+                    <div className="px-2 py-1.5">
+                      <p className="text-2xs text-muted-foreground">
+                        {t(
+                          'Nobody can be assigned yet — this project has no members. Add people on the project’s Team tab first.',
+                        )}
+                      </p>
+                      <Button asChild variant="ghost" size="sm" className="mt-1.5 w-full text-2xs">
+                        <Link to={`/projects/${task.projectId}/team`}>{t('Open the Team tab')}</Link>
+                      </Button>
+                    </div>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                toast.success(
-                  task.watcherIds.length > 0 ? t('You are watching this task') : t('Watching this task'),
-                )
-              }
-            >
-              <Eye className="h-3.5 w-3.5" />
-              {t('Watch')}
-            </Button>
+            <WatchButton workPackageId={task.id} />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -270,27 +276,33 @@ export default function TaskDetailPage() {
                 >
                   {t('Copy link')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => patch({ id: task.id, status: 'done' })}>
-                  {t('Mark as done')}
-                </DropdownMenuItem>
+                {canEdit ? (
+                  <DropdownMenuItem onSelect={() => patch({ id: task.id, status: 'done' })}>
+                    {t('Mark as done')}
+                  </DropdownMenuItem>
+                ) : null}
                 {/* Only where the person may edit, and only for a task in no series yet. */}
-                {canInProject(task.projectId, 'task:edit') && seriesLink.data?.role === 'none' ? (
+                {canEdit && seriesLink.data?.role === 'none' ? (
                   <DropdownMenuItem onSelect={() => setMakingRecurring(true)}>
                     <Repeat />
                     {t('Make recurring…')}
                   </DropdownMenuItem>
                 ) : null}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  destructive
-                  onSelect={() =>
-                    toast(t('Deleting is not enabled from this view'), {
-                      description: t('Use bulk actions in the task list to remove work packages.'),
-                    })
-                  }
-                >
-                  {t('Delete task')}
-                </DropdownMenuItem>
+                {canEdit ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      destructive
+                      onSelect={() =>
+                        toast(t('Deleting is not enabled from this view'), {
+                          description: t('Use bulk actions in the task list to remove work packages.'),
+                        })
+                      }
+                    >
+                      {t('Delete task')}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           </>
@@ -354,7 +366,7 @@ export default function TaskDetailPage() {
             workPackageId={task.id}
             // Attaching is an edit of the work package, so it follows the same
             // permission; the backend checks it again regardless.
-            canUpload={canInProject(task.projectId, 'task:edit')}
+            canUpload={canEdit}
           />
 
           {/* What is broken out under this work package. Above relations
@@ -372,9 +384,9 @@ export default function TaskDetailPage() {
           {/* Its calculated fields, and why any is empty: read-only, EPM's. */}
           <TaskCalculatedValues workPackageId={task.id} />
 
-          {/* Both are affordance-gated inside: what a user may do is decided by
-              what OpenProject offered on this record, not by a role check. */}
-          <TaskRelations workPackageId={task.id} />
+          {/* Both are affordance-gated: what a user may do is decided by what
+              OpenProject offered on this record, not by a role check. */}
+          <TaskRelations workPackageId={task.id} canAdd={may.relate} />
 
           <TaskWatchers workPackageId={task.id} />
 
@@ -399,7 +411,7 @@ export default function TaskDetailPage() {
                   workPackageId={task.id}
                   // Commenting is affordance-gated in the backend; this only
                   // decides whether the box is worth showing.
-                  canComment={canInProject(task.projectId, 'task:edit')}
+                  canComment={may.comment}
                 />
               </TabsContent>
 
@@ -440,6 +452,7 @@ export default function TaskDetailPage() {
                 */}
               <Select
                 value={task.status.id}
+                disabled={!canEdit}
                 // The id, not a URL. The backend turns it into an upstream
                 // link — the browser has no business knowing that shape.
                 onValueChange={(statusId) => patch({ id: task.id, statusId })}
@@ -468,6 +481,7 @@ export default function TaskDetailPage() {
                 */}
               <Select
                 value={task.priorityRef.id}
+                disabled={!canEdit}
                 onValueChange={(priorityId) => patch({ id: task.id, priorityId })}
               >
                 <SelectTrigger className="h-8 text-xs" aria-label={t('Task priority')}>
@@ -541,22 +555,27 @@ export default function TaskDetailPage() {
                 <span className="font-mono text-2xs">{formatHours(task.estimatedHours)}</span>
               </PropertyRow>
 
+              <PropertyRow label={t('Remaining')}>
+                <span className="font-mono text-2xs">{formatHours(task.remainingHours)}</span>
+              </PropertyRow>
+
               <PropertyRow label={t('Spent')}>
                 <span className="flex items-center gap-2">
                   <span className="font-mono text-2xs">{formatHours(task.spentHours)}</span>
                   {/* Whether this person may log time is OpenProject's answer,
-                      not EPM's — there is no capability to check — so the
-                      action is always offered and the refusal, if any, comes
-                      back from the form with its reason. */}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-1.5 text-2xs"
-                    onClick={() => setLoggingTime(true)}
-                  >
-                    <Timer className="h-3 w-3" />
-                    {t('Log time')}
-                  </Button>
+                      not EPM's — there is no capability to check — so it is
+                      offered where the work package offers it. */}
+                  {may.logTime ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-2xs"
+                      onClick={() => setLoggingTime(true)}
+                    >
+                      <Timer className="h-3 w-3" />
+                      {t('Log time')}
+                    </Button>
+                  ) : null}
                 </span>
               </PropertyRow>
 

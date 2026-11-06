@@ -28,6 +28,8 @@ export interface QueryFilterSchema {
   id: string;
   name: string;
   operators: QueryOperatorSchema[];
+  /** A list custom field's choices, which the filter's own schema does not carry. */
+  options?: { id: string; name: string }[];
 }
 
 export interface QueryFilterValue {
@@ -204,6 +206,8 @@ export class ApiQueryRepository {
       filters?: { id: string; operator: string; values: ({ id: string } | { value: string })[] }[];
       /** Show the sum of each summable column. */
       sums?: boolean;
+      /** Sort criteria as the instance names them: `dueDate-asc`. */
+      sort?: string[];
     };
   }): Promise<EpmQuery> {
     return apiClient.post<EpmQuery>('/queries', input);

@@ -152,7 +152,7 @@ function lookup(language: Language, source: string): string {
 }
 
 /** The keys of a field descriptor that people read. */
-const DESCRIPTOR_TEXT = new Set(['label', 'description', 'help', 'title']);
+const DESCRIPTOR_TEXT = new Set(['label', 'description', 'help', 'title', 'explanation', 'emptyLabel']);
 
 /**
  * A field descriptor from EPM's OpenProject add-on — the administration

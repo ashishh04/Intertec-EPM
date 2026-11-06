@@ -40,6 +40,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useAccounts, useResendInvite, useSetAccountLocked } from '@/hooks/useAccounts';
+import { useHasSignedIn } from '@/hooks/useAdmin';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useEmployees } from '@/hooks/useEmployees';
 import { usePagination } from '@/hooks/usePagination';
@@ -61,8 +62,9 @@ import { toast } from 'sonner';
  * renamed here. Identity belongs to OpenProject, and the only thing this page
  * writes is the mapping onto EPM's departments and teams.
  *
- * Everyone who is signed in can read it. Assigning needs `employees:manage`,
- * which the backend checks on every write regardless of what is rendered.
+ * For whoever staffs people: the route and the API both ask for it. Assigning
+ * needs `employees:manage`, which the backend checks on every write regardless
+ * of what is rendered.
  */
 
 const ALL = '__all__';
@@ -86,7 +88,7 @@ const ACCOUNT_STATUS_LABEL: Record<AccountStatus, string> = {
 };
 
 export default function EmployeesPage() {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const mayManage = can('employees:manage');
   // Rates are pay information: the API leaves them out for everyone else
   // (BRL-01), so the column would only ever say "not costed" — wrongly.
@@ -117,6 +119,7 @@ export default function EmployeesPage() {
   // can manage, and a 403 simply leaves the account columns absent.
   const mayManageAccounts = can('users:manage');
   const accounts = useAccounts(mayManageAccounts);
+  const hasSignedIn = useHasSignedIn(mayManageAccounts);
   const setLocked = useSetAccountLocked();
   const resendInvite = useResendInvite();
 
@@ -362,9 +365,7 @@ export default function EmployeesPage() {
                   {mayReadRates ? (
                     <TableCell numeric>
                       {employee.hourlyRate === undefined ? (
-                        <span className="text-muted-foreground" title={t('Not costed')}>
-                          &mdash;
-                        </span>
+                        <span className="text-muted-foreground">{t('Not costed')}</span>
                       ) : (
                         <>
                           {formatCurrency(employee.hourlyRate, env.currency, 2)}
@@ -458,7 +459,8 @@ export default function EmployeesPage() {
                                   </DropdownMenuItem>
                                 ) : null}
 
-                                {update ? (
+                                {/* An invitation is for someone who has not signed in yet. */}
+                                {update && !hasSignedIn(account.id) ? (
                                   <DropdownMenuItem onSelect={() => sendInvitation(account)}>
                                     <Mail />
                                     {t('Resend invitation')}
@@ -476,14 +478,18 @@ export default function EmployeesPage() {
                                     deletion: the first two steps of removing
                                     somebody — deactivate, then revoke — need
                                     no upstream affordance, and the dialog
-                                    explains the third rather than hiding it. */}
-                                <DropdownMenuItem
-                                  destructive
-                                  onSelect={() => setRemovingId(account.id)}
-                                >
-                                  <Trash2 />
-                                  {t('Remove person…')}
-                                </DropdownMenuItem>
+                                    explains the third rather than hiding it.
+                                    Never on one's own account, which the
+                                    server refuses too. */}
+                                {account.id !== user?.id ? (
+                                  <DropdownMenuItem
+                                    destructive
+                                    onSelect={() => setRemovingId(account.id)}
+                                  >
+                                    <Trash2 />
+                                    {t('Remove person…')}
+                                  </DropdownMenuItem>
+                                ) : null}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           );

@@ -28,12 +28,12 @@ const PEOPLE = [
   { name: 'A. Rahman', get role() { return t('Delivery lead'); }, initials: 'AR', load: '1222331211' },
   { name: 'S. Menon', get role() { return t('Engineering'); }, initials: 'SM', load: '1122232110' },
   { name: 'K. Fernandes', get role() { return t('Engineering'); }, initials: 'KF', load: '1223432211' },
-  { name: 'L. Haddad', get role() { return t('Data'); }, initials: 'LH', load: '1122333421' },
+  { name: 'L. Haddad', get role() { return t('Data'); }, initials: 'LH', load: '1122333411' },
   { name: 'M. Iyer', get role() { return t('QA'); }, initials: 'MI', load: '0112222211' },
   { name: 'D. Okoye', get role() { return t('Platform'); }, initials: 'DO', load: '1122321011' },
 ] as const;
 
-const WEEKS = ['36', '37', '38', '39', '40', '41', '42', '43', '44', '45'];
+const WEEKS = ['38', '39', '40', '41', '42', '43', '44', '45', '46', '47'];
 
 /** What each level means as a share of a person's week. */
 const LEVEL_LOAD = [0, 50, 80, 100, 125];

@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 
+import { calendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
 import { openProject, linkId } from '../openproject/client.js';
+import { versionFilter, versionIdOf } from '../openproject/versions.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import type { OpVersion, OpWorkPackage } from '../openproject/types.js';
@@ -111,7 +114,7 @@ async function contextFor(version: OpVersion, signal: AbortSignal): Promise<Spri
     openProject
       .getAll<SprintWorkPackage>(
         '/work_packages',
-        { filters: [{ field: 'version', operator: '=', values: [id] }], pageSize: 200 },
+        { filters: [versionFilter([id])], pageSize: 200 },
         { signal },
       )
       .catch(() => ({ items: [] as SprintWorkPackage[] })),
@@ -122,7 +125,9 @@ async function contextFor(version: OpVersion, signal: AbortSignal): Promise<Spri
     ),
   ]);
 
-  return { catalog, workPackages: work.items, overlay, samples };
+  // A task in several versions counts in its first, as in the list below.
+  const workPackages = work.items.filter((workPackage) => versionIdOf(workPackage._links) === id);
+  return { catalog, workPackages, overlay, samples };
 }
 
 async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
@@ -152,7 +157,7 @@ async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
       openProject
         .getAll<SprintWorkPackage>(
           '/work_packages',
-          { filters: [{ field: 'version', operator: '=', values: ids }], pageSize: 200 },
+          { filters: [versionFilter(ids)], pageSize: 200 },
           { signal },
         )
         .catch(() => ({ items: [] as SprintWorkPackage[] })),
@@ -167,9 +172,12 @@ async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
       ),
     ]);
 
+    // Each task in its one sprint: its version, or its first target version
+    // where several are allowed (openproject/versions.ts). Read only from
+    // `version`, every sprint there had no work and no points.
     const workByVersion = new Map<string, SprintWorkPackage[]>();
     for (const workPackage of all.items) {
-      const versionId = linkId(workPackage._links, 'version');
+      const versionId = versionIdOf(workPackage._links);
       if (!versionId) continue;
       const bucket = workByVersion.get(versionId);
       if (bucket) bucket.push(workPackage);
@@ -239,6 +247,12 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
       if (!name) throw EpmError.badRequest('A name is required.');
       if (!projectId) throw EpmError.badRequest('A project is required.');
       if (!/^\d+$/.test(projectId)) throw EpmError.badRequest('That project is not valid.');
+      // A date that is given must exist. One not shaped like a date used to be
+      // dropped without a word, and 2026-02-30 went upstream as it came. Empty
+      // is not given: a version with neither date is a backlog.
+      const { startDate, endDate } = z
+        .object({ startDate: calendarDay().optional(), endDate: calendarDay().optional() })
+        .parse({ startDate: request.body?.startDate || undefined, endDate: request.body?.endDate || undefined });
 
       const mayDefine = await openProject
         .request<unknown>('/versions/form', {
@@ -253,17 +267,14 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.forbidden('You do not have permission to create sprints in that project.');
       }
 
-      const date = (value: unknown) =>
-        typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
-
       const created = await openProject.request<OpVersion>('/versions', {
         method: 'POST',
         body: {
           name,
           // Upstream calls the end of a version its `endDate`; the start is
           // `startDate`. Both optional — a version with neither is a backlog.
-          ...(date(request.body?.startDate) ? { startDate: date(request.body?.startDate) } : {}),
-          ...(date(request.body?.endDate) ? { endDate: date(request.body?.endDate) } : {}),
+          ...(startDate ? { startDate } : {}),
+          ...(endDate ? { endDate } : {}),
           _links: { definingProject: { href: `/api/v3/projects/${projectId}` } },
         },
         signal: requestSignal(request),

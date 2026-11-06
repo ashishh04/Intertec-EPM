@@ -54,6 +54,7 @@ import {
   ROLE_KIND_LABEL,
   isEditableRole,
   permissionAppliesTo,
+  roleName,
   sameStringSet,
   sortRoles,
 } from './shared-roles';
@@ -159,10 +160,10 @@ function RolesList() {
                         to={`${ROLES_PATH}/${role.id}`}
                         className="rounded text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        {role.name}
+                        {roleName(role)}
                       </Link>
                     ) : (
-                      role.name
+                      roleName(role)
                     )}
                   </TableCell>
                   <TableCell>
@@ -180,7 +181,7 @@ function RolesList() {
                         <Button
                           size="icon-sm"
                           variant="ghost"
-                          aria-label={t('Actions for {name}', { name: role.name })}
+                          aria-label={t('Actions for {name}', { name: roleName(role) })}
                         >
                           <Ellipsis className="h-4 w-4" />
                         </Button>
@@ -294,7 +295,7 @@ function RoleNotEditable({ role }: { role: AdminRole }) {
   return (
     <EmptyState
       icon={ShieldCheck}
-      title={t('{name} cannot be edited', { name: role.name })}
+      title={t('{name} cannot be edited', { name: roleName(role) })}
       description={t('{kind} is fixed by the delivery system.', {
         kind: ROLE_KIND_LABEL[role.kind] ?? t('This kind of role'),
       })}
@@ -377,6 +378,13 @@ function RoleForm({
   const toggleCollapsed = (id: string) =>
     setCollapsed((current) => ({ ...current, [id]: !current[id] }));
 
+  // Back to what is saved, staying on the page, as on the Permissions report.
+  const reset = () => {
+    setName(role?.name ?? '');
+    setGranted(new Set(role?.permissions ?? []));
+    setSubmitted(false);
+  };
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
@@ -414,7 +422,7 @@ function RoleForm({
       },
       {
         onSuccess: (saved) => {
-          toast.success(t('{name} was saved', { name: saved.name }));
+          toast.success(t('{name} was saved', { name: roleName(saved) }));
           navigate(ROLES_PATH);
         },
         onError,
@@ -426,7 +434,7 @@ function RoleForm({
     <form onSubmit={submit} noValidate className="space-y-4">
       <Card>
         <CardHeader variant="compact">
-          <CardTitle dir="auto">{creating ? t('New role') : role.name}</CardTitle>
+          <CardTitle dir="auto">{creating ? t('New role') : roleName(role)}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 pt-4 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -435,7 +443,7 @@ function RoleForm({
             </Label>
             <Input
               id="role-name"
-              value={name}
+              value={role?.builtin ? roleName(role) : name}
               onChange={(event) => setName(event.target.value)}
               readOnly={role?.builtin}
               disabled={pending}
@@ -588,8 +596,13 @@ function RoleForm({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="sm" loading={pending} disabled={!dirty}>
-          {creating ? t('Create') : t('Save')}
+          {creating ? t('Create') : t('Save changes')}
         </Button>
+        {creating ? null : (
+          <Button type="button" size="sm" variant="ghost" onClick={reset} disabled={!dirty || pending}>
+            {t('Reset')}
+          </Button>
+        )}
         <Button type="button" size="sm" variant="ghost" asChild>
           <Link to={ROLES_PATH}>{t('Cancel')}</Link>
         </Button>

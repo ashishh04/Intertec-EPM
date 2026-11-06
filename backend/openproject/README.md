@@ -46,7 +46,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_password_grant.rb` | The sign-in initializer. Source of truth. |
 | `zzz_epm_admin_api.rb` | Users settings, the permission catalogue and roles (below). |
 | `zzz_epm_admin_settings.rb` | The settings sections: work packages, projects, languages, repositories, emails, incoming email, aggregation, authentication, calendars, avatars. |
-| `zzz_epm_admin_catalog.rb` | Create, edit and delete for types, statuses, priorities, custom fields, webhooks and OAuth applications. |
+| `zzz_epm_admin_catalog.rb` | Create, edit and delete for types, statuses, priorities, custom fields (with the types and projects that have them), webhooks and OAuth applications. |
 | `zzz_epm_analytics_api.rb` | Read-only export of every work package version (the journals) and of unit costs, for EPM's analytics model (below). |
 | `zzz_epm_schedule.rb` | The schedule bridge (below): the scheduling network out for EPM's critical path pass, and the float it computes back into three work package fields, kept out of the journal. |
 | `zzz_epm_calculated.rb` | The calculated-field bridge (BR-406 to BR-408): what EPM's formulas read — each work package's own fields, time, custom values and place in the tree — out in one query, and the values EPM computes back into the custom fields it made for them (marked `editable = false`), written only where changed and kept out of the journal, like float. |
@@ -334,7 +334,11 @@ against `EnterpriseToken.allows_to?` on an instance with no token:
 - Attribute help texts (reading them works; creating one does not)
 - Project attributes and project lists
 - LDAP authentication, SAML providers, OpenID providers
-- Two-factor authentication
+
+Two-factor authentication was on this list until 17.9.2, which has no licence gate
+on it. EPM still does not use it: it guards only OpenProject's own HTML sign-in, has
+no API, and the password grant above never consults it. EPM has its own
+(`backend/SECURITY.md`).
 
 ## After an upgrade
 

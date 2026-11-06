@@ -338,7 +338,7 @@ function ScheduleRow({
             : FORMAT_LABEL[schedule.formats[0]]}
         </p>
         <p className="text-2xs text-muted-foreground">
-          {schedule.describedTiming} ·{' '}
+          {describeTiming(schedule)} ·{' '}
           {outside > 0
             ? t(
                 '{people, plural, one {# person} other {# people}} and {outside, plural, one {# external address} other {# external addresses}}',
@@ -498,10 +498,12 @@ function ScheduleEditor({
   const addresses = useMemo(() => [...new Set(splitAddresses(addressText))], [addressText]);
   const problems = useMemo(() => problemsOf(draft, addresses), [draft, addresses]);
   const zones = useTimezones();
+  // The instance's list is the zones a person's profile may hold. A schedule may
+  // run in any zone the server knows, so the browser's are offered with it.
   const zoneOptions = useMemo(() => {
-    const list = zones.data ?? [];
-    const all = list.includes(draft.timezone) ? list : [draft.timezone, ...list];
-    return (all.includes('UTC') ? all : ['UTC', ...all]).map((zone) => ({ id: zone, name: zone }));
+    const known = (Intl as unknown as { supportedValuesOf?: (key: 'timeZone') => string[] }).supportedValuesOf?.('timeZone') ?? [];
+    const all = new Set(['UTC', draft.timezone, ...(zones.data ?? []), ...known.map((zone) => ZONE_ALIASES[zone] ?? zone)]);
+    return [...all].sort().map((zone) => ({ id: zone, name: zone }));
   }, [zones.data, draft.timezone]);
   const addressesChanged = addresses.join('\n') !== [...initial.externalEmails].join('\n');
 

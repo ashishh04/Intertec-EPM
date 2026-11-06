@@ -458,9 +458,15 @@ export const ADMIN_AREAS: AdminArea[] = [
         kind: 'live',
         get description() { return t('Password rules, session lifetime and self-registration.'); },
       },
-      // LDAP, OpenID, SAML, two-factor and reCAPTCHA are not listed: none can be
-      // read or changed through EPM, so their pages could only send people to
-      // the delivery system's own administration, which EPM never shows.
+      {
+        id: 'two-factor',
+        get label() { return t('Two-factor authentication'); },
+        kind: 'live',
+        get description() { return t('Which roles must use a code from an authenticator app to sign in, and who has set one up.'); },
+      },
+      // LDAP, OpenID, SAML and reCAPTCHA are not listed: none can be read or
+      // changed through EPM, so their pages could only send people to the
+      // delivery system's own administration, which EPM never shows.
       {
         id: 'oauth',
         get label() { return t('OAuth applications'); },

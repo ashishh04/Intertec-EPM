@@ -9,6 +9,7 @@ import {
   estimatedRevenue,
   actualRevenue,
   forecastProject,
+  forecastStatus,
   margin,
   phasingDifference,
   reconcileBatch,
@@ -212,6 +213,26 @@ await check('BR-319: forecast revenue for a control portfolio matches the hand c
   assert.deepEqual(p3.map((line) => [line.revenue, line.weighted]), [[500, 500], [500, 500], [0, 0]]);
   const weighted = months.map((_, index) => p1[index]!.weighted + p2[index]!.weighted + p3[index]!.weighted);
   assert.deepEqual(weighted, [2900, 1900, 0]);
+});
+
+await check('BR-319: a project is never weighted as going better than its delivery status says', () => {
+  // A project every screen calls At Risk, with On track or nothing set on its form.
+  assert.equal(forecastStatus('on_track', 'at_risk'), 'at_risk');
+  assert.equal(forecastStatus('none', 'at_risk'), 'at_risk');
+  assert.equal(forecastStatus('on_track', 'delayed'), 'off_track');
+  assert.equal(forecastStatus('none', 'delayed'), 'off_track');
+  assert.equal(forecastStatus('at_risk', 'delayed'), 'off_track');
+  // Set worse than it is going: the form's word stands.
+  assert.equal(forecastStatus('at_risk', 'on_track'), 'at_risk');
+  assert.equal(forecastStatus('off_track', 'at_risk'), 'off_track');
+  // Going well, or over: nothing to move.
+  assert.equal(forecastStatus('none', 'on_track'), 'none');
+  assert.equal(forecastStatus('on_track', 'completed'), 'on_track');
+  assert.equal(forecastStatus('none', 'paused'), 'none');
+  // What someone said of the project's life is not a judgement on how it is going.
+  assert.equal(forecastStatus('not_started', 'delayed'), 'not_started');
+  assert.equal(forecastStatus('finished', 'at_risk'), 'finished');
+  assert.equal(forecastStatus('discontinued', 'delayed'), 'discontinued');
 });
 
 /* BR-322, BR-323 ---------------------------------------------------------- */

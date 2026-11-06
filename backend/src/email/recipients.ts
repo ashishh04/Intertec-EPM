@@ -56,6 +56,9 @@ export async function resolveRecipient(userId: string): Promise<Recipient | unde
 
   const email = principal?.email?.trim();
   if (!principal || !email) return undefined;
+  // A locked account cannot sign in to act on anything EPM would tell it, and
+  // deactivating someone should stop their mail too.
+  if (principal.status === 'locked') return undefined;
 
   return {
     email,

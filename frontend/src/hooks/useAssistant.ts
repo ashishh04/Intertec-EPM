@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { t } from '@/lib/i18n';
+import { currentLanguage, t } from '@/lib/i18n';
 import { assistantService } from '@/services/api/assistant';
 import type {
   AssistantConversation,
@@ -22,7 +22,8 @@ export const assistantKeys = {
   all: ['assistant'] as const,
   status: ['assistant', 'status'] as const,
   conversations: ['assistant', 'conversations'] as const,
-  conversation: (id: ID) => ['assistant', 'conversations', id] as const,
+  // By language too: a stored answer's chips come written for whoever is reading.
+  conversation: (id: ID) => ['assistant', 'conversations', id, currentLanguage()] as const,
 };
 
 interface ConversationDetail {
@@ -138,8 +139,14 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
   // A reply in flight is abandoned with the panel, not left running.
   useEffect(() => () => controllerRef.current?.abort(), []);
 
+  // Lets go at once rather than when the stream has wound down: "New
+  // conversation" stops the reply and moves on in one click, and the list has to
+  // be free to follow it. A stopped reply left the old thread on screen.
   const stop = useCallback(() => {
     controllerRef.current?.abort();
+    controllerRef.current = null;
+    streamingRef.current = false;
+    setIsStreaming(false);
   }, []);
 
   const clearError = useCallback(() => {
@@ -182,16 +189,27 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
       setIsStreaming(true);
 
       // Held in one object rather than `let`s: assignments happen inside the
-      // event callback, which TypeScript's narrowing cannot see through.
-      const outcome: { title: string; message: AssistantMessage | null; failure: string | null } = {
+      // event callback, which TypeScript's narrowing cannot see through. The
+      // reply is kept here as well as on screen: it outlives the panel, which a
+      // reply can be stopped by closing.
+      const outcome: {
+        conversation: ID | null;
+        title: string;
+        reply: Pick<AssistantMessage, 'content' | 'toolCalls'>;
+        message: AssistantMessage | null;
+        failure: string | null;
+      } = {
+        conversation: startedIn,
         title: '',
+        reply: { content: '', toolCalls: [] },
         message: null,
         failure: null,
       };
 
-      const patchPlaceholder = (update: (message: AssistantMessage) => AssistantMessage) => {
+      const patchPlaceholder = () => {
+        const { reply } = outcome;
         setMessages((previous) =>
-          previous.map((message) => (message.id === placeholderId ? update(message) : message)),
+          previous.map((message) => (message.id === placeholderId ? { ...message, ...reply } : message)),
         );
       };
 
@@ -199,6 +217,7 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
         switch (event.type) {
           case 'conversation':
             activeIdRef.current = event.conversationId;
+            outcome.conversation = event.conversationId;
             outcome.title = event.title;
             // A conversation opened by this message has no history to fetch:
             // seed the cache so choosing it does not put a loading state over
@@ -219,13 +238,12 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
             onConversationRef.current?.(event.conversationId, event.title);
             break;
           case 'tool':
-            patchPlaceholder((message) => ({
-              ...message,
-              toolCalls: upsertToolCall(message.toolCalls, event.call),
-            }));
+            outcome.reply = { ...outcome.reply, toolCalls: upsertToolCall(outcome.reply.toolCalls, event.call) };
+            patchPlaceholder();
             break;
           case 'delta':
-            patchPlaceholder((message) => ({ ...message, content: message.content + event.text }));
+            outcome.reply = { ...outcome.reply, content: outcome.reply.content + event.text };
+            patchPlaceholder();
             break;
           case 'done':
             outcome.message = event.message;
@@ -247,10 +265,33 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
       }
 
       const aborted = controller.signal.aborted;
-      const conversation = activeIdRef.current;
-      streamingRef.current = false;
-      setIsStreaming(false);
-      if (controllerRef.current === controller) controllerRef.current = null;
+      const { conversation } = outcome;
+      // Already let go if this was stopped, and another reply may have begun since.
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        streamingRef.current = false;
+        setIsStreaming(false);
+      }
+
+      // Hand the exchange to the cache, so switching away and back does not
+      // refetch (or briefly show the list from before this reply). The cached
+      // list is what this one was seeded from, so appending the pair keeps the
+      // two in step.
+      const handToCache = (sent: AssistantMessage, reply: AssistantMessage | null) => {
+        if (!conversation) return;
+        queryClient.setQueryData<ConversationDetail>(
+          assistantKeys.conversation(conversation),
+          (existing) => ({
+            conversation: existing?.conversation ?? {
+              id: conversation,
+              title: outcome.title || trimmed,
+              createdAt: now,
+              updatedAt: reply?.createdAt ?? now,
+            },
+            messages: [...(existing?.messages ?? []), sent, ...(reply ? [reply] : [])],
+          }),
+        );
+      };
 
       if (outcome.message) {
         const persisted = outcome.message;
@@ -262,46 +303,38 @@ export function useChat(conversationId: ID | null, options: UseChatOptions = {})
             return message;
           }),
         );
-        // Hand the finished exchange to the cache, so switching away and back
-        // does not refetch (or briefly show the list from before this reply).
-        // The cached list is what this one was seeded from, so appending the
-        // pair keeps the two in step.
-        if (conversation) {
-          queryClient.setQueryData<ConversationDetail>(
-            assistantKeys.conversation(conversation),
-            (existing) => ({
-              conversation: existing?.conversation ?? {
-                id: conversation,
-                title: outcome.title || trimmed,
-                createdAt: now,
-                updatedAt: persisted.createdAt,
-              },
-              messages: [...(existing?.messages ?? []), sent, persisted],
-            }),
-          );
-        }
-        queryClient.invalidateQueries({ queryKey: assistantKeys.conversations });
+        handToCache(sent, persisted);
+        queryClient.invalidateQueries({ queryKey: assistantKeys.conversations, exact: true });
         return;
       }
 
       if (aborted) {
         // The reader chose to stop: keep whatever arrived, drop an empty bubble
         // and mark anything still "running" as not finished.
+        const { content, toolCalls } = outcome.reply;
+        const kept: AssistantMessage | null =
+          content || toolCalls.length > 0
+            ? {
+                ...placeholder,
+                conversationId: conversation ?? '',
+                content,
+                toolCalls: toolCalls.map((call) =>
+                  call.status === 'running' ? { ...call, status: 'failed' as const } : call,
+                ),
+              }
+            : null;
         setMessages((previous) =>
           previous.flatMap((message) => {
             if (message.id !== placeholderId) return [message];
-            if (!message.content && message.toolCalls.length === 0) return [];
-            return [
-              {
-                ...message,
-                toolCalls: message.toolCalls.map((call) =>
-                  call.status === 'running' ? { ...call, status: 'failed' as const } : call,
-                ),
-              },
-            ];
+            return kept ? [kept] : [];
           }),
         );
-        if (conversation) queryClient.invalidateQueries({ queryKey: assistantKeys.conversations });
+        // The list only, and exactly. Its key is also the start of each
+        // conversation's, and refetching this one now reads it back before the
+        // server has finished keeping the reply: the answer vanished from the
+        // screen the moment it was stopped.
+        handToCache({ ...userMessage, conversationId: conversation ?? '' }, kept);
+        if (conversation) queryClient.invalidateQueries({ queryKey: assistantKeys.conversations, exact: true });
         return;
       }
 

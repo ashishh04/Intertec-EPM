@@ -1,3 +1,4 @@
+import { referenceCache } from '../lib/cache.js';
 import { linkId, linkTitle } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
 
@@ -52,6 +53,21 @@ export interface QueryFilterSchema {
   id: string;
   name: string;
   operators: QueryOperatorSchema[];
+  /**
+   * The choices of a list custom field. The filter's schema does not carry them,
+   * so without these a list could only be filtered by typing an option's id.
+   */
+  options?: { id: string; name: string }[];
+}
+
+/**
+ * Forgets what the views were told about filters and columns, per person and
+ * project, when a custom field changes. Held for ten minutes, a field just made
+ * could not be filtered or shown, and one just deleted was still offered.
+ */
+export function forgetQuerySchemas(): void {
+  referenceCache.invalidatePrefix('query-capabilities');
+  referenceCache.invalidatePrefix('query-filter-titles');
 }
 
 /**
@@ -260,15 +276,28 @@ interface OpQuery {
   _links?: Record<string, HalLink | HalLink[] | undefined>;
 }
 
+/**
+ * The name EPM gives a column, a sort or a grouping.
+ *
+ * OpenProject 17 calls the version column `targetVersions` while a work package
+ * may have several versions and `version` otherwise, and takes either name
+ * back as whichever is current. The task table knows it as `version` — a
+ * task's one sprint — so that is its name here whatever the setting; without
+ * this a view's version column read as one the table cannot show.
+ */
+export function selectName(id: string): string {
+  return id === 'targetVersions' ? 'version' : id;
+}
+
 /** `id-asc` / `dueDate-desc` -> a structured sort. */
 function toSort(id: string | undefined): QuerySort | undefined {
   if (!id) return undefined;
   const index = id.lastIndexOf('-');
-  if (index <= 0) return { field: id, direction: 'asc' };
+  if (index <= 0) return { field: selectName(id), direction: 'asc' };
 
   const direction = id.slice(index + 1);
   return {
-    field: id.slice(0, index),
+    field: selectName(id.slice(0, index)),
     direction: direction === 'desc' ? 'desc' : 'asc',
   };
 }
@@ -298,7 +327,7 @@ export function toEpmQuery(query: OpQuery): EpmQuery {
     })),
 
     columns: (query._embedded?.columns ?? []).map((column) => ({
-      id: column.id ?? '',
+      id: selectName(column.id ?? ''),
       name: column.name ?? column.id ?? '',
     })),
 
@@ -306,7 +335,7 @@ export function toEpmQuery(query: OpQuery): EpmQuery {
       .map((entry) => toSort(entry.id))
       .filter((sort): sort is QuerySort => sort !== undefined),
 
-    groupBy: query._embedded?.groupBy?.id ?? undefined,
+    groupBy: query._embedded?.groupBy?.id ? selectName(query._embedded.groupBy.id) : undefined,
     sums: Boolean(query.sums),
     hidden: Boolean(query.hidden),
     public: Boolean(query.public),
@@ -328,10 +357,19 @@ export function toEpmQuery(query: OpQuery): EpmQuery {
  * Resource attributes carry their label on the link; scalars sit on the record.
  * Read generically rather than by field, so grouping by a custom field needs no
  * special case.
+ *
+ * A field with several values — target versions, a multi-select custom field —
+ * groups under all their names, sorted and joined with ", ", which is how
+ * upstream names such a group. The version is read through both of its names
+ * (openproject/versions.ts): with several versions allowed a work package has
+ * no `version` link, and every one of them fell under "no value".
  */
 function groupValueOf(workPackage: Record<string, unknown>, field: string): string | null {
-  const links = workPackage._links as Record<string, { title?: string | null } | undefined> | undefined;
-  const title = links?.[field]?.title;
+  const links = workPackage._links as Record<string, HalLink | HalLink[] | undefined> | undefined;
+  const link = field === 'version' && !links?.version ? links?.targetVersions : links?.[field];
+  const title = Array.isArray(link)
+    ? link.map((entry) => entry.title).filter((name): name is string => Boolean(name)).sort().join(', ') || undefined
+    : link?.title;
   if (title !== undefined && title !== null) return String(title);
 
   const scalar = workPackage[field];

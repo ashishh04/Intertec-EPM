@@ -1,6 +1,7 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import {
   getEmployee,
@@ -15,12 +16,19 @@ import {
 } from '../domain/employees.js';
 
 /**
- * A person's hourly rate is pay information (BRL-01): the directory is open to
- * everyone signed in, the rate in it only to those allowed to read rates.
+ * A person's hourly rate is pay information (BRL-01): whoever may read the
+ * directory sees the rate in it only if they are also allowed to read rates.
  */
 export function withoutRate(employee: EpmEmployee): EpmEmployee {
   const { hourlyRate: _rate, ...rest } = employee;
   return rest;
+}
+
+/** Only people who look after the organisation read other people's records. */
+async function requireDirectory(request: FastifyRequest): Promise<void> {
+  if (!(await guard.mayReadOrganisation(request))) {
+    throw EpmError.forbidden('You do not have permission to read the employee directory.');
+  }
 }
 
 /**
@@ -30,11 +38,14 @@ export function withoutRate(employee: EpmEmployee): EpmEmployee {
  * person is not an EPM resource — OpenProject owns identity — so the only thing
  * writable here is the mapping: which department and team they belong to.
  *
- * Reading is open to any signed-in caller, as for departments and teams; the
- * directory itself is already readable at `/users`. The hourly rate in it is
- * not: it is left out unless the caller may read rates. Assigning requires
- * `employees:manage`, which is a different responsibility from designing the org
- * structure and so is a permission of its own. See `auth/grants.ts`.
+ * The directory is for whoever looks after the organisation (the Employees,
+ * Departments and Organization screens); it carries email addresses, where
+ * everyone sits and their weekly hours. Everyone else reads their own record,
+ * which My Time and the overview measure their week against, and finds names and
+ * faces at `/users`. The hourly rate is left out unless the caller may read
+ * rates. Assigning requires `employees:manage`, which is a different
+ * responsibility from designing the org structure and so is a permission of its
+ * own. See `auth/grants.ts`.
  */
 
 export const employeeRoutes: FastifyPluginAsync = async (app) => {
@@ -42,6 +53,8 @@ export const employeeRoutes: FastifyPluginAsync = async (app) => {
   app.get<{
     Querystring: { departmentId?: string; teamId?: string; unmapped?: string; q?: string };
   }>('/employees', async (request) => {
+    await requireDirectory(request);
+
     const [employees, rates] = await Promise.all([
       listEmployees(
         {
@@ -58,6 +71,8 @@ export const employeeRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/employees/:id', async (request) => {
+    if (request.params.id !== request.auth?.userId) await requireDirectory(request);
+
     const [employee, rates] = await Promise.all([
       getEmployee(request.params.id, requestSignal(request)),
       guard.mayViewRates(request),

@@ -39,6 +39,8 @@ export function useSchemaForm(
   const [isLoading, setIsLoading] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<Error>();
+  // The draft the form last answered for, as text.
+  const [answered, setAnswered] = useState<string>();
 
   // `load` is typically an inline arrow, so keeping it in a ref stops the
   // effect below from firing on every render of the parent.
@@ -58,9 +60,11 @@ export function useSchemaForm(
         if (id !== requestId.current) return;
         setForm(next);
         setError(undefined);
+        setAnswered(JSON.stringify(payload));
       } catch (cause) {
         if (id !== requestId.current) return;
         setError(cause instanceof Error ? cause : new Error(String(cause)));
+        setAnswered(JSON.stringify(payload));
       } finally {
         if (id === requestId.current) {
           setIsLoading(false);
@@ -102,8 +106,11 @@ export function useSchemaForm(
   const errors = form?.errors ?? {};
 
   // OpenProject withholds the commit link while the payload is invalid, so it
-  // is a more trustworthy gate than anything we could compute.
-  const canSubmit = Boolean(form?.commit) && Object.keys(errors).length === 0;
+  // is a more trustworthy gate than anything we could compute. Only for the draft
+  // it was shown, though: what it worked out from an earlier one travels with the
+  // save. Saved in that moment, Work and Remaining work went up beside an empty
+  // % Complete it had not yet derived, and came back refused for the lack of one.
+  const canSubmit = Boolean(form?.commit) && Object.keys(errors).length === 0 && answered === draftKey;
 
   const merged = useMemo(() => ({ ...(form?.payload ?? {}), ...draft }), [form?.payload, draft]);
 

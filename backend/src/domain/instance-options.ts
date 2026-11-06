@@ -4,7 +4,7 @@ import { getCatalog } from '../mapping/catalog.js';
 import { listProjects } from '../mapping/projects.js';
 import { openProject } from '../openproject/client.js';
 import type { ApprovalChainOptions } from '../types/epm.js';
-import { AUTOMATION_ROLE_NAME } from './automation-account.js';
+import { isOwnRole } from './service-account.js';
 
 /**
  * What the policy editors offer — approval chains, rules and escalation
@@ -31,9 +31,9 @@ export function instanceOptions(): Promise<ApprovalChainOptions> {
       statuses: [...catalog.statusById.values()].map(({ id, name, isClosed }) => ({ id, name, isClosed })),
       priorities: [...catalog.priorityById.values()].map(({ id, name }) => ({ id, name })),
       // Built-in roles for non-members and anonymous users are never project
-      // members, and the automation account's role is not one people hold.
+      // members, and EPM's own accounts' roles are not ones people hold.
       roles: roles.items
-        .filter((role) => !/^(non member|anonymous)$/i.test(role.name) && role.name !== AUTOMATION_ROLE_NAME)
+        .filter((role) => !/^(non member|anonymous)$/i.test(role.name) && !isOwnRole(role.name))
         .map((role) => ({ id: String(role.id), name: role.name })),
       projects: projects.filter((project) => project.active).map((project) => ({ id: String(project.id), name: project.name })),
       portfolios,

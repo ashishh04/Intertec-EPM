@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { persistOptions, PERSIST_MAX_AGE } from './lib/queryPersister';
+import { persistOptionsFor, PERSIST_MAX_AGE } from './lib/queryPersister';
 import { App } from './App';
 import { AuthProvider } from './providers/AuthProvider';
 import { UIProvider } from './providers/UIProvider';
@@ -11,7 +11,7 @@ import { PreferenceEffects } from './providers/PreferenceEffects';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { storedPreferences } from './hooks/usePreferences';
-import { direction, loadLanguage, toLanguage } from './lib/i18n';
+import { direction, intlLocale, loadLanguage, toLanguage } from './lib/i18n';
 import './index.css';
 
 /**
@@ -42,7 +42,7 @@ function render() {
         Restores the last known data before the first request goes out, then
         revalidates. The skeletons only appear on a genuinely first visit.
       */}
-      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptionsFor(reader)}>
         <AuthProvider>
           <UIProvider>
             <TooltipProvider delayDuration={300} skipDelayDuration={200}>
@@ -68,7 +68,9 @@ function render() {
 // page direction set with it, so an Arabic reader never sees a frame of English
 // laid out left to right. English needs nothing loaded and renders at once; a
 // failed load renders in English rather than not at all.
-const storedLanguage = toLanguage(storedPreferences().locale.language);
+const stored = storedPreferences().locale;
+const storedLanguage = toLanguage(stored.language);
+const reader = intlLocale({ language: storedLanguage, calendar: stored.calendar, numerals: stored.numerals });
 document.documentElement.lang = storedLanguage;
 document.documentElement.dir = direction(storedLanguage);
 void loadLanguage(storedLanguage).catch(() => undefined).finally(render);

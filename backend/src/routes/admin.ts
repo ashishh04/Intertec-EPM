@@ -4,6 +4,11 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { prisma } from '../db/prisma.js';
 import { emailDelivery } from '../email/index.js';
+import { forgetCustomFields } from '../domain/calculated-fields.js';
+import { isOwnRole } from '../domain/service-account.js';
+import { forgetWorkingCalendar } from '../domain/task-series.js';
+import { referenceCache } from '../lib/cache.js';
+import { calendarDay } from '../lib/dates.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, idFromHref, linkTitle } from '../openproject/client.js';
@@ -40,16 +45,18 @@ import type {
  * admin UI is described by the frontend rather than edited here.
  */
 
+/**
+ * The instance's name, version and host are not here: they are the delivery
+ * system's, which EPM never names to anyone, and the Information page shows
+ * EPM's own details instead.
+ */
 export interface AdminInformation {
-  instanceName: string;
-  coreVersion: string;
-  hostName: string;
   apiVersion: 'v3';
   activeFeatureFlags: string[];
 }
 
+/** No host name either: no page read it, and it located the delivery system. */
 export interface AdminConfiguration {
-  hostName: string;
   perPageOptions: number[];
   maximumAttachmentFileSize: number;
   dateFormat: string | null;
@@ -293,13 +300,7 @@ export interface AdminVersion {
  * Upstream shapes — only the fields read here.
  * ------------------------------------------------------------------------- */
 
-interface OpRoot {
-  instanceName?: string;
-  coreVersion?: string;
-}
-
 interface OpConfiguration {
-  hostName?: string;
   perPageOptions?: number[];
   maximumAttachmentFileSize?: number;
   dateFormat?: string | null;
@@ -650,7 +651,7 @@ const weekDaysBody = z.object({
 
 const nonWorkingDayBody = z.object({
   name: z.string().trim().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a date in YYYY-MM-DD form.'),
+  date: calendarDay(),
 });
 
 const numericId = z.string().regex(/^\d+$/, 'Expected a numeric id.');
@@ -677,8 +678,17 @@ const usersSettingsBody = z.object({
 /** A catalogue row is a flat map of field key to value; the instance validates. */
 const catalogBody = z.record(
   z.string().trim().min(1),
-  z.union([z.boolean(), z.number(), z.string(), z.null()]),
+  z.union([z.boolean(), z.number(), z.string(), z.null(), z.array(z.string())]),
 );
+
+/**
+ * What a catalogue write has made stale, so a new priority, status or custom field
+ * reaches the lists at once rather than when their ten minutes are up.
+ */
+function forgetCatalogued(resource: string): void {
+  referenceCache.invalidatePrefix('catalog');
+  if (resource === 'custom-fields') forgetCustomFields();
+}
 
 const sectionBody = z.record(
   z.string().trim().min(1),
@@ -718,26 +728,21 @@ const placeholderUserBody = z.object({
  * ------------------------------------------------------------------------- */
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
-  /** The instance itself: name, version, host, and what is switched on. */
+  /** What is switched on. Nothing that names or locates the delivery system (`AdminInformation`). */
   app.get('/admin/information', async (request): Promise<AdminInformation> => {
     await guard.require(request, 'users:manage');
-    const signal = requestSignal(request);
 
-    const [root, configuration] = await Promise.all([
-      openProject.request<OpRoot>('/', { signal }),
-      openProject.request<OpConfiguration>('/configuration', { signal }),
-    ]);
+    const configuration = await openProject.request<OpConfiguration>('/configuration', {
+      signal: requestSignal(request),
+    });
 
     return {
-      instanceName: str(root.instanceName),
-      coreVersion: str(root.coreVersion),
-      hostName: str(configuration.hostName),
       apiVersion: 'v3',
       activeFeatureFlags: configuration.activeFeatureFlags ?? [],
     };
   });
 
-  /** The instance-wide settings OpenProject publishes read-only. */
+  /** The instance-wide settings OpenProject publishes read-only, less its host (`AdminConfiguration`). */
   app.get('/admin/configuration', async (request): Promise<AdminConfiguration> => {
     await guard.require(request, 'users:manage');
 
@@ -746,7 +751,6 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return {
-      hostName: str(c.hostName),
       perPageOptions: c.perPageOptions ?? [],
       maximumAttachmentFileSize: c.maximumAttachmentFileSize ?? 0,
       dateFormat: c.dateFormat ?? null,
@@ -794,6 +798,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         `/catalog/${encodeURIComponent(request.params.resource)}`,
         { method: 'POST', body },
       );
+      forgetCatalogued(request.params.resource);
       reply.code(201);
       return created;
     },
@@ -804,11 +809,13 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       await guard.require(request, 'users:manage');
       const body = catalogBody.parse(request.body ?? {});
-      return instance<Record<string, unknown>>(
+      const updated = await instance<Record<string, unknown>>(
         request,
         `/catalog/${encodeURIComponent(request.params.resource)}/${encodeURIComponent(request.params.id)}`,
         { method: 'PATCH', body },
       );
+      forgetCatalogued(request.params.resource);
+      return updated;
     },
   );
 
@@ -822,6 +829,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         `/catalog/${encodeURIComponent(request.params.resource)}/${encodeURIComponent(request.params.id)}`,
         { method: 'DELETE' },
       );
+      forgetCatalogued(request.params.resource);
       reply.code(204);
     },
   );
@@ -889,20 +897,25 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
    * Every permission a role can be given, grouped as OpenProject's role form
    * groups them. The instance's wording is kept except for its own product
    * name, which one label carries ("View repository revisions in …") and
-   * which EPM never shows.
+   * which EPM never shows. In Arabic the words are EPM's own catalogue's: the
+   * instance leaves nearly half of these in English, and what it does translate
+   * does not use the client's glossary.
    */
   app.get('/admin/permissions', async (request): Promise<AdminPermissionModule[]> => {
     await guard.require(request, 'users:manage');
     const modules = await instance<AdminPermissionModule[]>(request, '/permissions');
-    return modules.map((module) => ({
-      ...module,
-      label: withoutProductName(module.label),
-      permissions: module.permissions.map((permission) => ({
-        ...permission,
-        label: withoutProductName(permission.label),
-        explanation: permission.explanation === null ? null : withoutProductName(permission.explanation),
+    return translateDescriptors(
+      modules.map((module) => ({
+        ...module,
+        label: withoutProductName(module.label),
+        permissions: module.permissions.map((permission) => ({
+          ...permission,
+          label: withoutProductName(permission.label),
+          // Trimmed: some end in a line break, and the catalogue is matched exactly.
+          explanation: permission.explanation === null ? null : withoutProductName(permission.explanation).trim(),
+        })),
       })),
-    }));
+    );
   });
 
   /* --------------------------------------------------------------- enterprise */
@@ -917,7 +930,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/admin/roles', async (request): Promise<AdminRole[]> => {
     await guard.require(request, 'users:manage');
-    return instance<AdminRole[]>(request, '/roles');
+    // Not EPM's own accounts' roles: they are set up with those accounts, and
+    // unticking something in one here would quietly break EPM itself.
+    return (await instance<AdminRole[]>(request, '/roles')).filter((role) => !isOwnRole(role.name));
   });
 
   app.post<{ Body: unknown }>('/admin/roles', async (request, reply): Promise<AdminRole> => {
@@ -1270,11 +1285,13 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     // OpenProject's own administration edits it under Calendars and dates.
     // The plugin goes through Settings::UpdateService, so the work packages
     // that depend on the calendar are rescheduled rather than left stale.
-    return instance<AdminWeekDay[]>(request, '/days/week', {
+    const week = await instance<AdminWeekDay[]>(request, '/days/week', {
       method: 'PATCH',
       body: { days: days.map(({ day, working }) => ({ day, working })) },
       missing: 'The working week',
     });
+    forgetWorkingCalendar();
+    return week;
   });
 
   app.get('/admin/non-working-days', async (request): Promise<AdminNonWorkingDay[]> => {
@@ -1296,6 +1313,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         body: { name, date },
         missing: 'That non-working day',
       });
+      forgetWorkingCalendar();
 
       reply.code(201);
       return created;
@@ -1313,6 +1331,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         method: 'DELETE',
         missing: 'That non-working day',
       });
+      forgetWorkingCalendar();
 
       reply.code(204);
     },

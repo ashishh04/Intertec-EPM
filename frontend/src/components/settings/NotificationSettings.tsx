@@ -163,7 +163,7 @@ export function NotificationSettings() {
             <ToggleRow
               id="email-enabled"
               label={t('Send me email')}
-              hint={t('Off means no email of any kind.')}
+              hint={t('Off means no email, except for a password reset you ask for.')}
               checked={preferences.email.enabled}
               onCheckedChange={(checked) => update('email', 'enabled', checked)}
             />
@@ -273,7 +273,7 @@ export function NotificationSettings() {
             <ToggleRow
               id="notify-pause"
               label={t('Pause notifications')}
-              hint={t('No email of any kind is sent while paused. Items still collect in your feed, so nothing is lost.')}
+              hint={t('No email is sent while paused, except for a password reset you ask for. Items still collect in your feed, so nothing is lost.')}
               checked={pause.enabled}
               onCheckedChange={(checked) =>
                 update('notifications', 'pause', { ...pause, enabled: checked })

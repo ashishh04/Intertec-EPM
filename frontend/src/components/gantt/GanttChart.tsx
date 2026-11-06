@@ -278,6 +278,9 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
     (a, b) => a - b,
   );
   const cycleMembers = new Set((schedule?.cycles ?? []).flat());
+  // Work left off the chart says why, here as well as on its own Schedule card:
+  // a missing row otherwise reads as something the chart lost.
+  const undated = tasks.filter((task) => !task.startDate || !task.dueDate).length;
 
   return (
     <Card className={cn('overflow-hidden', className)}>
@@ -291,7 +294,7 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-warning" aria-hidden />
-                {threshold === 0
+                {counts.near === 0
                   ? t('Near-critical, none')
                   : t('{days, plural, one {Near-critical, float ≤ # day} other {Near-critical, float ≤ # days}}', {
                       days: threshold,
@@ -734,6 +737,15 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
           </div>
         </div>
       )}
+
+      {undated > 0 ? (
+        <p className="border-t border-border px-3 py-2 text-2xs text-muted-foreground" data-testid="gantt-undated-note">
+          {t(
+            '{count, plural, one {# task has no bar: a bar needs a start date and a due date.} other {# tasks have no bar: a bar needs a start date and a due date.}}',
+            { count: undated },
+          )}
+        </p>
+      ) : null}
 
       <Pagination
         page={paged.page}

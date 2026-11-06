@@ -9,15 +9,14 @@ import { lastWebhookReceived } from '../domain/rule-events.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
-import type { OpRoot } from '../openproject/types.js';
 import type { ConnectionState, IntegrationStatus } from '../types/epm.js';
 
 /**
  * Integration health for /settings/integration.
  *
- * Deliberately reports only connection state, version and record counts. No
- * token, no credential, and no upstream address — administrators see health,
- * never secrets, and never a route to the system behind EPM.
+ * Deliberately reports only connection state and record counts. No token, no
+ * credential, no upstream address and no upstream version — administrators see
+ * health, never secrets, and never what or where the system behind EPM is.
  */
 
 const COUNTED_RESOURCES = [
@@ -53,11 +52,10 @@ async function countResource(
 interface Probe {
   checkedAt: string;
   apiState: ConnectionState;
-  apiVersion: string;
   counts: { resource: string; count: number | null }[];
 }
 
-/** Reads instance reachability, version and per-resource counts. */
+/** Reads instance reachability and per-resource counts. */
 async function probeInstance(
   signal: AbortSignal,
   log: (error: unknown) => void,
@@ -65,12 +63,10 @@ async function probeInstance(
   const checkedAt = new Date().toISOString();
 
   let apiState: ConnectionState = 'disconnected';
-  let apiVersion = 'unknown';
 
   try {
-    const root = await openProject.request<OpRoot>('/', { signal });
+    await openProject.request<unknown>('/', { signal });
     apiState = 'connected';
-    apiVersion = root.coreVersion ?? 'unknown';
   } catch (error) {
     log(error);
   }
@@ -85,14 +81,16 @@ async function probeInstance(
         )
       : [];
 
-  return { checkedAt, apiState, apiVersion, counts };
+  return { checkedAt, apiState, counts };
 }
 
 function toStatus(probe: Probe, lastSyncAt: string): IntegrationStatus {
   const readable = probe.counts.filter((entry) => entry.count !== null);
 
-  // Neither the upstream identity nor its address is reported: the client is
-  // not meant to know which system sits behind EPM, let alone reach it.
+  // Neither the upstream identity, its version nor its address is reported:
+  // the client is not meant to know which system sits behind EPM, let alone
+  // reach it. `apiVersion` is the API EPM speaks, as on /admin/information —
+  // never the instance's own version, which named the product (DEF-012).
   return {
     state: connectionState(probe.apiState, readable.length, probe.counts.length),
     apiState: probe.apiState,
@@ -102,7 +100,7 @@ function toStatus(probe: Probe, lastSyncAt: string): IntegrationStatus {
     webhookState: env.OPENPROJECT_WEBHOOK_SECRET ? 'connected' : 'disconnected',
     webhookLastReceivedAt: lastWebhookReceived(),
     lastSyncAt,
-    apiVersion: probe.apiVersion,
+    apiVersion: 'v3',
     syncedResources: readable.map((entry) => ({
       resource: entry.resource,
       count: entry.count as number,

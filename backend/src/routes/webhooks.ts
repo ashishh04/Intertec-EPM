@@ -177,6 +177,10 @@ async function handleWorkPackage(action: string, body: WebhookBody, log: { warn(
 }
 
 export const webhooksRoutes: FastifyPluginAsync = async (app) => {
+  // The raw body is what the signature covers, so this plugin keeps its own
+  // JSON parser in place of the app's (app.ts). Fastify lets a plugin replace
+  // only its built-in parser, so the inherited one is removed first.
+  app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
     const raw = typeof body === 'string' ? body : body.toString('utf8');
     request.rawBody = raw;

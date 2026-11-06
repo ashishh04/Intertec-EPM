@@ -3,25 +3,20 @@ import { Ellipsis, ListChecks, Lock, Mail, Pencil, Trash2, Unlock } from 'lucide
 import { toast } from 'sonner';
 
 import { AccountDialog } from '@/components/employees/AccountDialog';
+import { RemovePersonDialog } from '@/components/employees/RemovePersonDialog';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useDeleteAccount, useResendInvite, useSetAccountLocked } from '@/hooks/useAccounts';
+import { useAccounts, useResendInvite, useSetAccountLocked } from '@/hooks/useAccounts';
+import { useHasSignedIn } from '@/hooks/useAdmin';
 import type { Tone } from '@/lib/domain';
 import { t } from '@/lib/i18n';
 import { cn, formatLongDate } from '@/lib/utils';
+import { useAuth } from '@/providers/AuthProvider';
 import type { AdminInvitation } from '@/services/api/admin';
 import type { AccountStatus, EpmAccount } from '@/types';
 import { describeError } from './shared-format';
@@ -107,12 +102,14 @@ export function InvitationNote({
  */
 export function useAccountActions({ onRemoved }: { onRemoved?: () => void } = {}) {
   const setLocked = useSetAccountLocked();
-  const deleteAccount = useDeleteAccount();
   const resendInvite = useResendInvite();
+  const accounts = useAccounts(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<EpmAccount>();
-  const [removing, setRemoving] = useState<EpmAccount>();
+  // Held by id: the staged dialog reads the account from the refreshed list
+  // after each step, so the next step sees the status the last one left.
+  const [removingId, setRemovingId] = useState<string>();
   const [attributesFor, setAttributesFor] = useState<EpmAccount>();
 
   const openCreate = () => {
@@ -159,20 +156,6 @@ export function useAccountActions({ onRemoved }: { onRemoved?: () => void } = {}
     });
   };
 
-  const confirmRemove = () => {
-    if (!removing) return;
-    const label = removing.name;
-
-    deleteAccount.mutate(removing.id, {
-      onSuccess: () => {
-        toast.success(t('{name} was deleted', { name: label }));
-        setRemoving(undefined);
-        onRemoved?.();
-      },
-      onError: (error) => toast.error(t('That could not be deleted'), { description: describeError(error) }),
-    });
-  };
-
   const dialogs: ReactNode = (
     <>
       <AccountDialog open={dialogOpen} onOpenChange={setDialogOpen} account={editing} />
@@ -182,26 +165,15 @@ export function useAccountActions({ onRemoved }: { onRemoved?: () => void } = {}
         onOpenChange={(open) => !open && setAttributesFor(undefined)}
       />
 
-      <Dialog open={Boolean(removing)} onOpenChange={(open) => !open && setRemoving(undefined)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
-            <DialogDescription>
-              {t(
-                'This removes their account permanently, along with their department, team and capacity in EPM. It cannot be undone. To keep their history and stop them signing in, deactivate them instead.',
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRemoving(undefined)} disabled={deleteAccount.isPending}>
-              {t('Cancel')}
-            </Button>
-            <Button variant="danger" onClick={confirmRemove} loading={deleteAccount.isPending}>
-              {t('Delete permanently')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* The same steps as on the Employees page, in the same order: a single
+          "Delete" here went round them, and could leave live sessions and
+          project memberships behind. */}
+      <RemovePersonDialog
+        open={Boolean(removingId)}
+        onOpenChange={(open) => !open && setRemovingId(undefined)}
+        account={accounts.data?.find((account) => account.id === removingId)}
+        onRemoved={onRemoved}
+      />
     </>
   );
 
@@ -211,7 +183,7 @@ export function useAccountActions({ onRemoved }: { onRemoved?: () => void } = {}
     openAttributes: setAttributesFor,
     toggleLocked,
     sendInvitation,
-    askRemove: setRemoving,
+    askRemove: (account: EpmAccount) => setRemovingId(account.id),
     dialogs,
   };
 }
@@ -229,11 +201,19 @@ export function AccountActionsMenu({
   /** On a profile, Edit and Attributes are buttons of their own. */
   include?: 'all' | 'more';
 }) {
-  const { update, lock, unlock, remove } = account.can;
+  const { user } = useAuth();
+  const hasSignedIn = useHasSignedIn();
+  const { update, lock, unlock } = account.can;
+  // An invitation is for someone who has not signed in yet.
+  const invite = update && !hasSignedIn(account.id);
+  // Offered whether or not the instance allows deletion, as on the Employees
+  // page: the first two steps need no such thing, and the dialog explains the
+  // third. Never on one's own account, which the server refuses too.
+  const remove = account.id !== user?.id;
   const items = [
     include === 'all' && update ? 'edit' : null,
     include === 'all' && update ? 'attributes' : null,
-    update ? 'invite' : null,
+    invite ? 'invite' : null,
     lock || unlock ? 'lock' : null,
     remove ? 'remove' : null,
   ].filter(Boolean);
@@ -261,7 +241,7 @@ export function AccountActionsMenu({
           </DropdownMenuItem>
         ) : null}
 
-        {update ? (
+        {invite ? (
           <DropdownMenuItem onSelect={() => actions.sendInvitation(account)}>
             <Mail />
             {t('Resend invitation')}
@@ -278,7 +258,7 @@ export function AccountActionsMenu({
         {remove ? (
           <DropdownMenuItem destructive onSelect={() => actions.askRemove(account)}>
             <Trash2 />
-            {t('Delete')}
+            {t('Remove person…')}
           </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>

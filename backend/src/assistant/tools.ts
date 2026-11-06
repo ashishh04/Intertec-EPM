@@ -1,9 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import type { AppRole } from '../auth/roles.js';
-import { env } from '../config/env.js';
+import { reportingCurrency } from '../domain/currency.js';
+import { contextConventions, contextLanguage, dateOf, message, render, type Message } from '../lib/i18n.js';
 import { DELIVERY_ROLES, MANAGEMENT_ROLES, PEOPLE_ROLES } from './tool-roles.js';
 import { budgetExposure, deliveryForecast, recommendedActions, riskExposure } from './analysis-tools.js';
+import { ToolError, callApi, projectIdFrom, projectNamed } from './tool-api.js';
 import type { ChatTool } from './bedrock.js';
 import type {
   DashboardMetrics,
@@ -31,7 +33,15 @@ import type {
  *
  * Results are trimmed to what a sentence needs and capped in size, since every
  * byte returned is a byte the model has to read back on the next round.
+ *
+ * Money never reaches the model with the finance switch off: a tool that can
+ * carry it leaves it out of what it returns, whichever question it was asked
+ * for. Turning off the finance tools alone was not enough: the forecasts and a
+ * project's health both quote budget and spend. And every amount that does go
+ * back carries its currency, or the model picks one (it wrote $ for AED).
  */
+
+export { ToolError };
 
 export interface ToolContext {
   app: FastifyInstance;
@@ -39,14 +49,21 @@ export interface ToolContext {
   userId: string;
   /** The asker's EPM role. Employee until their permissions are read. */
   role: AppRole;
+  /** Whether the administrators let Pragnya give money. Off until the settings are read. */
+  allowFinance: boolean;
+  /** Whether they let it give other people's workload. Off until the settings are read. */
+  allowPeople: boolean;
 }
 
 export interface ToolDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
-  /** Chip text for the UI, past tense: "Looked up overdue tasks". */
-  label(args: Record<string, unknown>): string;
+  /**
+   * Chip text for the UI, past tense: "Looked up overdue tasks". A message, not
+   * a string, so a stored chip can be written out again for whoever reads it.
+   */
+  label(args: Record<string, unknown>): Message;
   execute(context: ToolContext, args: Record<string, unknown>): Promise<unknown>;
   /**
    * Whether this person is offered the tool at all: what they hold, and what
@@ -76,56 +93,6 @@ const RESULT_CAP = 4_096;
 
 /** Most rows any list tool returns. */
 const ROW_CAP = 25;
-
-/**
- * Failure the model can read: the message is what the API said, which is
- * already written for a person. Distinct from other errors so the service can
- * hand it to the model as a tool result instead of ending the conversation.
- */
-export class ToolError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ToolError';
-  }
-}
-
-/**
- * GET through the API as the caller.
- *
- * `inject` is inherited from the root instance, so calling it on the plugin's
- * own `app` still routes through the root: every onRequest and preHandler
- * hook, the session lookup, the async credential context, all of it.
- */
-async function callApi<T>(
-  context: ToolContext,
-  path: string,
-  query: Record<string, string | undefined> = {},
-): Promise<T> {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== '') search.set(key, value);
-  }
-  const suffix = search.size > 0 ? `?${search.toString()}` : '';
-
-  const response = await context.app.inject({
-    method: 'GET',
-    url: `${env.API_PREFIX}${path}${suffix}`,
-    headers: { cookie: context.request.headers.cookie ?? '' },
-  });
-
-  if (response.statusCode >= 400) {
-    let message = `That request failed (${response.statusCode}).`;
-    try {
-      const body = response.json<{ message?: string }>();
-      if (typeof body.message === 'string') message = body.message;
-    } catch {
-      // Not JSON; the generic sentence stands.
-    }
-    throw new ToolError(message);
-  }
-
-  return response.json<T>();
-}
 
 /** Users by id, for turning an assignee or owner id into a name. Never fails. */
 async function usersById(context: ToolContext): Promise<Map<string, EpmUser>> {
@@ -180,7 +147,14 @@ function trimTask(
   };
 }
 
-function trimProject(project: EpmProject, users: Map<string, EpmUser>) {
+/**
+ * Whether a project's budget and spend may go back for this person: the finance
+ * switch, and a role whose work is money. HR and employees are told their role
+ * does not cover it, and that is only true of a figure the model does not have.
+ */
+const showsProjectMoney = (context: ToolContext) => context.allowFinance && MANAGEMENT_ROLES.includes(context.role);
+
+function trimProject(project: EpmProject, users: Map<string, EpmUser>, money: boolean) {
   return {
     id: project.id,
     identifier: project.identifier,
@@ -190,15 +164,18 @@ function trimProject(project: EpmProject, users: Map<string, EpmUser>) {
     // Why: the explanation and each criterion's figure and reason, so an answer
     // about health quotes the same evidence the project page shows. And
     // whether a person overrode it, with their reason — a pinned value is
-    // never to be presented as a measured one.
+    // never to be presented as a measured one. The budget criterion's reason
+    // spells out the budget, the spend and the plan to date.
     healthExplanation: project.healthDetail.explanation,
-    healthCriteria: project.healthDetail.criteria.map((criterion) => ({
-      criterion: criterion.criterion,
-      level: criterion.level ?? 'not assessed',
-      value: criterion.value,
-      unit: criterion.unit,
-      reason: criterion.reason,
-    })),
+    healthCriteria: project.healthDetail.criteria
+      .filter((criterion) => money || criterion.criterion !== 'budget')
+      .map((criterion) => ({
+        criterion: criterion.criterion,
+        level: criterion.level ?? 'not assessed',
+        value: criterion.value,
+        unit: criterion.unit,
+        reason: criterion.reason,
+      })),
     calculatedHealth: project.healthCalculated.overall,
     healthOverride: project.healthOverride
       ? {
@@ -215,9 +192,14 @@ function trimProject(project: EpmProject, users: Map<string, EpmUser>) {
     taskCount: project.taskCount,
     completedTaskCount: project.completedTaskCount,
     openRiskCount: project.openRiskCount,
-    // Actual cost to date: logged hours at each person's rate.
-    spentToDate: project.budgetUsed,
-    budgetTotal: project.budgetTotal,
+    ...(money
+      ? {
+          // Actual cost to date: logged hours at each person's rate.
+          spentToDate: project.budgetUsed,
+          budgetTotal: project.budgetTotal,
+          currency: reportingCurrency(),
+        }
+      : {}),
   };
 }
 
@@ -232,10 +214,10 @@ function trimSprint(sprint: EpmSprint, projects: Map<string, EpmProject>) {
     committedPoints: sprint.committedPoints,
     completedPoints: sprint.completedPoints,
     projects: sprint.projectIds.map((id) => projects.get(id)?.name ?? `#${id}`),
+    // A sprint opens in the workspace; there is no page of its own to link to.
+    link: `/agile?sprint=${sprint.id}`,
   };
 }
-
-const quote = (value: string) => `“${value}”`;
 
 const listTasks: ToolDefinition = {
   name: 'list_tasks',
@@ -245,7 +227,7 @@ const listTasks: ToolDefinition = {
   parameters: {
     type: 'object',
     properties: {
-      projectId: { type: 'string', description: 'Restrict to one project by id.' },
+      projectId: { type: 'string', description: 'Restrict to one project, by id or by name.' },
       assignee: {
         type: 'string',
         description: "A user id, or 'me' for the person asking.",
@@ -273,19 +255,24 @@ const listTasks: ToolDefinition = {
     const bucket = str(args.bucket);
     const mine = args.assignee === 'me';
     const search = str(args.search);
-    if (search) return `Looked up tasks matching ${quote(search)}`;
-    if (bucket && mine) return `Looked up my ${bucket} tasks`;
-    if (bucket) return `Looked up ${bucket} tasks`;
-    if (mine) return 'Looked up my tasks';
-    return 'Looked up tasks';
+    if (search) return message('Looked up tasks matching “{search}”', { search });
+    if (bucket && mine) {
+      return message('Looked up my {bucket, select, overdue {overdue tasks} today {tasks due today} upcoming {upcoming tasks} completed {completed tasks} other {open tasks}}', { bucket });
+    }
+    if (bucket) {
+      return message('Looked up {bucket, select, overdue {overdue tasks} today {tasks due today} upcoming {upcoming tasks} completed {completed tasks} other {open tasks}}', { bucket });
+    }
+    if (mine) return message('Looked up my tasks');
+    return message('Looked up tasks');
   },
   async execute(context, args) {
     const assignee = str(args.assignee);
     const limit = limitOf(args.limit, ROW_CAP);
+    const projectId = await projectIdFrom(context, args.projectId);
 
     const [page, projects, users] = await Promise.all([
       callApi<Paginated<EpmTask>>(context, '/tasks', {
-        projectId: str(args.projectId),
+        projectId,
         assigneeId: assignee === 'me' ? context.userId : assignee,
         status: strList(args.status)?.join(','),
         bucket: str(args.bucket),
@@ -306,6 +293,13 @@ const listTasks: ToolDefinition = {
   },
 };
 
+/** The project a call means. A name given as the id is a name all the same. */
+function projectReference(args: Record<string, unknown>): { id?: string; name?: string } {
+  const given = str(args.projectId);
+  const id = given && /^\d+$/.test(given) ? given : undefined;
+  return { id, name: str(args.name) ?? (id ? undefined : given) };
+}
+
 const getProject: ToolDefinition = {
   name: 'get_project',
   description:
@@ -320,35 +314,25 @@ const getProject: ToolDefinition = {
     additionalProperties: false,
   },
   label(args) {
-    const name = str(args.name);
-    if (name) return `Checked ${name} project health`;
-    const id = str(args.projectId);
-    return id ? `Checked project #${id} health` : 'Checked a project';
+    const { id, name } = projectReference(args);
+    if (name) return message('Checked {name} project health', { name });
+    return id ? message('Checked project #{id} health', { id }) : message('Checked a project');
   },
   async execute(context, args) {
-    const id = str(args.projectId);
-    const name = str(args.name);
+    const { id, name } = projectReference(args);
     const users = usersById(context);
+    const money = showsProjectMoney(context);
 
     if (id) {
       const project = await callApi<EpmProject>(context, `/projects/${encodeURIComponent(id)}`);
-      return { ...trimProject(project, await users), description: project.description ?? null };
+      return { ...trimProject(project, await users, money), description: project.description ?? null };
     }
 
     if (!name) throw new ToolError('Give a project id or a name.');
 
-    const candidates = await callApi<EpmProject[]>(context, '/projects', { search: name });
-    const needle = name.toLowerCase();
-    const project =
-      candidates.find((candidate) => candidate.name.toLowerCase() === needle) ??
-      candidates.find((candidate) => candidate.identifier.toLowerCase() === needle) ??
-      candidates[0];
-
-    if (!project) throw new ToolError(`No project matches ${quote(name)}.`);
-
-    const others = candidates.filter((candidate) => candidate.id !== project.id);
+    const { project, others } = await projectNamed(context, name);
     return {
-      ...trimProject(project, await users),
+      ...trimProject(project, await users, money),
       description: project.description ?? null,
       ...(others.length > 0
         ? { alsoMatched: others.slice(0, 5).map((other) => other.name) }
@@ -373,7 +357,9 @@ const listProjects: ToolDefinition = {
   },
   label(args) {
     const status = str(args.status);
-    return status ? `Listed ${status.replace('_', ' ')} projects` : 'Listed projects';
+    return status
+      ? message('Listed {status, select, on_track {on track} at_risk {at risk} delayed {delayed} completed {completed} paused {paused} other {matching}} projects', { status })
+      : message('Listed projects');
   },
   async execute(context, args) {
     const [projects, users] = await Promise.all([
@@ -383,11 +369,12 @@ const listProjects: ToolDefinition = {
       }),
       usersById(context),
     ]);
+    const money = showsProjectMoney(context);
     // The list stays compact: the per-criterion evidence belongs to the
     // single-project tool, and repeating it for every project would push
     // whole projects out of the result cap.
     return projects.map((project) => {
-      const { healthCriteria: _criteria, healthExplanation: _explanation, ...summary } = trimProject(project, users);
+      const { healthCriteria: _criteria, healthExplanation: _explanation, ...summary } = trimProject(project, users, money);
       return summary;
     });
   },
@@ -408,7 +395,7 @@ const teamWorkload: ToolDefinition = {
     additionalProperties: false,
   },
   label(args) {
-    return str(args.teamId) ? 'Checked the team workload' : 'Checked everyone’s workload';
+    return str(args.teamId) ? message('Checked the team workload') : message('Checked everyone’s workload');
   },
   async execute(context, args) {
     const teamId = str(args.teamId);
@@ -452,7 +439,7 @@ const getSprint: ToolDefinition = {
   },
   label(args) {
     const name = str(args.name);
-    return name ? `Looked at sprint ${quote(name)}` : 'Looked at the current sprint';
+    return name ? message('Looked at sprint “{name}”', { name }) : message('Looked at the current sprint');
   },
   async execute(context, args) {
     const name = str(args.name);
@@ -469,7 +456,7 @@ const getSprint: ToolDefinition = {
       sprint =
         sprints.find((candidate) => candidate.name.toLowerCase() === needle) ??
         sprints.find((candidate) => candidate.name.toLowerCase().includes(needle));
-      if (!sprint) throw new ToolError(`No sprint matches ${quote(name)}.`);
+      if (!sprint) throw new ToolError(`No sprint matches “${name}”.`);
     } else {
       sprint =
         sprints.find((candidate) => candidate.state === 'active') ??
@@ -493,7 +480,7 @@ const dashboardMetrics: ToolDefinition = {
     'overdue, active projects and projects at risk, with week-on-week trends.',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
   label() {
-    return 'Read the dashboard metrics';
+    return message('Read the dashboard metrics');
   },
   async execute(context) {
     const metrics = await callApi<DashboardMetrics>(context, '/dashboard/metrics');
@@ -536,7 +523,7 @@ const listPeople: ToolDefinition = {
   },
   label(args) {
     const search = str(args.search);
-    return search ? `Looked up people matching ${quote(search)}` : 'Looked up people';
+    return search ? message('Looked up people matching “{search}”', { search }) : message('Looked up people');
   },
   async execute(context, args) {
     const users = await callApi<EpmUser[]>(context, '/users');
@@ -622,10 +609,10 @@ const listMeetings: ToolDefinition = {
         description: 'Default upcoming. Past reads most recent first.',
       },
       state: { type: 'string', enum: ['planned', 'held', 'cancelled'] },
-      projectId: { type: 'string', description: 'Only meetings for this project.' },
+      projectId: { type: 'string', description: 'Only meetings for this project, by id or by name.' },
       participantId: {
         type: 'string',
-        description: "A user id from list_people. For 'my meetings', pass the caller's own id.",
+        description: "A user id from list_people, or 'me' for the person asking.",
       },
       limit: { type: 'number', description: 'Up to 25. Default 10.' },
     },
@@ -633,17 +620,18 @@ const listMeetings: ToolDefinition = {
   },
   label(args) {
     const window = str(args.window) ?? 'upcoming';
-    if (window === 'past') return 'Looked up past meetings';
-    if (window === 'all') return 'Looked up meetings';
-    return 'Looked up upcoming meetings';
+    if (window === 'past') return message('Looked up past meetings');
+    if (window === 'all') return message('Looked up meetings');
+    return message('Looked up upcoming meetings');
   },
   async execute(context, args) {
     const limit = limitOf(args.limit, 10);
+    const participant = str(args.participantId);
     const page = await callApi<Paginated<EpmMeeting>>(context, '/meetings', {
       window: str(args.window) ?? 'upcoming',
       state: str(args.state),
-      projectId: str(args.projectId),
-      participantId: str(args.participantId),
+      projectId: await projectIdFrom(context, args.projectId),
+      participantId: participant === 'me' ? context.userId : participant,
       pageSize: String(limit),
     });
 
@@ -667,7 +655,7 @@ const getMeeting: ToolDefinition = {
   },
   label(args) {
     const id = str(args.id);
-    return id ? `Opened meeting ${id}` : 'Opened a meeting';
+    return id ? message('Opened meeting {id}', { id }) : message('Opened a meeting');
   },
   async execute(context, args) {
     const id = str(args.id);
@@ -697,18 +685,18 @@ const listNews: ToolDefinition = {
   parameters: {
     type: 'object',
     properties: {
-      projectId: { type: 'string', description: 'Only announcements for this project.' },
+      projectId: { type: 'string', description: 'Only announcements for this project, by id or by name.' },
       limit: { type: 'number', description: 'Up to 25. Default 10.' },
     },
     additionalProperties: false,
   },
   label() {
-    return 'Looked up announcements';
+    return message('Looked up announcements');
   },
   async execute(context, args) {
     const limit = limitOf(args.limit, 10);
     const page = await callApi<Paginated<EpmNewsPost>>(context, '/news', {
-      projectId: str(args.projectId),
+      projectId: await projectIdFrom(context, args.projectId),
       pageSize: String(limit),
     });
 
@@ -757,17 +745,17 @@ const searchWiki: ToolDefinition = {
       search: { type: 'string', description: 'Matched against page titles.' },
       projectId: {
         type: 'string',
-        description: "Omit for the organisation wiki; pass a project id for that project's.",
+        description: "Omit for the organisation wiki; pass a project, by id or by name, for that project's.",
       },
     },
     additionalProperties: false,
   },
   label(args) {
     const search = str(args.search);
-    return search ? `Searched the wiki for ${quote(search)}` : 'Looked up the wiki';
+    return search ? message('Searched the wiki for “{search}”', { search }) : message('Looked up the wiki');
   },
   async execute(context, args) {
-    const projectId = str(args.projectId);
+    const projectId = await projectIdFrom(context, args.projectId);
     const tree = await callApi<WikiTreeNode[]>(context, '/wiki/tree', { projectId });
     const pages = flattenWiki(tree);
 
@@ -809,8 +797,9 @@ const searchWiki: ToolDefinition = {
 const timeSummary: ToolDefinition = {
   name: 'time_summary',
   description:
-    'Hours logged over a date range, grouped, with what they cost. Use it for "how much time ' +
-    'went on X", "what have we spent", timesheet and cost questions. Cost is partial by design: ' +
+    'Hours logged over a date range, grouped, with what they cost. Use it for "how many hours have ' +
+    'I logged" (pass userId \'me\'), "how much time went on X", "what have we spent" and cost ' +
+    'questions. Cost is partial by design: ' +
     'hours belonging to somebody with no hourly rate count as hours but are left out of the ' +
     'money, and the result says how many those were. Report that gap rather than hiding it. ' +
     'When costHidden is true the person asking may not see hourly rates or costs: give hours ' +
@@ -824,10 +813,10 @@ const timeSummary: ToolDefinition = {
       groupBy: {
         type: 'string',
         enum: ['project', 'user', 'activity', 'workPackage', 'week', 'day'],
-        description: 'Default project.',
+        description: 'Default project. Leave it out unless they ask for the hours broken down some other way.',
       },
-      projectId: { type: 'string' },
-      userId: { type: 'string', description: 'A user id from list_people.' },
+      projectId: { type: 'string', description: 'One project, by id or by name.' },
+      userId: { type: 'string', description: "A user id from list_people, or 'me' for the person asking." },
     },
     required: ['from', 'to'],
     additionalProperties: false,
@@ -836,36 +825,52 @@ const timeSummary: ToolDefinition = {
     const from = str(args.from);
     const to = str(args.to);
     const by = str(args.groupBy) ?? 'project';
-    return from && to ? `Summed logged time ${from} to ${to} by ${by}` : 'Summed logged time';
+    return from && to
+      ? message('Summed logged time {from} to {to} by {by, select, user {person} activity {activity} workPackage {task} week {week} day {day} other {project}}', { from: dateOf(from), to: dateOf(to), by })
+      : message('Summed logged time');
   },
   async execute(context, args) {
     const from = str(args.from);
     const to = str(args.to);
     if (!from || !to) throw new ToolError('A from and a to date are both required, as YYYY-MM-DD.');
 
+    const groupBy = str(args.groupBy) ?? 'project';
+    const asked = str(args.userId);
+    // An employee's reach is their own time (My Time); the organisation's
+    // hours are a reporting screen for managers and HR.
+    const userId = context.role === 'employee' || asked === 'me' ? context.userId : asked;
+    // Hours per person are workload by another name, so the workload switch
+    // covers them. A project's total stays: that is about the project.
+    if (!context.allowPeople && (userId ? userId !== context.userId : groupBy === 'user')) {
+      throw new ToolError('Hours per person are not available: this organisation has switched off answers about people’s workload.');
+    }
+
     const report = await callApi<TimeReport>(context, '/time-entries/report', {
       from,
       to,
-      groupBy: str(args.groupBy) ?? 'project',
-      projectId: str(args.projectId),
-      // An employee's reach is their own time (My Time); the organisation's
-      // hours are a reporting screen for managers and HR.
-      userId: context.role === 'employee' ? context.userId : str(args.userId),
+      groupBy,
+      projectId: await projectIdFrom(context, args.projectId),
+      userId,
     });
 
+    // Without leave to read rates the report carries no money at all (BRL-01);
+    // the finance switch takes out the same figures, and the model is told.
+    const costHidden = !context.allowFinance || (report.costHidden ?? false);
     return {
       from: report.from,
       to: report.to,
       groupedBy: report.groupBy,
       totalHours: report.totalHours,
-      // Null rather than 0 when nothing in range was costed, matching the API:
-      // zero is a real cost, and "nobody has a rate" is not zero.
-      totalCost: report.totalCost ?? null,
-      // The report was built with the asker's own access: without leave to
-      // read rates it carries no money at all (BRL-01), and the model is told.
-      costHidden: report.costHidden ?? false,
-      currency: report.currency,
-      hoursWithoutRate: report.hoursWithoutRate ?? null,
+      costHidden,
+      ...(costHidden
+        ? {}
+        : {
+            // Null rather than 0 when nothing in range was costed, matching the
+            // API: zero is a real cost, and "nobody has a rate" is not zero.
+            totalCost: report.totalCost ?? null,
+            currency: report.currency,
+            hoursWithoutRate: report.hoursWithoutRate ?? null,
+          }),
       // The range held more entries than one report may read, so every figure
       // here is a floor. Carried through because a partial total presented as a
       // whole one is worse than no total at all.
@@ -874,8 +879,7 @@ const timeSummary: ToolDefinition = {
         label: row.label,
         hours: row.hours,
         entries: row.entries,
-        cost: row.cost ?? null,
-        hoursWithoutRate: row.hoursWithoutRate ?? null,
+        ...(costHidden ? {} : { cost: row.cost ?? null, hoursWithoutRate: row.hoursWithoutRate ?? null }),
       })),
     };
   },
@@ -891,9 +895,10 @@ const myTimesheet: ToolDefinition = {
   description:
     'The timesheet of the person asking for the period containing a day (default today): its status ' +
     '(draft, submitted, approved), hours logged against the bounds, anything stopping it being submitted, ' +
-    'and a rejection reason. Use it for "is my timesheet in" or "why can I not submit".',
+    'and a rejection reason. Use it for "show my timesheet", "is my timesheet in" or "why can I not ' +
+    'submit". For how many hours have been logged, use time_summary.',
   parameters: { type: 'object', properties: { day: { type: 'string', description: 'YYYY-MM-DD; default today.' } }, additionalProperties: false },
-  label: () => 'Looked up your timesheet',
+  label: () => message('Looked up your timesheet'),
   async execute(context, args) {
     const sheet = await callApi<Record<string, unknown>>(context, '/timesheets/mine', { day: str(args.day) });
     return { period: sheet.period, status: sheet.status, hours: sheet.hours, bounds: sheet.bounds, problems: sheet.problems, rejection: sheet.rejection, locked: sheet.locked, link: '/timesheets' };
@@ -915,7 +920,7 @@ const teamTimesheets: ToolDefinition = {
     },
     additionalProperties: false,
   },
-  label: () => 'Looked up timesheets',
+  label: () => message('Looked up timesheets'),
   allowed: (access) => access.allowPeople,
   async execute(context, args) {
     const overview = await callApi<{ rows?: Record<string, unknown>[]; counts?: unknown; period?: unknown }>(context, '/timesheets/overview', {
@@ -940,14 +945,13 @@ const expenseClaims: ToolDefinition = {
     properties: { scope: { type: 'string', enum: ['mine', 'all'] }, status: { type: 'string', enum: ['draft', 'submitted', 'approved', 'posted'] } },
     additionalProperties: false,
   },
-  label: (args) => (str(args.scope) === 'all' ? 'Looked up expense claims' : 'Looked up your expense claims'),
+  label: (args) => (str(args.scope) === 'all' ? message('Looked up expense claims') : message('Looked up your expense claims')),
   async execute(context, args) {
     const claims = await callApi<Record<string, unknown>[]>(context, '/expenses', { scope: str(args.scope) ?? 'mine', status: str(args.status) });
     return claims.slice(0, ROW_CAP).map((claim) => ({
       id: claim.id,
       description: claim.description,
-      amount: claim.amount,
-      currency: claim.currency,
+      ...(context.allowFinance ? { amount: claim.amount, currency: claim.currency } : {}),
       status: claim.status,
       project: claim.projectName,
       spentOn: claim.spentOn,
@@ -960,7 +964,7 @@ const approvalsWaiting: ToolDefinition = {
   name: 'approvals_waiting',
   description: 'Approval requests waiting for the person asking to decide: what, on which project, at which step. Use for "what do I need to approve".',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
-  label: () => 'Looked up approvals waiting for you',
+  label: () => message('Looked up approvals waiting for you'),
   async execute(context) {
     const requests = await callApi<Record<string, unknown>[]>(context, '/approvals/inbox');
     return requests
@@ -978,16 +982,16 @@ const financeFigures: ToolDefinition = {
     'month, weighted). In the reporting currency. Use only for finance questions.',
   parameters: {
     type: 'object',
-    properties: { kind: { type: 'string', enum: ['cash_flow', 'margin', 'forecast'] }, projectId: { type: 'string' }, portfolioId: { type: 'string' } },
+    properties: { kind: { type: 'string', enum: ['cash_flow', 'margin', 'forecast'] }, projectId: { type: 'string', description: 'One project, by id or by name.' }, portfolioId: { type: 'string' } },
     required: ['kind'],
     additionalProperties: false,
   },
-  label: (args) => `Looked up ${String(args.kind ?? 'finance').replace('_', ' ')}`,
+  label: (args) => message('Looked up {kind, select, cash_flow {cash flow} margin {margin} forecast {the revenue forecast} other {finance}}', { kind: str(args.kind) ?? 'finance' }),
   allowed: (access) => access.allowFinance && access.can('finance:view'),
   async execute(context, args) {
     const kind = str(args.kind);
     const path = kind === 'margin' ? '/finance/margin' : kind === 'forecast' ? '/finance/forecast' : '/finance/cash-flow';
-    const data = await callApi<Record<string, unknown>>(context, path, { projectId: str(args.projectId), portfolioId: str(args.portfolioId) });
+    const data = await callApi<Record<string, unknown>>(context, path, { projectId: await projectIdFrom(context, args.projectId), portfolioId: str(args.portfolioId) });
     if (kind === 'cash_flow') {
       const combined = data.combined as { points?: unknown[]; totals?: unknown } | undefined;
       return { currency: data.currency, totals: combined?.totals, months: (combined?.points ?? []).slice(-12), reconciliation: data.reconciliation, link: '/finance' };
@@ -1010,13 +1014,14 @@ const earnedValue: ToolDefinition = {
   description:
     'Earned value for one project, a portfolio or the instance: planned value, earned value, actual cost, SPI, CPI, EAC. ' +
     'Use for "are we on budget or on schedule" in earned value terms.',
-  parameters: { type: 'object', properties: { projectId: { type: 'string' }, portfolioId: { type: 'string' } }, additionalProperties: false },
-  label: () => 'Looked up earned value',
+  parameters: { type: 'object', properties: { projectId: { type: 'string', description: 'One project, by id or by name.' }, portfolioId: { type: 'string' } }, additionalProperties: false },
+  label: () => message('Looked up earned value'),
   allowed: (access) => access.allowFinance,
   async execute(context, args) {
-    const scope = str(args.projectId) ? `project:${str(args.projectId)}` : str(args.portfolioId) ? `portfolio:${str(args.portfolioId)}` : 'instance';
+    const projectId = await projectIdFrom(context, args.projectId);
+    const scope = projectId ? `project:${projectId}` : str(args.portfolioId) ? `portfolio:${str(args.portfolioId)}` : 'instance';
     const data = await callApi<Record<string, unknown>>(context, '/earned-value', { scope });
-    return { scope, totals: data.totals, link: '/insights/earned-value' };
+    return { scope, currency: reportingCurrency(), totals: data.totals, link: '/insights/earned-value' };
   },
 };
 
@@ -1027,7 +1032,7 @@ const resourceOverload: ToolDefinition = {
     'Who is over-allocated in the coming weeks, and by how much: committed hours against available ' +
     'hours per person per week. For resource planners. Report figures neutrally, never as a judgement.',
   parameters: { type: 'object', properties: { weeks: { type: 'number', description: 'Weeks ahead, default 8.' } }, additionalProperties: false },
-  label: () => 'Looked up over-allocation',
+  label: () => message('Looked up over-allocation'),
   allowed: (access) => access.allowPeople && access.can('resources:plan'),
   async execute(context, args) {
     const rows = await callApi<Record<string, unknown>[]>(context, '/resources/over-allocations', { weeks: String(limitOf(args.weeks, 8)) });
@@ -1040,7 +1045,7 @@ const scenarios: ToolDefinition = {
   name: 'scenarios',
   description: 'Portfolio scenarios: their names, status (draft, awaiting approval, applied, rejected) and when they were made. For whoever plans scenarios.',
   parameters: { type: 'object', properties: {}, additionalProperties: false },
-  label: () => 'Looked up scenarios',
+  label: () => message('Looked up scenarios'),
   allowed: (access) => access.can('scenarios:manage'),
   async execute(context) {
     const rows = await callApi<Record<string, unknown>[]>(context, '/scenarios');
@@ -1080,6 +1085,23 @@ const byName = new Map(TOOLS.map((tool) => [tool.name, tool]));
 
 export function findTool(name: string): ToolDefinition | undefined {
   return byName.get(name);
+}
+
+/** The name a guardrail's refusal goes by among the chips: not a tool, nothing ran. */
+export const GUARDRAIL = 'guardrail';
+
+/**
+ * A chip's words for the person reading, from the call it records.
+ *
+ * Written out on every read rather than kept: a stored chip's name and arguments
+ * say all there is to say, so one from an earlier conversation follows the
+ * reader's language as a new one does, however it was stored at the time.
+ */
+export function chipLabel(name: string, args: Record<string, unknown> = {}): string {
+  const tool = findTool(name);
+  const label =
+    name === GUARDRAIL ? message('Declined by your organisation’s settings') : tool ? tool.label(args) : message('Tried {name}', { name });
+  return render(contextLanguage(), label, contextConventions());
 }
 
 /** Whether this person may use a tool: their role first, then what they hold and the policy. */

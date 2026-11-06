@@ -100,6 +100,24 @@ export function useProjectAssignees(projectId?: ID) {
 }
 
 /**
+ * What a new work package of this type may start as, asked of the project's own
+ * create form, which is the only thing that knows: its workflow decides the
+ * statuses, the instance the priorities, the project the versions. And the form's
+ * own defaults, so a new task starts where it would have started anyway.
+ *
+ * Fetched as the project and type change and briefly cached, since an
+ * administrator's new priority should reach the next task created.
+ */
+export function useWorkPackageCreateForm(projectId?: ID, typeId?: ID) {
+  return useQuery({
+    queryKey: ['catalog', 'work-package-create-form', projectId, typeId],
+    queryFn: () => formService.workPackageCreateForm(projectId!, undefined, typeId),
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+  });
+}
+
+/**
  * What one work package may actually be changed to, asked of the work package.
  *
  * OpenProject decides a status change by workflow — the type, the caller's

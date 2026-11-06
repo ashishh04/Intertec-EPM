@@ -1,11 +1,14 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { DirectionProvider } from '@radix-ui/react-direction';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
+import { forgetResponses } from '@/lib/queryPersister';
 import { setDateConventions } from '@/lib/utils';
 import {
   direction,
+  intlLocale,
   isLanguageLoaded,
   loadLanguage,
   setConventions,
@@ -38,6 +41,7 @@ import {
  */
 export function PreferenceEffects({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuth();
+  const client = useQueryClient();
 
   // Asked for only once a session exists. This renders above the router, so it
   // is mounted on the public pages as well — and a signed-out request for a
@@ -78,6 +82,16 @@ export function PreferenceEffects({ children }: { children: React.ReactNode }) {
   // for a frame and then correcting itself.
   setConventions({ language, calendar, numerals });
   setDateConventions({ dateFormat, timeFormat, timeZone: user?.timezone });
+
+  // What the server wrote into cached responses is the last reader's. Dropped
+  // during render too, before the screens below remount and read it: from an
+  // effect, one frame of Arabic tiles with English labels would be painted first.
+  const reader = intlLocale();
+  const cachedFor = useRef(reader);
+  if (cachedFor.current !== reader) {
+    cachedFor.current = reader;
+    forgetResponses(client);
+  }
 
   const dir = direction(language);
 

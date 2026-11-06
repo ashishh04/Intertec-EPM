@@ -28,7 +28,13 @@ interface MeResponse extends EpmUser {
   permissions?: PermissionMap;
   projectPermissions?: Record<string, PermissionMap>;
   mustChangePassword?: boolean;
+  mfaSetupRequired?: boolean;
   appRole?: AppRole;
+}
+
+export interface SecondFactorResult {
+  via: 'totp' | 'recovery';
+  recoveryCodesLeft: number;
 }
 
 interface AuthContextValue {
@@ -64,7 +70,17 @@ interface AuthContextValue {
    * role's permissions itself.
    */
   role: AppRole;
-  signIn: (username: string, password: string) => Promise<void>;
+  /**
+   * Their role requires two-factor authentication and they have not set it up:
+   * held at the set-up screen. The server holds them too (auth/hook.ts).
+   */
+  mfaSetupRequired: boolean;
+  /** `mfaRequired` means the password was right and a code is still owed: nobody is signed in yet. */
+  signIn: (username: string, password: string) => Promise<{ mfaRequired: boolean }>;
+  /** The second half of signing in: a code from their app, or a recovery code. */
+  verifySecondFactor: (code: string) => Promise<SecondFactorResult>;
+  /** Gives up a sign-in that is waiting for its code. */
+  cancelSecondFactor: () => Promise<void>;
   signOut: () => void;
   /** Sets the caller's own password and clears the gate. */
   /** The current password as well as the new one: a session alone does not change a password. */
@@ -100,11 +116,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = useCallback(
     async (username: string, password: string) => {
-      await apiClient.post<SessionResponse>('/auth/login', { username, password });
+      const answer = await apiClient.post<SessionResponse & { mfaRequired?: boolean }>('/auth/login', { username, password });
+      if (answer.mfaRequired) return { mfaRequired: true };
       await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+      return { mfaRequired: false };
     },
     [queryClient],
   );
+
+  const verifySecondFactor = useCallback(
+    async (code: string) => {
+      const answer = await apiClient.post<SessionResponse & SecondFactorResult>('/auth/mfa/verify', { code });
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'session'] });
+      return { via: answer.via, recoveryCodesLeft: answer.recoveryCodesLeft };
+    },
+    [queryClient],
+  );
+
+  const cancelSecondFactor = useCallback(async () => {
+    await apiClient.post('/auth/mfa/cancel').catch(() => undefined);
+  }, []);
 
   const changePassword = useCallback(
     async (currentPassword: string, password: string) => {
@@ -162,11 +193,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         Object.values(byProject).some((map) => lookup(map, permission)),
 
       mustChangePassword: me?.mustChangePassword ?? false,
+      mfaSetupRequired: me?.mfaSetupRequired ?? false,
       external: me?.external === true,
       // A backend older than roles sends none: its administrators stay administrators.
       role: me?.appRole ?? (lookup(global, 'users:manage') ? 'admin' : 'employee'),
 
       signIn,
+      verifySecondFactor,
+      cancelSecondFactor,
       signOut,
       changePassword,
     };
@@ -177,6 +211,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     sessionQuery.isLoading,
     isUserLoading,
     signIn,
+    verifySecondFactor,
+    cancelSecondFactor,
     signOut,
     changePassword,
   ]);

@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { AdminPermission, AdminRole, AdminRoleKind } from '@/services/api/admin';
-import { t } from '@/lib/i18n';
+import { msg, t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 /**
@@ -39,6 +39,30 @@ export function sortRoles(roles: readonly AdminRole[]): AdminRole[] {
 /** Only project and global roles carry permissions an administrator sets. */
 export function isEditableRole(role: Pick<AdminRole, 'kind'>): boolean {
   return role.kind === 'project' || role.kind === 'global';
+}
+
+/**
+ * The names of the instance's built-in roles. They reach the page as data, so
+ * they are listed here for the translation check to ask for each.
+ */
+const BUILT_IN_ROLE_NAMES: ReadonlySet<string> = new Set([
+  msg('Non member'),
+  msg('Anonymous'),
+  msg('Standard global role'),
+  msg('Work package viewer'),
+  msg('Work package commenter'),
+  msg('Work package editor'),
+  msg('Project query viewer'),
+  msg('Project query editor'),
+]);
+
+/**
+ * What a role is called on screen. Built-in roles keep their name, so that name
+ * is the product's own wording and is translated; any other name was typed by an
+ * administrator and is shown as they wrote it.
+ */
+export function roleName(role: Pick<AdminRole, 'name' | 'builtin'>): string {
+  return role.builtin && BUILT_IN_ROLE_NAMES.has(role.name) ? t(role.name) : role.name;
 }
 
 /**

@@ -193,9 +193,16 @@ Rails.application.config.to_prepare do
     #
     # Readable by any signed-in person, because setting your own timezone is
     # not an administrative act and the list itself is public knowledge.
+    #
+    # The canonical identifier, because that is what the preference contract
+    # compares (UserPreferences::BaseContract#time_zone_correctness). Rails
+    # files "Abu Dhabi" and "Muscat" under Asia/Muscat, whose canonical zone is
+    # Asia/Dubai: `identifier` offered Asia/Muscat, which the contract refuses,
+    # and never Asia/Dubai, which it takes. The same went for Amsterdam,
+    # Stockholm, Kuwait and others whose zone is now an alias of a neighbour's.
     def timezones
       render json: {
-        timezones: ActiveSupport::TimeZone.all.map { |zone| zone.tzinfo.identifier }.uniq.sort
+        timezones: ActiveSupport::TimeZone.all.map { |zone| zone.tzinfo.canonical_identifier }.uniq.sort
       }
     end
 

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
-import { today as todayIso } from '../lib/dates.js';
+import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { dateOf, message, msg } from '../lib/i18n.js';
 import type { CurrencyList, ExchangeRateView } from '../types/epm.js';
@@ -27,7 +27,6 @@ import { money } from './finance.js';
 
 export const reportingCurrency = (): string => env.EPM_CURRENCY.toUpperCase();
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const code = z
   .string()
   .regex(/^[A-Za-z]{3}$/, msg('A currency is its three-letter code, e.g. USD.'))
@@ -70,7 +69,7 @@ export async function currencies(): Promise<CurrencyList> {
 const rateSchema = z.object({
   currency: code,
   rate: z.number().positive().max(1_000_000),
-  effectiveFrom: z.string().regex(DAY, msg('effectiveFrom must be a date, e.g. 2026-10-01.')),
+  effectiveFrom: calendarDay(msg('effectiveFrom must be a date, e.g. 2026-10-01.')),
   kind: z.enum(['actual', 'planning']).default('actual'),
 });
 

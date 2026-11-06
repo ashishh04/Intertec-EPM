@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ListTree, Pencil, Sigma, Star, Trash2 } from 'lucide-react';
 
@@ -49,6 +50,8 @@ const DEFAULT_PAGE_SIZE = 15;
 const AD_HOC = '__default__';
 /** Radix selects cannot hold an empty value, so absence needs a sentinel. */
 const NO_GROUP = '__nogroup__';
+/** Where the address holds the chosen view. `view` is the project tab's own (`useTasksView`). */
+const VIEW_PARAM = 'savedView';
 
 /**
  * Upstream column ids the table has a renderer for.
@@ -126,9 +129,21 @@ const TREE_REQUEST_SIZE = 100;
 
 export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const { openTaskDrawer } = useUI();
-  const { canAnywhere } = useAuth();
+  const { canAnywhere, canInProject } = useAuth();
 
-  const [selectedQueryId, setSelectedQueryId] = useState<string>(AD_HOC);
+  /*
+   * The chosen view is in the address, so a reload or a link comes back to it. It
+   * was held on this page alone, and a reload returned to the default view with
+   * whatever had just been saved out of sight.
+   */
+  const [search, setSearch] = useSearchParams();
+  const selectedQueryId = search.get(VIEW_PARAM) ?? AD_HOC;
+  const setSelectedQueryId = (id: string) => {
+    const params = new URLSearchParams(search);
+    if (id === AD_HOC) params.delete(VIEW_PARAM);
+    else params.set(VIEW_PARAM, id);
+    setSearch(params, { replace: true });
+  };
   const [filters, setFilters] = useState<QueryFilterInstance[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -156,6 +171,21 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
   const savedQueries = useSavedQueries(projectId);
 
   const isAdHoc = selectedQueryId === AD_HOC;
+  const selected = savedQueries.data?.find((q) => q.id === selectedQueryId);
+
+  /*
+   * A view opened from the address adopts its own filters, as one chosen from the
+   * list does. A view that has since gone, or this person cannot see, is left for
+   * the default rather than shown as a failure.
+   */
+  const adoptedView = useRef<string>();
+  useEffect(() => {
+    if (isAdHoc || adoptedView.current === selectedQueryId || !savedQueries.data) return;
+    adoptedView.current = selectedQueryId;
+    if (selected) setFilters(selected.filters);
+    else setSelectedQueryId(AD_HOC);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdHoc, selectedQueryId, savedQueries.data, selected]);
 
   /**
    * Filters that are actually expressible.
@@ -178,10 +208,12 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     });
   }, [filters, schemaQuery.data]);
 
-  // A sort imposes its own order, so the tree yields to it. Grouping by project
-  // keeps it — each project's own tree under its heading, a task's children
-  // sharing its project; any other grouping (by status, say) does not.
-  const treeAllowed = !sort && (!groupBy || TREE_GROUPINGS.has(groupBy));
+  // A sort imposes its own order, so the tree yields to it, a saved view's own
+  // sort included: drawn as a tree, a view sorted by due date came back in tree
+  // order. Grouping by project keeps it — each project's own tree under its
+  // heading, a task's children sharing its project; any other grouping (by
+  // status, say) does not.
+  const treeAllowed = !sort && !selected?.sortBy.length && (!groupBy || TREE_GROUPINGS.has(groupBy));
   const treeMode = hierarchy && treeAllowed;
 
   // Overrides are only sent when set. Omitting `filters` entirely lets a saved
@@ -208,7 +240,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     [projectId, page, pageSize, appliedFilters, sort, isAdHoc, columns, groupBy, sums, treeMode],
   );
 
-  const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides);
+  // A saved view waits for the list that says how it sorts, which decides what to ask for.
+  const viewPending = !isAdHoc && savedQueries.isLoading;
+  const result = useQueryResult(isAdHoc ? undefined : selectedQueryId, overrides, { enabled: !viewPending });
 
   const projectsQuery = useProjects();
   const users = useUserMap();
@@ -275,10 +309,10 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     (current?.sortBy[0]
       ? { field: tableKeyOf(current.sortBy[0].field) ?? '', direction: current.sortBy[0].direction }
       : undefined);
-  const selected = savedQueries.data?.find((q) => q.id === selectedQueryId);
 
   /** Switching views resets paging and adopts that view's own filters. */
   const selectQuery = (id: string) => {
+    adoptedView.current = id;
     setSelectedQueryId(id);
     setPage(1);
     setSort(undefined);
@@ -293,6 +327,15 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
     const name = newName.trim();
     if (!name) return;
 
+    // The sort chosen here, or the one the view this started from already has. Not
+    // the default view's own, which is only the order it happens to list in: saved,
+    // it would turn the tree off for good.
+    const sorted = sort
+      ? { field: TABLE_TO_COLUMN[sort.field] ?? sort.field, direction: sort.direction }
+      : isAdHoc
+        ? undefined
+        : current?.sortBy[0];
+
     createQuery.mutate(
       {
         name,
@@ -304,6 +347,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           columns: effectiveColumns,
           groupBy: effectiveGroupBy || null,
           sums: effectiveSums,
+          // Left out, a saved view came back in its default order whatever it
+          // had been sorted by when it was saved.
+          sort: sorted ? [`${sorted.field}-${sorted.direction}`] : [],
           // A record — a status, a person — is sent by id; a number, a date or
           // text as itself, which is what upstream expects of each.
           filters: appliedFilters.map((filter) => {
@@ -323,7 +369,11 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         onSuccess: (query) => {
           toast.success(t('Saved “{name}”', { name: query.name }));
           setNewName('');
-          if (query.id) setSelectedQueryId(query.id);
+          if (query.id) {
+            // What is on screen already is that view; the list has yet to hear of it.
+            adoptedView.current = query.id;
+            setSelectedQueryId(query.id);
+          }
         },
         onError: (error) =>
           toast.error(t('Could not save this view'), {
@@ -564,7 +614,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
       </div>
 
       <QueryBoundary
-        isLoading={result.isLoading}
+        isLoading={viewPending || result.isLoading}
         isError={result.isError}
         error={result.error}
         onRetry={() => void result.refetch()}
@@ -595,22 +645,25 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           onSortChange={(field, direction) =>
             setSort(field === null ? undefined : { field, direction })
           }
-          onBulkUpdate={(ids: ID[], patch: Partial<UpdateTaskInput>) =>
-            bulkUpdate.mutate(
-              { ids, patch },
-              {
-                onSuccess: (updated) =>
-                  toast.success(
-                    t('{count, plural, one {Updated # task} other {Updated # tasks}}', { count: updated.length }),
-                  ),
-                // The server's reason, e.g. a workflow that does not allow that
-                // status for one of them; without it the menu looked inert.
-                onError: (error) =>
-                  toast.error(t('Unable to save changes'), {
-                    description: error instanceof Error ? error.message : undefined,
-                  }),
-              },
-            )
+          onBulkUpdate={
+            canAnywhere('task:edit')
+              ? (ids: ID[], patch: Partial<UpdateTaskInput>) =>
+                  bulkUpdate.mutate(
+                    { ids, patch },
+                    {
+                      onSuccess: (updated) =>
+                        toast.success(
+                          t('{count, plural, one {Updated # task} other {Updated # tasks}}', { count: updated.length }),
+                        ),
+                      // The server's reason, e.g. a workflow that does not allow that
+                      // status for one of them; without it the menu looked inert.
+                      onError: (error) =>
+                        toast.error(t('Unable to save changes'), {
+                          description: error instanceof Error ? error.message : undefined,
+                        }),
+                    },
+                  )
+              : undefined
           }
           onBulkDelete={canAnywhere('task:edit') ? (ids: ID[]) => setDeletingTasks(ids) : undefined}
           groups={result.data?.groups}
@@ -618,10 +671,14 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
           columnLabels={columnLabels}
           sums={tableSums}
           hideProjectColumn={Boolean(projectId)}
-          emptyAction={{
-            label: t('New task'),
-            onClick: () => openTaskDrawer(projectId ? { projectId } : undefined),
-          }}
+          emptyAction={
+            (projectId ? canInProject(projectId, 'task:create') : canAnywhere('task:create'))
+              ? {
+                  label: t('New task'),
+                  onClick: () => openTaskDrawer(projectId ? { projectId } : undefined),
+                }
+              : undefined
+          }
         />
       </QueryBoundary>
 

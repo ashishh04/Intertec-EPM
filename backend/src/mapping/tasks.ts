@@ -1,4 +1,5 @@
 import { linkId, linkTitle } from '../openproject/client.js';
+import { versionIdOf, versionTitleOf } from '../openproject/versions.js';
 import { durationToHours } from '../lib/duration.js';
 import { classifyPriority, classifyType, type Catalog } from './catalog.js';
 import type { OpWorkPackage } from '../openproject/types.js';
@@ -64,8 +65,6 @@ export function toEpmTask(
   const startDate = workPackage.startDate ?? workPackage.date ?? undefined;
   const dueDate = workPackage.dueDate ?? workPackage.date ?? undefined;
 
-  const version = linkId(links, 'version');
-
   return {
     id: String(workPackage.id),
     // The UI shows a short key throughout. OpenProject has no such concept, so
@@ -83,11 +82,14 @@ export function toEpmTask(
     assigneeId: linkId(links, 'assignee'),
     authorId: linkId(links, 'author') ?? '',
     parentId: linkId(links, 'parent'),
-    sprintId: version,
-    version: links?.version && !Array.isArray(links.version) ? links.version.title : undefined,
+    // A sprint is a version: `version`, or the first target version where
+    // the instance allows several (see openproject/versions.ts).
+    sprintId: versionIdOf(links),
+    version: versionTitleOf(links),
     startDate,
     dueDate,
     estimatedHours: durationToHours(workPackage.estimatedTime),
+    remainingHours: durationToHours(workPackage.remainingTime),
     spentHours: durationToHours(workPackage.spentTime),
     storyPoints: typeof workPackage.storyPoints === 'number' ? workPackage.storyPoints : undefined,
     labels: [],
@@ -95,6 +97,14 @@ export function toEpmTask(
     watcherIds: [],
     createdAt: workPackage.createdAt,
     updatedAt: workPackage.updatedAt,
+    // Offered per person and per record: a public project lets anyone signed in
+    // read its work, and a page that took that for leave to change it showed
+    // Log time and Add relation only for the server to refuse them.
+    can: {
+      comment: Object.hasOwn(links ?? {}, 'addComment'),
+      relate: Object.hasOwn(links ?? {}, 'addRelation'),
+      logTime: Object.hasOwn(links ?? {}, 'logTime'),
+    },
     ...withCustomValues(workPackage as unknown as Record<string, unknown>),
   };
 }

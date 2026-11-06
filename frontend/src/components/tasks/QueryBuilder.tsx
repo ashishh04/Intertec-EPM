@@ -77,8 +77,9 @@ function useResourceValues(valueType: string | undefined, projectId?: ID) {
       case 'Project':
         return projects.data?.map((p) => ({ id: p.id, name: p.name }));
       default:
-        // CustomOption, Role, WorkPackage and anything added upstream later.
-        // Rendering a free-text id beats hiding the filter entirely.
+        // Role, WorkPackage and anything added upstream later. Rendering a
+        // free-text id beats hiding the filter entirely. A list custom field
+        // brings its own choices (`options` below).
         return undefined;
     }
   }, [valueType, statuses.data, types.data, priorities.data, assignees.data, versions.data, projects.data]);
@@ -87,15 +88,19 @@ function useResourceValues(valueType: string | undefined, projectId?: ID) {
 function ValueControl({
   operator,
   filter,
+  options,
   projectId,
   onChange,
 }: {
   operator: QueryOperatorSchema;
   filter: QueryFilterInstance;
+  /** A list custom field's own choices, which no shared catalogue holds. */
+  options?: QueryFilterSchema['options'];
   projectId?: ID;
   onChange: (values: QueryFilterInstance['values']) => void;
 }) {
-  const candidates = useResourceValues(operator.valueType, projectId);
+  const resourceValues = useResourceValues(operator.valueType, projectId);
+  const candidates = options ?? resourceValues;
 
   // Operators such as `o`, `*` and `!*` carry no value schema at all.
   if (!operator.valueType) return null;
@@ -279,6 +284,7 @@ export function QueryBuilder({
               <ValueControl
                 operator={operator}
                 filter={filter}
+                options={definition?.options}
                 projectId={projectId}
                 onChange={(values) => update(index, { ...filter, values })}
               />

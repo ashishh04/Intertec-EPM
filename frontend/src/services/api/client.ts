@@ -29,6 +29,15 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A query's `retry`, for a page that shows its not-found page on a 404: a record
+ * that is not there will not be there a moment later, and asking again only kept
+ * the reader looking at a blank page. Anything else retries once, the default.
+ */
+export function retryUnlessNotFound(failureCount: number, error: unknown): boolean {
+  return !(error instanceof ApiError && error.isNotFound) && failureCount < 1;
+}
+
 export type QueryValue = string | number | boolean | undefined | null | (string | number)[];
 
 export function buildQuery(params: Record<string, QueryValue> = {}): string {
@@ -53,6 +62,23 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
   timeoutMs?: number;
 }
 
+/**
+ * The reason a refused request gives, from its validation details.
+ *
+ * A request the server's validation refuses says only "The request was not
+ * valid." and puts each problem in `details` as `{ path, message }` — the
+ * message being what to change: "A single entry cannot exceed 24 hours." The
+ * first problem is the one shown, so every dialog and toast that prints
+ * `error.message` says why. Any other refusal already words its own reason,
+ * and the issues some attach (their `path` a list) are not written for people.
+ */
+function validationReason(details: unknown): string | undefined {
+  const first: unknown = Array.isArray(details) ? details[0] : undefined;
+  if (!first || typeof first !== 'object') return undefined;
+  const { path, message } = first as { path?: unknown; message?: unknown };
+  return typeof path === 'string' && typeof message === 'string' && message ? message : undefined;
+}
+
 async function parseError(response: Response): Promise<ApiError> {
   let code: string | undefined;
   let message = t('Request failed with status {status}', { status: response.status });
@@ -60,7 +86,7 @@ async function parseError(response: Response): Promise<ApiError> {
 
   try {
     const payload = (await response.json()) as { message?: string; code?: string; details?: unknown };
-    message = payload.message ?? message;
+    message = validationReason(payload.details) ?? payload.message ?? message;
     code = payload.code;
     details = payload.details;
   } catch {

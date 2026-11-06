@@ -60,6 +60,7 @@ import { wikiRoutes } from './wiki.js';
 import { workPackageRoutes } from './work-packages.js';
 import { permissionGrantRoutes } from './permission-grants.js';
 import { appRoleRoutes } from './app-roles.js';
+import { mfaRoutes } from './mfa.js';
 import { journalRoutes } from './journal.js';
 
 /**
@@ -123,6 +124,7 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   // Governance (Module 16): EPM's own permission grants, and the whole journal.
   await app.register(permissionGrantRoutes);
   await app.register(appRoleRoutes);
+  await app.register(mfaRoutes);
   await app.register(journalRoutes);
   await app.register(preferencesRoutes);
   await app.register(sessionRoutes);

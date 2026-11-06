@@ -41,6 +41,13 @@ Changes since 1.1.0 (21 October 2026).
 - **Integration events** (BR-506). Events from OpenProject are kept, retried
   and, if they keep failing, set aside, then replayed from the Integration
   page once the cause is fixed. An outage loses nothing.
+- **Two-factor authentication.** A code from an authenticator app (Microsoft
+  Authenticator, Google Authenticator, Authy and the like) when signing in, so a
+  stolen password alone is not enough. Anyone can turn it on in Settings →
+  Security or in the portal, with recovery codes for a lost phone. An
+  administrator can require it per role, and sees who has set it up, under
+  Administration → Authentication → Two-factor authentication. Off until
+  someone turns it on or requires it.
 
 ### Improved
 
@@ -61,6 +68,40 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- Create task offers what the chosen project's own form allows: its statuses,
+  priorities and sprints, not a fixed list and every project's sprints.
+- A custom field can be put on types and projects in Administration, so it
+  reaches forms, exports and filters, which use its name and its choices.
+- A saved view keeps its sort and comes back after a reload.
+- Someone who may only read a task is offered no way to change it, and a task or
+  project they cannot see shows the not-found page instead of an error.
+- New Task and Import offer only projects where the person may create tasks.
+- Deleting a task a series is made from ends the series, and Recurring work reads
+  "None: finished" for it. One deleted template no longer costs every series in
+  the project its name.
+- A formula over a limit is refused naming that limit, with all the limits stated,
+  however long it is. Recalculate now says when it starts and finishes, and a
+  field's counts no longer count empties as values.
+- Moving a task reports the tasks that follow it, counted on the working calendar.
+- Levelling no longer proposes moves of no working days, and Undo puts every date
+  back or says it could not, without leaving the work half undone.
+- Scheduled reports and profiles offer Asia/Dubai, and a schedule reads "Every
+  Monday at 07:00 (Asia/Dubai)".
+- My Time names the week it shows. Submit timesheet stays on a draft, greyed
+  while something stops it, with the reason under it.
+- Tabs, menus and selects mirror properly in Arabic, and a changed language no
+  longer comes back from the cached copy after a reload.
+- The cash-flow table ends in a total, a project's confidence is never better than
+  its delivery status, and a forecast with no hour priced shows the hours and the
+  budget rather than comparing them.
+- Pragnya keeps a stopped reply as far as it got, runs its lookups late in a long
+  conversation instead of answering from memory, accepts a project by name, gives
+  money in the right currency, and links EPM pages. With finance off, money is
+  removed from what it reads. Its chips and refusals follow the reader's language.
+- Roles have Save changes and Reset, and the Users page removes someone in the same
+  steps as the Employees page. Removing external access asks first. A team or person
+  on something archived keeps it when saved unchanged. EPM's own roles are no longer
+  offered. The Project Status export says whether health was overridden.
 - An invited person can set their password on a server that runs on the
   service account (it failed there before).
 - Changing your own password works again. It now asks for your current
@@ -72,9 +113,26 @@ Changes since 1.1.0 (21 October 2026).
   says when it finishes and, when history is short, how much there is.
 - Administrators who were not listed in `EPM_ADMIN_USER_IDS` now get the
   journal and rates permissions.
+- The client portal lists, and downloads, the documents the team files under a
+  project. It showed external people only what they had uploaded themselves.
+- Changing what an external role allows now applies to the people who already
+  hold it, not only to those given it afterwards.
+- A health override with a misspelt field is refused. It cleared every
+  override on the project and answered as if it had worked.
+- A role that is not a project role is refused when changing a member's roles,
+  and a filter or sort sent to rename a saved view is refused, with the reason
+  in both cases; they failed as server errors.
+- Deleting a selection of no tasks is refused instead of answering as if it had
+  deleted them.
 
 ### Security
 
+- Pages refused by role are refused by the server too. They hid the data on
+  screen while the API still answered. Forecasts and recommendations are for
+  Administrators and Managers. The employee directory is for those who look after
+  the organisation, though everyone can read their own record. Others see names
+  and pictures rather than addresses, departments by name only, and a portfolio
+  with none of their projects in it reads as if it did not exist.
 - EPM reaches OpenProject as its own service account, `epm-service`, which is
   not an administrator (NFR06), instead of an administrator's key. It may call
   only the EPM add-on actions listed for it.
@@ -84,6 +142,14 @@ Changes since 1.1.0 (21 October 2026).
 - The link in an invitation or password-reset email is dropped from the
   outbox once the email has gone. A migration clears the emails already sent.
 - Request logs never record the token of an invitation or password-reset link.
+- The value lists behind form pickers can be fetched only for the lists forms
+  use. The lookup could be aimed at other collections on the server.
+- An id in an address can no longer hold a path (an encoded `/`), which could
+  reach a different kind of record outside EPM's own rules and journal.
+- A portfolio view no longer tells its reader how many projects exist that
+  they cannot see, or which ones.
+- The administration information, the readiness check, two cost measures and
+  a validation message no longer name the system underneath.
 
 ### Deploying 1.2.0
 
@@ -93,9 +159,10 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
 1. **Back up**, as the runbook says.
 2. **Deploy all three images from the 1.2.0 tag together.** This release
    changes the OpenProject add-ons the backend calls (the service account's
-   allow-list, and the password and document actions), so a new backend
-   beside an old `epm-openproject` cannot accept invitations, send reset
-   links or open project documents. The backend applies seven database
+   allow-list, the password and document actions, and the custom field and time
+   zone lists), so a new backend beside an old `epm-openproject` cannot accept
+   invitations, send reset links, open project documents or put a custom field
+   on a type. The backend applies eight database
    migrations as it starts; nothing else needs running.
 3. **Switch to the service account**, if the server still uses an
    administrator's key. Create it and read its key as `DEPLOY.md` describes
@@ -106,6 +173,9 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    Resend in `.env.prod` (`DEPLOY.md`, "Email"). Without it, the
    forgot-password page tells people reset by email is not set up on this
    server.
+   **Set `EPM_MFA_KEY`** (`openssl rand -hex 32`) and back it up, before anyone
+   turns on two-factor authentication: changing it later breaks every
+   authenticator (`deploy/runbooks/secret-rotation.md`).
 5. **The assistant**, to switch it on: Amazon Bedrock in us-east-1, with the
    model enabled and the instance role allowed `bedrock-mantle:CreateInference`
    (`DEPLOY.md`, "The assistant").

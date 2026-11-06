@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { prisma } from '../db/prisma.js';
-import { today as todayIso } from '../lib/dates.js';
+import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { contextLanguage, message, t } from '../lib/i18n.js';
 import { getUsers } from '../mapping/users.js';
@@ -253,7 +253,7 @@ export async function setPersonRole(personId: string, roleId: string | null, act
 /* Schedules and time off (BR-312)                                            */
 /* -------------------------------------------------------------------------- */
 
-const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const dateSchema = calendarDay();
 const scheduleSchema = z.object({
   effectiveFrom: dateSchema,
   hours: z.array(z.number().min(0).max(24)).length(7),
@@ -603,8 +603,19 @@ export async function importHr(input: unknown, actorId: string): Promise<HrImpor
         kind: entry.kind ?? 'leave',
       };
       if (existing) {
-        await prisma.timeOff.update({ where: { id: existing.id }, data });
-        result.timeOffUpdated += 1;
+        // Written only when something differs. A write marks the absence as
+        // changed, and a changed absence has new dates proposed to the planners
+        // again (BR-113): every import of the same extract re-proposed them.
+        const unchanged =
+          existing.openProjectId === data.openProjectId &&
+          isoDate(existing.startsOn) === entry.startsOn &&
+          isoDate(existing.endsOn) === entry.endsOn &&
+          existing.hoursPerDay === data.hoursPerDay &&
+          existing.kind === data.kind;
+        if (!unchanged) {
+          await prisma.timeOff.update({ where: { id: existing.id }, data });
+          result.timeOffUpdated += 1;
+        }
       } else {
         await prisma.timeOff.create({ data: { ...data, source: 'hr', externalId: entry.externalId, createdBy: actorId } });
         result.timeOffCreated += 1;

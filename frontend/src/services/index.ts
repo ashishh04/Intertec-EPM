@@ -44,6 +44,7 @@ import { ApiAutomationRepository } from './api/automation';
 import { ApiAdminRepository } from './api/admin';
 import { ApiPreferenceRepository } from './api/preferences';
 import { ApiSessionRepository } from './api/sessions';
+import { ApiMfaRepository } from './api/mfa';
 import {
   ApiMeetingRepository,
   ApiNewsRepository,
@@ -141,6 +142,9 @@ export const preferenceService = new ApiPreferenceRepository();
 
 /** Where this person is signed in. EPM-owned: sessions are rows in its database. */
 export const sessionService = new ApiSessionRepository();
+
+/** Two-factor authentication. EPM-owned: it guards EPM's own sign-in. */
+export const mfaService = new ApiMfaRepository();
 
 /**
  * The collaboration modules.

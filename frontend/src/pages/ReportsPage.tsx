@@ -192,6 +192,7 @@ export default function ReportsPage() {
             t('Status'),
             t('Health'),
             t('Calculated health'),
+            t('Overridden'),
             t('Override reason'),
             t('Overridden by'),
             t('Overridden on'),
@@ -210,6 +211,7 @@ export default function ReportsPage() {
             PROJECT_STATUS_META[project.status].label,
             HEALTH_META[project.health.overall].label,
             HEALTH_META[project.healthCalculated.overall].label,
+            project.healthOverride ? t('Yes') : t('No'),
             project.healthOverride?.reason ?? null,
             project.healthOverride
               ? users?.find((user) => user.id === project.healthOverride!.setBy)?.name ?? project.healthOverride.setBy

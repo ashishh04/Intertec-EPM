@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
-import { today as todayIso } from '../lib/dates.js';
+import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { recordAuditQuietly } from '../domain/audit.js';
 import { buildDashboard, DASHBOARD_IDS, scopeName, type DashboardId } from '../domain/dashboards.js';
@@ -33,8 +33,6 @@ import { contextConventions, dateOf, listOf, message, requestLanguage, t } from 
  * the dashboard on the screen as a PDF or a workbook needs only a session: it
  * is the same figures, for the same person.
  */
-
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 async function checkRecipients(raw: unknown): Promise<void> {
   const ids = (raw as { recipientUserIds?: unknown })?.recipientUserIds;
@@ -110,8 +108,8 @@ export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {
     const query = z
       .object({
         scheduleId: z.string().optional(),
-        from: z.string().regex(DAY).optional(),
-        to: z.string().regex(DAY).optional(),
+        from: calendarDay().optional(),
+        to: calendarDay().optional(),
         page: z.coerce.number().int().min(1).default(1),
         pageSize: z.coerce.number().int().min(1).max(100).default(15),
       })

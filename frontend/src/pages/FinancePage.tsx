@@ -175,6 +175,13 @@ function CashFlowCard({ scope }: { scope: FinanceScope }) {
                       <td className="py-1.5 text-end font-mono">{money(point.cumulativeActual)}</td>
                     </tr>
                   ))}
+                  <tr className="font-medium">
+                    <td className="py-1.5">{t('Total')}</td>
+                    <td className="py-1.5 text-end font-mono">{money(series.totals.planned)}</td>
+                    <td className="py-1.5 text-end font-mono">{money(series.totals.actual)}</td>
+                    {/* Running figures have no total: the last month's already is one. */}
+                    <td className="py-1.5" colSpan={2} />
+                  </tr>
                 </tbody>
               </table>
               <p className="text-2xs text-muted-foreground">

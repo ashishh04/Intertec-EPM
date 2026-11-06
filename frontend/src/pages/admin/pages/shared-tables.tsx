@@ -4,6 +4,7 @@ import { TableCard } from '@/components/common/DataTable';
 import { Pagination } from '@/components/common/Pagination';
 import { Table } from '@/components/ui/table';
 import type { PaginationState } from '@/hooks/usePagination';
+import { t } from '@/lib/i18n';
 
 /**
  * Small pieces shared by the administration list pages: the card that wraps a
@@ -83,12 +84,12 @@ export function CheckCell({ value, label }: { value: boolean; label: string }) {
   return value ? (
     <span className="inline-flex items-center text-success">
       <Check className="h-3.5 w-3.5" aria-hidden />
-      <span className="sr-only">{label}: yes</span>
+      <span className="sr-only">{t('{label}: yes', { label })}</span>
     </span>
   ) : (
     <span className="text-muted-foreground">
       <span aria-hidden>{'—'}</span>
-      <span className="sr-only">{label}: no</span>
+      <span className="sr-only">{t('{label}: no', { label })}</span>
     </span>
   );
 }

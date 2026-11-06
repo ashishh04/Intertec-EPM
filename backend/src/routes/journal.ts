@@ -4,6 +4,7 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { listInstanceJournal } from '../domain/audit.js';
 import { modelFacts } from '../domain/measure-facts.js';
+import { calendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { getUsers } from '../mapping/users.js';
@@ -22,15 +23,13 @@ import type { JournalPage } from '../types/epm.js';
  * refers to.
  */
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-
 const journalQuery = z.object({
   entityType: z.string().max(80).optional(),
   action: z.string().max(80).optional(),
   actorId: z.string().regex(/^\d+$/).optional(),
   projectId: z.string().regex(/^\d+$/).optional(),
-  from: z.string().regex(DAY).optional(),
-  to: z.string().regex(DAY).optional(),
+  from: calendarDay().optional(),
+  to: calendarDay().optional(),
   q: z.string().trim().max(200).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),

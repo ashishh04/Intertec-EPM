@@ -20,6 +20,7 @@ import {
   t,
   type Message,
 } from '../lib/i18n.js';
+import { forgetQuerySchemas } from '../mapping/queries.js';
 import { openProject } from '../openproject/client.js';
 import type {
   CalculatedField as CalculatedFieldView,
@@ -243,7 +244,13 @@ function definitions(): Promise<FieldRow[]> {
 
 function forgetDefinitions(): void {
   definitionCache = undefined;
+  forgetCustomFields();
+}
+
+/** After a custom field changes, by any route: what formulas and views were told of them. */
+export function forgetCustomFields(): void {
   customFieldCache = undefined;
+  forgetQuerySchemas();
 }
 
 const typeOfRow = (row: Pick<FieldRow, 'resultType'>): ValueType =>
@@ -338,7 +345,12 @@ export type DefinitionInput = z.infer<typeof definitionInput>;
 
 /** A formula problem as the API gives it, in the reader's language. */
 function problemView(error: FormulaError) {
-  return { message: render(contextLanguage(), error.message, contextConventions()), start: error.start, end: error.end };
+  return {
+    message: render(contextLanguage(), error.message, contextConventions()),
+    start: error.start,
+    end: error.end,
+    ...(error.oversized ? { oversized: true } : {}),
+  };
 }
 
 /** Refuses a formula that does not compile, pointing at where. */
@@ -383,8 +395,11 @@ const toNumbers = (ids: readonly (string | number)[] | undefined) => [...new Set
 export async function listCalculatedFields(): Promise<CalculatedFieldView[]> {
   const [rows, stats] = await Promise.all([
     prisma.calculatedField.findMany({ orderBy: { name: 'asc' } }),
+    // A row with nothing in it is an empty, not a value: counted together, a field
+    // read "39 values, 26 empty" when 13 work packages held one.
     prisma.$queryRaw<{ fieldId: string; values: bigint; empty: bigint }[]>`
-      SELECT "fieldId", count(*) AS values,
+      SELECT "fieldId",
+             count(*) FILTER (WHERE "numberValue" IS NOT NULL OR "dateValue" IS NOT NULL OR "textValue" IS NOT NULL OR "booleanValue" IS NOT NULL) AS values,
              count(*) FILTER (WHERE "numberValue" IS NULL AND "dateValue" IS NULL AND "textValue" IS NULL AND "booleanValue" IS NULL) AS empty
         FROM calculated_values GROUP BY "fieldId"`,
   ]);
@@ -396,7 +411,7 @@ export async function getCalculatedField(id: string): Promise<CalculatedFieldVie
   const row = await prisma.calculatedField.findUnique({ where: { id } });
   if (!row) throw EpmError.notFound(msg('That calculated field'));
   const [stats] = await prisma.$queryRaw<{ values: bigint; empty: bigint }[]>`
-    SELECT count(*) AS values,
+    SELECT count(*) FILTER (WHERE "numberValue" IS NOT NULL OR "dateValue" IS NOT NULL OR "textValue" IS NOT NULL OR "booleanValue" IS NOT NULL) AS values,
            count(*) FILTER (WHERE "numberValue" IS NULL AND "dateValue" IS NULL AND "textValue" IS NULL AND "booleanValue" IS NULL) AS empty
       FROM calculated_values WHERE "fieldId" = ${id}`;
   return toView(row, { values: Number(stats?.values ?? 0), empty: Number(stats?.empty ?? 0) });
@@ -676,7 +691,9 @@ const validationInput = z.object({
   key: z.string().trim().optional(),
   name: z.string().trim().optional(),
   resultType: z.enum(['number', 'date', 'text', 'boolean']),
-  expression: z.string().max(LIMITS.length * 2),
+  // No length limit here: the check itself refuses a long one first, naming the
+  // limit, where a refusal here left the editor saying "Checking..." for good.
+  expression: z.string(),
   projectIds: numericIds.optional(),
   typeIds: numericIds.optional(),
   workPackageId: z.union([z.string().regex(/^\d+$/), z.number().int().positive()]).optional(),
@@ -1285,9 +1302,11 @@ export async function calculatedCustomFieldKeys(): Promise<string[]> {
 export async function refuseCalculatedWrites(payload: unknown): Promise<void> {
   if (!payload || typeof payload !== 'object') return;
   const record = payload as Record<string, unknown>;
-  const keys = [...Object.keys(record), ...Object.keys((record._links as Record<string, unknown> | undefined) ?? {})].filter((key) =>
-    /^customField\d+$/.test(key),
-  );
+  const keys = [
+    ...Object.keys(record),
+    ...Object.keys((record._links as Record<string, unknown> | undefined) ?? {}),
+    ...Object.keys((record.customValues as Record<string, unknown> | undefined) ?? {}),
+  ].filter((key) => /^customField\d+$/.test(key));
   if (keys.length === 0) return;
   const columns = await calculatedColumns();
   const hit = keys.map((key) => columns.get(key)).find(Boolean);

@@ -119,10 +119,13 @@ function toEpmEmployee(user: EpmUser, profile: ProfileWithRefs | undefined): Epm
  * Assignment into an archived department or team is refused, consistent with
  * the rule that a team cannot be moved into an archived department. Mappings
  * that already point at an archived unit are left alone; archiving stays a
- * visibility decision.
+ * visibility decision. So `current`, where the person sits now, is exempt: saving
+ * someone with their placement unchanged is not assigning them anywhere, and
+ * refusing it meant nobody on an archived team could be edited at all.
  */
 async function resolveMapping(
   input: MappingInput,
+  current?: { departmentId: string | null; teamId: string | null } | null,
 ): Promise<{ departmentId: string | null; teamId: string | null }> {
   const requestedDepartmentId = asOptionalId(input.departmentId, 'The department');
   const teamId = asOptionalId(input.teamId, 'The team');
@@ -131,7 +134,7 @@ async function resolveMapping(
   if (teamId) {
     team = await prisma.team.findUnique({ where: { id: teamId } });
     if (!team) throw EpmError.badRequest('That team does not exist.');
-    if (!team.active) {
+    if (!team.active && teamId !== current?.teamId) {
       throw EpmError.badRequest('That team is archived, so nobody can be assigned to it.');
     }
   }
@@ -147,7 +150,7 @@ async function resolveMapping(
     // still an assignment into an archived unit.
     const department = await prisma.department.findUnique({ where: { id: team.departmentId } });
     if (!department) throw EpmError.badRequest('That team belongs to a department that no longer exists.');
-    if (!department.active) {
+    if (!department.active && team.id !== current?.teamId) {
       throw EpmError.badRequest(
         'That team belongs to an archived department, so nobody can be assigned to it.',
       );
@@ -161,7 +164,7 @@ async function resolveMapping(
   if (requestedDepartmentId) {
     const department = await prisma.department.findUnique({ where: { id: requestedDepartmentId } });
     if (!department) throw EpmError.badRequest('That department does not exist.');
-    if (!department.active) {
+    if (!department.active && requestedDepartmentId !== current?.departmentId) {
       throw EpmError.badRequest('That department is archived, so nobody can be assigned to it.');
     }
   }
@@ -239,11 +242,11 @@ export async function setMapping(
   const user = users.find((candidate) => candidate.id === id);
   if (!user) throw EpmError.notFound('That employee');
 
-  const { departmentId, teamId } = await resolveMapping(input);
   const previous = await prisma.userProfile.findUnique({
     where: { openProjectId: id },
     select: { departmentId: true, teamId: true, departmentRef: { select: { name: true } }, team: { select: { name: true } } },
   });
+  const { departmentId, teamId } = await resolveMapping(input, previous);
 
   // Upsert: a person has no row until they are first mapped, and clearing a
   // mapping leaves the row rather than deleting it, because it also carries

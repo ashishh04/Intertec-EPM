@@ -160,7 +160,7 @@ export interface ProjectHealthView {
  * disagree with its own health: red on schedule is delayed, anything not green
  * overall is at risk.
  */
-function deriveStatus(input: {
+export function deriveStatus(input: {
   active: boolean;
   total: number;
   completed: number;

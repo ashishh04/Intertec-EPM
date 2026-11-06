@@ -46,10 +46,14 @@ export function TimesheetBar({ view, loading, day }: { view?: TimesheetView; loa
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={TIMESHEET_STATUS[view.status].tone}>{TIMESHEET_STATUS[view.status].label}</Badge>
-            {view.can.submit ? (
+            {/* Always there on a draft, and greyed out while something stops it:
+                hidden, a week short of its hours looked as if timesheets could
+                not be submitted from here at all. What stops it is listed below. */}
+            {view.status === 'draft' ? (
               <Button
                 size="sm"
                 loading={submit.isPending}
+                disabled={!view.can.submit}
                 onClick={() =>
                   submit.mutate(day, {
                     onSuccess: () => toast.success(t('Timesheet submitted for approval')),

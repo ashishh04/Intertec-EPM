@@ -10,6 +10,7 @@ import { appLog } from '../lib/log.js';
 // fetch throws, and the failure surfaces as "the account service could not be
 // reached", which reads like OpenProject is down rather than misaddressed.
 import { FORWARDED_HEADERS } from '../openproject/client.js';
+import { currentAuth } from './context.js';
 import { decryptToken, encryptToken } from './crypto.js';
 
 /**
@@ -112,12 +113,25 @@ export interface EstablishedSession {
   userId: string;
 }
 
-/** Verifies credentials and opens a session. */
-export async function signInWithPassword(
-  username: string,
-  password: string,
-  userAgent?: string,
-): Promise<EstablishedSession> {
+/** A person's tokens as a session holds them: already encrypted, ready to store. */
+export interface SessionTokens {
+  accessToken: string;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
+}
+
+export interface VerifiedPassword {
+  userId: string;
+  login: string;
+  tokens: SessionTokens;
+}
+
+/**
+ * Checks credentials and identifies who they belong to, without opening
+ * anything: whether a session follows at once, or only after a second factor,
+ * is for the caller to decide (routes/auth.ts).
+ */
+export async function verifyPassword(username: string, password: string): Promise<VerifiedPassword> {
   const config = oauthConfig();
 
   const tokens = await exchange({ grant_type: 'password', username, password });
@@ -133,22 +147,75 @@ export async function signInWithPassword(
   if (!meResponse.ok) {
     throw EpmError.unauthorized('Could not read your account after sign-in.');
   }
-  const me = (await meResponse.json()) as { id: number };
+  const me = (await meResponse.json()) as { id: number; login?: string };
 
-  const sessionId = randomUUID();
-  await prisma.session.create({
-    data: {
-      id: sessionId,
-      openProjectId: String(me.id),
-      userAgent,
-      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+  return {
+    userId: String(me.id),
+    login: me.login ?? username,
+    tokens: {
       accessToken: encryptToken(tokens.access_token),
       refreshToken: tokens.refresh_token ? encryptToken(tokens.refresh_token) : null,
       tokenExpiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
     },
+  };
+}
+
+/** Opens a session from a person's tokens. */
+export async function openSession(
+  userId: string,
+  tokens: SessionTokens,
+  userAgent?: string,
+): Promise<EstablishedSession> {
+  const sessionId = randomUUID();
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      openProjectId: userId,
+      userAgent,
+      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      tokenExpiresAt: tokens.tokenExpiresAt,
+    },
   });
 
-  return { sessionId, userId: String(me.id) };
+  return { sessionId, userId };
+}
+
+/**
+ * Asks the signed-in person to prove their password again, before a change to
+ * how their account is protected. By the same door as signing in, so the
+ * instance's own brute-force blocking counts these too. The tokens it yields are
+ * dropped here, never stored: the session keeps the ones it has.
+ */
+export async function confirmPassword(userId: string, password: string, signal?: AbortSignal): Promise<void> {
+  const config = oauthConfig();
+  const session = currentAuth();
+  if (!session || session.userId !== userId) throw EpmError.unauthorized();
+
+  // The login, read with the session's own token: a person's own record has it.
+  const meResponse = await fetch(`${config.base}/api/v3/users/me`, {
+    ...(signal ? { signal } : {}),
+    headers: {
+      ...FORWARDED_HEADERS,
+      Authorization: `Bearer ${session.accessToken}`,
+      Accept: 'application/hal+json',
+    },
+  });
+  if (!meResponse.ok) throw EpmError.unauthorized();
+  const me = (await meResponse.json()) as { login?: string };
+  if (!me.login) throw EpmError.badRequest('Your password is not right.', { field: 'password' });
+
+  try {
+    const verified = await verifyPassword(me.login, password);
+    if (verified.userId !== userId) throw EpmError.badRequest('Your password is not right.', { field: 'password' });
+  } catch (error) {
+    // The grant answers 401 for a wrong password, which here is not "signed out".
+    if (error instanceof EpmError && error.status === 401) {
+      throw EpmError.badRequest('Your password is not right.', { field: 'password' });
+    }
+    throw error;
+  }
 }
 
 export interface ResolvedSession {

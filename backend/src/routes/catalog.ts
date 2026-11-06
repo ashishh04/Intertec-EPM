@@ -1,9 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import { isOwnRole } from '../domain/service-account.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
+import { classifyStatus } from '../mapping/catalog.js';
 import { openProject, linkId } from '../openproject/client.js';
 import type { OpPriority, OpStatus, OpType } from '../openproject/types.js';
+import type { TaskStatusCategory } from '../types/epm.js';
 
 /**
  * OpenProject reference data, passed through unreduced.
@@ -28,6 +31,8 @@ export interface CatalogValue {
 export interface StatusValue extends CatalogValue {
   isClosed: boolean;
   isDefault?: boolean;
+  /** EPM's grouping of it: which column of a board it falls in. */
+  category: TaskStatusCategory;
 }
 
 export interface TypeValue extends CatalogValue {
@@ -38,6 +43,33 @@ export interface TypeValue extends CatalogValue {
 
 export interface PriorityValue extends CatalogValue {
   isDefault?: boolean;
+}
+
+/**
+ * The value lists a form's schema links to, by the shape of their path:
+ * people (`principals`, behind user fields), the `available_*` lists (a work
+ * package's assignee, responsible and project, a project's parent…), a
+ * project's own versions, categories, types, budgets, sprints and backlog
+ * buckets (a project is also spelt `workspaces` there), a hierarchy field's
+ * items, and the reference lists the routes here and the sprints serve anyway.
+ *
+ * Nothing else. The read is the caller's own, so it never shows them more
+ * than the delivery system would — but it is not a way to read any collection
+ * there either, `/users` included. Lower-case letters, digits, `_` and `/`
+ * only, so no spelling of `..` (`%2e%2e` included) gets past it.
+ */
+const VALUE_LISTS: readonly RegExp[] = [
+  /^\/api\/v3\/principals$/,
+  /^\/api\/v3\/(?:statuses|types|priorities|roles|versions)$/,
+  /^\/api\/v3\/[a-z_]+(?:\/\d+)?\/available_[a-z_]+$/,
+  /^\/api\/v3\/(?:projects|workspaces)\/\d+\/(?:versions|categories|types|budgets|sprints|backlog_buckets)$/,
+  /^\/api\/v3\/custom_fields\/\d+\/items$/,
+];
+
+/** Whether an href is one of those lists. Its query only narrows the list (filters, page size). */
+function isValueList(href: string): boolean {
+  const path = href.split('?')[0] ?? '';
+  return VALUE_LISTS.some((pattern) => pattern.test(path));
 }
 
 export const catalogRoutes: FastifyPluginAsync = async (app) => {
@@ -55,6 +87,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
         name: status.name,
         isClosed: Boolean(status.isClosed),
         isDefault: status.isDefault,
+        category: classifyStatus(status),
         position: status.position,
       }))
       .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
@@ -88,27 +121,29 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
    *
    * The href is one the schema itself supplied, so the browser is echoing
    * server data rather than knowing the shape of an upstream URL. It is still
-   * validated here: only an absolute `/api/v3/` path, no traversal, because a
-   * caller-supplied path reaching the upstream client is exactly the thing to
-   * be careful with.
+   * validated here, against the value lists a schema links to (`VALUE_LISTS`),
+   * because a caller-supplied path reaching the upstream client is exactly the
+   * thing to be careful with.
    */
   app.get<{ Querystring: { href?: string } }>('/catalog/allowed-values', async (request) => {
     const href = String(request.query.href ?? '');
 
-    if (!href.startsWith('/api/v3/') || href.includes('..')) {
+    if (!isValueList(href)) {
       throw EpmError.badRequest('That is not a value list this form can offer.');
     }
 
     const collection = await openProject.request<{
-      _embedded?: { elements?: { id?: unknown; name?: string; value?: string; _links?: { self?: { href?: string } } }[] };
+      _embedded?: { elements?: { id?: unknown; name?: string; value?: string; subject?: string; _links?: { self?: { href?: string } } }[] };
     }>(href.slice('/api/v3'.length), { signal: requestSignal(request) });
 
     return (collection._embedded?.elements ?? [])
       .map((element) => {
         const selfHref = element._links?.self?.href;
         const id = element.id !== undefined ? String(element.id) : undefined;
-        // A custom option calls its label `value`; everything else `name`.
-        const name = element.name ?? element.value;
+        // A custom option calls its label `value`, a work package `subject`;
+        // everything else `name`. Without `subject` every candidate for a parent
+        // was dropped, and the field said there was nothing to choose from.
+        const name = element.name ?? element.value ?? element.subject;
         return selfHref && name ? { id: id ?? selfHref, name, href: selfHref } : undefined;
       })
       .filter((value): value is { id: string; name: string; href: string } => Boolean(value));
@@ -197,7 +232,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
       { pageSize: 100 },
       { signal: requestSignal(request) },
     );
-    return items.map((role) => ({ id: String(role.id), name: role.name }));
+    return items.filter((role) => !isOwnRole(role.name)).map((role) => ({ id: String(role.id), name: role.name }));
   });
 };
 

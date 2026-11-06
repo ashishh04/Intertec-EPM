@@ -94,7 +94,7 @@ Rails.application.config.to_prepare do
             { key: "name", label: "Name", type: "string", required: true },
             { key: "isDefault", label: "Default", type: "boolean",
               help: "Given to a new work package. Only one priority can hold this." },
-            { key: "active", label: "Active", type: "boolean",
+            { key: "active", label: "Active", type: "boolean", default: true,
               help: "An inactive priority stays on existing work but cannot be chosen." },
             { key: "colorId", label: "Colour", type: "enum", options: :color_options }
           ]
@@ -152,9 +152,14 @@ Rails.application.config.to_prepare do
             { key: "possibleValues", label: "Possible values", type: "text",
               help: "One per line. Only for a list." },
             { key: "isRequired", label: "Required", type: "boolean" },
-            { key: "isForAll", label: "For all projects", type: "boolean",
+            { key: "isForAll", label: "For all projects", type: "boolean", default: true,
               help: "Available everywhere rather than enabled per project." },
-            { key: "isFilter", label: "Usable as a filter", type: "boolean" }
+            { key: "projectIds", label: "Projects", type: "multi", options: :project_options, link: :link_projects,
+              help: "The projects that have it, when it is not for all projects." },
+            { key: "typeIds", label: "Types", type: "multi", options: :type_options,
+              read: :linked_type_ids, link: :link_types, empty_label: "Every type",
+              help: "The kinds of work package that have it. A task can hold a value only if its type has the field." },
+            { key: "isFilter", label: "Usable as a filter", type: "boolean", default: true }
           ]
         },
         # The instance's user custom fields, under the name its newer releases
@@ -210,16 +215,14 @@ Rails.application.config.to_prepare do
     def create
       spec = spec!(params[:resource])
       record = build(spec)
-      assign(record, spec, json_body)
-      save!(record)
+      write!(record, spec, json_body)
       render json: serialize(record, spec), status: :created
     end
 
     def update
       spec = spec!(params[:resource])
       record = find!(spec, params[:id])
-      assign(record, spec, json_body)
-      save!(record)
+      write!(record, spec, json_body)
       render json: serialize(record, spec)
     end
 
@@ -286,8 +289,9 @@ Rails.application.config.to_prepare do
 
     def describe_fields(spec)
       spec[:fields].map do |field|
-        # camelCase throughout, so the browser reads one convention.
-        described = field.except(:options).transform_keys { |k| camelize_key(k) }
+        # camelCase throughout, so the browser reads one convention. `read` and
+        # `link` name methods here, which are nobody's business but this file's.
+        described = field.except(:options, :read, :link).transform_keys { |k| camelize_key(k) }
         described["options"] = send(field[:options]) if field[:options]
         described
       end
@@ -317,6 +321,8 @@ Rails.application.config.to_prepare do
       value =
         if field[:variant]
           record.default_variant&.public_send(field[:variant])
+        elsif field[:read]
+          send(field[:read], record)
         elsif record.respond_to?(name)
           record.public_send(name)
         end
@@ -324,6 +330,7 @@ Rails.application.config.to_prepare do
       case field[:type]
       when "boolean" then !!value
       when "integer" then value.to_i
+      when "multi" then Array(value).map(&:to_s)
       when "text"
         # A custom field's possible values are CustomOption records, not
         # strings; asking each for its value is what makes the textarea show
@@ -338,10 +345,25 @@ Rails.application.config.to_prepare do
       end
     end
 
+    # A row and whatever it holds through other tables, which needs it saved
+    # first: both or neither.
+    def write!(record, spec, body)
+      assign(record, spec, body)
+      ActiveRecord::Base.transaction do
+        save!(record)
+        spec[:fields].each do |field|
+          next unless field[:link] && body.key?(field[:key])
+
+          send(field[:link], record, coerce(field, body[field[:key]]))
+        end
+      end
+      record.reload if spec[:fields].any? { |field| field[:link] }
+    end
+
     def assign(record, spec, body)
       spec[:fields].each do |field|
         key = field[:key]
-        next unless body.key?(key)
+        next unless body.key?(key) && !field[:link]
 
         value = coerce(field, body[key])
         if field[:variant]
@@ -385,6 +407,12 @@ Rails.application.config.to_prepare do
         raise Invalid, "#{choice.inspect} is not a value #{field[:key]} accepts." if allowed && !allowed.include?(choice)
 
         choice
+      when "multi"
+        chosen = Array(value).map(&:to_s).uniq
+        unknown = chosen - send(field[:options]).map { |option| option[:value] }
+        raise Invalid, "#{unknown.first.inspect} is not a value #{field[:key]} accepts." if unknown.any?
+
+        chosen
       else
         value.to_s
       end
@@ -394,6 +422,41 @@ Rails.application.config.to_prepare do
       return if record.save
 
       raise Invalid, record.errors.full_messages.join(", ")
+    end
+
+    # ------------------------------------------------- what a custom field is on
+
+    # A custom field reaches a work package only through its type and, unless it
+    # is for all projects, its project. API v3 can set neither, and without these
+    # a field made here existed but never reached a form, a filter value or an
+    # export.
+
+    def linked_type_ids(field)
+      field.type_variants.map(&:type_id).uniq.sort
+    end
+
+    # As EpmCalculatedController#configure: from 17 fields belong to a type's
+    # variants, not the type, so every variant of a chosen type gets the field and
+    # every other variant loses it. None chosen means every type, as there.
+    def link_types(field, ids)
+      wanted = ids.empty? ? Type.pluck(:id) : ids.map(&:to_i)
+      TypeVariant.find_each do |variant|
+        has = variant.custom_field_ids.include?(field.id)
+        want = wanted.include?(variant.type_id)
+        next if has == want
+
+        # Not `reset_attribute_groups`: that starts by deactivating every field.
+        variant.custom_field_ids = want ? variant.custom_field_ids + [field.id] : variant.custom_field_ids - [field.id]
+        variant.save!
+      end
+    end
+
+    def link_projects(field, ids)
+      if ids.empty? && !field.is_for_all?
+        raise Invalid, "Choose the projects that have this field, or make it for all projects."
+      end
+
+      field.project_ids = ids.map(&:to_i)
     end
 
     # ---------------------------------------------------------- delete rules
@@ -455,6 +518,14 @@ Rails.application.config.to_prepare do
         { value: "user", label: "User" },
         { value: "version", label: "Version" }
       ]
+    end
+
+    def type_options
+      Type.order(:position).map { |type| { value: type.id.to_s, label: type.name } }
+    end
+
+    def project_options
+      Project.active.order(:name).map { |project| { value: project.id.to_s, label: project.name } }
     end
 
     # The formats a user custom field can take: the instance offers user,

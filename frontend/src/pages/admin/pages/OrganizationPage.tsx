@@ -1030,7 +1030,15 @@ function PeopleTable({
                 <TableCell className="text-xs text-muted-foreground">{person.email ?? '—'}</TableCell>
                 {showTeam ? (
                   <TableCell className="text-xs" dir="auto">
-                    {person.team?.name ?? <span className="text-muted-foreground">{'—'}</span>}
+                    {person.team ? (
+                      <span className="flex items-center gap-1.5">
+                        {person.team.name}
+                        {/* A placement outlives its team's archival. */}
+                        {person.team.active ? null : <Badge tone="warning" size="sm">{t('Archived')}</Badge>}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">{'—'}</span>
+                    )}
                   </TableCell>
                 ) : null}
                 <TableCell className="text-end">
@@ -1234,7 +1242,7 @@ function MoveTeamDialog({
               <SelectItem value={NO_DEPARTMENT}>{t('No department')}</SelectItem>
               {options.map((item) => (
                 <SelectItem key={item.id} value={item.id}>
-                  {item.name}
+                  {item.active ? item.name : t('{name} (archived)', { name: item.name })}
                 </SelectItem>
               ))}
             </SelectContent>

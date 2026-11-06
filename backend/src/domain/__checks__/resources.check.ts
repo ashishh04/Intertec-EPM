@@ -322,6 +322,34 @@ await check('work late to start keeps its dates when they still fit, and moves o
   assert.equal(outcome.after.length, 0);
 });
 
+await check('work whose finish has become a holiday stays put, and keeps its length when something does push it', () => {
+  // Tuesday 1 to Wednesday 2 December 2026, the Wednesday made a holiday before
+  // OpenProject re-dated the work. #61 and #62 belong to nobody in scope and
+  // nothing pushes them: no move, not one of no working days. #63 and its
+  // follower #64 are over the week's hours: #64 moves after #63, two working
+  // days long as OpenProject holds it, though its dates count only one.
+  const holiday = { weekdays: new Set([1, 2, 3, 4, 5]), holidays: new Set(['2026-12-02']) };
+  const outcome = level({
+    items: [
+      item(61, null, 0, '2026-12-01', '2026-12-02', { duration: 2, scheduleManually: false }),
+      item(62, 'Q', 8, '2026-12-01', '2026-12-02', { duration: 2 }),
+      item(63, 'P', 80, '2026-11-30', '2026-12-04'),
+      item(64, null, 0, '2026-12-01', '2026-12-02', { duration: 2, scheduleManually: false }),
+    ],
+    relations: [{ predecessorId: 63, successorId: 64, lag: 0 }],
+    calendar: holiday,
+    availability: people,
+    otherDemand: [],
+    carriers: new Set(['P']),
+    today: d('2026-11-23'),
+    horizonDays: 365,
+  });
+  assert.equal(outcome.moves.some((move) => move.id === 61 || move.id === 62), false, 'what nothing pushes does not move');
+  const pushed = outcome.moves.find((move) => move.id === 64)!;
+  assert.equal(pushed.reason, 'dependency');
+  assert.equal(pushed.newDue - pushed.newStart, 1, 'two working days long, side by side');
+});
+
 await check('a milestone its predecessor pushes stays one day: its start is its finish', () => {
   const outcome = level({
     items: [

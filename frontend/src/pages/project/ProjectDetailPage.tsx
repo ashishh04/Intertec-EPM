@@ -38,7 +38,9 @@ import {
 import { MemberDialog } from '@/components/projects/MemberDialog';
 import { ProjectDialog } from '@/components/common/ProjectDialog';
 import { exceptDetailOf, invalidationGroups } from '@/lib/queryKeys';
+import NotFoundPage from '@/pages/NotFoundPage';
 import { projectWriteService } from '@/services';
+import { ApiError } from '@/services/api/client';
 import { useUI } from '@/providers/UIProvider';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
@@ -120,10 +122,14 @@ export default function ProjectDetailPage() {
   // The same form as every other place work is added from.
   const { openTaskDrawer } = useUI();
   const [inviteOpen, setInviteOpen] = useState(false);
-  const { data: project, isLoading, isError, refetch } = useProject(projectId);
+  const { data: project, isLoading, isError, error, refetch } = useProject(projectId);
   const users = useUserMap();
 
   if (isError) {
+    // A project that is not there, or not there for this person, has nothing to
+    // retry: "something went wrong" sent them looking for a fault.
+    if (error instanceof ApiError && error.isNotFound) return <NotFoundPage />;
+
     return (
       <ErrorState
         title={t('Unable to load project')}
@@ -149,6 +155,15 @@ export default function ProjectDetailPage() {
 
   const owner = users.get(project.ownerId);
 
+  // Each action is offered only to someone who may take it. Disabled buttons
+  // still read as an offer: a member clicked Invite and nothing happened.
+  const mayInvite = canInProject(projectId, 'member:manage');
+  // A restore is decided by the delete link, the only one an archived project
+  // still publishes (`routes/projects.ts`).
+  const mayArchive = project.status !== 'paused' && project.can.archive;
+  const mayRestore = project.status === 'paused' && project.can.remove;
+  const mayChangeState = mayArchive || mayRestore || project.can.remove;
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -172,76 +187,71 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setEditOpen(true)}
-              disabled={!canInProject(projectId, 'project:edit')}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              {t('Edit')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => openTaskDrawer({ projectId: project.id })}
-              disabled={!canInProject(projectId, 'task:create')}
-            >
-              <Plus className="h-4 w-4" />
-              {t('Add Task')}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={!canInProject(projectId, 'member:manage')}
-              onClick={() => setInviteOpen(true)}
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              {t('Invite')}
-            </Button>
+            {canInProject(projectId, 'project:edit') ? (
+              <Button variant="secondary" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+                {t('Edit')}
+              </Button>
+            ) : null}
+            {canInProject(projectId, 'task:create') ? (
+              <Button size="sm" onClick={() => openTaskDrawer({ projectId: project.id })}>
+                <Plus className="h-4 w-4" />
+                {t('Add Task')}
+              </Button>
+            ) : null}
+            {mayInvite ? (
+              <Button variant="secondary" size="sm" onClick={() => setInviteOpen(true)}>
+                <UserPlus className="h-3.5 w-3.5" />
+                {t('Invite')}
+              </Button>
+            ) : null}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label={t('More project actions')}>
-                  <Ellipsis className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {/* Sharing a project *is* giving someone access to it —
-                    upstream has no separate concept — so this opens the same
-                    dialog the Invite button does rather than pretending to be
-                    a different feature. */}
-                <DropdownMenuItem onSelect={() => setInviteOpen(true)}>
-                  <Share2 />
-                  {t('Share with someone')}
-                </DropdownMenuItem>
+            {mayInvite || mayChangeState ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label={t('More project actions')}>
+                    <Ellipsis className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {/* Sharing a project *is* giving someone access to it —
+                      upstream has no separate concept — so this opens the same
+                      dialog the Invite button does rather than pretending to be
+                      a different feature. */}
+                  {mayInvite ? (
+                    <DropdownMenuItem onSelect={() => setInviteOpen(true)}>
+                      <Share2 />
+                      {t('Share with someone')}
+                    </DropdownMenuItem>
+                  ) : null}
 
-                <DropdownMenuSeparator />
+                  {mayInvite && mayChangeState ? <DropdownMenuSeparator /> : null}
 
-                {project.status === 'paused' ? (
-                  <DropdownMenuItem onSelect={() => setPendingAction('restore')}>
-                    <ArchiveRestore />
-                    {t('Restore project')}
-                  </DropdownMenuItem>
-                ) : (
-                  <DropdownMenuItem
-                    onSelect={() => setPendingAction('archive')}
-                    disabled={!project.can.archive}
-                  >
-                    <Archive />
-                    {t('Archive project')}
-                  </DropdownMenuItem>
-                )}
+                  {mayRestore ? (
+                    <DropdownMenuItem onSelect={() => setPendingAction('restore')}>
+                      <ArchiveRestore />
+                      {t('Restore project')}
+                    </DropdownMenuItem>
+                  ) : null}
 
-                {/* Offered only where upstream published the affordance, which
-                    it withholds unless the caller may really do it. */}
-                {project.can.remove ? (
-                  <DropdownMenuItem destructive onSelect={() => setPendingAction('delete')}>
-                    <Trash2 />
-                    {t('Delete project')}
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {mayArchive ? (
+                    <DropdownMenuItem onSelect={() => setPendingAction('archive')}>
+                      <Archive />
+                      {t('Archive project')}
+                    </DropdownMenuItem>
+                  ) : null}
+
+                  {/* Offered only where upstream published the affordance, which
+                      it withholds unless the caller may really do it. */}
+                  {project.can.remove ? (
+                    <DropdownMenuItem destructive onSelect={() => setPendingAction('delete')}>
+                      <Trash2 />
+                      {t('Delete project')}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </>
         }
       />

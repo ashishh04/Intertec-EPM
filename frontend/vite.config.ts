@@ -16,6 +16,12 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
+    // One copy for the whole app. Every Radix part pins its own exact version of
+    // this package, so npm gives each its own copy, and with it its own React
+    // context: none of them saw the DirectionProvider in PreferenceEffects. In
+    // Arabic everything inside a tab was laid out left to right, and menus and
+    // selects opened to the wrong side, on a page reading right to left.
+    dedupe: ['@radix-ui/react-direction'],
   },
   server: { port: 5173, host: true },
   build: {

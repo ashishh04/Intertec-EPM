@@ -30,7 +30,7 @@ import { message, requestLanguage, t } from '../lib/i18n.js';
  */
 
 const grantBody = z.object({
-  userId: z.string().regex(/^\d+$/, 'userId is an OpenProject user id.'),
+  userId: z.string().regex(/^\d+$/, 'userId is a delivery-system user id.'),
   permission: z.string(),
 });
 

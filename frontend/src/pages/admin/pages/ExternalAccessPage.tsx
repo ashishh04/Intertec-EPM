@@ -4,6 +4,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ComboSelect } from '@/components/common/ComboSelect';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ListSkeleton } from '@/components/common/DataTable';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Button } from '@/components/ui/button';
@@ -172,9 +173,14 @@ function GrantsCard() {
     },
     onError: (error) => toast.error(t('Access was not given'), { description: describeError(error) }),
   });
+  const [removing, setRemoving] = useState<ExternalAccessView>();
   const revoke = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/admin/external-access/${id}`),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['external'] }),
+    onSuccess: () => {
+      toast.success(t('Access removed'));
+      setRemoving(undefined);
+      void client.invalidateQueries({ queryKey: ['external'] });
+    },
     onError: (error) => toast.error(t('Access was not removed'), { description: describeError(error) }),
   });
   return (
@@ -225,7 +231,7 @@ function GrantsCard() {
                   <td className="py-1.5">{entry.roleName}</td>
                   <td className="py-1.5">{formatShortDate(entry.grantedAt)}</td>
                   <td className="py-1.5 text-end">
-                    <Button size="sm" variant="ghost" aria-label={t('Remove')} onClick={() => revoke.mutate(entry.id)}>
+                    <Button size="sm" variant="ghost" aria-label={t('Remove')} onClick={() => setRemoving(entry)}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   </td>
@@ -241,6 +247,17 @@ function GrantsCard() {
             </tbody>
           </table>
         </QueryBoundary>
+        {/* Asked first: it takes the person off the project at once. */}
+        <ConfirmDialog
+          open={Boolean(removing)}
+          onOpenChange={(open) => !open && setRemoving(undefined)}
+          title={t('Remove {person} from {project}?', { person: removing?.userName, project: removing?.projectName })}
+          description={t('They stop seeing this project in the portal and stop being a member of it. They stay an external user.')}
+          confirmLabel={t('Remove')}
+          tone="danger"
+          pending={revoke.isPending}
+          onConfirm={() => removing && revoke.mutate(removing.id)}
+        />
       </CardContent>
     </Card>
   );

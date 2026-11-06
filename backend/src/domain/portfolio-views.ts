@@ -8,7 +8,7 @@ import { EpmError } from '../lib/errors.js';
 import { idFromHref, openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
 import { recordAuditQuietly } from './audit.js';
-import { AUTOMATION_ROLE_NAME } from './automation-account.js';
+import { isOwnRole } from './service-account.js';
 import { modelFacts, type ModelFacts } from './measure-facts.js';
 import type { Period, Viewer } from './measures.js';
 import { DEFAULT_COLUMNS, OVERVIEW_COLUMNS, portfolioOverview, type PortfolioOverview } from './portfolio-overview.js';
@@ -175,7 +175,7 @@ async function shareableRoles(): Promise<Map<string, string>> {
           pageSize: 200,
         });
         return new Map(
-          roles.items.filter((role) => role.name !== AUTOMATION_ROLE_NAME).map((role) => [String(role.id), role.name]),
+          roles.items.filter((role) => !isOwnRole(role.name)).map((role) => [String(role.id), role.name]),
         );
       }),
     10 * 60_000,
@@ -256,8 +256,16 @@ export async function viewOverview(
   const row = await readable(id, viewerId);
   const definition = definitionOf(row);
   const facts = await modelFacts();
+  // Someone else's selection, shared, leaves out the projects in it this person
+  // cannot see and counts them (BR-203). A view of every project, or one this
+  // person made, is only the projects they can see: counting the rest would
+  // tell them how many projects the instance holds that they may not read, and
+  // naming ids in a view of their own would tell them which.
+  const everything = definition.portfolioIds.length === 0 && definition.projectIds.length === 0;
+  const onlyVisible = everything || row.ownerId === viewerId;
+  const projectIds = projectsOf(definition, facts).filter((projectId) => !onlyVisible || viewer.visibleProjectIds.has(projectId));
   return portfolioOverview(
-    { kind: 'view', id: row.id, name: row.name, projectIds: projectsOf(definition, facts), health: definition.health },
+    { kind: 'view', id: row.id, name: row.name, projectIds, health: definition.health },
     viewer,
     period ?? periodFor(definition.periodPreset as PeriodPreset, today),
     today,

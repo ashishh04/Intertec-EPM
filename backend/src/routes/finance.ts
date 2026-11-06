@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 
 import { allows } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
@@ -29,6 +30,7 @@ import {
   updateContract,
 } from '../domain/finance-store.js';
 import { modelFacts } from '../domain/measure-facts.js';
+import { calendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import type { Permission } from '../types/epm.js';
 import { contentDispositionFor } from '../lib/uploads.js';
@@ -76,6 +78,14 @@ async function scopeOf(request: FastifyRequest): Promise<number[]> {
   }
   return [...facts.projects.values()].filter((project) => project.active && viewer.visibleProjectIds.has(project.id)).map((project) => project.id);
 }
+
+/**
+ * A billing period's dates, when given: each a day that exists, or a 400 naming
+ * the field. 2026-13-01 used to fail as a server error and 2026-02-30 to bill
+ * from 2 March. Whether both are needed, and how long the period may be, is
+ * the store's to say.
+ */
+const billingPeriod = z.object({ from: calendarDay().optional(), to: calendarDay().optional() });
 
 export const financeRoutes: FastifyPluginAsync = async (app) => {
   /* ------------------------------------------------------------- settings */
@@ -182,13 +192,15 @@ export const financeRoutes: FastifyPluginAsync = async (app) => {
     removeMilestone(await projectOf(request, request.params.projectId, 'finance:manage'), Number(request.params.workPackageId), request.auth!.userId),
   );
 
-  app.get<{ Params: { projectId: string }; Querystring: { from?: string; to?: string } }>('/finance/projects/:projectId/billing', async (request) =>
-    billingView(await projectOf(request, request.params.projectId, 'finance:view'), request.query),
-  );
+  app.get<{ Params: { projectId: string }; Querystring: { from?: string; to?: string } }>('/finance/projects/:projectId/billing', async (request) => {
+    const projectId = await projectOf(request, request.params.projectId, 'finance:view');
+    return billingView(projectId, billingPeriod.parse(request.query));
+  });
 
-  app.post<{ Params: { projectId: string }; Body: { from?: string; to?: string } }>('/finance/projects/:projectId/billing', async (request) =>
-    generateBilling(await projectOf(request, request.params.projectId, 'finance:manage'), request.body ?? {}, request.auth!.userId),
-  );
+  app.post<{ Params: { projectId: string }; Body: { from?: string; to?: string } }>('/finance/projects/:projectId/billing', async (request) => {
+    const projectId = await projectOf(request, request.params.projectId, 'finance:manage');
+    return generateBilling(projectId, billingPeriod.parse(request.body ?? {}), request.auth!.userId);
+  });
 
   /* ------------------------------------------------ batches (BR-323) */
 

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { projectService } from '@/services';
-import { apiClient } from '@/services/api/client';
+import { apiClient, retryUnlessNotFound } from '@/services/api/client';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
 import type { HealthOverride, ID, ProjectPlanInput } from '@/types';
 
@@ -18,6 +18,7 @@ export function useProject(id?: ID) {
     queryFn: () => projectService.getProject(id!),
     enabled: Boolean(id),
     staleTime: 60_000,
+    retry: retryUnlessNotFound,
   });
 }
 

@@ -168,7 +168,7 @@ export async function calculatedChecks(ctx: CalculatedContext): Promise<void> {
   );
   check('a difference is computed where its input is there', of('variance', ['P', 'A', 'C', 'D']), JSON.stringify({ P: 1, A: 7, C: 3, D: 1 }));
   check('and empty where it is not', values.B?.[key('variance')]?.value ?? null, null);
-  check('saying why', values.B?.[key('variance')]?.reason, 'estimatedHours has no value.');
+  check('saying why', values.B?.[key('variance')]?.reason, 'estimatedHours has no value, so there is nothing to work it out from.');
   check('a work package a week overdue is late', values.E?.[key('late')]?.value, true);
   check('one with no finish date has no value for it', values.F?.[key('late')]?.value ?? null, null);
   check(

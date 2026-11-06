@@ -8,6 +8,7 @@ import { openProject } from '../openproject/client.js';
 import { EVERY_USER } from '../openproject/people.js';
 import type { ExternalAccessView, ExternalPermission, ExternalRoleView } from '../types/epm.js';
 import { withAudit } from './audit.js';
+import { isOwnRole } from './service-account.js';
 
 /**
  * External users and what they may do (Module 17: BR-611 to BR-613), as role-
@@ -18,7 +19,8 @@ import { withAudit } from './audit.js';
  *
  * Their own account does the work, so OpenProject's permissions apply too:
  * granting access also makes them a member of the project, with the least
- * privileged project role that covers the matrix.
+ * privileged project role that covers the matrix, and saving a role's matrix
+ * moves the memberships of the people who hold it.
  */
 
 export const EXTERNAL_PERMISSIONS: ExternalPermission[] = [
@@ -126,6 +128,12 @@ export async function saveExternalRole(id: string | null, input: unknown, actorI
   const permissions = [...new Set(parsed.data.permissions)];
   const before = id ? await prisma.externalRole.findUnique({ where: { id } }) : null;
   if (id && !before) throw EpmError.notFound('That role');
+  // The people who hold the role work through a project membership that
+  // granting put on the least role covering the matrix. The saved matrix moves
+  // them with it, to what it now allows and no more, so it is refused as a
+  // grant would be when no project role covers it — before anything is saved.
+  const holders = id ? await prisma.externalAccess.findMany({ where: { roleId: id }, select: { userId: true, projectId: true } }) : [];
+  const roleIdUpstream = holders.length > 0 ? await leastRoleFor(permissions) : null;
   const saved = await withAudit(
     (tx) =>
       id
@@ -145,6 +153,10 @@ export async function saveExternalRole(id: string | null, input: unknown, actorI
     throw error;
   });
   forgetExternal();
+  // After the save, which the portal applies at once whatever happens
+  // upstream: if a move fails, the portal still allows only what the matrix
+  // does, and saving the role again retries it.
+  if (roleIdUpstream) await moveMemberships(holders, roleIdUpstream);
   return (await listExternalRoles()).find((role) => role.id === saved.id)!;
 }
 
@@ -196,12 +208,35 @@ async function leastRoleFor(permissions: ExternalPermission[]): Promise<string> 
   const roles = await runAsSystem(() => openProject.request<OpRole[]>('/epm_admin/roles', { root: true }));
   const needs = permissions.flatMap((permission) => NEEDS[permission] ?? []);
   const fits = roles
-    .filter((role) => role.kind === 'project' && !role.builtin && role.name !== 'EPM Automation')
+    .filter((role) => role.kind === 'project' && !role.builtin && !isOwnRole(role.name))
     .filter((role) => (role.permissions ?? []).includes('view_work_packages'))
     .filter((role) => needs.every((anyOf) => anyOf.some((permission) => (role.permissions ?? []).includes(permission))))
     .sort((a, b) => (a.permissions?.length ?? 0) - (b.permissions?.length ?? 0));
   if (!fits[0]) throw EpmError.validation('No project role allows what this external role does: add one in the project roles first.');
   return String(fits[0].id);
+}
+
+/** Puts the holders' memberships on that project role. A missing membership is left for granting to make. */
+async function moveMemberships(holders: { userId: string; projectId: number }[], roleIdUpstream: string): Promise<void> {
+  for (const { userId, projectId } of holders) {
+    const memberships = await runAsSystem(() =>
+      openProject.getAll<{ id: number }>('/memberships', {
+        filters: [
+          { field: 'project', operator: '=', values: [String(projectId)] },
+          { field: 'principal', operator: '=', values: [userId] },
+        ],
+        pageSize: 10,
+      }),
+    );
+    const membership = memberships.items[0];
+    if (!membership) continue;
+    await runAsSystem(() =>
+      openProject.request(`/memberships/${membership.id}`, {
+        method: 'PATCH',
+        body: { _links: { roles: [{ href: `/api/v3/roles/${roleIdUpstream}` }] } },
+      }),
+    );
+  }
 }
 
 const grantSchema = z.object({

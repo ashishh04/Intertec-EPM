@@ -282,7 +282,10 @@ export default function ForecastsPage() {
                         {row.cost.atCompletionP50 !== null ? formatCurrency(row.cost.atCompletionP50) : row.effort.atCompletionP50 > 0 ? t('{hours} h', { hours: formatNumber(row.effort.atCompletionP50) }) : '—'}
                         {row.cost.budget !== null ? (
                           <span className="block text-muted-foreground">
-                            {t('of {budget}; {chance} over', { budget: formatCurrency(row.cost.budget), chance: row.cost.probabilityOverBudget === null ? '—' : formatPercent(row.cost.probabilityOverBudget * 100) })}
+                            {/* With no hour priced yet the figure above is hours, and "25.5 h of AED 12,000" compares hours with money. */}
+                            {row.cost.atCompletionP50 !== null
+                              ? t('of {budget}; {chance} over', { budget: formatCurrency(row.cost.budget), chance: row.cost.probabilityOverBudget === null ? '—' : formatPercent(row.cost.probabilityOverBudget * 100) })
+                              : t('Budget {budget}; no hours priced yet, so no cost to compare', { budget: formatCurrency(row.cost.budget) })}
                           </span>
                         ) : null}
                       </TableCell>

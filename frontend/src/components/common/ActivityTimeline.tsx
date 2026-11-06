@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { t } from '@/lib/i18n';
-import { cn, formatRelative } from '@/lib/utils';
+import { cn, formatDateTime, formatRelative } from '@/lib/utils';
 import { ACTIVITY_ACTION_LABEL, ACTIVITY_ACTION_TONE, TONE_FILL } from '@/lib/domain';
 import { UserAvatar } from './UserAvatar';
 import { EmptyState } from './EmptyState';
@@ -80,8 +80,10 @@ function ActivityTimeline({ entries, users, limit, className }: ActivityTimeline
               {entry.detail ? (
                 <p className="mt-0.5 truncate text-2xs text-muted-foreground" dir="auto">{entry.detail}</p>
               ) : null}
-              <time className="mt-0.5 block font-mono text-2xs text-muted-foreground/80">
-                {formatRelative(entry.timestamp)}
+              {/* The time itself as well as how long ago: it follows the reader's
+                  clock and zone, which "43 minutes ago" cannot show. */}
+              <time dateTime={entry.timestamp} className="mt-0.5 block font-mono text-2xs text-muted-foreground/80">
+                {formatRelative(entry.timestamp)} · {formatDateTime(entry.timestamp)}
               </time>
             </div>
           </li>

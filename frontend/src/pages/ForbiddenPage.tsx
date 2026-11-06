@@ -4,21 +4,26 @@ import { Card } from '@/components/ui/card';
 import { EmptyState } from '@/components/common/EmptyState';
 import { msg, t } from '@/lib/i18n';
 
-const TITLE = msg('This area is for administrators');
-const ROLE_TITLE = msg('This area is not part of your role');
+const TITLE = {
+  administrator: msg('This area is for administrators'),
+  permission: msg('This area is not part of your access'),
+  role: msg('This area is not part of your role'),
+};
 
 /**
- * Rendered in place of an administration route the signed-in person may not
- * enter. The link is hidden from their sidebar, but a typed or shared URL
- * still lands here, and it should say why rather than pretend the page is
- * missing.
+ * Rendered in place of a route the signed-in person may not enter. The link
+ * is hidden from their sidebar, but a typed or shared URL still lands here,
+ * and it should say why rather than pretend the page is missing.
  *
- * `reason="role"` is for an area outside the person's role (Manager, HR,
- * Employee) rather than one needing an administrator.
+ * The reason names the gate that refused them:
+ * - `administrator`: Administration, which is for administrators only.
+ * - `permission`: an area behind a permission, which a Manager's or HR's role
+ *   may carry or an administrator may grant, so only their access lacks it.
+ * - `role`: an area outside the person's role (Manager, HR, Employee).
  */
-export default function ForbiddenPage({ reason = 'permission' }: { reason?: 'permission' | 'role' }) {
+export default function ForbiddenPage({ reason = 'permission' }: { reason?: keyof typeof TITLE }) {
   const navigate = useNavigate();
-  const title = reason === 'role' ? ROLE_TITLE : TITLE;
+  const title = TITLE[reason];
 
   return (
     <Card className="mx-auto max-w-lg">

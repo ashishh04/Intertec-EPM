@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ListSkeleton } from '@/components/common/DataTable';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
@@ -32,6 +33,7 @@ export default function ScenarioPage() {
   const otherScenario = useScenario(other !== 'captured' ? other : undefined);
   const submit = useSubmitScenario();
   const remove = useDeleteScenario();
+  const [removing, setRemoving] = useState(false);
   const navigate = useNavigate();
   const view = scenario.data;
   const editable = view?.status === 'draft' || view?.status === 'rejected';
@@ -67,7 +69,7 @@ export default function ScenarioPage() {
                       <Send className="h-4 w-4" />
                       {t('Submit to apply')}
                     </Button>
-                    <Button variant="ghost" aria-label={t('Remove')} onClick={() => remove.mutate(view.id, { onSuccess: () => navigate('/scenarios') })}>
+                    <Button variant="ghost" aria-label={t('Remove')} onClick={() => setRemoving(true)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </>
@@ -105,6 +107,25 @@ export default function ScenarioPage() {
               {against ? <Comparison left={{ name: view.name, profile: view.profile }} right={against} /> : null}
             </CardContent>
           </Card>
+          <ConfirmDialog
+            open={removing}
+            onOpenChange={setRemoving}
+            title={t('Remove this scenario?')}
+            description={t('"{name}" and its adjustments will be removed; live data is not affected. This cannot be undone.', { name: view.name })}
+            confirmLabel={t('Remove')}
+            tone="danger"
+            pending={remove.isPending}
+            onConfirm={() =>
+              remove.mutate(view.id, {
+                onSuccess: () => {
+                  toast.success(t('Scenario removed'));
+                  // `replace`, so Back does not return to a scenario that is gone.
+                  navigate('/scenarios', { replace: true });
+                },
+                onError: (error) => toast.error(t('The scenario was not removed'), { description: errorText(error) }),
+              })
+            }
+          />
         </div>
       ) : null}
     </QueryBoundary>

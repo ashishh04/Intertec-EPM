@@ -34,8 +34,9 @@ import type { EpmTeam } from '@/services/api/teams';
  * OpenProject schema to drive a `SchemaForm`.
  *
  * Only active departments are offered. A team already in an archived one keeps
- * that association — the backend leaves it alone — but forming a new one into a
- * department being retired is refused server-side, so it is not offered here.
+ * that association, and it stays on the list, marked, for that team alone: the
+ * backend leaves it alone, but forming a new one into a department being retired
+ * is refused server-side, so it is not offered to any other.
  */
 
 const NONE = '__none__';
@@ -53,7 +54,8 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
   const isEdit = Boolean(team);
   const create = useCreateTeam();
   const update = useUpdateTeam();
-  const departments = useDepartments();
+  // Archived ones too, or the team's own could not be found among the options.
+  const departments = useDepartments(true);
   const users = useUsers();
 
   const [name, setName] = useState('');
@@ -81,12 +83,17 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
     event.preventDefault();
     setProblem(undefined);
 
+    // NONE is somebody choosing nothing. Empty is a select in a form with no option
+    // for its value, which clears itself (the list did not load): nobody chose
+    // that, so the field is left as it is.
+    const sent = (value: string) => (value === '' ? undefined : value === NONE ? '' : value);
+
     const input = {
       name: name.trim(),
       code: code.trim().toUpperCase(),
       description: description.trim() || undefined,
-      departmentId: departmentId === NONE ? '' : departmentId,
-      leadId: leadId === NONE ? '' : leadId,
+      departmentId: sent(departmentId),
+      leadId: sent(leadId),
     };
 
     if (!input.name) return setProblem(t('A name is required.'));
@@ -108,11 +115,18 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
   };
 
   // A team can sit in an archived department; that option stays selectable so
-  // an edit does not silently move it out.
+  // an edit does not silently move it out. Inside a form, a select whose value
+  // is not among its options clears itself, and the next save detached the team.
   const options = (departments.data ?? []).filter(
     (department) => department.active || department.id === team?.department?.id,
   );
-  const people = users.data ?? [];
+  // Whoever leads it now stays on offer even when the reader's directory does not
+  // list them, or the first save would silently take them off it.
+  const lead = team?.lead;
+  const people: { id: string; name: string }[] = [
+    ...(users.data ?? []),
+    ...(lead && !users.data?.some((user) => user.id === lead.id) ? [lead] : []),
+  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

@@ -37,6 +37,32 @@ interface WorkPackageDialogProps {
   workPackageId: ID;
 }
 
+/**
+ * The draft as it is written: each link changed here under `_links`.
+ *
+ * A changed link sits at the top level of the draft, and until the form
+ * answers again its old value is still under `_links` — which is what upstream
+ * reads when it has both. Saved within that moment, the old value went back
+ * and the change was lost without a word.
+ *
+ * `version` is hidden beside `targetVersions` (see the form below) and only
+ * echoes it, so it is not sent: a stale echo could put the old version back.
+ */
+export function withChangedLinks(draft: Record<string, unknown>): Record<string, unknown> {
+  const links = draft._links as Record<string, unknown> | undefined;
+  if (!links || typeof links !== 'object') return draft;
+  const body: Record<string, unknown> = {};
+  const changed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(draft)) {
+    if (key === '_links') continue;
+    if (key in links) changed[key] = value;
+    else body[key] = value;
+  }
+  const written: Record<string, unknown> = { ...links, ...changed };
+  if ('targetVersions' in written) delete written.version;
+  return { ...body, _links: written };
+}
+
 export function WorkPackageDialog({ open, onOpenChange, workPackageId }: WorkPackageDialogProps) {
   const queryClient = useQueryClient();
   const [isSaving, setIsSaving] = useState(false);
@@ -53,8 +79,8 @@ export function WorkPackageDialog({ open, onOpenChange, workPackageId }: WorkPac
     try {
       // The draft holds only what the user changed plus OpenProject's own
       // defaulting, which is exactly what should be written.
-      await workPackageService.update(workPackageId, form.draft);
-      toast.success(t('Work package updated'));
+      await workPackageService.update(workPackageId, withChangedLinks(form.draft));
+      toast.success(t('Task updated'));
 
       for (const key of invalidationGroups.taskWrite) {
         await queryClient.invalidateQueries({ queryKey: key });
@@ -89,7 +115,11 @@ export function WorkPackageDialog({ open, onOpenChange, workPackageId }: WorkPac
             onChange={form.setValue}
             isLoading={form.isLoading}
             // The project and type are the record's identity, not edited here.
-            exclude={['project', 'type']}
+            // While a work package may have only one version, the instance
+            // offers `version` and `targetVersions` alike, both called
+            // Version: `targetVersions` is the one either way, so `version`
+            // goes.
+            exclude={['project', 'type', ...(form.form && 'targetVersions' in form.form.schema ? ['version'] : [])]}
             // OpenProject's own sections — People, Estimates and progress,
             // Details — because this is the whole record and forty fields in
             // one column is a wall rather than a form.

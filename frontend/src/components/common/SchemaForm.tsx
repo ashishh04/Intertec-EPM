@@ -10,6 +10,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ComboSelect } from '@/components/common/ComboSelect';
+import { MultiSelect } from '@/components/common/MultiSelect';
+import { useDebounce } from '@/hooks/useDebounce';
 import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { durationToNumber, durationUnitFor, numberToDuration } from '@/lib/duration';
@@ -19,6 +22,7 @@ import {
   calculatedFields,
   idFromHref,
   writableFields,
+  type AllowedValue,
   type SchemaField,
   type FormResult,
 } from '@/services/api/forms';
@@ -209,6 +213,114 @@ function FetchedSelect({
   );
 }
 
+/**
+ * A field that points at a work package: a task's parent.
+ *
+ * Its options are every work package it could take, in every project, of which
+ * upstream sends the first ten: never the ones anybody was after. So it offers the
+ * project's own, and is searched when there are more than one page of them.
+ */
+function WorkPackageField({
+  name,
+  field,
+  error,
+  href,
+  projectId,
+  value,
+  onChange,
+}: {
+  name: string;
+  field: SchemaField;
+  error?: string;
+  href: string;
+  projectId?: string;
+  value: unknown;
+  onChange: (field: string, value: unknown) => void;
+}) {
+  const [term, setTerm] = useState('');
+  const search = useDebounce(term.trim(), 250);
+  const narrowed = useMemo(() => {
+    const [path, query] = href.split('?');
+    const params = new URLSearchParams(query);
+    params.set('pageSize', '50');
+    if (projectId) params.set('filters', JSON.stringify([{ project: { operator: '=', values: [projectId] } }]));
+    if (search) params.set('query', search);
+    return `${path}?${params.toString()}`;
+  }, [href, projectId, search]);
+
+  const candidates = useAllowedValues(narrowed);
+  const current = hrefOf(value);
+  const options = (candidates.data ?? []).map((option) => ({ id: option.href, name: option.name, hint: `#${option.id}` }));
+  // What is set stays readable whichever page or search it is outside of.
+  if (current && !options.some((option) => option.id === current)) {
+    options.unshift({ id: current, name: titleOf(value) ?? `#${idFromHref(current)}`, hint: `#${idFromHref(current)}` });
+  }
+
+  return (
+    <FieldRow name={name} field={field} error={error}>
+      <ComboSelect
+        id={`schema-${name}`}
+        label={field.name}
+        options={options}
+        value={current}
+        onChange={(next) => onChange(name, { href: next ?? null })}
+        onSearch={setTerm}
+        clearable={!field.required}
+        placeholder={t('Select {field}', { field: field.name.toLowerCase() })}
+        emptyLabel={candidates.isLoading ? t('Loading…') : t('Nothing to choose from.')}
+      />
+    </FieldRow>
+  );
+}
+
+/**
+ * A field that holds a list of links — target versions where a work package
+ * may have several, a multi-select custom field — chosen as a list and written
+ * as one.
+ *
+ * As a one-link picker it showed nothing for the list it was given, and what
+ * it wrote, one link, upstream cannot read where it wants a list: choosing a
+ * target version made the save fail.
+ */
+function ManyField({
+  name,
+  field,
+  error,
+  options,
+  href,
+  value,
+  onChange,
+}: {
+  name: string;
+  field: SchemaField;
+  error?: string;
+  /** Inline options, or else `href` to fetch them from. */
+  options?: AllowedValue[];
+  href?: string;
+  value: unknown;
+  onChange: (field: string, value: unknown) => void;
+}) {
+  const fetched = useAllowedValues(options ? undefined : href);
+  const list = options ?? fetched.data ?? [];
+  const nameOf = (link: string) => list.find((option) => option.href === link)?.name;
+  const selected = (Array.isArray(value) ? (value as { href?: string | null; title?: string }[]) : [])
+    .filter((link): link is { href: string; title?: string } => typeof link?.href === 'string')
+    .map((link) => ({ id: link.href, name: link.title ?? nameOf(link.href) ?? idFromHref(link.href) ?? link.href }));
+
+  return (
+    <FieldRow name={name} field={field} error={error}>
+      <MultiSelect
+        label={field.name}
+        options={list.map((option) => ({ id: option.href, name: option.name }))}
+        selected={selected}
+        onChange={(next) => onChange(name, next.map((option) => ({ href: option.id })))}
+        placeholder={t('Select {field}', { field: field.name.toLowerCase() })}
+        disabled={!options && fetched.isLoading}
+      />
+    </FieldRow>
+  );
+}
+
 function FieldRow({
   name,
   field,
@@ -302,7 +414,7 @@ export function SchemaForm({
     if (field.calculated) return <CalculatedRow key={name} name={name} field={field} />;
     const error = errors[name];
     const links = values._links as Record<string, unknown> | undefined;
-    const raw = values[name] ?? links?.[name];
+    const given = values[name] ?? links?.[name];
     const options = allowedValuesOf(field);
 
     // Options the schema publishes as a link rather than inline. Fetched
@@ -310,6 +422,48 @@ export function SchemaForm({
     // project's `parent` are pickers now instead of text boxes showing
     // "[object Object]".
     const fetchHref = options ? undefined : allowedValuesHref(field);
+
+    /*
+     * A list of links (`[]Version`, `[]CustomOption`…) is read and written as a
+     * list. Where the schema says it holds one at most — target versions while
+     * a work package may have only one version (`options.multiple: false`) — it
+     * is chosen as one value below, and still written as a list of it.
+     */
+    const many = String(field.type).startsWith('[]');
+    if (many && field.options?.multiple !== false && (options || fetchHref)) {
+      return (
+        <ManyField
+          key={name}
+          name={name}
+          field={field}
+          error={error}
+          options={options}
+          href={fetchHref}
+          value={given}
+          onChange={onChange}
+        />
+      );
+    }
+    const raw = many && Array.isArray(given) ? given[0] : given;
+    const change = many
+      ? (key: string, value: unknown) => onChange(key, value === null || value === undefined ? [] : [value])
+      : onChange;
+
+    if (field.type === 'WorkPackage' && fetchHref) {
+      return (
+        <WorkPackageField
+          key={name}
+          name={name}
+          field={field}
+          error={error}
+          href={fetchHref}
+          projectId={idFromHref(hrefOf(links?.project))}
+          value={raw}
+          onChange={onChange}
+        />
+      );
+    }
+
     if (fetchHref) {
       return (
         <FetchedSelect
@@ -319,7 +473,7 @@ export function SchemaForm({
           error={error}
           href={fetchHref}
           value={raw}
-          onChange={onChange}
+          onChange={change}
         />
       );
     }
@@ -334,7 +488,7 @@ export function SchemaForm({
             value={current}
             onValueChange={(next) => {
               const chosen = options.find((option) => option.id === next);
-              onChange(name, chosen ? { href: chosen.href } : next);
+              change(name, chosen ? { href: chosen.href } : next);
             }}
           >
             <SelectTrigger id={`schema-${name}`} aria-invalid={Boolean(error)}>

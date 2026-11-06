@@ -5,6 +5,7 @@ import { openProject } from '../openproject/client.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { allows, loadPermissions, type EffectivePermissions } from './capabilities.js';
 import type { Permission } from './permissions.js';
+import type { AppRole } from './roles.js';
 import { message, type Message } from '../lib/i18n.js';
 
 /**
@@ -80,6 +81,33 @@ export async function holds(
 export async function mayViewRates(request: FastifyRequest): Promise<boolean> {
   const permissions = await permissionsFor(request);
   return allows(permissions, 'rates:view') || allows(permissions, 'employees:manage');
+}
+
+/**
+ * Whether the caller looks after the organisation and the people in it: who
+ * sits where, what they cost, how many hours they have. These are the
+ * permissions behind the Employees, Departments and Organization screens.
+ *
+ * Everyone else still needs people's names and faces, which every list and
+ * picker shows, and the names of departments and teams, but not the directory
+ * behind them: refused only on the page, an Employee could read everybody's
+ * email address and capacity straight from the API.
+ */
+export async function mayReadOrganisation(request: FastifyRequest): Promise<boolean> {
+  const permissions = await permissionsFor(request);
+  return (['departments:manage', 'teams:manage', 'employees:manage', 'rates:view'] as const).some((permission) =>
+    allows(permissions, permission),
+  );
+}
+
+/**
+ * Refuses anyone whose role does not work in an area, whatever they could read
+ * there. The server's half of `ROLE_ACCESS` in the frontend: a page refused only
+ * by the router leaves its data open to anyone who asks the API for it.
+ */
+export async function requireRole(request: FastifyRequest, roles: readonly AppRole[]): Promise<void> {
+  const { role } = await permissionsFor(request);
+  if (!roles.includes(role)) throw EpmError.forbidden('This area is not part of your role.');
 }
 
 /**

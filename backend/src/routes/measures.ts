@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { loadResourceShared } from '../domain/resources-store.js';
 
 import * as guard from '../auth/guard.js';
-import { addDays, daysBetween, today as todayIso } from '../lib/dates.js';
+import { addDays, calendarDay, daysBetween, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { costEntries } from '../domain/cost-entries.js';
 import { buildDashboard, DASHBOARD_IDS, dashboardsIn, type DashboardId } from '../domain/dashboards.js';
@@ -29,15 +29,13 @@ import { listOf, message, msg, requestLanguage } from '../lib/i18n.js';
  * project they cannot see is answered as if it did not exist.
  */
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-
 export const scopeQuery = z.object({
   scope: z
     .string()
     .regex(/^(instance|portfolio:[\w-]+|project:\d+|department:[\w-]+|team:[\w-]+|role:[\w-]+|person:\d+)$/, msg('scope is not one EPM knows.'))
     .optional(),
-  from: z.string().regex(DAY, msg('from must be a date, e.g. 2026-10-01.')).optional(),
-  to: z.string().regex(DAY, msg('to must be a date, e.g. 2026-10-31.')).optional(),
+  from: calendarDay(msg('from must be a date, e.g. 2026-10-01.')).optional(),
+  to: calendarDay(msg('to must be a date, e.g. 2026-10-31.')).optional(),
   /** Narrows the scope to a project or a portfolio as well: a team's work in one project. */
   within: z.string().regex(/^(portfolio:[\w-]+|project:\d+)$/, msg('within is a project or a portfolio.')).optional(),
 });
@@ -141,7 +139,8 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
    * The priced time entries behind a cost figure, for one project (BR-202):
    * the end of the drill from a portfolio's budget variance through its
    * projects. Read with the caller's session, so OpenProject decides which
-   * entries they may see.
+   * entries they may see. Only the money measures made of logged time have
+   * entries (`entries` on the measure); hours are a count, not a cost.
    */
   app.get<{ Params: { id: string } }>('/measures/:id/entries', async (request) => {
     const query = scopeQuery
@@ -152,7 +151,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
       .parse(request.query);
     const measure = measureById(request.params.id);
     if (!measure) throw EpmError.notFound('That measure');
-    if (!measure.entries) throw EpmError.badRequest(message('{measure} is not made of logged time.', { measure: measure.label }));
+    if (!measure.entries) throw EpmError.badRequest(message('{measure} is not a cost made of logged time.', { measure: measure.label }));
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
     if (scope.kind !== 'project') throw EpmError.badRequest('Time entries are listed for one project: scope=project:<id>.');

@@ -326,7 +326,7 @@ console.log('Missing values');
 await check('arithmetic with a missing value has none, and names the field', () => {
   const outcome = value('estimatedHours * 2 + 1');
   assert.equal(outcome.value, null);
-  assert.equal(reason(outcome), 'estimatedHours has no value.');
+  assert.equal(reason(outcome), 'estimatedHours has no value, so there is nothing to work it out from.');
 });
 
 await check('a comparison with a missing value has none', () => {
@@ -602,7 +602,7 @@ const representative: { key: string; source: string; type: ValueType; expected: 
     source: 'estimatedHours - spentHours',
     type: 'number',
     expected: { P: -7, A: 3, B: null, C: 4, D: 2 },
-    reasons: { B: 'estimatedHours has no value.' },
+    reasons: { B: 'estimatedHours has no value, so there is nothing to work it out from.' },
   },
   {
     key: 'burn',
@@ -615,7 +615,7 @@ const representative: { key: string; source: string; type: ValueType; expected: 
     source: 'dueDate < TODAY() and percentDone < 100',
     type: 'boolean',
     expected: { P: null, A: false, B: null, C: false, D: true },
-    reasons: { P: 'dueDate has no value.' },
+    reasons: { P: 'dueDate has no value, so there is nothing to work it out from.' },
   },
   {
     key: 'daysLeft',

@@ -40,7 +40,7 @@ import { useUsers } from '@/hooks/useUsers';
 import { useTeams } from '@/hooks/useTeams';
 import { useDebounce } from '@/hooks/useDebounce';
 import { featureFlags } from '@/config/env';
-import { ROLE_ACCESS } from '@/config/navigation';
+import { holdsPermission, RESOURCES_PERMISSIONS, ROLE_ACCESS } from '@/config/navigation';
 import { useAuth } from '@/providers/AuthProvider';
 import { t } from '@/lib/i18n';
 
@@ -54,12 +54,16 @@ const LIMITS = { projects: 5, tasks: 6, users: 4, teams: 3 };
 export function CommandPalette() {
   const { commandPaletteOpen, setCommandPaletteOpen, openTaskDrawer, openPragnya } = useUI();
   const navigate = useNavigate();
-  // Offers only the areas the person's role works in, like the sidebar.
-  const { role } = useAuth();
+  // Offers only the areas the person works in, like the sidebar: by role, and
+  // Resources and delivery intelligence to whoever holds a permission they serve.
+  const { role, can } = useAuth();
   const delivery = (ROLE_ACCESS.delivery as readonly string[]).includes(role);
   const reporting = (ROLE_ACCESS.reporting as readonly string[]).includes(role);
+  const resources = holdsPermission(can, RESOURCES_PERMISSIONS);
+  const analytics = can('analytics:manage');
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 200);
+  const question = query.trim();
 
   // Search is only issued once the palette is open, keeping the app start light.
   const { data: projects } = useProjects();
@@ -130,7 +134,10 @@ export function CommandPalette() {
         placeholder={t('Search projects, tasks, people...')}
       />
       <CommandList>
-        <CommandEmpty>{t('No results for “{query}”.', { query })}</CommandEmpty>
+        {/* Once the task search has answered too: until then a task may still match. */}
+        {debouncedQuery === query && !searchingTasks ? (
+          <CommandEmpty>{t('No results for “{query}”.', { query })}</CommandEmpty>
+        ) : null}
 
         <CommandGroup heading={t('Actions')}>
           <CommandItem value="create task new" onSelect={() => run(() => openTaskDrawer())}>
@@ -138,21 +145,11 @@ export function CommandPalette() {
             {t('Create task')}
             <CommandShortcut>C</CommandShortcut>
           </CommandItem>
-          {featureFlags.pragnya ? (
-            // The value carries the query so this stays visible whatever is
-            // typed: any search can be turned into a question.
-            <CommandItem
-              value={`pragnya assistant ask ${query}`}
-              onSelect={() => run(() => openPragnya(query.trim() || undefined))}
-            >
+          {/* Once something is typed, the offer to ask moves to its own group at the end. */}
+          {featureFlags.pragnya && !question ? (
+            <CommandItem value="pragnya assistant ask" onSelect={() => run(() => openPragnya())}>
               <Sparkles />
-              {query.trim() ? (
-                <span className="truncate">
-                  Pragnya: <span dir="auto" className="text-muted-foreground">“{query.trim()}”</span>
-                </span>
-              ) : (
-                'Pragnya'
-              )}
+              Pragnya
               <CommandShortcut>Ctrl /</CommandShortcut>
             </CommandItem>
           ) : null}
@@ -188,10 +185,12 @@ export function CommandPalette() {
               </CommandItem>
             </>
           ) : null}
-          <CommandItem value="resources capacity heatmap levelling over-allocation" onSelect={() => run(() => navigate('/resources'))}>
-            <UsersRound />
-            {t('Open resources')}
-          </CommandItem>
+          {resources ? (
+            <CommandItem value="resources capacity heatmap levelling over-allocation" onSelect={() => run(() => navigate('/resources'))}>
+              <UsersRound />
+              {t('Open resources')}
+            </CommandItem>
+          ) : null}
           <CommandItem value="timesheets submit approve outstanding" onSelect={() => run(() => navigate('/timesheets'))}>
             <Timer />
             {t('Open timesheets')}
@@ -200,10 +199,12 @@ export function CommandPalette() {
             <Coins />
             {t('Open expense claims')}
           </CommandItem>
-          <CommandItem value="analytics insights" onSelect={() => run(() => navigate('/analytics'))}>
-            <BarChart3 />
-            {t('Open delivery intelligence')}
-          </CommandItem>
+          {analytics ? (
+            <CommandItem value="analytics insights" onSelect={() => run(() => navigate('/analytics'))}>
+              <BarChart3 />
+              {t('Open delivery intelligence')}
+            </CommandItem>
+          ) : null}
           <CommandItem value="settings" onSelect={() => run(() => navigate('/settings'))}>
             <Settings />
             {t('Open settings')}
@@ -347,6 +348,23 @@ export function CommandPalette() {
             {t('Wiki')}
           </CommandItem>
         </CommandGroup>
+
+        {featureFlags.pragnya && question ? (
+          // Any search can be turned into a question. Force-mounted, so it
+          // stays whatever is typed without counting as a match: cmdk leaves
+          // such items out of the count CommandEmpty reads, so "No results"
+          // still shows when nothing else fits. Last, so the best match keeps
+          // the selection that Enter acts on.
+          <CommandGroup forceMount heading={t('Assistant')}>
+            <CommandItem value="pragnya assistant ask" onSelect={() => run(() => openPragnya(question))}>
+              <Sparkles />
+              <span className="truncate">
+                Pragnya: <span dir="auto" className="text-muted-foreground">“{question}”</span>
+              </span>
+              <CommandShortcut>Ctrl /</CommandShortcut>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
       </CommandList>
     </CommandDialog>
   );

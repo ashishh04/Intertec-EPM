@@ -1,7 +1,7 @@
 import { runAsSystem } from '../auth/context.js';
 import { appLog } from '../lib/log.js';
 import { openProject } from '../openproject/client.js';
-import { automationUserId } from './automation-account.js';
+import { AUTOMATION_ROLE_NAME, automationUserId } from './automation-account.js';
 
 /**
  * EPM's service account (NFR06): the principal the system key belongs to once
@@ -15,6 +15,20 @@ import { automationUserId } from './automation-account.js';
  */
 
 export const SERVICE_LOGIN = process.env.EPM_SERVICE_LOGIN || 'epm-service';
+
+/** The roles `setup/service-account.rb` and `setup/automation-account.rb` make for EPM's own accounts. */
+const OWN_ROLE_NAMES: ReadonlySet<string> = new Set(['EPM Service', 'EPM Service (directory)', AUTOMATION_ROLE_NAME]);
+
+/**
+ * Whether a role is one of EPM's own, held by its accounts and never by a person.
+ *
+ * Never offered as a choice anywhere. Someone given the service role could not
+ * be assigned any work, because it is not meant to hold any, and the project
+ * then read as having nobody to assign. By name, as the add-ons know them.
+ */
+export function isOwnRole(name: string | undefined): boolean {
+  return name !== undefined && OWN_ROLE_NAMES.has(name);
+}
 
 export interface SystemIdentity {
   id: string;

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
-import { today as todayIso } from '../lib/dates.js';
+import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { portfolioOverview, portfolioSet } from '../domain/portfolio-overview.js';
 import {
@@ -26,10 +26,9 @@ import { periodOf, viewerOf } from './measures.js';
  * manages portfolios when it is shared.
  */
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const periodQuery = z.object({
-  from: z.string().regex(DAY, 'from must be a date, e.g. 2026-10-01.').optional(),
-  to: z.string().regex(DAY, 'to must be a date, e.g. 2026-10-31.').optional(),
+  from: calendarDay('from must be a date, e.g. 2026-10-01.').optional(),
+  to: calendarDay('to must be a date, e.g. 2026-10-31.').optional(),
 });
 
 async function caller(request: FastifyRequest): Promise<{ userId: string; manager: boolean }> {

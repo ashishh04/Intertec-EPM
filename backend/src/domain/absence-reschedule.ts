@@ -1,7 +1,11 @@
+import { runAsSystem } from '../auth/context.js';
+import type { Permission } from '../auth/permissions.js';
+import { isStoredRole, ROLE_PERMISSIONS } from '../auth/roles.js';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { message } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
+import { openProject } from '../openproject/client.js';
 import { discardLevelling, proposeLevelling } from './levelling-store.js';
 import { notifyPeople } from './notifications.js';
 import { loadResourceShared } from './resources-store.js';
@@ -45,21 +49,53 @@ async function hasWorkInside(absence: Absence): Promise<boolean> {
   });
 }
 
-/** Who plans: holders of resources:plan, the configured administrators, and the owners of the projects concerned. */
+/**
+ * Who is told: everyone who plans resources, whichever way they hold it — a
+ * grant, a role that carries it (Manager), or being an administrator, named in
+ * the configuration or on the instance — and the owners of the projects
+ * concerned who may open the proposal. Levelling is for planners and for those
+ * who staff people; an owner who is neither was sent to a page that refused
+ * them. External people are left out: they see only the portal.
+ */
 async function plannersFor(projectIds: string[]): Promise<string[]> {
-  const [grants, owners] = await Promise.all([
-    prisma.epmPermissionGrant.findMany({ where: { permission: 'resources:plan' }, select: { openProjectId: true } }),
+  const [grants, profiles, owners, administrators] = await Promise.all([
+    prisma.epmPermissionGrant.findMany({
+      where: { permission: { in: ['resources:plan', 'employees:manage'] } },
+      select: { openProjectId: true, permission: true },
+    }),
+    // Whoever holds an EPM role, and whoever is external, whose role is set
+    // aside while they are.
+    prisma.userProfile.findMany({
+      where: { OR: [{ appRole: { not: null } }, { external: true }] },
+      select: { openProjectId: true, appRole: true, external: true },
+    }),
     projectIds.length > 0
       ? prisma.projectProfile.findMany({ where: { openProjectId: { in: projectIds } }, select: { ownerId: true } })
       : Promise.resolve([] as { ownerId: string | null }[]),
+    // From the add-on, as the service account: API v3 shows who is an
+    // administrator to administrators alone. The others are still told when it
+    // cannot be read.
+    runAsSystem(() => openProject.request<{ ids: string[] }>('/epm_admin/users/administrators', { root: true }))
+      .then((answer) => answer.ids.map(String))
+      .catch(() => [] as string[]),
   ]);
-  return [
-    ...new Set([
-      ...grants.map((row) => row.openProjectId),
+
+  const external = new Set(profiles.filter((row) => row.external).map((row) => row.openProjectId));
+  const holders = (permission: Permission) =>
+    new Set([
       ...env.EPM_ADMIN_USER_IDS,
-      ...owners.map((row) => row.ownerId).filter((id): id is string => Boolean(id)),
-    ]),
-  ];
+      ...administrators,
+      ...grants.filter((row) => row.permission === permission).map((row) => row.openProjectId),
+      ...profiles
+        .filter((row) => !row.external && isStoredRole(row.appRole) && ROLE_PERMISSIONS[row.appRole].includes(permission))
+        .map((row) => row.openProjectId),
+    ]);
+  const planners = holders('resources:plan');
+  const staffers = holders('employees:manage');
+  // An owner who plans is among the planners already; one who staffs people
+  // may open the proposal too.
+  const owning = owners.map((row) => row.ownerId).filter((id): id is string => id !== null && staffers.has(id));
+  return [...new Set([...planners, ...owning])].filter((id) => !external.has(id));
 }
 
 /**

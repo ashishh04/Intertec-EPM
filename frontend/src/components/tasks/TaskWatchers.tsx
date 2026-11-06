@@ -34,8 +34,56 @@ interface TaskWatchersProps {
   workPackageId: ID;
 }
 
-export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
+/**
+ * Whether you watch this work package, and the way to change it, wherever that is
+ * offered. The task page's header had a button of its own that said "Watch" to
+ * someone already watching and changed nothing, beside this one that said "Unwatch".
+ */
+export function WatchButton({ workPackageId }: TaskWatchersProps) {
   const { user } = useAuth();
+  const state = useWatchers(workPackageId);
+  const add = useAddWatcher(workPackageId);
+  const remove = useRemoveWatcher(workPackageId);
+
+  if (!state.data?.can.watchSelf) return null;
+  const watching = state.data.isWatching;
+
+  const fail = (title: string) => (error: unknown) =>
+    toast.error(title, {
+      description: error instanceof Error ? error.message : undefined,
+    });
+
+  const toggle = () => {
+    if (!user) return;
+
+    if (watching) {
+      remove.mutate(user.id, {
+        onSuccess: () => toast.success(t('You are no longer watching this task')),
+        onError: fail(t('Could not stop watching')),
+      });
+    } else {
+      add.mutate(user.id, {
+        onSuccess: () => toast.success(t('You are now watching this task')),
+        onError: fail(t('Could not start watching')),
+      });
+    }
+  };
+
+  return (
+    <Button
+      size="sm"
+      variant={watching ? 'secondary' : 'ghost'}
+      className="h-8"
+      loading={add.isPending || remove.isPending}
+      onClick={toggle}
+    >
+      {watching ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+      {watching ? t('Unwatch') : t('Watch')}
+    </Button>
+  );
+}
+
+export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
   const state = useWatchers(workPackageId);
   const add = useAddWatcher(workPackageId);
   const remove = useRemoveWatcher(workPackageId);
@@ -56,22 +104,6 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
       description: error instanceof Error ? error.message : undefined,
     });
 
-  const toggleSelf = () => {
-    if (!user) return;
-
-    if (state.data?.isWatching) {
-      remove.mutate(user.id, {
-        onSuccess: () => toast.success(t('You are no longer watching this task')),
-        onError: fail(t('Could not stop watching')),
-      });
-    } else {
-      add.mutate(user.id, {
-        onSuccess: () => toast.success(t('You are now watching this task')),
-        onError: fail(t('Could not start watching')),
-      });
-    }
-  };
-
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0 border-b border-border">
@@ -84,22 +116,7 @@ export function TaskWatchers({ workPackageId }: TaskWatchersProps) {
         </CardTitle>
 
         <div className="flex items-center gap-1.5">
-          {can?.watchSelf ? (
-            <Button
-              size="sm"
-              variant={state.data?.isWatching ? 'secondary' : 'ghost'}
-              className="h-8"
-              loading={add.isPending || remove.isPending}
-              onClick={toggleSelf}
-            >
-              {state.data?.isWatching ? (
-                <EyeOff className="h-3.5 w-3.5" />
-              ) : (
-                <Eye className="h-3.5 w-3.5" />
-              )}
-              {state.data?.isWatching ? t('Unwatch') : t('Watch')}
-            </Button>
-          ) : null}
+          <WatchButton workPackageId={workPackageId} />
 
           {can?.add ? (
             <Popover open={picking} onOpenChange={setPicking}>

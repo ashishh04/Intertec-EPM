@@ -34,10 +34,9 @@ export function useEmployees(filters: EmployeeFilters = {}) {
 /**
  * One person's mapping, capacity and rate.
  *
- * Readable by any signed-in caller, like the list — `/employees/:id` carries no
- * permission, because the directory behind it is already open and the overlay
- * adds a department, a team and a number of hours. Used by My time tracking to
- * know what a week is measured against.
+ * Everyone may read their own, and whoever looks after people anyone's: the
+ * server refuses the rest. Used by My time tracking to know what a week is
+ * measured against, and by a person's profile in Administration.
  */
 export function useEmployee(id?: ID) {
   return useQuery({

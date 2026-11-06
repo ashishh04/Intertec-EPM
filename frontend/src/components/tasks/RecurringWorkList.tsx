@@ -64,9 +64,19 @@ export function RecurringWorkList({ projectId }: { projectId: ID | undefined }) 
               {series.map((one) => (
                 <TableRow key={one.id}>
                   <TableCell className="max-w-64">
-                    <Link to={`/tasks/${one.templateWorkPackageId}`} dir="auto" className="block truncate text-xs font-medium text-primary hover:underline">
-                      {one.templateSubject ?? `#${one.templateWorkPackageId}`}
-                    </Link>
+                    {/* No subject: its template is out of the reader's sight or, in a
+                        cancelled series, deleted. Either way there is nothing to open. */}
+                    {one.templateSubject ? (
+                      <Link to={`/tasks/${one.templateWorkPackageId}`} dir="auto" className="block truncate text-xs font-medium text-primary hover:underline">
+                        {one.templateSubject}
+                      </Link>
+                    ) : (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {one.state === 'cancelled'
+                          ? t('#{id}, since deleted', { id: one.templateWorkPackageId })
+                          : `#${one.templateWorkPackageId}`}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-2xs text-muted-foreground">
                     <span dir="auto">{one.ruleText}</span>
@@ -81,7 +91,7 @@ export function RecurringWorkList({ projectId }: { projectId: ID | undefined }) 
                     <SeriesStateBadge series={one} />
                   </TableCell>
                   <TableCell className="whitespace-nowrap text-2xs">
-                    {one.state === 'cancelled' ? '—' : one.nextOccurrence ? formatLongDate(one.nextOccurrence) : t('None: finished')}
+                    {one.state !== 'cancelled' && one.nextOccurrence ? formatLongDate(one.nextOccurrence) : t('None: finished')}
                   </TableCell>
                   <TableCell className="text-end font-mono text-2xs tabular-nums">{formatNumber(one.instanceCount)}</TableCell>
                 </TableRow>

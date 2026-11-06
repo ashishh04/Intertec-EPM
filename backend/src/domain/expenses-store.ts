@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
-import { today as todayIso } from '../lib/dates.js';
+import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { contextLanguage, dateOf, message, msg, t } from '../lib/i18n.js';
 import { buildWorkbook } from '../lib/xlsx.js';
@@ -128,7 +128,7 @@ const claimSchema = z.object({
   amount: z.coerce.number().positive('The amount is more than nothing.').max(1e9),
   /** The currency it was paid in (BR-320); the claims' usual currency when left out. */
   currency: z.string().optional(),
-  spentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Give the day the cost was paid.'),
+  spentOn: calendarDay('Give the day the cost was paid.'),
   description: z.string().trim().min(1, 'Say what the cost was for.').max(2000),
 });
 

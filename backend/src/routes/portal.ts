@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { decideTask, inbox } from '../domain/approvals.js';
 import { withAudit } from '../domain/audit.js';
@@ -13,6 +14,7 @@ import { message } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { contentDispositionFor, maxUploadBytes } from '../lib/uploads.js';
 import { getCatalog } from '../mapping/catalog.js';
+import { getUsers } from '../mapping/users.js';
 import { linkId, openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink, OpAttachment } from '../openproject/types.js';
 import type {
@@ -32,7 +34,8 @@ import type {
  * user can reach (`auth/hook.ts` refuses them everything else). Each endpoint
  * checks their role on the project — the permission matrix — and reads and
  * writes with their own account, so OpenProject's permissions apply too and
- * every contribution is theirs, in its journal and in EPM's.
+ * every contribution is theirs, in its journal and in EPM's. The exception is
+ * reading a project's library documents, which EPM decides (`filedFile`).
  */
 
 type Links = Record<string, HalLink | HalLink[] | undefined>;
@@ -95,6 +98,26 @@ async function visibleTask(request: FastifyRequest, userId: string, id: string):
   if (!scope.permissions.has('tasks.all') && !(scope.permissions.has('tasks.assigned') && mine)) throw EpmError.notFound('That task');
   return { work, projectId, scope };
 }
+
+/** A library document's file, as the admin add-on describes it. */
+interface FiledFile {
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+  createdAt: string;
+  authorId?: string;
+}
+
+/**
+ * A document filed under a project, read as the service. Documents are files
+ * with no container upstream, which OpenProject lets only their uploader read,
+ * so the external user's own token found what they had uploaded themselves and
+ * never what the team filed. EPM files them under the project and decides who
+ * may read them — here the matrix's `documents.view`, checked by the caller —
+ * as the library does for the project's members (routes/documents.ts).
+ */
+const filedFile = (id: string, signal?: AbortSignal) =>
+  runAsSystem(() => openProject.request<FiledFile>(`/epm_admin/documents/${id}`, { signal, root: true })).catch(() => null);
 
 const audit = (userId: string, projectId: number, action: string, summary: ReturnType<typeof message>, after?: Record<string, unknown>) =>
   withAudit(async () => null, { actorId: userId, projectId: String(projectId), entityType: 'portal', entityId: String(projectId), action, summary, ...(after ? { after } : {}) });
@@ -281,7 +304,12 @@ export const portalRoutes: FastifyPluginAsync = async (app) => {
       throw EpmError.forbidden('You can log time on your own tasks only.');
     }
     const body = z
-      .object({ hours: z.number().positive().max(24), spentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), comment: z.string().max(1000).optional() })
+      .object({
+        // The time-entry form's own words (routes/time-entries.ts), so a refusal reads the same in the portal.
+        hours: z.number().positive('Log a positive number of hours.').max(24, 'A single entry cannot exceed 24 hours.'),
+        spentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        comment: z.string().max(1000).optional(),
+      })
       .parse(request.body ?? {});
     // The same locks and time logging policies as anywhere else (BR-304, BR-317).
     await assertUnlocked(userId, [body.spentOn]);
@@ -306,19 +334,25 @@ export const portalRoutes: FastifyPluginAsync = async (app) => {
     const userId = await externalOf(request);
     const projectId = projectIdOf(request.params.id);
     await requireScope(userId, projectId, 'documents.view');
+    const signal = requestSignal(request);
     const rows = await prisma.documentMeta.findMany({ where: { projectId: String(projectId) }, take: 500 });
-    const out: PortalDocument[] = [];
+    const files: { id: string; file: FiledFile }[] = [];
     for (const row of rows) {
-      const attachment = await openProject.request<OpAttachment>(`/attachments/${row.openProjectId}`, { signal: requestSignal(request) }).catch(() => null);
-      if (!attachment) continue;
-      out.push({
-        id: row.openProjectId,
-        name: attachment.fileName,
-        sizeBytes: attachment.fileSize,
-        uploadedAt: attachment.createdAt,
-        uploadedBy: (attachment._links as Links | undefined)?.author ? (title(attachment._links as Links, 'author') ?? '') : '',
-      });
+      const file = await filedFile(row.openProjectId, signal);
+      if (file) files.push({ id: row.openProjectId, file });
     }
+    // Named from the directory as the service sees it, as the assignees and
+    // comment authors are: whoever filed it need not be someone the external
+    // user can list.
+    const users = files.length > 0 ? await runAsSystem(() => getUsers()).catch(() => []) : [];
+    const names = new Map(users.map((user) => [user.id, user.name]));
+    const out: PortalDocument[] = files.map(({ id, file }) => ({
+      id,
+      name: file.fileName,
+      sizeBytes: file.fileSize,
+      uploadedAt: file.createdAt,
+      uploadedBy: names.get(file.authorId ?? '') ?? '',
+    }));
     return out.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
   });
 
@@ -328,13 +362,15 @@ export const portalRoutes: FastifyPluginAsync = async (app) => {
     const row = /^\d+$/.test(id) ? await prisma.documentMeta.findUnique({ where: { openProjectId: id } }) : null;
     if (!row?.projectId) throw EpmError.notFound('That document');
     await requireScope(userId, Number(row.projectId), 'documents.view');
-    const attachment = await openProject.request<OpAttachment>(`/attachments/${id}`, { signal: requestSignal(request) }).catch(() => null);
-    if (!attachment) throw EpmError.notFound('That document');
-    const upstream = await openProject.stream(`/attachments/${id}/content`, requestSignal(request));
+    // Read as the service, for the reason the listing is (filedFile).
+    const signal = requestSignal(request);
+    const file = await filedFile(id, signal);
+    if (!file) throw EpmError.notFound('That document');
+    const upstream = await runAsSystem(() => openProject.stream(`/epm_admin/documents/${id}/content`, signal, { root: true }));
     if (!upstream.ok || !upstream.body) throw EpmError.notFound('That document');
     return reply
-      .header('Content-Type', attachment.contentType || 'application/octet-stream')
-      .header('Content-Disposition', contentDispositionFor(attachment.fileName))
+      .header('Content-Type', file.contentType || 'application/octet-stream')
+      .header('Content-Disposition', contentDispositionFor(file.fileName))
       .header('Cache-Control', 'private, no-store')
       .header('X-Content-Type-Options', 'nosniff')
       .send(upstream.body);

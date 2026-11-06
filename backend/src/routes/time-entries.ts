@@ -7,7 +7,7 @@ import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { assertPolicies, assertUnlocked, lockOn, locksIn } from '../domain/time-rules.js';
-import { addDays, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
+import { addDays, calendarDay, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -69,8 +69,8 @@ const listQuery = z.object({
   projectId: z.string().optional(),
   workPackageId: z.string().optional(),
   userId: z.string().optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  from: calendarDay().optional(),
+  to: calendarDay().optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
 });
@@ -79,7 +79,7 @@ const writeBody = z.object({
   projectId: z.string().optional(),
   workPackageId: z.string().optional(),
   hours: z.coerce.number().positive('Log a positive number of hours.').max(24, 'A single entry cannot exceed 24 hours.'),
-  spentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'spentOn must be a date, e.g. 2026-09-25.'),
+  spentOn: calendarDay('spentOn must be a date, e.g. 2026-09-25.'),
   comment: z.string().max(4000).optional(),
   activityId: z.string().optional(),
 });
@@ -224,8 +224,8 @@ async function entryById(request: FastifyRequest, id: string): Promise<OpTimeEnt
  * answer within a request.
  */
 const reportQuery = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from must be a date, e.g. 2026-09-01.'),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to must be a date, e.g. 2026-09-30.'),
+  from: calendarDay('from must be a date, e.g. 2026-09-01.'),
+  to: calendarDay('to must be a date, e.g. 2026-09-30.'),
   projectId: z.string().optional(),
   userId: z.string().optional(),
   groupBy: z

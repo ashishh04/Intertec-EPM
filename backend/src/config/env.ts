@@ -57,6 +57,14 @@ const schema = z.object({
 
   SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters.'),
 
+  // Encrypts the secrets behind two-factor authentication. Apart from
+  // SESSION_SECRET so that rotating that one does not break every authenticator
+  // (auth/crypto.ts); falls back to it when unset.
+  EPM_MFA_KEY: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.string().min(32, 'EPM_MFA_KEY must be at least 32 characters.').optional(),
+  ),
+
   // Credentials for the OAuth client EPM uses to exchange a user's username and
   // password for their own token. Optional so an instance that has not been
   // configured yet still boots — sign-in reports it rather than the whole
@@ -515,6 +523,7 @@ const FILE_SECRETS = [
   'OPENPROJECT_OAUTH_CLIENT_SECRET',
   'OPENPROJECT_WEBHOOK_SECRET',
   'SESSION_SECRET',
+  'EPM_MFA_KEY',
   'RESEND_API_KEY',
   'SMTP_PASSWORD',
   'EPM_RULES_WEBHOOK_SECRET',

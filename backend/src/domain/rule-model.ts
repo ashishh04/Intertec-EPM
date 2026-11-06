@@ -11,6 +11,7 @@ import type {
   RuleFieldValue,
   RuleSubjectType,
 } from '../types/epm.js';
+import { isCalendarDay } from '../lib/dates.js';
 import { msg } from '../lib/i18n.js';
 
 /**
@@ -101,7 +102,6 @@ export const EVENTS_BY_SUBJECT: Record<RuleSubjectType, RuleEventKind[]> = {
 /* -------------------------------------------------------------------------- */
 
 const digits = z.string().regex(/^\d+$/, 'An id is digits.');
-const isoDay = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Checks one condition against the field catalogue; an error message, or undefined. */
 export function conditionProblem(subjectType: RuleSubjectType, condition: RuleCondition): string | undefined {
@@ -156,7 +156,7 @@ export function conditionProblem(subjectType: RuleSubjectType, condition: RuleCo
         : 'A number of days, from 0 to 3650.';
     case 'on_or_before':
     case 'on_or_after':
-      return typeof value === 'string' && isoDay.test(value) ? undefined : 'A date, written YYYY-MM-DD.';
+      return typeof value === 'string' && isCalendarDay(value) ? undefined : 'A date, written YYYY-MM-DD.';
     default:
       return `Unknown operator "${operator as string}".`;
   }
@@ -243,7 +243,7 @@ function setFieldProblem(field: string, value: RuleFieldValue): string | undefin
   }
   if (kind === 'date') {
     if (value === null) return undefined;
-    if (typeof value === 'string') return isoDay.test(value) ? undefined : 'A date, written YYYY-MM-DD.';
+    if (typeof value === 'string') return isCalendarDay(value) ? undefined : 'A date, written YYYY-MM-DD.';
     return typeof value === 'object' && value && 'relativeDays' in value ? undefined : 'A date, or a number of days from one.';
   }
   if (kind === 'percent') {

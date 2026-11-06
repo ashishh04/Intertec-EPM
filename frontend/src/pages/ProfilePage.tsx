@@ -71,7 +71,7 @@ const PREFERENCES: ProfileToggle[] = [
     section: 'email',
     key: 'enabled',
     get label() { return t('Send me email'); },
-    get hint() { return t('Off means no email of any kind.'); },
+    get hint() { return t('Off means no email, except for a password reset you ask for.'); },
   },
 ];
 
@@ -234,10 +234,14 @@ export default function ProfilePage() {
                 ]}
               />
 
+              {/* Name, email and timezone are the person's own to change, in
+                  Settings › Profile; department and role are not. Each sentence
+                  is one message, so it translates whole. */}
               <Alert tone="neutral">
-                {t(
-                  'Identity details are managed by your organisation directory and synchronised into EPM. Contact the IT service desk to change your name, role or department.',
-                )}
+                <Link to="/settings" className="text-primary underline-offset-4 hover:underline">
+                  {t('Change your name, email or timezone in Settings.')}
+                </Link>{' '}
+                {t('Your department and role are set by an administrator.')}
               </Alert>
             </CardContent>
           </Card>

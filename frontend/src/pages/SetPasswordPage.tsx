@@ -44,7 +44,7 @@ export default function SetPasswordPage() {
   const [problem, setProblem] = useState<string>();
   const [saving, setSaving] = useState(false);
 
-  const { data: policy } = usePasswordPolicy();
+  const { data: policy, isError: policyUnreadable } = usePasswordPolicy();
 
   const results = useMemo(() => passwordRuleRows(policy, password), [policy, password]);
 
@@ -52,8 +52,16 @@ export default function SetPasswordPage() {
    * Long enough, and enough of the character rules met. Counted rather than
    * "all of them", so a policy of "any 3 of 4" is honoured as written — the
    * same arithmetic the backend does.
+   *
+   * Rules that cannot be read are left to the server, which checks them on save
+   * whatever this says. Treating them as unmet kept the button disabled with no
+   * reason given, and this page is a door: an external user was held at it for
+   * good when the rules were refused to them.
    */
-  const allMet = useMemo(() => passwordSatisfies(policy, password), [policy, password]);
+  const allMet = useMemo(
+    () => (policyUnreadable ? password.length > 0 : passwordSatisfies(policy, password)),
+    [policyUnreadable, policy, password],
+  );
   const matches = password.length > 0 && password === confirmation;
 
   const submit = async (event: React.FormEvent) => {
@@ -183,6 +191,9 @@ export default function SetPasswordPage() {
                 </li>
               ))}
             </ul>
+            {policyUnreadable ? (
+              <FieldHint>{t('The password rules could not be loaded. They are still checked when you save.')}</FieldHint>
+            ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password" required>

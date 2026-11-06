@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { toast } from 'sonner';
+import { SecondFactorStep } from '@/components/common/SecondFactorStep';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +33,10 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string>();
+  // The password was right and a code is still owed. Nobody is signed in yet.
+  const [awaitingCode, setAwaitingCode] = useState(false);
+
+  const destination = () => safeDestination((location.state as { from?: unknown } | null)?.from);
 
   const rise = (delay = 0) =>
     reduceMotion
@@ -51,10 +57,14 @@ export default function LoginPage() {
     setPending(true);
     setFailure(undefined);
     try {
-      await signIn(username.trim(), password);
-      navigate(safeDestination((location.state as { from?: unknown } | null)?.from), {
-        replace: true,
-      });
+      const { mfaRequired } = await signIn(username.trim(), password);
+      if (mfaRequired) {
+        setPassword('');
+        setShowPassword(false);
+        setAwaitingCode(true);
+        return;
+      }
+      navigate(destination(), { replace: true });
     } catch (error) {
       // The backend deliberately reports one message for every rejection so the
       // form cannot be used to discover which usernames exist.
@@ -92,92 +102,114 @@ export default function LoginPage() {
           {...rise(0.08)}
           className="w-full max-w-md space-y-6 rounded-2xl border border-white/60 bg-surface p-7 shadow-floating sm:p-8"
         >
-          <div className="space-y-1.5">
-            <h1 className="text-xl font-semibold tracking-tight">{t('Sign in to {app}', { app: APP_NAME })}</h1>
-            <p className="text-xs text-muted-foreground">
-              {t('Use your {org} account to continue.', { org: ORG_NAME })}
-            </p>
-          </div>
-
-          {failure ? (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-soft p-3"
-            >
-              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
-              <p className="text-2xs text-foreground">{failure}</p>
-            </div>
-          ) : null}
-
-          <form className="space-y-4" onSubmit={submit} noValidate>
-            <div className="space-y-1.5">
-              <Label htmlFor="login-username" required>
-                {t('Username or email')}
-              </Label>
-              <Input
-                id="login-username"
-                autoComplete="username email"
-                autoFocus
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                placeholder={t('Your work username or email')}
-                invalid={Boolean(failure)}
-                className="h-11"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-baseline justify-between gap-3">
-                <Label htmlFor="login-password" required>
-                  {t('Password')}
-                </Label>
-                <Link
-                  to="/forgot-password"
-                  className="rounded text-2xs text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {t('Forgot password?')}
-                </Link>
+          {awaitingCode ? (
+            <SecondFactorStep
+              onVerified={({ via, recoveryCodesLeft }) => {
+                if (via === 'recovery') {
+                  toast.warning(t('You signed in with a recovery code'), {
+                    description: t(
+                      '{count, plural, one {# recovery code is left.} other {# recovery codes are left.}} Generate new ones in Security settings.',
+                      { count: recoveryCodesLeft },
+                    ),
+                  });
+                }
+                navigate(destination(), { replace: true });
+              }}
+              onRestart={(reason) => {
+                setAwaitingCode(false);
+                setFailure(reason);
+              }}
+            />
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <h1 className="text-xl font-semibold tracking-tight">{t('Sign in to {app}', { app: APP_NAME })}</h1>
+                <p className="text-xs text-muted-foreground">
+                  {t('Use your {org} account to continue.', { org: ORG_NAME })}
+                </p>
               </div>
 
-              <div className="relative">
-                <Input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  invalid={Boolean(failure)}
-                  className="h-11 pe-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((shown) => !shown)}
-                  aria-label={showPassword ? t('Hide password') : t('Show password')}
-                  aria-pressed={showPassword}
-                  className="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-lg text-muted-foreground transition-colors hover:text-foreground"
+              {failure ? (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger-soft p-3"
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" aria-hidden />
-                  ) : (
-                    <Eye className="h-4 w-4" aria-hidden />
-                  )}
-                </button>
-              </div>
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
+                  <p className="text-2xs text-foreground">{failure}</p>
+                </div>
+              ) : null}
 
-            </div>
+              <form className="space-y-4" onSubmit={submit} noValidate>
+                <div className="space-y-1.5">
+                  <Label htmlFor="login-username" required>
+                    {t('Username or email')}
+                  </Label>
+                  <Input
+                    id="login-username"
+                    autoComplete="username email"
+                    autoFocus
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder={t('Your work username or email')}
+                    invalid={Boolean(failure)}
+                    className="h-11"
+                  />
+                </div>
 
-            <Button type="submit" size="lg" className="h-11 w-full" loading={pending}>
-              {t('Sign in')}
-              <ArrowRight />
-            </Button>
-          </form>
+                <div className="space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <Label htmlFor="login-password" required>
+                      {t('Password')}
+                    </Label>
+                    <Link
+                      to="/forgot-password"
+                      className="rounded text-2xs text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {t('Forgot password?')}
+                    </Link>
+                  </div>
 
-          <Link
-            to="/"
-            className="inline-block rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {t('← Back to overview')}
-          </Link>
+                  <div className="relative">
+                    <Input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      invalid={Boolean(failure)}
+                      className="h-11 pe-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((shown) => !shown)}
+                      aria-label={showPassword ? t('Hide password') : t('Show password')}
+                      aria-pressed={showPassword}
+                      className="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-lg text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <Eye className="h-4 w-4" aria-hidden />
+                      )}
+                    </button>
+                  </div>
+
+                </div>
+
+                <Button type="submit" size="lg" className="h-11 w-full" loading={pending}>
+                  {t('Sign in')}
+                  <ArrowRight />
+                </Button>
+              </form>
+
+              <Link
+                to="/"
+                className="inline-block rounded text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {t('← Back to overview')}
+              </Link>
+            </>
+          )}
         </motion.div>
       </main>
 

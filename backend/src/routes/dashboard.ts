@@ -9,7 +9,7 @@ import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { getCurrentUser } from '../mapping/users.js';
 import { listProjects } from '../mapping/projects.js';
-import { addDays } from '../lib/dates.js';
+import { addDays, calendarDay } from '../lib/dates.js';
 import type { OpActivity, OpProject, OpWorkPackage } from '../openproject/types.js';
 import type {
   ActivityEntry,
@@ -301,7 +301,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/calendar/events', async (request) => {
-    const { from, to } = z.object({ from: z.string(), to: z.string() }).parse(request.query);
+    const { from, to } = z.object({ from: calendarDay(), to: calendarDay() }).parse(request.query);
     const signal = requestSignal(request);
 
     /*

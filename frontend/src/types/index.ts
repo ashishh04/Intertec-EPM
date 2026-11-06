@@ -259,6 +259,59 @@ export interface AppRoles {
   people: AppRoleAssignment[];
 }
 
+/** Two-factor authentication, for the person signed in. */
+export interface MfaStatus {
+  enabled: boolean;
+  enabledAt: ISODate | null;
+  lastUsedAt: ISODate | null;
+  recoveryCodesLeft: number;
+  /** Their EPM role must use it, so turning it off means setting it up again at once. */
+  required: boolean;
+  /** Changing it will ask for the password, because they did not sign in just now. */
+  passwordRequired: boolean;
+}
+
+/** What setting up an authenticator shows, once. */
+export interface MfaSetup {
+  /** The shared secret, base32, for typing in by hand. */
+  secret: string;
+  /** The otpauth address the QR code carries. */
+  uri: string;
+  issuer: string;
+  account: string;
+}
+
+/** Recovery codes, shown once. Only their hashes are kept. */
+export interface MfaConfirmed {
+  recoveryCodes: string[];
+}
+
+export interface MfaPolicyView {
+  /** The EPM roles that must use it. Anyone else may choose to. */
+  requiredRoles: AppRole[];
+  updatedBy: ID | null;
+  updatedAt: ISODate | null;
+}
+
+export interface MfaPersonRow {
+  userId: ID;
+  userName: string;
+  email: string;
+  role: AppRole;
+  required: boolean;
+  enabled: boolean;
+  enabledAt: ISODate | null;
+  lastUsedAt: ISODate | null;
+  recoveryCodesLeft: number;
+  /** Set while too many wrong codes have six-digit codes refused. */
+  lockedUntil: ISODate | null;
+}
+
+export interface MfaAdminView {
+  policy: MfaPolicyView;
+  people: MfaPersonRow[];
+}
+
 /* -------------------------------------------------------------------------- */
 /* Projects                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -723,6 +776,8 @@ export interface EpmTask {
   startDate?: ISODate;
   dueDate?: ISODate;
   estimatedHours?: number;
+  /** Hours of work left, as the record holds it. Absent until someone sets it. */
+  remainingHours?: number;
   spentHours?: number;
   storyPoints?: number;
   labels: string[];
@@ -738,6 +793,11 @@ export interface EpmTask {
    * fields EPM writes (BR-103), so a view can show them as columns.
    */
   customValues?: Record<string, number | boolean | string>;
+  /**
+   * What this person may do to it beyond viewing it, as the record itself offers
+   * it to them. Editing fields is `task:edit`, per project, like everywhere else.
+   */
+  can?: { comment: boolean; relate: boolean; logTime: boolean };
 }
 
 /**
@@ -769,11 +829,18 @@ export interface CreateTaskInput {
   typeId?: ID;
   /**
    * Written as a category, which is lossy: EPM picks a representative
-   * OpenProject status for it. The full-fidelity path is the schema-driven
-   * work package form, which writes the real status id.
+   * OpenProject status for it. `statusId` is the status itself, and wins.
    */
-  status: TaskStatusCategory;
-  priority: TaskPriority;
+  status?: TaskStatusCategory;
+  priority?: TaskPriority;
+  /** The instance's own status and priority, as the project's create form offers them. */
+  statusId?: ID;
+  priorityId?: ID;
+  /**
+   * Custom field values as the form holds them, by attribute (`customField4`):
+   * a value, or a link for a list. How a required field gets its value on create.
+   */
+  customValues?: Record<string, unknown>;
   projectId: ID;
   assigneeId?: ID;
   parentId?: ID;
@@ -793,9 +860,6 @@ export interface CreateTaskInput {
  */
 export type UpdateTaskInput = Partial<CreateTaskInput> & {
   id: ID;
-  statusId?: ID;
-  priorityId?: ID;
-  typeId?: ID;
 };
 
 export interface TaskFilters {
@@ -1307,7 +1371,7 @@ export interface UserPreferences {
     };
   };
   email: {
-    /** Master switch. Off means no email of any kind, including invites resent later. */
+    /** Master switch. Off means no email, invites resent later included, except a password reset the person asks for (`required` in the outbox). */
     enabled: boolean;
     assigned: boolean;
     mentions: boolean;
@@ -1581,12 +1645,16 @@ export interface AdminCatalogOption {
 export interface AdminCatalogField {
   key: string;
   label: string;
-  type: 'string' | 'text' | 'boolean' | 'integer' | 'enum';
+  type: 'string' | 'text' | 'boolean' | 'integer' | 'enum' | 'multi';
   required?: boolean;
   help?: string;
   /** A secret the instance accepts but never reads back, such as a signing key. */
   writeOnly?: boolean;
   options?: AdminCatalogOption[];
+  /** What a switch starts as on a new row. */
+  default?: boolean;
+  /** What an empty list of choices means. */
+  emptyLabel?: string;
 }
 
 /**
@@ -3255,7 +3323,7 @@ export interface CalculatedField {
   createdAt: ISODate;
   updatedBy: ID;
   updatedAt: ISODate;
-  /** Values held now, and how many of them are empty. */
+  /** How many work packages hold a value now, and how many it left empty. */
   stats?: { values: number; empty: number };
 }
 
@@ -3275,6 +3343,8 @@ export interface FormulaProblem {
   message: string;
   start: number;
   end: number;
+  /** Over a size limit rather than wrong: the editor then states all the limits. */
+  oversized?: boolean;
 }
 
 /** A formula checked as it is typed, and its value on a chosen work package. */
@@ -3886,7 +3956,7 @@ export interface ExpenseClaimInput {
 
 export type BillingModel = 'time_and_materials' | 'fixed_price' | 'non_billable';
 
-/** OpenProject's project status, which the revenue forecast weights by (BR-319); `none` when unset. */
+/** What the revenue forecast weights by (BR-319): OpenProject's project status, or EPM's delivery status where that is worse (`forecastStatus`); `none` when unset. */
 export type ProjectStatusKey = 'not_started' | 'on_track' | 'at_risk' | 'off_track' | 'finished' | 'discontinued' | 'none';
 
 export interface FinanceSettings {

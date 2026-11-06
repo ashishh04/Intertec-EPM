@@ -6,9 +6,11 @@ import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, type QueryParams } from '../openproject/client.js';
 import { referenceCache, userScopedKey } from '../lib/cache.js';
+import { openProjectCustomFields } from '../domain/calculated-fields.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { toEpmTask } from '../mapping/tasks.js';
 import {
+  selectName,
   toEpmQuery,
   toFilterSchema,
   toTaskGroups,
@@ -122,7 +124,8 @@ function upstreamParams(query: z.infer<typeof runQuery>): QueryParams {
 function asEpmError(error: unknown): EpmError {
   if (error instanceof OpenProjectError) {
     const upstream = error.upstream as { message?: string; errorIdentifier?: string } | undefined;
-    const message = upstream?.message ?? error.message;
+    // The client's reading: the upstream sentence, or the first field's when it sent several.
+    const message = error.message;
 
     if (upstream?.errorIdentifier?.includes('InvalidQuery')) {
       return EpmError.badRequest(message);
@@ -463,6 +466,28 @@ async function applyTitles(
 
 
 /**
+ * A custom field's filter under the name an administrator gave it, and a list's
+ * choices.
+ *
+ * The titles above come from one request per filter, in the background, so until
+ * they arrive a field read as "Custom Field 3" and could not be found by its name;
+ * a list could only be filtered by typing an option's id, since the filter's own
+ * schema does not list its options. One read answers both. What it says about a
+ * field is no more than the field's own form shows anyone who can filter on it.
+ * If it cannot be read, the filters keep what they have.
+ */
+async function describeCustomFields(filters: QueryFilterSchema[]): Promise<void> {
+  const fields = await openProjectCustomFields().catch(() => []);
+  const byFilter = new Map(fields.map((field) => [`customField${field.id}`, field]));
+  for (const filter of filters) {
+    const field = byFilter.get(filter.id);
+    if (!field) continue;
+    filter.name = field.name;
+    if (field.options) filter.options = Object.entries(field.options).map(([id, name]) => ({ id, name }));
+  }
+}
+
+/**
  * What a query may display and sort by, read from the query creation form.
  *
  * The query schema declares `columns` and `sortBy` writable but sends no
@@ -503,9 +528,18 @@ async function queryCapabilities(
 
     const schema = form?._embedded?.schema;
 
-    const columns = (schema?.columns?._embedded?.allowedValues ?? [])
-      .filter((column): column is { id: string; name?: string } => Boolean(column.id))
-      .map((column) => ({ id: column.id, name: column.name ?? column.id }));
+    // The version column under the name a view gives it (`selectName`), once.
+    const named = (options: { id?: string; name?: string }[]): QueryColumn[] => {
+      const byId = new Map<string, QueryColumn>();
+      for (const option of options) {
+        if (!option.id) continue;
+        const id = selectName(option.id);
+        if (!byId.has(id)) byId.set(id, { id, name: option.name ?? option.id });
+      }
+      return [...byId.values()];
+    };
+
+    const columns = named(schema?.columns?._embedded?.allowedValues ?? []);
 
     // Each entry is one direction of one column ("id-asc", "id-desc"), so the
     // column link is the distinct field rather than the entry id.
@@ -513,15 +547,14 @@ async function queryCapabilities(
       ...new Set(
         (schema?.sortBy?._embedded?.allowedValues ?? [])
           .map((entry) => entry._links?.column?.href?.split('/').pop())
-          .filter((id): id is string => Boolean(id)),
+          .filter((id): id is string => Boolean(id))
+          .map(selectName),
       ),
     ];
 
     // Grouping is offered for a much narrower set than columns or sorting, and
     // carries its own titles — including a custom field's configured name.
-    const groupable = (schema?.groupBy?._embedded?.allowedValues ?? [])
-      .filter((option): option is { id: string; name?: string } => Boolean(option.id))
-      .map((option) => ({ id: option.id, name: option.name ?? option.id }));
+    const groupable = named(schema?.groupBy?._embedded?.allowedValues ?? []);
 
     return { columns, sortable, groupable };
   }) as Promise<{ columns: QueryColumn[]; sortable: string[]; groupable: QueryColumn[] }>;
@@ -665,6 +698,7 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
         .filter((schema): schema is QueryFilterSchema => schema !== undefined);
 
       await applyTitles(filters, projectId ?? 'global', signal);
+      await describeCustomFields(filters);
       filters.sort((a, b) => a.name.localeCompare(b.name));
 
       const { columns, sortable, groupable } = await queryCapabilities(projectId, signal);
@@ -782,11 +816,18 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
-   * Updates a saved query.
+   * Renames a saved query.
    *
    * The affordance is checked before writing: OpenProject publishes
    * `updateImmediately` on queries the caller may change, and its absence is
    * the authoritative "no".
+   *
+   * The name is all that changes here. A view's filters, columns and sort are
+   * built into upstream links once, by `toQueryPayload`, when it is saved; this
+   * used to forward the body as given, which handed the upstream shape back to
+   * the client — a malformed filter or sort reached the delivery system and
+   * came back as a 502 ("Could not read filter from…", or an internal error)
+   * instead of being refused here.
    */
   app.patch<{ Params: { id: string }; Body: Record<string, unknown> }>(
     '/queries/:id',
@@ -795,10 +836,22 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
 
       await guard.requireLink(request, `/queries/${id}`, 'updateImmediately', 'change this view');
 
+      // After the affordance, so a view the caller may not see is still a 404
+      // whatever the body says.
+      const body = request.body ?? {};
+      const other = Object.keys(body).find((key) => key !== 'name');
+      if (other !== undefined) {
+        throw EpmError.badRequest(
+          message('Only a saved view’s name can be changed, not {field}. To change what it shows, save it as a new view.', { field: other }),
+        );
+      }
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      if (!name) throw EpmError.badRequest('A name is required.');
+
       try {
         const updated = await openProject.request<Parameters<typeof toEpmQuery>[0]>(
           `/queries/${id}`,
-          { method: 'PATCH', body: request.body ?? {}, signal: requestSignal(request) },
+          { method: 'PATCH', body: { name }, signal: requestSignal(request) },
         );
         return toEpmQuery(updated);
       } catch (error) {

@@ -28,6 +28,7 @@ import {
   ROLE_KIND_LABEL,
   isEditableRole,
   permissionAppliesTo,
+  roleName,
   sameStringSet,
   sortRoles,
 } from './shared-roles';
@@ -193,7 +194,7 @@ function ReportMatrix({
                         className="rounded text-center text-xs font-semibold leading-tight text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         dir="auto"
                       >
-                        {role.name}
+                        {roleName(role)}
                         {changed ? (
                           <span className="text-warning" aria-hidden>
                             {' *'}
@@ -270,7 +271,7 @@ function ReportMatrix({
                           disabled={saving}
                           aria-label={t('All {module} permissions for {role}', {
                             module: module.label,
-                            role: role.name,
+                            role: roleName(role),
                           })}
                           onCheckedChange={(checked) =>
                             apply([
@@ -310,7 +311,7 @@ function ReportMatrix({
                                 disabled={saving}
                                 aria-label={t('{permission} for {role}', {
                                   permission: permission.label,
-                                  role: role.name,
+                                  role: roleName(role),
                                 })}
                                 onCheckedChange={(checked) =>
                                   apply([

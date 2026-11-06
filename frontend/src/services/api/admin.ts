@@ -19,15 +19,11 @@ import type {
  */
 
 export interface AdminInformation {
-  instanceName: string;
-  coreVersion: string;
-  hostName: string;
   apiVersion: 'v3';
   activeFeatureFlags: string[];
 }
 
 export interface AdminConfiguration {
-  hostName: string;
   perPageOptions: number[];
   maximumAttachmentFileSize: number;
   dateFormat: string | null;
@@ -301,7 +297,7 @@ export type SettingsSectionInput = Record<string, AdminSettingField['value']>;
  * field's `type` takes. A change carries only the keys being changed, and a
  * write-only field is left out when it is to keep the value it already has.
  */
-export type CatalogRowInput = Record<string, string | number | boolean>;
+export type CatalogRowInput = Record<string, string | number | boolean | string[]>;
 
 export interface GroupInput {
   name: string;

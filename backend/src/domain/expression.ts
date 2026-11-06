@@ -232,6 +232,8 @@ export interface FormulaError {
   message: Message;
   start: number;
   end: number;
+  /** Over one of the limits rather than wrong: the editor then states them all. */
+  oversized?: boolean;
 }
 
 export class FormulaProblem extends Error {
@@ -242,6 +244,7 @@ export class FormulaProblem extends Error {
 }
 
 const problem = (text: Message, start: number, end: number) => new FormulaProblem({ message: text, start, end });
+const oversized = (text: Message, start: number, end: number) => new FormulaProblem({ message: text, start, end, oversized: true });
 
 /* -------------------------------------------------------------------------- */
 /* Tokens                                                                     */
@@ -421,7 +424,7 @@ class Parser {
     this.nesting += 1;
     if (this.nesting > MAX_PARSE_NESTING) {
       const token = this.peek();
-      throw problem(message('The formula nests too deeply: at most {max} levels.', { max: LIMITS.depth }), token.start, token.end);
+      throw oversized(message('The formula nests too deeply: at most {max} levels.', { max: LIMITS.depth }), token.start, token.end);
     }
     try {
       let left = this.prefix();
@@ -534,7 +537,7 @@ class Parser {
 /** Parses a formula into its tree. Throws a FormulaProblem. */
 export function parseFormula(source: string): Node {
   if (source.length > LIMITS.length) {
-    throw problem(message('The formula is too long: at most {max} characters.', { max: LIMITS.length }), LIMITS.length, source.length);
+    throw oversized(message('The formula is too long: at most {max} characters.', { max: LIMITS.length }), LIMITS.length, source.length);
   }
   return new Parser(source).parse();
 }
@@ -598,10 +601,10 @@ export function measure(root: Node): Complexity {
     const isAggregate = node.kind === 'call' && FUNCTIONS[node.name].aggregate === true;
     const inside = nested + (isAggregate ? 1 : 0);
     if (level > LIMITS.depth) {
-      throw problem(message('The formula nests too deeply: at most {max} levels.', { max: LIMITS.depth }), node.start, node.end);
+      throw oversized(message('The formula nests too deeply: at most {max} levels.', { max: LIMITS.depth }), node.start, node.end);
     }
     if (inside > LIMITS.aggregations) {
-      throw problem(
+      throw oversized(
         message('Too many child aggregations inside one another: at most {max}.', { max: LIMITS.aggregations }),
         node.start,
         node.end,
@@ -613,7 +616,7 @@ export function measure(root: Node): Complexity {
   };
   walk(root, 1, 0);
   if (nodes > LIMITS.nodes) {
-    throw problem(
+    throw oversized(
       message('The formula is too complex: {count} parts, at most {max}.', { count: nodes, max: LIMITS.nodes }),
       root.start,
       root.end,
@@ -1218,7 +1221,7 @@ function evaluateNode(node: Node, item: WorkItem, run: Run): Outcome {
 
 function readField(node: Extract<Node, { kind: 'field' }>, item: WorkItem, run: Run): Outcome {
   const ref = node.ref!;
-  const missing = () => none(message('{field} has no value.', { field: node.name }));
+  const missing = () => none(message('{field} has no value, so there is nothing to work it out from.', { field: node.name }));
   if (ref.kind === 'attribute') {
     const value = item[ref.name];
     if (value === null || value === undefined) return missing();

@@ -89,15 +89,22 @@ export default function CalendarPage() {
 
   const days = useMemo(() => eachDayOfInterval(range), [range]);
 
+  // Each event on its own day. One still under way when the period begins — a
+  // sprint that started before it — goes on the period's first day: dated at
+  // its start, it fell before the grid and was drawn on no day at all.
   const eventsByDay = useMemo(() => {
+    const first = toISODateOnly(range.start);
     const map = new Map<string, CalendarEvent[]>();
     for (const event of eventsQuery.data ?? []) {
-      const key = toISODateOnly(parseISO(event.date));
+      const day = toISODateOnly(parseISO(event.date));
+      const running =
+        event.allDay && day < first && event.endDate !== undefined && toISODateOnly(parseISO(event.endDate)) >= first;
+      const key = running ? first : day;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(event);
     }
     return map;
-  }, [eventsQuery.data]);
+  }, [eventsQuery.data, range.start]);
 
   const shift = (direction: -1 | 1) => {
     if (view === 'month') setAnchor((current) => (direction === 1 ? addMonths(current, 1) : subMonths(current, 1)));

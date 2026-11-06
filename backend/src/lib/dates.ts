@@ -1,3 +1,7 @@
+import { z } from 'zod';
+
+import { msg } from './i18n.js';
+
 /**
  * Calendar-day arithmetic on `YYYY-MM-DD` strings.
  *
@@ -22,6 +26,17 @@ export function isCalendarDay(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * A date a request names, read with zod: a calendar day that exists, or a 400
+ * naming the field. Every route that reads a date uses this one, so 2026-02-30
+ * is refused everywhere rather than meaning 2 March in one place and failing as
+ * a server error in another. A route that already words what its field wants
+ * passes that as `message`.
+ */
+export function calendarDay(message: string = msg('Give a date that exists, e.g. 2026-10-31.')) {
+  return z.string().refine(isCalendarDay, message);
 }
 
 /** `day` shifted by `days`, which may be negative. */

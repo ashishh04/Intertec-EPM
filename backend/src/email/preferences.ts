@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
+import { calendarDay } from '../lib/dates.js';
 import type { UserPreferences } from '../types/epm.js';
 
 /**
@@ -105,7 +106,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   },
 };
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are written 2026-09-29.');
+const isoDate = calendarDay();
 
 const weekday = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sun', 'sat']);
 

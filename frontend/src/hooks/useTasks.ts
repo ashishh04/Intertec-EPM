@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { taskService } from '@/services';
+import { retryUnlessNotFound } from '@/services/api/client';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
 import type { CreateTaskInput, EpmTask, ID, TaskFilters, UpdateTaskInput } from '@/types';
 
@@ -56,6 +57,7 @@ export function useTask(id?: ID) {
     queryFn: () => taskService.getTask(id!),
     enabled: Boolean(id),
     staleTime: 30_000,
+    retry: retryUnlessNotFound,
   });
 }
 

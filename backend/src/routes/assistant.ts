@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
+import { msg, requestLanguage, t } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { status as assistantStatus, isConfigured } from '../assistant/bedrock.js';
 import { chat, toConversation, toMessage } from '../assistant/service.js';
@@ -35,10 +36,11 @@ function writeFrame(reply: FastifyReply, event: AssistantStreamEvent): void {
 }
 
 export const assistantRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/assistant/status', async () => {
+  app.get('/assistant/status', async (request) => {
     // Switched off by an administrator: the same answer as not configured, with the reason.
     const policy = await getPolicy();
-    return policy.enabled ? assistantStatus() : { ...assistantStatus(), available: false, reason: 'Pragnya has been switched off by your administrator.' };
+    const status = policy.enabled ? assistantStatus() : { ...assistantStatus(), available: false, reason: msg('Pragnya has been switched off by your administrator.') };
+    return status.reason ? { ...status, reason: t(requestLanguage(request), status.reason) } : status;
   });
 
   app.get('/assistant/conversations', async (request) => {

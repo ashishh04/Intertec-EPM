@@ -371,6 +371,11 @@ export function TaskTable({
     });
   }, [groups, tree, pageTasks, visibleTasks]);
 
+  // Rows are selected to act on them in bulk, so with no bulk action to take there
+  // is nothing to select: someone who may only read was offered every action, and
+  // each was refused.
+  const selectable = Boolean(onBulkUpdate);
+
   // Selecting all is the rows on this page.
   const allSelected = pageTasks.length > 0 && pageTasks.every((task) => selected.has(task.id));
   const someSelected = selected.size > 0 && !allSelected;
@@ -578,13 +583,15 @@ export function TaskTable({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 pe-0">
-                <Checkbox
-                  checked={allSelected ? true : someSelected ? 'indeterminate' : false}
-                  onCheckedChange={toggleAll}
-                  aria-label={t('Select all tasks on this page')}
-                />
-              </TableHead>
+              {selectable ? (
+                <TableHead className="w-10 pe-0">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                    onCheckedChange={toggleAll}
+                    aria-label={t('Select all tasks on this page')}
+                  />
+                </TableHead>
+              ) : null}
               {columns.map((column) => {
                 const sortKey = sortableColumns.has(column) ? column : undefined;
                 const isSorted = sortKey !== undefined && sortBy === column;
@@ -629,7 +636,7 @@ export function TaskTable({
                 const { group } = row;
                 return (
                   <TableRow key={`group-${group.value ?? '__none__'}`} className="bg-muted/50">
-                    <TableCell colSpan={columns.length + 1} className="py-1.5">
+                    <TableCell colSpan={columns.length + (selectable ? 1 : 0)} className="py-1.5">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-foreground">
                           {/* An unset attribute is a real group, not a failure
@@ -655,13 +662,15 @@ export function TaskTable({
 
               return (
                 <TableRow key={task.id} data-state={isSelected ? 'selected' : undefined}>
-                  <TableCell className="pe-0">
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={() => toggleOne(task.id)}
-                      aria-label={t('Select {key}', { key: task.key })}
-                    />
-                  </TableCell>
+                  {selectable ? (
+                    <TableCell className="pe-0">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleOne(task.id)}
+                        aria-label={t('Select {key}', { key: task.key })}
+                      />
+                    </TableCell>
+                  ) : null}
 
                   {columns.map((column) => (
                     <TableCell key={column} numeric={numericColumns.has(column)}>

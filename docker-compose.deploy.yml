@@ -176,6 +176,7 @@ services:
       OPENPROJECT_OAUTH_CLIENT_ID: ${OPENPROJECT_OAUTH_CLIENT_ID}
       OPENPROJECT_OAUTH_CLIENT_SECRET: ${OPENPROJECT_OAUTH_CLIENT_SECRET}
       SESSION_SECRET: ${SESSION_SECRET:?set a 32+ character secret}
+      EPM_MFA_KEY: ${EPM_MFA_KEY:-}
       # Same origin as the app, because Caddy proxies /api on the one domain.
       CORS_ORIGIN: https://${EPM_DOMAIN}
       APP_BASE_URL: https://${EPM_DOMAIN}

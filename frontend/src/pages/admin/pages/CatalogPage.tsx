@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { TableSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ListToolbar, ResultCount, SearchInput } from '@/components/common/ListToolbar';
+import { MultiSelect } from '@/components/common/MultiSelect';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -293,6 +294,25 @@ function CatalogCell({
     return <TableCell numeric>{typeof value === 'number' ? formatNumber(value) : <Dash />}</TableCell>;
   }
 
+  if (field.type === 'multi') {
+    const chosen = field.options?.filter((option) => asChoices(value).includes(option.value)) ?? [];
+    if (chosen.length === 0) {
+      return (
+        <TableCell>
+          <Dash />
+        </TableCell>
+      );
+    }
+    const names = chosen.map((option) => option.label).join(', ');
+    return (
+      <TableCell>
+        <span className="block max-w-80 truncate" title={names} dir="auto">
+          {chosen.length === field.options?.length ? t('All') : truncate(names, 160)}
+        </span>
+      </TableCell>
+    );
+  }
+
   if (field.type === 'enum') {
     const choice = field.options?.find((option) => option.value === asText(value));
     // A colour option carries its hex, so the swatch shows the colour itself
@@ -377,8 +397,9 @@ function RowActions({
 /* Create / edit dialog                                                      */
 /* ------------------------------------------------------------------------ */
 
-/** What the form holds: a switch is a boolean, everything else is its text. */
-type FormValues = Record<string, string | boolean>;
+/** What the form holds: a switch is a boolean, a list of choices a list, everything else its text. */
+type FormValue = string | boolean | string[];
+type FormValues = Record<string, FormValue>;
 
 interface CatalogDialogProps {
   open: boolean;
@@ -413,7 +434,7 @@ function CatalogDialog({ open, onOpenChange, catalog, row }: CatalogDialogProps)
     (field) => field.required && !isFilled(field, values[field.key]),
   );
 
-  const set = (key: string, value: string | boolean) =>
+  const set = (key: string, value: FormValue) =>
     setValues((current) => ({ ...current, [key]: value }));
 
   const fail = (error: unknown) => setProblem(describeError(error, t('That could not be saved.')));
@@ -499,9 +520,9 @@ function CatalogField({
 }: {
   resource: string;
   field: AdminCatalogField;
-  value: string | boolean | undefined;
+  value: FormValue | undefined;
   disabled: boolean;
-  onChange: (value: string | boolean) => void;
+  onChange: (value: FormValue) => void;
 }) {
   const id = `catalog-${resource}-${field.key}`;
   const hintId = `${id}-hint`;
@@ -571,6 +592,20 @@ function CatalogField({
         />
       ) : null}
 
+      {field.type === 'multi' ? (
+        <MultiSelect
+          label={field.label}
+          options={(field.options ?? []).map((option) => ({ id: option.value, name: option.label }))}
+          selected={(field.options ?? [])
+            .filter((option) => asChoices(value).includes(option.value))
+            .map((option) => ({ id: option.value, name: option.label }))}
+          onChange={(chosen) => onChange(chosen.map((option) => option.id))}
+          placeholder={field.emptyLabel}
+          disabled={disabled}
+          className="w-full"
+        />
+      ) : null}
+
       {field.type === 'enum' ? (
         <Select
           value={toChoice(text)}
@@ -603,7 +638,13 @@ function initialValues(fields: AdminCatalogField[], row?: AdminCatalogRow): Form
   const values: FormValues = {};
   for (const field of fields) {
     if (field.type === 'boolean') {
-      values[field.key] = row ? row[field.key] === true : false;
+      // A new row's switch starts where the instance says: left off, a new priority
+      // was inactive and could not be chosen, and a new custom field reached nobody.
+      values[field.key] = row ? row[field.key] === true : field.default === true;
+      continue;
+    }
+    if (field.type === 'multi') {
+      values[field.key] = asChoices(row?.[field.key]);
       continue;
     }
     // A write-only field starts empty even when editing: the instance keeps
@@ -622,6 +663,11 @@ function toInput(fields: AdminCatalogField[], values: FormValues): CatalogRowInp
 
     if (field.type === 'boolean') {
       input[field.key] = value === true;
+      continue;
+    }
+
+    if (field.type === 'multi') {
+      input[field.key] = asChoices(value);
       continue;
     }
 
@@ -647,8 +693,9 @@ function toInput(fields: AdminCatalogField[], values: FormValues): CatalogRowInp
   return input;
 }
 
-function isFilled(field: AdminCatalogField, value: string | boolean | undefined): boolean {
+function isFilled(field: AdminCatalogField, value: FormValue | undefined): boolean {
   if (field.type === 'boolean') return true;
+  if (field.type === 'multi') return asChoices(value).length > 0;
   return typeof value === 'string' && value.trim() !== '';
 }
 
@@ -681,6 +728,10 @@ function asText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   return '';
+}
+
+function asChoices(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function toChoice(value: string): string {

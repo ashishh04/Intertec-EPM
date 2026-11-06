@@ -267,8 +267,11 @@ export async function updateDepartment(
   }
   if (input.code !== undefined) data.code = validateCode(input.code);
   if (input.description !== undefined) data.description = validateDescription(input.description);
+  // Staying as they are is not an assignment: this caller's directory need not
+  // list the present manager for them to edit the rest of the department.
   if (input.managerId !== undefined) {
-    data.managerId = await validateManagerId(input.managerId, signal);
+    data.managerId =
+      input.managerId === existing.managerId ? existing.managerId : await validateManagerId(input.managerId, signal);
   }
 
   if (Object.keys(data).length === 0) {

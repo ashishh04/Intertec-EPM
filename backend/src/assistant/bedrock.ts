@@ -12,6 +12,7 @@ import {
 
 import { env } from '../config/env.js';
 import { EpmError } from '../lib/errors.js';
+import { msg } from '../lib/i18n.js';
 import type { AssistantStatus } from '../types/epm.js';
 
 /**
@@ -68,8 +69,7 @@ export type ChatStreamEvent =
       stopReason: string | null;
     };
 
-const NOT_CONFIGURED =
-  'Pragnya is not configured. Add the AWS Bedrock settings to the backend environment.';
+const NOT_CONFIGURED = msg('Pragnya is not configured. Add the AWS Bedrock settings to the backend environment.');
 
 /**
  * Room for the answer *and* the reasoning behind it. Thinking tokens are drawn
@@ -108,8 +108,7 @@ export function isConfigured(): boolean {
   return Boolean(configuredRegion() && env.BEDROCK_MODEL_ID);
 }
 
-const OUTSIDE_RESIDENCY =
-  'Pragnya is switched off: its configuration would send data outside the regions this deployment allows.';
+const OUTSIDE_RESIDENCY = msg('Pragnya is switched off: its configuration would send data outside the regions this deployment allows.');
 
 /**
  * Why this configuration would send what the assistant reads outside the
@@ -289,7 +288,7 @@ function mapUpstreamFailure(error: unknown): unknown {
     return new EpmError(
       503,
       'UPSTREAM_UNAVAILABLE',
-      'The assistant is busy, try again in a moment.',
+      msg('The assistant is busy, try again in a moment.'),
       { upstream },
     );
   }
@@ -300,13 +299,13 @@ function mapUpstreamFailure(error: unknown): unknown {
     return new EpmError(
       502,
       'UPSTREAM_ERROR',
-      'The assistant was refused by AWS. Check the caller has bedrock-mantle:CreateInference.',
+      msg('The assistant was refused by AWS. Check the caller has bedrock-mantle:CreateInference.'),
       { upstream },
     );
   }
   if (error instanceof AuthenticationError) {
     // Rejected credentials are this deployment's problem, not the caller's session.
-    return new EpmError(502, 'UPSTREAM_ERROR', 'The assistant is not configured correctly.', {
+    return new EpmError(502, 'UPSTREAM_ERROR', msg('The assistant is not configured correctly.'), {
       upstream,
     });
   }
@@ -316,18 +315,18 @@ function mapUpstreamFailure(error: unknown): unknown {
     return new EpmError(
       502,
       'UPSTREAM_ERROR',
-      'The assistant could not reach that Bedrock model. Check the model ID and the region.',
+      msg('The assistant could not reach that Bedrock model. Check the model ID and the region.'),
       { upstream },
     );
   }
   if (error.status !== undefined && error.status >= 500) {
-    return new EpmError(503, 'UPSTREAM_UNAVAILABLE', 'The assistant is unavailable right now.', {
+    return new EpmError(503, 'UPSTREAM_UNAVAILABLE', msg('The assistant is unavailable right now.'), {
       upstream,
     });
   }
   // 400 covers a malformed request and a prompt the model declined alike;
   // neither is something to retry.
-  return new EpmError(502, 'UPSTREAM_ERROR', 'The assistant could not answer.', { upstream });
+  return new EpmError(502, 'UPSTREAM_ERROR', msg('The assistant could not answer.'), { upstream });
 }
 
 function safeBody(error: APIError): string {

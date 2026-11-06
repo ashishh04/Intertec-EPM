@@ -21,6 +21,7 @@ import {
   withdrawClaim,
   type ExpenseViewer,
 } from '../domain/expenses-store.js';
+import { calendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { message } from '../lib/i18n.js';
 import { contentDispositionFor } from '../lib/uploads.js';
@@ -35,8 +36,6 @@ import { contentDispositionFor } from '../lib/uploads.js';
  * finance. Categories are OpenProject's cost types: anyone reads them, and
  * `time:configure` or `expenses:manage` adds one.
  */
-
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 async function viewerOf(request: FastifyRequest): Promise<ExpenseViewer> {
   return { id: request.auth!.userId, manage: allows(await guard.permissionsFor(request), 'expenses:manage') };
@@ -64,8 +63,8 @@ export const expenseRoutes: FastifyPluginAsync = async (app) => {
         scope: z.enum(['mine', 'all']).optional(),
         status: z.enum(['draft', 'submitted', 'approved', 'posted']).optional(),
         projectId: z.string().regex(/^\d+$/).optional(),
-        from: z.string().regex(DAY).optional(),
-        to: z.string().regex(DAY).optional(),
+        from: calendarDay().optional(),
+        to: calendarDay().optional(),
       })
       .parse(request.query);
     return listClaims({ ...query, scope: query.scope ?? 'mine' }, await viewerOf(request));
@@ -73,7 +72,7 @@ export const expenseRoutes: FastifyPluginAsync = async (app) => {
 
   /** The finance export (BR-309): approved claims spent in a period, as a workbook. */
   app.get('/expenses/export', async (request, reply) => {
-    const query = z.object({ from: z.string().regex(DAY), to: z.string().regex(DAY) }).parse(request.query);
+    const query = z.object({ from: calendarDay(), to: calendarDay() }).parse(request.query);
     if (query.to < query.from) throw EpmError.validation('The period ends before it starts.');
     const bytes = await exportClaims(query.from, query.to, await viewerOf(request));
     reply

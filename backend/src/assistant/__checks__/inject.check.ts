@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 
 import { buildApp } from '../../app.js';
 import { env } from '../../config/env.js';
-import { ToolError, capResult, findTool, type ToolContext } from '../tools.js';
+import { withoutAmounts } from '../policy.js';
+import { ToolError, capResult, chipLabel, findTool, type ToolContext } from '../tools.js';
 
 /**
  * Proves that `inject` called on an encapsulated child instance dispatches
@@ -32,7 +33,7 @@ await app.register(
         });
         // Every tool, as this caller, against the live API. A ToolError is a
         // legitimate answer (no sprints, say); a thrown anything-else is not.
-        const context: ToolContext = { app: inner, request, userId: request.auth?.userId ?? '', role: 'admin' };
+        const context: ToolContext = { app: inner, request, userId: request.auth?.userId ?? '', role: 'admin', allowFinance: true, allowPeople: true };
         const runs: Array<Record<string, unknown>> = [];
         let firstProject: string | undefined;
         let firstMeeting: string | undefined;
@@ -51,6 +52,21 @@ await app.register(
           ['list_news', { limit: 5 }],
           ['search_wiki', {}],
           ['time_summary', { from: '2026-09-01', to: '2026-09-30', groupBy: 'project' }],
+          ['time_summary', { from: '2026-09-01', to: '2026-09-30', userId: 'me' }],
+          ['my_timesheet', {}],
+          ['team_timesheets', {}],
+          ['expense_claims', {}],
+          ['approvals_waiting', {}],
+          ['finance_figures', { kind: 'cash_flow' }],
+          ['finance_figures', { kind: 'margin' }],
+          ['finance_figures', { kind: 'forecast' }],
+          ['earned_value', {}],
+          ['resource_overload', {}],
+          ['scenarios', {}],
+          ['risk_exposure', {}],
+          ['budget_exposure', {}],
+          ['delivery_forecast', {}],
+          ['recommended_actions', {}],
         ];
 
         for (const [name, sampleArgs] of samples) {
@@ -75,9 +91,18 @@ await app.register(
               const meetings = (value as { meetings?: { id: string }[] }).meetings;
               if (meetings?.length) firstMeeting = meetings[0]!.id;
             }
+            // And as the model reads it with finance switched off, against real
+            // data: the tools it is not offered then are not asked.
+            if (!['finance_figures', 'earned_value', 'budget_exposure'].includes(name)) {
+              const off = JSON.stringify(withoutAmounts(await tool.execute({ ...context, allowFinance: false }, args)));
+              assert.ok(
+                !/"(?:budgetTotal|spentToDate|budget|spent|cost|totalCost|amount|currency|hoursWithoutRate)":/.test(off),
+                `${name} has a money field with finance off: ${off.slice(0, 400)}`,
+              );
+            }
             runs.push({
               tool: name,
-              label: tool.label(args),
+              label: chipLabel(name, args),
               ok: true,
               bytes: json.length,
               sample: JSON.stringify(value).slice(0, 160),
@@ -85,7 +110,7 @@ await app.register(
           } catch (error) {
             runs.push({
               tool: name,
-              label: tool.label(args),
+              label: chipLabel(name, args),
               ok: false,
               kind: error instanceof ToolError ? 'ToolError' : (error as Error).name,
               message: (error as Error).message,

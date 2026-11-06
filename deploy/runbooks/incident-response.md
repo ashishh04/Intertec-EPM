@@ -32,6 +32,7 @@ Act first, investigate second. Each step is journalled (Administration → Audit
 | Concern | Containment |
 | --- | --- |
 | An account is compromised | Administration → Users: **Revoke access** (ends every session, removes project memberships and administrator rights), then lock the account; reset its password in OpenProject. |
+| Someone lost their phone and recovery codes, or an authenticator may be compromised | Administration → Authentication → Two-factor authentication: **Reset** (signs them out everywhere, and tells them by email). Confirm who is asking first: an impostor would ask for exactly this. If the last administrator is the one locked out: `dc exec backend node dist/scripts/mfa-reset.js <OpenProject user id>`, journalled with no person as the actor. |
 | Many sessions may be compromised | Rotate `SESSION_SECRET` (runbook: secret rotation) — everyone is signed out. |
 | A service key may have leaked | Rotate it (runbook: secret rotation): the OpenProject API key, the automation key, the OAuth client secret, the webhook secrets. |
 | A permission was granted wrongly | Administration → Users and permissions → EPM permissions: remove it; the change is journalled and effective within a minute. |

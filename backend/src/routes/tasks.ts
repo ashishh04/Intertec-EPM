@@ -6,18 +6,21 @@ import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
 import { refuseCalculatedWrites, requestCalculatedRecalc } from '../domain/calculated-fields.js';
+import { cancelSeriesOfDeleted } from '../domain/task-series.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
 import { addDays } from '../lib/dates.js';
 import { hoursToDuration } from '../lib/duration.js';
 import { idFromHref, linkId, openProject, type OpFilter, type SortDirection } from '../openproject/client.js';
+import { versionFilter, versionLinks } from '../openproject/versions.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { projectIdentifiers } from '../mapping/projects.js';
 import { expandIds, toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
 import type { HalLinks, OpProject } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
+import { followerDates, movedSince, movesDates, tellWhatMoved } from '../domain/successors.js';
 import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
 import { message } from '../lib/i18n.js';
 
@@ -96,6 +99,21 @@ function bucketFilters(bucket: string | undefined, today: string): OpFilter[] {
   }
 }
 
+/**
+ * The work packages a bulk request names: a list of ids, each digits.
+ *
+ * A string is not a list, and iterating one acted on a work package per
+ * character — "72" was 7 and 2. And each id goes into an upstream path, where
+ * anything but digits could point at another kind of record altogether.
+ */
+function bulkIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw EpmError.badRequest('ids must be a list of task ids.');
+  const ids = value.map((id) => (typeof id === 'string' || typeof id === 'number' ? String(id).trim() : ''));
+  if (ids.some((id) => !/^\d+$/.test(id))) throw EpmError.badRequest('A task id is not valid.');
+  return ids;
+}
+
 export const taskRoutes: FastifyPluginAsync = async (app) => {
   app.get('/tasks', async (request) => {
     const query = listQuery.parse(request.query);
@@ -131,7 +149,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       filters.push({ field: 'watcher', operator: '=', values: [query.watcherId] });
     }
     if (query.sprintId) {
-      filters.push({ field: 'version', operator: '=', values: [query.sprintId] });
+      filters.push(versionFilter([query.sprintId]));
     }
     if (query.search) {
       filters.push({ field: 'subjectOrId', operator: '**', values: [query.search] });
@@ -305,6 +323,9 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         projectIdentifiers(signal),
       ]);
 
+      // BR-113: what follows it, as it stood, when its dates change.
+      const followers = movesDates(request.body) ? await followerDates(request.params.id, signal) : [];
+
       const updated = await patchWorkPackage(request.params.id, request.body ?? {}, catalog, signal);
       // A date, status, type or priority edit can move any criterion; the
       // recalculation decides whether one did.
@@ -320,14 +341,17 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         version: updated.lockVersion,
         actorId: request.auth?.userId,
       });
-      return toEpmTask(updated, catalog, identifiers);
+      const moved = followers.length > 0 ? await movedSince(followers, signal) : [];
+      await tellWhatMoved({ actorId: request.auth?.userId, workPackageId: request.params.id, subject: updated.subject, version: updated.lockVersion, moved });
+      return { ...toEpmTask(updated, catalog, identifiers), moved };
     },
   );
 
   app.patch<{ Body: { ids?: string[]; patch?: Record<string, unknown> } }>(
     '/tasks/bulk',
     async (request) => {
-      const { ids = [], patch = {} } = request.body ?? {};
+      const { patch = {} } = request.body ?? {};
+      const ids = bulkIds(request.body?.ids);
       if (ids.length === 0) return [];
       await refuseCalculatedWrites(patch);
 
@@ -372,7 +396,11 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
   );
 
   app.delete<{ Body: { ids?: string[] } }>('/tasks/bulk', async (request, reply) => {
-    const { ids = [] } = request.body ?? {};
+    const ids = bulkIds(request.body?.ids);
+    // A delete naming nothing has lost its selection on the way rather than
+    // succeeded. It used to answer 204, which reads as "deleted", and the
+    // per-id check below never ran at all.
+    if (ids.length === 0) throw EpmError.badRequest('Choose at least one task to delete.');
     const signal = requestSignal(request);
 
     // Checked for every id before deleting any, so a partly-permitted selection
@@ -388,11 +416,14 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       projects.add(await guard.projectOfWorkPackage(request, id));
     }
 
+    const deleted: string[] = [];
     try {
       for (const id of ids) {
         await openProject.request<void>(`/work_packages/${id}`, { method: 'DELETE', signal });
+        deleted.push(id);
       }
     } finally {
+      await cancelSeriesOfDeleted(deleted);
       requestHealthRecalc([...projects]);
       requestScheduleRecalc();
       requestCalculatedRecalc();
@@ -446,7 +477,7 @@ function buildWorkPackageBody(
   catalog: Awaited<ReturnType<typeof getCatalog>>,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
-  const links: Record<string, { href: string | null }> = {};
+  const links: HalLinks = {};
 
   if (typeof input.subject === 'string') body.subject = input.subject;
   if (typeof input.description === 'string') {
@@ -506,12 +537,30 @@ function buildWorkPackageBody(
    * read it back, but nothing here wrote it — so choosing a sprint, or opening
    * the composer from a sprint board that prefills one, silently produced a
    * backlog item. Null clears it, as with the assignee.
+   *
+   * Written through both of the version's names (openproject/versions.ts):
+   * where a work package may have several versions, `version` alone was
+   * ignored and the task stayed where it was.
    */
   if (typeof input.sprintId === 'string' && input.sprintId !== '') {
     if (!/^\d+$/.test(input.sprintId)) throw EpmError.badRequest('That sprint is not valid.');
-    links.version = { href: `/api/v3/versions/${input.sprintId}` };
+    Object.assign(links, versionLinks(input.sprintId));
   }
-  if (input.sprintId === null) links.version = { href: null };
+  if (input.sprintId === null) Object.assign(links, versionLinks(null));
+
+  /*
+   * Custom fields, as a schema form holds them: a value, or a link for a list or a
+   * person. The composer carries the required ones, without which the delivery
+   * system refuses the task and nothing else in the composer could say why.
+   */
+  if (input.customValues && typeof input.customValues === 'object') {
+    for (const [key, value] of Object.entries(input.customValues as Record<string, unknown>)) {
+      if (!/^customField\d+$/.test(key)) continue;
+      const isLink = Array.isArray(value) || (typeof value === 'object' && value !== null && 'href' in value);
+      if (isLink) (links as Record<string, unknown>)[key] = value;
+      else body[key] = value;
+    }
+  }
 
   if (Object.keys(links).length > 0) body._links = links;
   return body;

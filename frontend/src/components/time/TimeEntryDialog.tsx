@@ -218,7 +218,7 @@ export function TimeEntryDialog({
           <DialogDescription>
             {editing
               ? t('The project and task this was logged against cannot be changed.')
-              : t('Against a task, or against a project for work with no task of its own.')}
+              : t('Against a task: choose the project, then the task the time was spent on.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -257,7 +257,9 @@ export function TimeEntryDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="time-task">{t('Task')}</Label>
+                <Label htmlFor="time-task" required>
+                  {t('Task')}
+                </Label>
                 <ComboSelect
                   id="time-task"
                   label={t('Task')}

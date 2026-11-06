@@ -10,6 +10,7 @@ import { buildWorkbook } from '../lib/xlsx.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { idFromHref, openProject } from '../openproject/client.js';
 import { EVERY_USER } from '../openproject/people.js';
+import { versionIdOf, versionLinks, versionTitleOf } from '../openproject/versions.js';
 import type { TaskImportChange, TaskImportProblem, TaskImportStatus, TaskImportView } from '../types/epm.js';
 import { withAudit } from './audit.js';
 import { requestCalculatedRecalc } from './calculated-fields.js';
@@ -379,8 +380,12 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
       status: title(item._links, 'status'),
       priorityId: idFromHref(href(item._links, 'priority')) ?? null,
       priority: title(item._links, 'priority'),
-      versionId: idFromHref(href(item._links, 'version')) ?? null,
-      version: title(item._links, 'version'),
+      // Its version, or its first target version where several are allowed
+      // (openproject/versions.ts). Read from `version` alone, a row naming the
+      // version a task already had read as a change, and a blank one never
+      // cleared it.
+      versionId: versionIdOf(item._links) ?? null,
+      version: versionTitleOf(item._links) ?? '',
       accountableId: idFromHref(href(item._links, 'responsible')) ?? null,
       accountable: title(item._links, 'responsible'),
       categoryId: idFromHref(href(item._links, 'category')) ?? null,
@@ -1334,7 +1339,9 @@ function payloadOf(row: PlannedRow, parentId: string | null): Record<string, unk
   if (row.assigneeId) links.assignee = { href: `/api/v3/users/${row.assigneeId}` };
   if (row.statusId) links.status = { href: `/api/v3/statuses/${row.statusId}` };
   if (row.priorityId) links.priority = { href: `/api/v3/priorities/${row.priorityId}` };
-  if (row.versionId) links.version = { href: `/api/v3/versions/${row.versionId}` };
+  // Through both of the version's names: `version` alone is ignored where a
+  // work package may have several (openproject/versions.ts).
+  if (row.versionId) Object.assign(links, versionLinks(row.versionId));
   return {
     subject: row.subject,
     ...(row.description ? { description: { format: 'markdown', raw: row.description } } : {}),
@@ -1365,7 +1372,7 @@ export function changesOf(row: PlannedRow, parentId: string | null, part: 'paren
   if (set.has('assignee')) links.assignee = { href: row.assigneeId ? `/api/v3/users/${row.assigneeId}` : null };
   if (set.has('status') && row.statusId) links.status = { href: `/api/v3/statuses/${row.statusId}` };
   if (set.has('priority') && row.priorityId) links.priority = { href: `/api/v3/priorities/${row.priorityId}` };
-  if (set.has('version')) links.version = { href: row.versionId ? `/api/v3/versions/${row.versionId}` : null };
+  if (set.has('version')) Object.assign(links, versionLinks(row.versionId ?? null));
   if (set.has('parent')) links.parent = { href: parentId ? `/api/v3/work_packages/${parentId}` : null };
   if (set.has('accountable')) links.responsible = { href: row.accountableId ? `/api/v3/users/${row.accountableId}` : null };
   if (set.has('category')) links.category = { href: row.categoryId ? `/api/v3/categories/${row.categoryId}` : null };

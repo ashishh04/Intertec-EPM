@@ -655,7 +655,12 @@ export function readWorkPackagesFromApi(signal?: AbortSignal): Promise<ApiWorkPa
           assigneeUserId: num(linkId(wp._links, 'assignee')),
           accountableUserId: num(linkId(wp._links, 'responsible')),
           parentId: num(linkId(wp._links, 'parent')),
-          versionId: num(linkId(wp._links, 'version')),
+          // The first target version when there is no `version` link: with
+          // several versions allowed per work package (OpenProject 17's setting,
+          // on here since the upgrade) the single link is left out, and it was
+          // always the first target version. Read only from `version`, every
+          // capture had no version where the journals had one.
+          versionId: num(linkId(wp._links, 'version') ?? linkId(wp._links, 'targetVersions')),
           subject: wp.subject,
           startDate: date ?? wp.startDate ?? null,
           dueDate: date ?? wp.dueDate ?? null,

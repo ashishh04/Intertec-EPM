@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
+import { isCalendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
@@ -134,7 +135,7 @@ const MIN_REASON = 10;
 const day = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates are written YYYY-MM-DD.')
-  .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), 'That is not a real date.');
+  .refine(isCalendarDay, 'That is not a real date.');
 
 const planBody = z
   .object({
@@ -475,7 +476,20 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       await guard.require(request, 'health:manage');
 
-      const raw = request.body?.levels ?? {};
+      // An override is its levels and a reason, nothing else, and `levels` is
+      // always sent — `{}` is how every pin is cleared. A body naming criteria
+      // at the top level, the shape this took before an override needed a
+      // reason, used to read as no levels at all: it cleared every pin and
+      // answered 200, and so did a misspelt field.
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      const stray = Object.keys(body).find((key) => key !== 'levels' && key !== 'reason');
+      if (stray !== undefined) {
+        throw EpmError.badRequest(
+          message('{field} is not part of a health override, which is sent as levels and a reason.', { field: stray }),
+        );
+      }
+
+      const raw = body.levels;
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         throw EpmError.badRequest('levels must be an object of criterion to level.');
       }

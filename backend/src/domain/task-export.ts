@@ -4,6 +4,7 @@ import { contextLanguage, t } from '../lib/i18n.js';
 import { buildWorkbook, type CellValue } from '../lib/xlsx.js';
 import { idFromHref, openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
+import { versionTitleOf } from '../openproject/versions.js';
 import { fieldValue, projectFields } from './task-fields.js';
 
 /**
@@ -175,7 +176,8 @@ export async function exportRows(projectId: number, includeClosed: boolean): Pro
       title(item._links, 'responsible'),
       title(item._links, 'status'),
       title(item._links, 'priority'),
-      title(item._links, 'version'),
+      // Its version, or its first target version where several are allowed.
+      versionTitleOf(item._links) ?? '',
       title(item._links, 'category'),
       item.storyPoints ?? '',
       item.scheduleManually ? 'Yes' : 'No',

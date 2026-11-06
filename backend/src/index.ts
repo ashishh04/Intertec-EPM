@@ -1,10 +1,14 @@
 import { buildApp } from './app.js';
-import { env, describeEnv } from './config/env.js';
+import { env, describeEnv, isProduction } from './config/env.js';
 
 async function main() {
   const app = await buildApp();
 
   app.log.info(describeEnv(), 'Starting EPM backend');
+
+  if (isProduction && !env.EPM_MFA_KEY) {
+    app.log.warn('EPM_MFA_KEY is not set, so two-factor secrets are encrypted under SESSION_SECRET: rotating that would break every authenticator.');
+  }
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {

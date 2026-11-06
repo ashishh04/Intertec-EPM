@@ -573,6 +573,12 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
     await guard.require(request, 'users:manage');
     const account = await accountOf(request, id);
 
+    // Same reasoning as revoking and deleting: an administrator who ran this on
+    // themselves could be left with nobody able to undo it.
+    if (id === request.auth?.userId) {
+      throw EpmError.badRequest('You cannot deactivate your own account.');
+    }
+
     requireAffordance(account, 'lock', 'This person cannot be deactivated.');
 
     const locked = await openProject.request<OpPrincipal>(`/users/${id}/lock`, {
@@ -822,6 +828,9 @@ export const accountRoutes: FastifyPluginAsync = async (app) => {
 
     const { prisma } = await import('../db/prisma.js');
     await prisma.userProfile.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
+    // Recovery codes go with it (cascade). Ids are not reused, but a secret has no business outliving its owner.
+    await prisma.userMfa.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
+    await prisma.mfaChallenge.deleteMany({ where: { openProjectId: id } }).catch(() => undefined);
 
     // Upstream queues the deletion and answers 202, so the account is still
     // readable for a moment afterwards. Invalidating the cached directory

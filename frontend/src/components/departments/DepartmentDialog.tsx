@@ -79,7 +79,10 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
       name: name.trim(),
       code: code.trim().toUpperCase(),
       description: description.trim() || undefined,
-      managerId: managerId === NO_MANAGER ? '' : managerId,
+      // NO_MANAGER is somebody choosing nothing. Empty is a select in a form with
+      // no option for its value, which clears itself (the list did not load):
+      // nobody chose that, so the manager is left as it is.
+      managerId: managerId === '' ? undefined : managerId === NO_MANAGER ? '' : managerId,
     };
 
     if (!input.name) return setProblem(t('A name is required.'));
@@ -100,7 +103,13 @@ export function DepartmentDialog({ open, onOpenChange, department }: DepartmentD
     }
   };
 
-  const people = users.data ?? [];
+  // Whoever manages it now stays on offer even when the reader's directory does
+  // not list them, or the first save would silently take them off it.
+  const manager = department?.manager;
+  const people: { id: string; name: string }[] = [
+    ...(users.data ?? []),
+    ...(manager && !users.data?.some((user) => user.id === manager.id) ? [manager] : []),
+  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

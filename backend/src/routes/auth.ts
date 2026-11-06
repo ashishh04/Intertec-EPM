@@ -5,9 +5,11 @@ import {
   SESSION_COOKIE,
   destroySession,
   isSignInConfigured,
-  signInWithPassword,
+  openSession,
+  verifyPassword,
 } from '../auth/oauth.js';
 import { isProduction } from '../config/env.js';
+import { mfaEnabled, openMfaChallenge } from '../domain/mfa.js';
 import { EpmError } from '../lib/errors.js';
 
 /**
@@ -19,7 +21,7 @@ import { EpmError } from '../lib/errors.js';
  * indication that OpenProject exists.
  */
 
-const COOKIE_OPTIONS = {
+export const SESSION_COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: 'lax' as const,
   secure: isProduction,
@@ -27,6 +29,15 @@ const COOKIE_OPTIONS = {
   signed: true,
   maxAge: 30 * 24 * 60 * 60,
 };
+
+/**
+ * Names a sign-in waiting on its second factor. Opaque and HTTP-only like the
+ * session's, because it stands for a password already proved, and it lasts only
+ * as long as the challenge does.
+ */
+export const MFA_COOKIE = 'epm.mfa';
+
+const MFA_COOKIE_OPTIONS = { ...SESSION_COOKIE_OPTIONS, sameSite: 'strict' as const, maxAge: 5 * 60 };
 
 const credentials = z.object({
   username: z.string().min(1, 'Username is required.'),
@@ -59,13 +70,20 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const { username, password } = parsed.data;
 
-      const session = await signInWithPassword(
-        username,
-        password,
-        request.headers['user-agent'],
-      );
+      const verified = await verifyPassword(username, password);
+      const userAgent = request.headers['user-agent'];
 
-      reply.setCookie(SESSION_COOKIE, session.sessionId, COOKIE_OPTIONS);
+      // Read fresh and not caught: if it cannot be told whether this account
+      // needs a second factor, the answer must not be a session.
+      if (await mfaEnabled(verified.userId)) {
+        const challengeId = await openMfaChallenge(verified.userId, verified.tokens, userAgent);
+        reply.setCookie(MFA_COOKIE, challengeId, MFA_COOKIE_OPTIONS);
+        return { authenticated: false, mfaRequired: true };
+      }
+
+      const session = await openSession(verified.userId, verified.tokens, userAgent);
+
+      reply.setCookie(SESSION_COOKIE, session.sessionId, SESSION_COOKIE_OPTIONS);
       return { userId: session.userId, authenticated: true };
     },
   );

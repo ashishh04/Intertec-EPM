@@ -91,6 +91,14 @@ const SELECTABLE_TYPES: EpmRelationType[] = RELATION_TYPES.flatMap((pair) =>
 /** Label for a direction, whichever side of a pair it names. */
 const LABELS = new Map<string, string>(SELECTABLE_TYPES.map((type) => [type.value, type.label]));
 
+/**
+ * A lag is whole working days from 0 to 365, as the form's field promises, on
+ * every way in. OpenProject keeps what it is sent, -1 and 400 alike, and cuts
+ * 1.5 down to 1, and the relation then read differently from the float worked
+ * out from it.
+ */
+const lagDays = (lag: unknown): number => Math.max(0, Math.min(365, Math.round(Number(lag) || 0)));
+
 export interface EpmRelation {
   id: string;
   /**
@@ -251,7 +259,7 @@ export const relationRoutes: FastifyPluginAsync = async (app) => {
         _links: { to: { href: `/api/v3/work_packages/${relatedId}` } },
         type,
         ...(description ? { description } : {}),
-        ...(lag !== undefined ? { lag } : {}),
+        ...(lag !== undefined ? { lag: lagDays(lag) } : {}),
       },
       signal: requestSignal(request),
     });

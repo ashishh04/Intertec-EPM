@@ -42,6 +42,7 @@ const KIND_LABEL: Record<string, string> = {
   get invitation() { return t('Invitation'); },
   get operations() { return t('Operations alert'); },
   get permission_grant() { return t('EPM permission'); },
+  get mfa_policy() { return t('Two-factor policy'); },
   get placeholder() { return t('Placeholder'); },
   get portfolio() { return t('Portfolio'); },
   get portfolio_view() { return t('Portfolio view'); },

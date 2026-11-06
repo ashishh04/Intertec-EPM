@@ -1,6 +1,8 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
+import * as guard from '../auth/guard.js';
 import { permissionsFor } from '../auth/guard.js';
+import { mfaSetupRequired } from '../domain/mfa.js';
 import { toNested } from '../auth/permissions.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
@@ -14,6 +16,28 @@ import {
   type PasswordPolicy,
 } from '../domain/password-policy.js';
 import { listOf, message } from '../lib/i18n.js';
+import type { EpmUser } from '../types/epm.js';
+
+/**
+ * What the caller gets of each person in the directory.
+ *
+ * Open to everyone signed in, because every assignee, comment author and people
+ * picker on every screen is looked up here: what those need is a name, a face
+ * and the project role some of them show beside it. Addresses, departments and
+ * time zones are for whoever looks after people or plans their time, and for the
+ * person themselves. Left to OpenProject's own rules, an Employee could read
+ * people's addresses from the API.
+ *
+ * Empty rather than absent, as they already are for a principal the caller may
+ * not read in full (`mapping/users.ts`).
+ */
+async function directoryShape(request: FastifyRequest): Promise<(user: EpmUser) => EpmUser> {
+  const details = (await guard.mayReadOrganisation(request)) || (await guard.holds(request, 'resources:plan'));
+  if (details) return (user) => user;
+
+  return (user) =>
+    user.id === request.auth?.userId ? user : { ...user, email: '', department: '', timezone: '' };
+}
 
 export const userRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -53,6 +77,9 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       appRole: permissions.role,
       mustChangePassword: profile?.mustChangePassword ?? false,
       external: profile?.external ?? false,
+      // Holds them at the set-up screen. The server holds them too (auth/hook.ts),
+      // so a failure to read it here costs a screen rather than any protection.
+      mfaSetupRequired: await mfaSetupRequired(request.auth?.userId ?? '', permissions.role).catch(() => false),
     };
   });
 
@@ -230,7 +257,10 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     return body.timezones ?? [];
   });
 
-  app.get('/users', async (request) => getUsers(requestSignal(request)));
+  app.get('/users', async (request) => {
+    const [users, shape] = await Promise.all([getUsers(requestSignal(request)), directoryShape(request)]);
+    return users.map(shape);
+  });
 
   /**
    * A person's avatar, streamed through EPM.
@@ -257,9 +287,9 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/users/:id', async (request) => {
-    const users = await getUsers(requestSignal(request));
+    const [users, shape] = await Promise.all([getUsers(requestSignal(request)), directoryShape(request)]);
     const user = users.find((candidate) => candidate.id === request.params.id);
     if (!user) throw EpmError.notFound('That person');
-    return user;
+    return shape(user);
   });
 };

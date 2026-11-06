@@ -42,6 +42,7 @@ import {
   updateTimeOff,
   type GridQuery,
 } from '../domain/resources-store.js';
+import { calendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 
 /**
@@ -58,7 +59,7 @@ import { EpmError } from '../lib/errors.js';
  */
 
 const gridQuery = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: calendarDay().optional(),
   weeks: z.coerce.number().int().min(1).max(52).optional(),
   group: z.enum(['team', 'role', 'department', 'none']).optional(),
   teamId: z.string().optional(),
@@ -152,7 +153,7 @@ export const resourceRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.forbidden('Planning resources needs the resource planning permission.');
       }
       const query = z
-        .object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), weeks: z.coerce.number().int().min(1).max(104).optional() })
+        .object({ from: calendarDay().optional(), weeks: z.coerce.number().int().min(1).max(104).optional() })
         .parse(request.query);
       return personAvailability(id, { ...query, full: manager || self });
     },
@@ -255,7 +256,7 @@ export const resourceRoutes: FastifyPluginAsync = async (app) => {
   app.get('/resources/capacity/cell', async (request) => {
     await requirePlanner(request);
     const query = gridQuery
-      .extend({ key: z.string().min(1).max(200), week: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })
+      .extend({ key: z.string().min(1).max(200), week: calendarDay() })
       .parse(request.query);
     const { key, week, ...rest } = query;
     return cellDetail(key, week, rest as GridQuery);

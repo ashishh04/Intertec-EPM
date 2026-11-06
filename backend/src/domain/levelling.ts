@@ -52,6 +52,8 @@ export interface LevelItem {
   hours: number;
   start: number;
   due: number;
+  /** Working days it takes, as OpenProject holds it; worked out from its dates where absent. */
+  duration?: number | null;
   scheduleManually: boolean;
   ignoreNonWorkingDays: boolean;
   /** Why it may not move; null when it may. */
@@ -143,7 +145,10 @@ export function level(input: LevelInput): LevelOutcome {
     const bound = lag > 0 ? working.add(working.onOrBefore(start - 1), -(lag - 1)) - 1 : start - 1;
     return counterOf(predecessor).onOrBefore(bound);
   };
-  const lengthOf = (item: LevelItem, start = item.start, due = item.due) => counterOf(item).span(start, due);
+  // OpenProject's own figure first: dates that have just gained a holiday count
+  // a working day short until it re-dates them, and work moved on that count
+  // would lose the day.
+  const lengthOf = (item: LevelItem) => (item.duration && item.duration > 0 ? item.duration : counterOf(item).span(item.start, item.due));
   const dueFor = (item: LevelItem, start: number, length: number) => counterOf(item).add(start, length - 1);
 
   const preds = new Map<number, LevelRelation[]>();
@@ -271,9 +276,12 @@ export function level(input: LevelInput): LevelOutcome {
     const limit = Math.min(startBound, earliest + input.horizonDays);
 
     let chosen: { start: number; due: number; length: number } | null = null;
-    // Work that should have started already, and has not, keeps its dates if
-    // they still fit: levelling moves it for capacity, never for being late.
-    if (item.start < earliest && earliest === counter.onOrAfter(Math.max(item.start, today)) && item.due <= endBound && fits(item, item.start, item.due)) {
+    // Work nothing pushes keeps its dates if they still fit: levelling moves it
+    // for capacity, never for being late, and never to tidy its dates. Without
+    // this, work whose finish had become a holiday was re-dated by the search
+    // below to a day sooner: a move of no working days, proposed "to fit its
+    // assignee" for anything in the network, assigned or not.
+    if (earliest === counter.onOrAfter(Math.max(item.start, today)) && item.due <= endBound && fits(item, item.start, item.due)) {
       chosen = { start: item.start, due: item.due, length };
     }
     for (let start = earliest; start <= limit && !chosen; start = counter.onOrAfter(start + 1)) {
@@ -289,7 +297,7 @@ export function level(input: LevelInput): LevelOutcome {
     }
     if (!chosen) {
       // No room: it stays where its predecessors allow, and the clash is reported.
-      chosen = { start: earliest, due: dueFor(item, earliest, length), length };
+      chosen = { start: earliest, due: earliest === item.start ? item.due : dueFor(item, earliest, length), length };
       conflicts.push({ id: item.id, reason: startBound < earliest + input.horizonDays ? 'pinned' : 'horizon' });
     }
     book(item, chosen.start, chosen.due);

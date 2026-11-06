@@ -69,7 +69,7 @@ export default function AssistantPolicyPage() {
               <div className="space-y-4">
                 {[
                   ['enabled', t('Pragnya is available'), t('Switched off, nobody can ask it anything.')],
-                  ['allowFinance', t('Answers finance questions'), t('Cash flow, margin, forecast and earned value — still only for people allowed to see finance.')],
+                  ['allowFinance', t('Answers finance questions'), t('Budgets, spend, costs, expense amounts, cash flow, margin and earned value, in every answer — still only for people allowed to see finance.')],
                   ['allowPeople', t('Answers questions about people’s workload'), t('Team workload, over-allocation and everyone’s timesheets — still only for people allowed to see them.')],
                 ].map(([key, label, hint]) => (
                   <label key={key} className="flex items-start gap-3 text-sm">

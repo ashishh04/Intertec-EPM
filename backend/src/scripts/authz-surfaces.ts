@@ -116,10 +116,36 @@ export async function surfaceChecks(ctx: SurfaceContext): Promise<void> {
   // 126-142). With nobody in the project but the administrator there is nobody
   // to tell, so those are made only then. It is also what every "restricted
   // cannot" below rests on.
+  //
+  // Nobody here means no person. EPM's own accounts are members without being
+  // people, and no one reads their mail: the service account is in every
+  // project by design (NFR06), the automation account wherever a rule has
+  // acted. The members list already leaves out the ones the server recognises
+  // (service-account.ts, nonPersonIds), but a server still running on an
+  // administrator's key does not recognise the service account, so it is also
+  // named here as the add-on defines it (zzz_epm_service.rb): the account with
+  // the service login that is not an administrator.
+  const { SERVICE_LOGIN, nonPersonIds } = await import('../domain/service-account.js');
+  const accounts = await json<{ id?: string; login?: string; admin?: boolean }[]>(await call('/accounts', { cookie: admin }));
+  const notPeople = new Set<string>(await nonPersonIds().catch(() => new Set<string>()));
+  for (const account of Array.isArray(accounts) ? accounts : []) {
+    if (account.id && account.login === SERVICE_LOGIN && account.admin !== true) notPeople.add(account.id);
+  }
   const membersResponse = await call(`/projects/${projectId}/members`, { cookie: admin });
   const members = membersResponse.ok ? await json<{ userId: string }[]>(membersResponse) : undefined;
-  const quiet = Array.isArray(members) && members.every((member) => member.userId === adminId);
+  const quiet =
+    Array.isArray(members) && members.every((member) => member.userId === adminId || notPeople.has(member.userId));
   check('nobody but the administrator belongs to the private project', quiet, true);
+  // On such a server the announcements below reach the service account too.
+  // Its address cannot be delivered to, and what was queued for it is taken out.
+  const notPeopleIds = [...notPeople];
+  if (notPeopleIds.length > 0) {
+    cleanup.onCleanup(async () => {
+      await prisma.emailOutbox
+        .deleteMany({ where: { recipientId: { in: notPeopleIds }, createdAt: { gte: new Date(stamp) } } })
+        .catch(() => undefined);
+    });
+  }
 
   // A project the restricted account can see, for the "move it somewhere they
   // cannot" cases: a record made where they may, then pointed at the private

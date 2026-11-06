@@ -120,6 +120,37 @@ export function redactSecrets(text: string): string {
   return out;
 }
 
+/*
+ * Every currency code the runtime knows, less those that read as words in a
+ * capitalised heading ("TOP 10 risks"), and the signs and Arabic names people
+ * type. Codes match in capitals only, so "all 5 tasks" is left alone.
+ */
+const WORD_CODES = new Set(['ALL', 'BAM', 'CUP', 'GEL', 'MOP', 'PEN', 'SOS', 'TOP']);
+const CURRENCY = String.raw`(?:(?<![A-Za-z])(?:${Intl.supportedValuesOf('currency')
+  .filter((code) => !WORD_CODES.has(code))
+  .join('|')})(?![A-Za-z])|[$€£¥₹]|درهم|ريال|دولار|يورو|دينار|جنيه)`;
+const FIGURE = String.raw`[0-9٠-٩](?:[0-9٠-٩,.٬٫]*[0-9٠-٩])?`;
+// A letter after the figure is another word ("CAD 3D"), unless it is its size ("$12k").
+const AMOUNT = new RegExp(String.raw`${CURRENCY}\s?${FIGURE}(?:[kKmM]|bn)?(?![A-Za-z])|${FIGURE}\s?${CURRENCY}`, 'g');
+
+/**
+ * Masks amounts of money in a tool's result, for when finance is switched off.
+ *
+ * The tools leave out every field that carries money; this is the net under
+ * that, for an amount inside a sentence: an expense approval's title, a health
+ * override's reason, a task subject, a wiki page. People type amounts in more
+ * ways than this can know, so it narrows what gets through without promising
+ * that nothing does.
+ */
+export function withoutAmounts<T>(value: T): T {
+  if (typeof value === 'string') return value.replace(AMOUNT, '[amount hidden]') as T;
+  if (Array.isArray(value)) return value.map(withoutAmounts) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withoutAmounts(item)])) as T;
+  }
+  return value;
+}
+
 /** Who asked Pragnya how much, with which lookups, over the last days — never what they asked. */
 export async function usage(days: number): Promise<Omit<AssistantUsageRow, 'userName'>[]> {
   const since = new Date(Date.now() - days * 86_400_000);

@@ -2320,3 +2320,73 @@ model PasswordResetToken {
   @@index([openProjectId, createdAt])
   @@map("password_reset_tokens")
 }
+
+/// Two-factor authentication: one person's authenticator app (TOTP, `auth/totp.ts`).
+///
+/// EPM's own, because EPM's session is the door people come through. OpenProject
+/// has TOTP devices too, but they guard only its own HTML sign-in, offer no API,
+/// and keep the secret in plain text.
+model UserMfa {
+  /// The OpenProject user id.
+  openProjectId  String            @id
+  /// The shared secret, encrypted at rest under EPM_MFA_KEY.
+  secret         String
+  /// Null until the person has proved a code from it: only then does it guard sign-in.
+  confirmedAt    DateTime?
+  /// The newest time step accepted. A code is good once (RFC 6238 §5.2).
+  lastUsedStep   Int               @default(0)
+  lastUsedAt     DateTime?
+  /// Wrong codes in a row, across sign-in attempts, and the lock they earn.
+  failedAttempts Int               @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  recoveryCodes  MfaRecoveryCode[]
+
+  @@map("user_mfa")
+}
+
+/// A one-time code for when the authenticator is lost. Only a SHA-256 of it is
+/// kept: eighty random bits need no key, so a lost EPM_MFA_KEY spares these.
+model MfaRecoveryCode {
+  id            String    @id @default(cuid())
+  openProjectId String
+  mfa           UserMfa   @relation(fields: [openProjectId], references: [openProjectId], onDelete: Cascade)
+  codeHash      String
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@unique([openProjectId, codeHash])
+  @@map("mfa_recovery_codes")
+}
+
+/// A password accepted, a code still owed. Not a session, on purpose: nothing
+/// that reads sessions can mistake someone halfway through for someone signed
+/// in. The tokens wait here, encrypted as a session's are, and become a session
+/// when the code is right.
+model MfaChallenge {
+  id             String    @id
+  openProjectId  String
+  accessToken    String
+  refreshToken   String?
+  tokenExpiresAt DateTime?
+  userAgent      String?
+  attempts       Int       @default(0)
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+
+  @@index([openProjectId])
+  @@index([expiresAt])
+  @@map("mfa_challenges")
+}
+
+/// Which EPM roles must use two-factor authentication. One row; none means no
+/// role has to, and anyone may still choose to.
+model MfaPolicy {
+  id            Int      @id @default(1)
+  requiredRoles String[] @default([])
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("mfa_policy")
+}

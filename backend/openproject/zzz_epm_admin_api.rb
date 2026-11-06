@@ -248,8 +248,12 @@ Rails.application.config.to_prepare do
 
     # ------------------------------------------------------------- permissions
 
+    # In English, like every other description this add-on serves: EPM translates
+    # what it shows from its own catalogue, which is keyed on the English. This
+    # controller sets no language of its own, so without this a request could
+    # pick up whichever one the thread last served.
     def permissions
-      render json: permission_modules
+      render json: I18n.with_locale(:en) { permission_modules }
     end
 
     # ------------------------------------------------------------------- days

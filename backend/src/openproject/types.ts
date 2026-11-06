@@ -72,6 +72,7 @@ export interface OpWorkPackage extends HalResource {
   derivedDueDate?: string | null;
   estimatedTime?: string | null;
   derivedEstimatedTime?: string | null;
+  remainingTime?: string | null;
   spentTime?: string | null;
   percentageDone?: number | null;
   createdAt: string;

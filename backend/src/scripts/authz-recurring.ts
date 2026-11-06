@@ -55,6 +55,7 @@ export async function recurringChecks(ctx: RecurringContext): Promise<void> {
   const { prisma } = await import('../db/prisma.js');
   const { runAsSystem } = await import('../auth/context.js');
   const { openProject } = await import('../openproject/client.js');
+  const { versionIdOf, versionLinks } = await import('../openproject/versions.js');
   const upstream = <T = Json>(path: string, init: Record<string, unknown> = {}) => runAsSystem(() => openProject.request<T>(path, init));
   const json = async (path: string, options: CallOptions = {}): Promise<Json> => {
     const response = await call(path, options);
@@ -140,7 +141,9 @@ export async function recurringChecks(ctx: RecurringContext): Promise<void> {
           ...(priority ? { priority: { href: `/api/v3/priorities/${priority.id}` } } : {}),
           assignee: { href: `/api/v3/users/${adminId}` },
           responsible: { href: `/api/v3/users/${adminId}` },
-          ...(version.id ? { version: { href: `/api/v3/versions/${version.id}` } } : {}),
+          // Through both of the version's names: `version` alone is ignored
+          // where a work package may have several.
+          ...(version.id ? versionLinks(String(version.id)) : {}),
           ...(listField && option ? { [listField]: { href: option } } : {}),
         },
       },
@@ -150,6 +153,8 @@ export async function recurringChecks(ctx: RecurringContext): Promise<void> {
   const templateId = String(madeTemplate.id ?? '');
   if (!templateId) return;
   const template = await upstream<Json>(`/work_packages/${templateId}`);
+  // Or BR-106 below compares two empty sprints and proves nothing.
+  check('the template is in the version made for it', versionIdOf(template._links) ?? null, version.id ? String(version.id) : null);
 
   // --- Who may ----------------------------------------------------------------
   const monday = nextWeekday(todayIso(), 1);
@@ -210,13 +215,16 @@ export async function recurringChecks(ctx: RecurringContext): Promise<void> {
 
   // --- BR-106 ---------------------------------------------------------------
   const unticked = checklist.replace('- [x] Logs reviewed', '- [ ] Logs reviewed');
-  const inherited = ['type', 'priority', 'assignee', 'responsible', 'category', 'version', ...(listField ? [listField] : [])];
+  const inherited = ['type', 'priority', 'assignee', 'responsible', 'category', ...(listField ? [listField] : [])];
   let matching = 0;
   for (const row of rows) {
     const instance = await upstream<Json>(`/work_packages/${row.workPackageId}`);
     const day = row.occurrence.toISOString().slice(0, 10);
     const differs = [
       ...inherited.filter((key) => !same(href(instance, key), href(template, key))),
+      // The sprint, read as EPM reads it: where a work package may have several
+      // versions there is no `version` link, so comparing that compared nothing.
+      ...(versionIdOf(instance._links) === versionIdOf(template._links) ? [] : ['version']),
       ...(instance.subject === `${template.subject} (${day})` ? [] : ['subject']),
       ...(instance.description?.raw === unticked ? [] : ['description']),
       ...(instance.estimatedTime === template.estimatedTime ? [] : ['estimate']),
@@ -250,7 +258,8 @@ export async function recurringChecks(ctx: RecurringContext): Promise<void> {
   let dailyDetail: Json = {};
   for (let attempt = 0; attempt < 20; attempt += 1) {
     dailyDetail = await json(`/task-series/${dailyId}`, { cookie: admin });
-    if ((dailyDetail.instanceCount ?? 0) >= 4) break;
+    // The next date is written when the pass ends, just after its last task.
+    if ((dailyDetail.instanceCount ?? 0) >= 4 && dailyDetail.nextOccurrence === plus(todayIso(), 4)) break;
     await pause(1_000);
   }
   check(

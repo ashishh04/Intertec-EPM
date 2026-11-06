@@ -9,8 +9,9 @@ import { t } from '@/lib/i18n';
  * than a number someone typed.
  *
  * Each row carries its own status colour and dot, so the plate says which
- * project is the problem rather than just how full the bars are. Figures are
- * illustrative and match the product preview further down the page.
+ * project is the problem rather than just how full the bars are. Bars are
+ * illustrative, and they say so in words: the "82%" that used to sit in the ring
+ * read on a public page as a result the product had achieved.
  */
 
 /** r=42 in a 100-unit box. Kept as a constant because the dash maths needs it. */
@@ -114,11 +115,8 @@ export function PortfolioPlate() {
                 }
               />
             </svg>
-            <span className="absolute inset-0 flex flex-col items-center justify-center gap-[0.45em]">
-              <span className="font-display text-[clamp(14px,1.6vw,28px)] font-semibold leading-none tracking-tight text-white">
-                82%
-              </span>
-              <span className={`uppercase tracking-[0.16em] text-white/40 ${MICRO}`}>{t('On track')}</span>
+            <span className="absolute inset-0 flex items-center justify-center px-[16%] text-center font-display text-[clamp(9px,0.95vw,16px)] font-semibold leading-tight tracking-tight text-white">
+              {t('On track')}
             </span>
           </div>
 
@@ -132,8 +130,8 @@ export function PortfolioPlate() {
                 <div className={`flex items-center gap-[3%] ${LABEL}`}>
                   <span className={`h-[0.5em] w-[0.5em] shrink-0 rounded-full ${KIND[row.kind].dot}`} />
                   <span className="truncate text-white/70">{row.label}</span>
-                  <span className="ms-auto shrink-0 font-mono tabular-nums text-white/45">
-                    {row.pct}%
+                  <span className="ms-auto shrink-0 text-white/45">
+                    {row.kind === 'risk' ? t('At risk') : t('On track')}
                   </span>
                 </div>
                 <span className="relative mt-[0.55em] block h-[5px] overflow-hidden rounded-full bg-white/[0.05] ring-1 ring-inset ring-white/[0.04]">

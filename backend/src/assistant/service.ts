@@ -13,13 +13,13 @@ import type {
 import type { Anthropic } from '@anthropic-ai/sdk';
 
 import { isAbort, streamChat, type ChatMessage, type CompletedToolCall } from './bedrock.js';
-import { ToolError, capResult, findTool, toolAllowed, toolSchemas, type ToolAccess, type ToolContext } from './tools.js';
-import { blockedTopicIn, getPolicy, questionsToday, redactSecrets } from './policy.js';
+import { GUARDRAIL, ToolError, capResult, chipLabel, findTool, toolAllowed, toolSchemas, type ToolAccess, type ToolContext } from './tools.js';
+import { blockedTopicIn, getPolicy, questionsToday, redactSecrets, withoutAmounts } from './policy.js';
 import { permissionsFor } from '../auth/guard.js';
 import { ROLE_TEXT, type AppRole } from '../auth/roles.js';
 import { withAudit } from '../domain/audit.js';
 import { isExternal } from '../domain/external-access.js';
-import { message as journalMessage } from '../lib/i18n.js';
+import { contextConventions, contextLanguage, message as messageOf, render, renderStored, t, type Message } from '../lib/i18n.js';
 
 /**
  * One turn of Pragnya.
@@ -32,8 +32,9 @@ import { message as journalMessage } from '../lib/i18n.js';
  *
  * Persistence is deliberately two-phase. The user's message is written before
  * anything is streamed, so a failed turn still shows what was asked. The
- * assistant's message is written only once it is complete, so the history
- * never carries half a reply.
+ * assistant's message is written once it is complete, or when the person stops
+ * it: what they stopped on is what they read, and it stays with the question.
+ * A reply that breaks off by itself is not kept, and is offered again instead.
  */
 
 /** Rounds of tool use before the model has to answer. */
@@ -75,13 +76,24 @@ export function toConversation(row: ConversationRow): AssistantConversation {
   };
 }
 
+/**
+ * A stored message for the person reading it. The chips and a guardrail's
+ * refusal are written out in their language, whatever it was when they asked;
+ * the answer itself stays as the model wrote it.
+ */
 export function toMessage(row: MessageRow): AssistantMessage {
+  const calls = Array.isArray(row.toolCalls) ? (row.toolCalls as unknown as AssistantToolCall[]) : [];
+  const guardrail = calls.find((call) => call.name === GUARDRAIL);
   return {
     id: row.id,
     conversationId: row.conversationId,
     role: row.role === 'assistant' ? 'assistant' : 'user',
-    content: row.content,
-    toolCalls: Array.isArray(row.toolCalls) ? (row.toolCalls as unknown as AssistantToolCall[]) : [],
+    content: guardrail ? renderStored(row.content, guardrail.arguments?.refusal) : row.content,
+    toolCalls: calls.map((call) =>
+      call.name === GUARDRAIL
+        ? { ...call, label: chipLabel(call.name), arguments: {} }
+        : { ...call, label: chipLabel(call.name, call.arguments ?? {}) },
+    ),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -121,6 +133,9 @@ interface Asker {
   role: AppRole;
   /** The organisation's own guidance, from the assistant settings. */
   guidance: string | null;
+  /** The administrators' switches. The tools hold to them; this lets Pragnya say why. */
+  allowFinance: boolean;
+  allowPeople: boolean;
 }
 
 /**
@@ -169,18 +184,27 @@ function systemPrompt(asker: Asker): string {
   const displayName = asker.name;
   const today = new Date().toISOString().slice(0, 10);
   const who = displayName || 'a signed-in colleague';
+  const language = contextLanguage() === 'ar' ? 'Arabic' : 'English';
   return [
     "You are Pragnya, the assistant inside EPM, Intertec Systems' project and delivery platform.",
     `Today is ${today}. You are speaking privately with ${who}.`,
     '',
     'Answering:',
+    `- Answer in the language the person writes in. They read EPM in ${language}: use it when their message does not settle it.`,
     '- Answer only from what the tools return. If you have not looked something up, look it up.',
+    "- Every question about EPM's data gets its own lookups, made now. What earlier answers in this conversation were",
+    '  based on is no longer held and may be out of date: take no figure, status, list or name from them, even one you',
+    '  gave a moment ago. Only a request about the wording of an earlier answer (shorter, translated) needs no lookup.',
     '- Never invent numbers, names, dates or task keys. If a tool returns nothing, say nothing was found.',
-    '- Cite task keys exactly as returned (for example `WP-14`) and use project names as returned.',
-    '- Be concise. Short markdown only: bullets, bold, inline code for keys. No headings.',
-    '- Link with relative EPM routes only: /tasks/{id}, /projects/{id}, /sprints/{id}, /meetings/{id},',
-    '  /wiki/{slug}, /news, /time-and-costs, /timesheets, /expenses/{id}, /approvals, /finance,',
-    '  /scenarios/{id}, /resources, /insights/earned-value. Never link elsewhere, and never send someone',
+    '- Write every amount of money with the currency the lookup gave beside it, for example AED 12,000. Never write',
+    '  $ or any other currency of your own, and never convert.',
+    '- Cite task keys exactly as returned (for example `WP-14`) and use project names as returned. Where a lookup gives',
+    '  a task no key, name it by its subject: never make a key up from its id.',
+    '- Be concise. Short markdown only: bullets, bold, inline code for keys. No headings and no tables: a list of rows is bullets.',
+    '- Give each link as a markdown link with a relative EPM route, for example [WP-14 Site survey](/tasks/14), using',
+    '  a link a lookup returned as it is: /tasks/{id}, /projects/{id}, /agile?sprint={id}, /sprints, /meetings/{id},',
+    '  /wiki/{slug}, /news, /my-time, /time-and-costs, /timesheets, /expenses/{id}, /approvals, /finance,',
+    '  /forecasts?project={id}, /scenarios/{id}, /resources, /insights/earned-value. Never link elsewhere, and never send someone',
     '  to another product for something EPM holds — meetings, announcements and the wiki all live here.',
     '- For how-to questions you may describe where things are in EPM: Tasks has Import CSV and Export;',
     '  My Time and Timesheets for logging and submitting time; Expenses for claims; Approvals for',
@@ -223,6 +247,24 @@ function systemPrompt(asker: Asker): string {
     '',
     ...roleSection(asker.role),
     '',
+    ...(asker.allowFinance
+      ? []
+      : [
+          'Finance is switched off:',
+          '- This organisation has asked you not to answer finance questions. No lookup gives you budgets, spend, costs,',
+          '  expense amounts or earned value, and "[amount hidden]" marks an amount kept from you.',
+          '- If asked about money, say you do not answer finance questions here and that their manager or administrator',
+          '  can help. Never estimate a figure, work one out, or repeat one from earlier in this conversation.',
+          '',
+        ]),
+    ...(asker.allowPeople
+      ? []
+      : [
+          'Workload is switched off:',
+          "- This organisation has asked you not to answer questions about people's workload. Say so if asked: never work",
+          '  it out from tasks, hours or anything else, and never repeat it from earlier in this conversation.',
+          '',
+        ]),
     ...(asker.admin
       ? [
           'Speaking with an administrator:',
@@ -289,29 +331,80 @@ async function loadOrCreateConversation(
   });
 }
 
-async function history(conversationId: string, beforeId: string): Promise<ChatMessage[]> {
+/** Stands in for a past lookup's result when the conversation goes back to the model. */
+const RESULT_NOT_KEPT = 'No longer held. Look it up again for anything asked now.';
+
+/**
+ * The stored turns, as the model reads them on a later question.
+ *
+ * The results of past lookups are not replayed: they are large, and the answer
+ * already reflects them. The calls are, with a note where each result was.
+ * Answers alone read as a conversation in which the assistant only ever talks,
+ * and the model carried on as it had seemingly always done: well into a long
+ * conversation it answered from memory, with no lookup and no chip, where the
+ * same question in a fresh one looked it up. Only tools offered now are shown,
+ * so that one since taken away is not remembered as available.
+ *
+ * With finance off, an amount in an earlier answer goes the way of any other:
+ * the model does not get it back from a time when finance was on.
+ */
+export function replayTurns(
+  rows: Pick<MessageRow, 'id' | 'role' | 'content' | 'toolCalls'>[],
+  offered: ReadonlySet<string>,
+  allowFinance: boolean,
+): ChatMessage[] {
+  const callsOf = (row: (typeof rows)[number]) =>
+    row.role === 'assistant' && Array.isArray(row.toolCalls)
+      ? (row.toolCalls as unknown as AssistantToolCall[]).filter((call) => offered.has(call.name))
+      : [];
+
+  // An empty turn is not a message the API will take, and carries nothing.
+  const turns = rows.filter((row) => row.content.trim() !== '' || callsOf(row).length > 0);
+
+  // The window is the last N turns, so it can open mid-exchange on an
+  // assistant reply. A conversation has to start with a user turn, and an
+  // answer with nothing before it is not worth the tokens anyway.
+  const first = turns.findIndex((row) => row.role !== 'assistant');
+
+  return (first < 0 ? [] : turns.slice(first)).flatMap((row): ChatMessage[] => {
+    const content = allowFinance ? row.content : withoutAmounts(row.content);
+    if (row.role !== 'assistant') return [{ role: 'user', content }];
+
+    const calls = callsOf(row);
+    // Their own ids: these never ran in this request, and a stored id can repeat.
+    const uses = calls.map((call, index) => ({ id: `earlier_${row.id}_${index}`, name: call.name, input: call.arguments ?? {} }));
+    return [
+      ...(uses.length > 0
+        ? ([
+            { role: 'assistant', content: uses.map((use) => ({ type: 'tool_use', ...use })) },
+            {
+              role: 'user',
+              content: uses.map((use, index) => ({
+                type: 'tool_result',
+                tool_use_id: use.id,
+                content: RESULT_NOT_KEPT,
+                is_error: calls[index]?.status === 'failed',
+              })),
+            },
+          ] satisfies ChatMessage[])
+        : []),
+      ...(content.trim() !== '' ? [{ role: 'assistant' as const, content }] : []),
+    ];
+  });
+}
+
+async function history(
+  conversationId: string,
+  beforeId: string,
+  offered: ReadonlySet<string>,
+  allowFinance: boolean,
+): Promise<ChatMessage[]> {
   const rows = await prisma.assistantMessage.findMany({
     where: { conversationId, id: { not: beforeId } },
     orderBy: { createdAt: 'desc' },
     take: HISTORY_LIMIT,
   });
-
-  // Stored assistant turns carry their text only. The tool exchanges behind
-  // them are not replayed: they are large, and the answer already reflects them.
-  const earlier: ChatMessage[] = rows
-    .reverse()
-    // An empty turn is not a message the API will take, and carries nothing.
-    .filter((row) => row.content.trim() !== '')
-    .map((row) => ({
-      role: row.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-      content: row.content,
-    }));
-
-  // The window is the last N turns, so it can open mid-exchange on an
-  // assistant reply. A conversation has to start with a user turn, and an
-  // answer with nothing before it is not worth the tokens anyway.
-  while (earlier.length > 0 && earlier[0]?.role !== 'user') earlier.shift();
-  return earlier;
+  return replayTurns(rows.reverse(), offered, allowFinance);
 }
 
 /**
@@ -333,7 +426,7 @@ async function runTool(
   const chip: AssistantToolCall = {
     id: call.id,
     name: call.name,
-    label: tool ? tool.label(args) : `Tried ${call.name}`,
+    label: chipLabel(call.name, args),
     arguments: args,
     status: 'running',
   };
@@ -361,7 +454,7 @@ async function runTool(
     const value = await tool.execute(context, args);
     chip.status = 'done';
     emit({ type: 'tool', call: { ...chip } });
-    return { chip, result: capResult(value) };
+    return { chip, result: capResult(access.allowFinance ? value : withoutAmounts(value)) };
   } catch (error) {
     if (isAbort(error)) throw error;
     chip.status = 'failed';
@@ -377,8 +470,13 @@ async function runTool(
 
 export async function chat(options: ChatOptions): Promise<void> {
   const { app, request, userId, message, emit, signal } = options;
-  // Employee until permissions are read below: the narrowest role.
-  const context: ToolContext = { app, request, userId, role: 'employee' };
+  // The narrowest until they are read below: an employee, with nothing allowed.
+  const context: ToolContext = { app, request, userId, role: 'employee', allowFinance: false, allowPeople: false };
+
+  // Out here because a stopped turn keeps what it had got to.
+  const chips: AssistantToolCall[] = [];
+  const usage = { promptTokens: 0, completionTokens: 0 };
+  let text = '';
 
   let conversation: ConversationRow;
   let userMessageId: string;
@@ -400,42 +498,38 @@ export async function chat(options: ChatOptions): Promise<void> {
     // Administrators' guardrails, enforced here rather than asked of the model.
     const policy = await getPolicy();
     const refusal = !policy.enabled
-      ? 'Pragnya has been switched off by your administrator.'
+      ? messageOf('Pragnya has been switched off by your administrator.')
       : (await isExternal(userId))
-        ? 'Pragnya is not available in the portal.'
+        ? messageOf('Pragnya is not available in the portal.')
         : policy.dailyLimit > 0 && (await questionsToday(userId)) > policy.dailyLimit
-          ? `You have asked ${policy.dailyLimit} questions today, the most your administrator allows. Please try again tomorrow.`
+          ? messageOf('You have asked {limit, plural, one {# question} other {# questions}} today, the most your administrator allows. Please try again tomorrow.', { limit: policy.dailyLimit })
           : blockedTopicIn(message, policy)
-            ? 'That is a topic your organisation has asked me not to discuss. Please speak to your manager or administrator.'
+            ? messageOf('That is a topic your organisation has asked me not to discuss. Please speak to your manager or administrator.')
             : null;
     if (refusal) {
       await refuse(conversation.id, userId, refusal, emit);
       return;
     }
 
-    const [name, earlier, permissions] = await Promise.all([
-      displayNameFor(context),
-      history(conversation.id, userMessageId),
-      permissionsFor(request),
-    ]);
+    const [name, permissions] = await Promise.all([displayNameFor(context), permissionsFor(request)]);
     const can = (permission: string) =>
       (permissions.global as Record<string, boolean>)[permission] === true ||
       [...permissions.byProject.values()].some((set) => (set as Record<string, boolean>)[permission] === true);
     context.role = permissions.role;
+    context.allowFinance = policy.allowFinance;
+    context.allowPeople = policy.allowPeople;
     const access: ToolAccess = { can, allowFinance: policy.allowFinance, allowPeople: policy.allowPeople, role: permissions.role };
     const admin = permissions.role === 'admin' || ['users:manage', 'system:manage', 'approvals:configure', 'rules:configure'].some((permission) => (permissions.global as Record<string, boolean>)[permission] === true);
+
+    // Only the tools this person may use, and the administrators allow.
+    const tools = toolSchemas(access);
+    const earlier = await history(conversation.id, userMessageId, new Set(tools.map((tool) => tool.name)), policy.allowFinance);
 
     // The standing instructions are a top-level field, not a turn in the
     // transcript, so nothing the model is told about itself can be mistaken
     // for something a person said.
-    const system = systemPrompt({ name, admin, role: permissions.role, guidance: policy.guidance });
+    const system = systemPrompt({ name, admin, role: permissions.role, guidance: policy.guidance, allowFinance: policy.allowFinance, allowPeople: policy.allowPeople });
     const messages: ChatMessage[] = [...earlier, { role: 'user', content: message }];
-
-    // Only the tools this person may use, and the administrators allow.
-    const tools = toolSchemas(access);
-    const chips: AssistantToolCall[] = [];
-    const usage = { promptTokens: 0, completionTokens: 0 };
-    let text = '';
 
     for (let round = 0; round < MAX_ROUNDS; round += 1) {
       const last = round === MAX_ROUNDS - 1;
@@ -498,28 +592,11 @@ export async function chat(options: ChatOptions): Promise<void> {
     }
 
     if (text.trim() === '') {
-      text = 'I could not find anything to answer that with.';
+      text = t(contextLanguage(), 'I could not find anything to answer that with.');
       emit({ type: 'delta', text });
     }
 
-    text = redactSecrets(text);
-    const [saved] = await prisma.$transaction([
-      prisma.assistantMessage.create({
-        data: {
-          conversationId: conversation.id,
-          role: 'assistant',
-          content: text,
-          toolCalls: chips as unknown as Prisma.InputJsonValue,
-          promptTokens: usage.promptTokens,
-          outputTokens: usage.completionTokens,
-        },
-      }),
-      // Bumps `updatedAt`, which is what orders the conversation list.
-      prisma.assistantConversation.update({
-        where: { id: conversation.id },
-        data: { updatedAt: new Date() },
-      }),
-    ]);
+    const saved = await keepAnswer(conversation.id, redactSecrets(text), chips, usage);
 
     // Every answer is attributable (BR-503): who asked, which lookups ran — never the words.
     await withAudit(async () => null, {
@@ -527,15 +604,20 @@ export async function chat(options: ChatOptions): Promise<void> {
       entityType: 'assistant',
       entityId: conversation.id,
       action: 'assistant.answered',
-      summary: journalMessage('Pragnya answered a question with {count} lookups.', { count: chips.length }),
+      summary: messageOf('Pragnya answered a question with {count} lookups.', { count: chips.length }),
       after: { tools: chips.map((chip) => chip.name), tokens: usage.promptTokens + usage.completionTokens },
     }).catch(() => undefined);
 
     emit({ type: 'done', message: toMessage(saved) });
   } catch (error) {
     if (isAbort(error) || signal.aborted) {
-      // The person left; there is nobody to tell, and nothing to record.
-      request.log.info({ conversationId: conversation.id }, 'Assistant turn abandoned');
+      // Stopped, or the person left: there is nobody to tell, but what they had
+      // already read belongs with the question they asked. It was dropped once,
+      // and the next read of the conversation took it off their screen.
+      request.log.info({ conversationId: conversation.id }, 'Assistant turn stopped');
+      await keepStopped(conversation.id, userId, text, chips, usage).catch((failure: unknown) =>
+        request.log.error({ err: failure }, 'Assistant could not keep a stopped answer'),
+      );
       return;
     }
     if (error instanceof EpmError && error.status >= 500) {
@@ -547,15 +629,54 @@ export async function chat(options: ChatOptions): Promise<void> {
   }
 }
 
-/** Answers with a guardrail's refusal instead of asking the model, and keeps it like any answer. */
-async function refuse(conversationId: string, userId: string, text: string, emit: ChatOptions['emit']): Promise<void> {
-  emit({ type: 'delta', text });
+/** Writes the answer, and bumps `updatedAt`, which is what orders the conversation list. */
+async function keepAnswer(conversationId: string, text: string, chips: AssistantToolCall[], usage: { promptTokens: number; completionTokens: number }) {
+  const [saved] = await prisma.$transaction([
+    prisma.assistantMessage.create({
+      data: {
+        conversationId,
+        role: 'assistant',
+        content: text,
+        toolCalls: chips as unknown as Prisma.InputJsonValue,
+        promptTokens: usage.promptTokens,
+        outputTokens: usage.completionTokens,
+      },
+    }),
+    prisma.assistantConversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    }),
+  ]);
+  return saved;
+}
+
+/** Keeps a reply as far as it got. Stopped before anything arrived, there is nothing to keep. */
+async function keepStopped(conversationId: string, userId: string, text: string, chips: AssistantToolCall[], usage: { promptTokens: number; completionTokens: number }): Promise<void> {
+  if (text.trim() === '' && chips.length === 0) return;
+  await keepAnswer(conversationId, redactSecrets(text).trimEnd(), chips, usage);
+  await withAudit(async () => null, {
+    actorId: userId,
+    entityType: 'assistant',
+    entityId: conversationId,
+    action: 'assistant.stopped',
+    summary: messageOf('Pragnya was stopped before finishing an answer, after {count} lookups.', { count: chips.length }),
+    after: { tools: chips.map((chip) => chip.name), tokens: usage.promptTokens + usage.completionTokens },
+  }).catch(() => undefined);
+}
+
+/**
+ * Answers with a guardrail's refusal instead of asking the model, and keeps it
+ * like any answer. In English like every record, with the message beside it so
+ * that it reads in the language of whoever opens it (`toMessage`).
+ */
+async function refuse(conversationId: string, userId: string, refusal: Message, emit: ChatOptions['emit']): Promise<void> {
+  emit({ type: 'delta', text: render(contextLanguage(), refusal, contextConventions()) });
   const saved = await prisma.assistantMessage.create({
     data: {
       conversationId,
       role: 'assistant',
-      content: text,
-      toolCalls: [{ id: 'guardrail', name: 'guardrail', label: 'Declined by your organisation’s settings', arguments: {}, status: 'done' }] as unknown as Prisma.InputJsonValue,
+      content: render('en', refusal),
+      toolCalls: [{ id: GUARDRAIL, name: GUARDRAIL, label: '', arguments: { refusal }, status: 'done' }] as unknown as Prisma.InputJsonValue,
     },
   });
   await withAudit(async () => null, {
@@ -563,14 +684,16 @@ async function refuse(conversationId: string, userId: string, text: string, emit
     entityType: 'assistant',
     entityId: conversationId,
     action: 'assistant.declined',
-    summary: journalMessage('Pragnya declined a question under the assistant settings.'),
+    summary: messageOf('Pragnya declined a question under the assistant settings.'),
   }).catch(() => undefined);
   emit({ type: 'done', message: toMessage(saved) });
 }
 
+/** What the person is told when a turn fails. The stream goes round the error handler, so it is written out here. */
 function safeMessage(error: unknown): string {
-  if (error instanceof EpmError) return error.message;
-  return 'The assistant ran into a problem. Please try again.';
+  const language = contextLanguage();
+  if (error instanceof EpmError) return error.toBody(language).message;
+  return t(language, 'The assistant ran into a problem. Please try again.');
 }
 
 function abortError(): Error {

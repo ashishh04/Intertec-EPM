@@ -5,7 +5,7 @@ import { Prisma, type TaskSeries as SeriesRow } from '@prisma/client';
 import { runAsAutomation, runAsSystem } from '../auth/context.js';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
-import { EpmError } from '../lib/errors.js';
+import { EpmError, OpenProjectError } from '../lib/errors.js';
 import {
   contextConventions,
   contextLanguage,
@@ -21,6 +21,7 @@ import { getCatalog } from '../mapping/catalog.js';
 import { projectIdentifiers } from '../mapping/projects.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
+import { versionIdOf, versionLinks } from '../openproject/versions.js';
 import type {
   RecurrencePreview,
   RecurrenceRule,
@@ -85,8 +86,8 @@ const CALENDAR_TTL_MS = 5 * 60_000;
 
 /** The custom fields Module 5 writes float into: worked out for each task, never copied. */
 const SCHEDULE_FIELD_NAMES = new Set(['Total float (days)', 'Free float (days)', 'On critical path']);
-/** Links a task copies from its template as they are. */
-const COPIED_LINKS = ['type', 'priority', 'assignee', 'responsible', 'category', 'version'] as const;
+/** Links a task copies from its template as they are. Its sprint is copied apart, in `instanceBody`. */
+const COPIED_LINKS = ['type', 'priority', 'assignee', 'responsible', 'category'] as const;
 
 /* -------------------------------------------------------------------------- */
 /* Small helpers                                                              */
@@ -130,6 +131,11 @@ export function workingCalendar(): Promise<WorkingCalendar> {
     calendarCache = undefined;
   });
   return value;
+}
+
+/** The calendar changed: a holiday just added must not wait out the cache to reach a preview. */
+export function forgetWorkingCalendar(): void {
+  calendarCache = undefined;
 }
 
 const calendarFor = (rule: RecurrenceRule) => (needsCalendar(rule) ? workingCalendar() : Promise.resolve(undefined));
@@ -283,6 +289,12 @@ export function instanceBody(
     const link = template._links?.[key];
     if (link && !Array.isArray(link) && link.href) links[key] = { href: link.href };
   }
+  // The template's sprint: its version, or its first target version where a
+  // work package may have several, written through both names
+  // (openproject/versions.ts). Copied as a `version` link, there was none
+  // there to copy, and every occurrence was made in no sprint.
+  const sprint = versionIdOf(template._links);
+  if (sprint) Object.assign(links, versionLinks(sprint));
   const body: Record<string, unknown> = {
     subject: instanceSubject(template.subject, occurrence),
     description: { format: 'markdown', raw: freshChecklist(template.description?.raw ?? '') },
@@ -370,9 +382,14 @@ async function relate(instanceId: number, templateId: number): Promise<boolean> 
         await pause(400 * (attempt + 1));
         continue;
       }
-      // A retried request whose first attempt landed answers that it exists.
+      // A retried request whose first attempt landed answers that it exists. Read
+      // from the collection: the work package's own address for it only redirects,
+      // which this client cannot follow, so the check could never find it.
       const existing = await runAsSystem(() =>
-        openProject.request<{ _embedded?: { elements?: { _links?: Record<string, HalLink> }[] } }>(`/work_packages/${instanceId}/relations`),
+        openProject.getCollection<{ _links?: Record<string, HalLink> }>('/relations', {
+          filters: [{ field: 'involved', operator: '=', values: [instanceId] }],
+          pageSize: 100,
+        }),
       ).catch(() => null);
       const linked = (existing?._embedded?.elements ?? []).some((relation) =>
         [relation._links?.to?.href, relation._links?.from?.href].includes(`/api/v3/work_packages/${templateId}`),
@@ -684,6 +701,42 @@ async function cancelForGoodReason(row: SeriesRow): Promise<void> {
 }
 
 /**
+ * Work packages just deleted: a series one of them was the template of ends with
+ * it, there and then. Left to the next run it stayed Active on a server with no
+ * automation account, where that run never comes, and with its template gone
+ * there was no page left to cancel it from.
+ */
+export async function cancelSeriesOfDeleted(workPackageIds: readonly (string | number)[]): Promise<void> {
+  if (workPackageIds.length === 0) return;
+  // The delete has happened: nothing here may turn it into an error.
+  const rows = await prisma.taskSeries
+    .findMany({ where: { templateWorkPackageId: { in: workPackageIds.map(Number) }, state: { not: 'cancelled' } } })
+    .catch((error: unknown) => {
+      appLog.warn({ err: error }, 'The series of deleted work packages could not be read');
+      return [];
+    });
+  for (const row of rows) await cancelForGoodReason(row);
+}
+
+/**
+ * Of these series, whose template the reader could not see, the ones whose
+ * template is really gone: deleted with its parent, say, or outside EPM. Asked with
+ * the service key, as the run itself asks; if that cannot be read, nothing is
+ * concluded.
+ */
+async function withoutTemplate(rows: readonly SeriesRow[]): Promise<SeriesRow[]> {
+  const found = await Promise.all(
+    rows.map((row) =>
+      readTemplate(row.templateWorkPackageId).then(
+        (template) => template === null,
+        () => false,
+      ),
+    ),
+  );
+  return rows.filter((_, index) => found[index]);
+}
+
+/**
  * Every active series whose next task is due, as one run — the timer's, behind
  * a lease so one server makes them. Bounded per tick; what is left waits.
  */
@@ -990,16 +1043,29 @@ function toView(row: SeriesRow, extras: { templateSubject?: string; instanceCoun
 async function visibleWorkPackages(ids: number[]): Promise<Map<number, WorkPackageHal>> {
   const unique = [...new Set(ids)];
   const found = new Map<number, WorkPackageHal>();
-  for (let at = 0; at < unique.length; at += 200) {
-    const slice = unique.slice(at, at + 200);
+  // The instance refuses the whole filter (400) if one id is of a work package
+  // that is gone or out of the reader's sight, and one deleted template then
+  // cost every series its name. A refused batch is halved until those stand
+  // alone, so it only costs calls when there is something to step around.
+  const read = async (slice: number[]): Promise<void> => {
+    let refused = false;
     const page = await openProject
       .getCollection<WorkPackageHal>('/work_packages', {
         filters: [{ field: 'id', operator: '=', values: slice.map(String) }],
         pageSize: slice.length,
       })
-      .catch(() => null);
+      .catch((error: unknown) => {
+        refused = error instanceof OpenProjectError && error.upstreamStatus === 400;
+        return null;
+      });
     for (const wp of page?._embedded?.elements ?? []) found.set(wp.id, wp);
-  }
+    if (refused && slice.length > 1) {
+      const middle = Math.ceil(slice.length / 2);
+      await read(slice.slice(0, middle));
+      await read(slice.slice(middle));
+    }
+  };
+  for (let at = 0; at < unique.length; at += 200) await read(unique.slice(at, at + 200));
   return found;
 }
 
@@ -1016,11 +1082,18 @@ const instanceCounts = async (ids: string[]) =>
 
 /** A project's series, active first (BR-107: the series as a set). */
 export async function listProjectSeries(projectId: string): Promise<TaskSeries[]> {
-  const rows = await prisma.taskSeries.findMany({ where: { projectId: Number(projectId) }, orderBy: [{ createdAt: 'desc' }] });
+  const read = () => prisma.taskSeries.findMany({ where: { projectId: Number(projectId) }, orderBy: [{ createdAt: 'desc' }] });
+  let rows = await read();
   const [counts, templates] = await Promise.all([
     instanceCounts(rows.map((row) => row.id)),
     visibleWorkPackages(rows.map((row) => row.templateWorkPackageId)),
   ]);
+  // A series still running on a template that is gone is listed as what it is.
+  const orphans = await withoutTemplate(rows.filter((row) => row.state !== 'cancelled' && !templates.has(row.templateWorkPackageId)));
+  if (orphans.length > 0) {
+    for (const row of orphans) await cancelForGoodReason(row);
+    rows = await read();
+  }
   const order: Record<string, number> = { active: 0, paused: 1, cancelled: 2 };
   return rows
     .map((row) => toView(row, { templateSubject: templates.get(row.templateWorkPackageId)?.subject, instanceCount: counts.get(row.id) ?? 0 }))

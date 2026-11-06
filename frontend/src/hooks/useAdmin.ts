@@ -210,14 +210,26 @@ export function useAdminVersions() {
 
 /**
  * When each person last signed in. Kept apart from the account list, which
- * every people screen shares, so only the Users page pays for it.
+ * every people screen shares, so only the screens that act on it pay for it.
  */
-export function useAdminUserLogins() {
+export function useAdminUserLogins(enabled = true) {
   return useQuery({
     queryKey: adminKeys.userLogins,
     queryFn: () => adminService.getUserLogins(),
+    enabled,
     ...ADMIN_DATA,
   });
+}
+
+/**
+ * Whether someone has ever signed in. An invitation is for those who have not:
+ * anyone else has nothing left to be invited to. Unknown reads as not yet, so a
+ * list that cannot be read never takes the action away from someone who needs it.
+ */
+export function useHasSignedIn(enabled = true): (id: string) => boolean {
+  const logins = useAdminUserLogins(enabled);
+  const signedIn = new Set((logins.data ?? []).filter((login) => login.lastLoginAt).map((login) => login.id));
+  return (id) => signedIn.has(id);
 }
 
 /** Whether this server can deliver email at all — invitations depend on it. */
@@ -374,22 +386,38 @@ export function useCatalog(resource: string) {
   });
 }
 
-export function useCreateCatalogRow(resource: string) {
+/**
+ * What a catalogue write reaches beyond its own table: every picker of statuses,
+ * priorities and types, and for a custom field the filters and columns of the task
+ * views. Those are held for a quarter of an hour, and a priority or a field just
+ * added could not be found in them.
+ */
+function useCatalogWritten(resource: string) {
   const client = useQueryClient();
+
+  return () => {
+    void client.invalidateQueries({ queryKey: adminKeys.catalog(resource) });
+    void client.invalidateQueries({ queryKey: ['catalog'] });
+    if (resource === 'custom-fields') void client.invalidateQueries({ queryKey: ['queries', 'schema'] });
+  };
+}
+
+export function useCreateCatalogRow(resource: string) {
+  const written = useCatalogWritten(resource);
 
   return useMutation({
     mutationFn: (input: CatalogRowInput) => adminService.createCatalogRow(resource, input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: adminKeys.catalog(resource) }),
+    onSuccess: written,
   });
 }
 
 export function useUpdateCatalogRow(resource: string) {
-  const client = useQueryClient();
+  const written = useCatalogWritten(resource);
 
   return useMutation({
     mutationFn: ({ id, input }: { id: ID; input: CatalogRowInput }) =>
       adminService.updateCatalogRow(resource, id, input),
-    onSuccess: () => void client.invalidateQueries({ queryKey: adminKeys.catalog(resource) }),
+    onSuccess: written,
   });
 }
 
@@ -399,11 +427,11 @@ export function useUpdateCatalogRow(resource: string) {
  * for the caller to show rather than swallowed here.
  */
 export function useDeleteCatalogRow(resource: string) {
-  const client = useQueryClient();
+  const written = useCatalogWritten(resource);
 
   return useMutation({
     mutationFn: (id: ID) => adminService.deleteCatalogRow(resource, id),
-    onSuccess: () => void client.invalidateQueries({ queryKey: adminKeys.catalog(resource) }),
+    onSuccess: written,
   });
 }
 

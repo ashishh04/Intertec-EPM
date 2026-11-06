@@ -126,6 +126,10 @@ export function writableFields(schema: FormResult['schema']): [string, SchemaFie
       return (
         key !== '_type' &&
         key !== '_links' &&
+        // Marked writable and required upstream because a save must send it, not
+        // because anybody should type one: it is how a stale save is refused, and
+        // it travels in the payload. It was showing as "Lock version*".
+        key !== 'lockVersion' &&
         typeof field === 'object' &&
         field !== null &&
         (field as SchemaField).writable === true

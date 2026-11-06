@@ -8,12 +8,12 @@ import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { env } from '../config/env.js';
 import { EpmError } from '../lib/errors.js';
-import { t, toLanguage, type Language } from '../lib/i18n.js';
+import { listOf, message, t, toLanguage, type Language } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { toEpmMemberCandidate, toEpmProjectMember, toEpmRole } from '../mapping/members.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { OpMembership, OpPrincipal, OpRole } from '../openproject/types.js';
-import { nonPersonIds } from '../domain/service-account.js';
+import { isOwnRole, nonPersonIds } from '../domain/service-account.js';
 import { forgetViewRoles } from '../domain/portfolio-views.js';
 
 /**
@@ -89,8 +89,25 @@ async function membershipInProject(
   return membership;
 }
 
-/** Validates and normalises a role list into HAL links. */
-function roleLinks(roleIds: unknown): { href: string }[] {
+/**
+ * The roles a project membership can hold: what the role picker offers, and so
+ * what `roleLinks` accepts. Not EPM's own: those are for its accounts.
+ */
+async function projectRoles(signal: AbortSignal): Promise<OpRole[]> {
+  const roles = await openProject.getAll<OpRole>('/roles', { pageSize: 100, filters: PROJECT_ROLE_FILTER }, { signal });
+  return roles.items.filter((role) => !isOwnRole(role.name));
+}
+
+/**
+ * Validates and normalises a role list into HAL links.
+ *
+ * Every id has to be one of the project roles, the list the picker is filled
+ * from. An id naming no such role — a global role, or one this instance does
+ * not have — went upstream as given and failed there as an internal error, a
+ * 502 reading "undefined method 'builtin' for nil", rather than as the
+ * caller's mistake it is.
+ */
+async function roleLinks(request: FastifyRequest, roleIds: unknown): Promise<{ href: string }[]> {
   const list = Array.isArray(roleIds) ? roleIds : [];
   const ids = [...new Set(list.map((id) => String(id).trim()).filter(Boolean))];
 
@@ -98,6 +115,12 @@ function roleLinks(roleIds: unknown): { href: string }[] {
   // here says so plainly rather than letting OpenProject return a form error.
   if (ids.length === 0) throw EpmError.badRequest('At least one role is required.');
   if (ids.some((id) => !/^\d+$/.test(id))) throw EpmError.badRequest('A role id is not valid.');
+
+  const offered = new Set((await projectRoles(requestSignal(request))).map((role) => String(role.id)));
+  const unknown = ids.filter((id) => !offered.has(id));
+  if (unknown.length > 0) {
+    throw EpmError.badRequest(message('Not roles a project member can hold: {ids}.', { ids: listOf(unknown) }));
+  }
 
   return ids.map((id) => ({ href: `/api/v3/roles/${id}` }));
 }
@@ -154,15 +177,7 @@ async function notifyMemberAdded(
 
 export const memberRoutes: FastifyPluginAsync = async (app) => {
   /** Roles that can be granted on a project. Not project-specific upstream. */
-  app.get('/project-roles', async (request) => {
-    const collection = await openProject.getAll<OpRole>(
-      '/roles',
-      { pageSize: 100, filters: PROJECT_ROLE_FILTER },
-      { signal: requestSignal(request) },
-    );
-
-    return collection.items.map(toEpmRole);
-  });
+  app.get('/project-roles', async (request) => (await projectRoles(requestSignal(request))).map(toEpmRole));
 
   /**
    * The project's members.
@@ -233,7 +248,7 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
 
       await guard.require(request, 'member:manage', id);
 
-      const roles = roleLinks(request.body?.roleIds);
+      const roles = await roleLinks(request, request.body?.roleIds);
 
       const created = await openProject.request<OpMembership>('/memberships', {
         method: 'POST',
@@ -275,7 +290,7 @@ export const memberRoutes: FastifyPluginAsync = async (app) => {
       await guard.require(request, 'member:manage', id);
       await membershipInProject(request, id, membershipId);
 
-      const roles = roleLinks(request.body?.roleIds);
+      const roles = await roleLinks(request, request.body?.roleIds);
 
       const updated = await openProject.request<OpMembership>(`/memberships/${membershipId}`, {
         method: 'PATCH',

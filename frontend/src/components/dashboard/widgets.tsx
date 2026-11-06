@@ -17,7 +17,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react';
-import { addDays, startOfWeek } from 'date-fns';
+import { addDays, parseISO, startOfWeek } from 'date-fns';
 
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { ChartCard, ChartCardSkeleton } from '@/components/common/ChartCard';
@@ -543,10 +543,22 @@ function UpcomingWidget() {
   }, []);
 
   const query = useCalendarEvents(range);
-  const events = useMemo(
-    () => [...(query.data ?? [])].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 8),
-    [query.data],
-  );
+  // The calendar's rule (pages/CalendarPage.tsx): each event on its own day,
+  // and one still under way today, a sprint that began earlier, on today rather
+  // than its past start. A day outside the fortnight is not coming up: the feed
+  // reads meetings a day either side of the period.
+  const events = useMemo(() => {
+    const dayOf = (iso: string) => toISODateOnly(parseISO(iso));
+    return (query.data ?? [])
+      .map((event) => {
+        const running =
+          event.allDay && dayOf(event.date) < range.from && event.endDate !== undefined && dayOf(event.endDate) >= range.from;
+        return running ? { ...event, date: range.from } : event;
+      })
+      .filter((event) => dayOf(event.date) >= range.from && dayOf(event.date) <= range.to)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 8);
+  }, [query.data, range]);
 
   return (
     <Card className="flex flex-col">

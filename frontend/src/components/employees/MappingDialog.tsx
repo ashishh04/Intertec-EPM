@@ -50,8 +50,9 @@ interface MappingDialogProps {
 
 export function MappingDialog({ open, onOpenChange, employee }: MappingDialogProps) {
   const setMapping = useSetMapping();
-  const departments = useDepartments();
-  const teams = useTeams();
+  // Archived ones too, or where this person sits now could not be shown.
+  const departments = useDepartments(true);
+  const teams = useTeams({ includeInactive: true });
   const users = useUserMap();
 
   const [departmentId, setDepartmentId] = useState(NONE);
@@ -68,8 +69,12 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
     setProblem(undefined);
   }, [open, employee?.id]);
 
-  const allDepartments = departments.data ?? [];
-  const allTeams = teams.data ?? [];
+  // Nobody is assigned into an archived unit, but someone already in one keeps
+  // it until they are moved, so theirs stays on their own list, marked.
+  const allDepartments = (departments.data ?? []).filter(
+    (department) => department.active || department.id === employee?.department?.id,
+  );
+  const allTeams = (teams.data ?? []).filter((team) => team.active || team.id === employee?.team?.id);
 
   // A team with no department fits anywhere, so it stays on offer whichever
   // department is chosen.
@@ -116,14 +121,16 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
   };
 
   // What to say under the team picker: which teams are on offer, or why none.
+  // A team with no department is offered too, marked, so it does not count as
+  // being in this one.
   const teamHint = teams.isLoading
     ? null
     : allTeams.length === 0
       ? t('No teams yet.')
       : departmentId !== NONE
-        ? selectableTeams.length === 0
-          ? t('No teams in this department.')
-          : t('Only teams in this department are listed.')
+        ? selectableTeams.some((team) => team.department)
+          ? t('Only teams in this department are listed.')
+          : t('No teams in this department.')
         : null;
 
   return (
@@ -165,7 +172,7 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
                 <SelectItem value={NONE}>{t('No department')}</SelectItem>
                 {allDepartments.map((department) => (
                   <SelectItem key={department.id} value={department.id}>
-                    {department.name}
+                    {department.active ? department.name : t('{name} (archived)', { name: department.name })}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -189,7 +196,11 @@ export function MappingDialog({ open, onOpenChange, employee }: MappingDialogPro
                 <SelectItem value={NONE}>{t('No team')}</SelectItem>
                 {selectableTeams.map((team) => (
                   <SelectItem key={team.id} value={team.id}>
-                    {team.department ? team.name : t('{name} (no department)', { name: team.name })}
+                    {!team.active
+                      ? t('{name} (archived)', { name: team.name })
+                      : team.department
+                        ? team.name
+                        : t('{name} (no department)', { name: team.name })}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -79,6 +79,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'api/api': lazy(() => import('./ApiPage')),
   'api/webhooks': catalog('webhooks'),
   'authentication/settings': settingsSection('authentication'),
+  'authentication/two-factor': lazy(() => import('./TwoFactorPage')),
   'authentication/oauth': catalog('oauth-applications'),
   announcement: lazy(() => import('./AnnouncementPage')),
   colors: lazy(() => import('./ColorsPage')),

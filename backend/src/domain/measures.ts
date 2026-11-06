@@ -954,7 +954,7 @@ export const MEASURES: MeasureDefinition[] = [
     label: msg('Actual cost'),
     unit: 'money',
     definition: msg(
-      'Cost to date on the projects in scope: every hour logged, at the hourly rate of the person who logged it, and every other cost recorded on them — approved expense claims and OpenProject unit costs. Hours from people without a rate are not costed, and are counted separately.',
+      'Cost to date on the projects in scope: every hour logged, at the hourly rate of the person who logged it, and every other cost recorded on them — approved expense claims and unit costs. Hours from people without a rate are not costed, and are counted separately.',
     ),
     scopes: PROJECT_SCOPES,
     usesPeriod: false,
@@ -978,7 +978,7 @@ export const MEASURES: MeasureDefinition[] = [
     label: msg('Spent in period'),
     unit: 'money',
     definition: msg(
-      'Cost in the period on the projects in scope: the hours logged, at the hourly rate of the person who logged them, and the other costs recorded for days in the period — approved expense claims and OpenProject unit costs.',
+      'Cost in the period on the projects in scope: the hours logged, at the hourly rate of the person who logged them, and the other costs recorded for days in the period — approved expense claims and unit costs.',
     ),
     scopes: PROJECT_SCOPES,
     usesPeriod: true,

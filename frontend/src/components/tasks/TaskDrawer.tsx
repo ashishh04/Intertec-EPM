@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,21 +21,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  ALL_TASK_PRIORITIES,
-  ALL_TASK_STATUSES,
-  TASK_PRIORITY_META,
-  TASK_STATUS_META,
-} from '@/lib/domain';
+import { SchemaForm } from '@/components/common/SchemaForm';
 import { MemberDialog } from '@/components/projects/MemberDialog';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { useProjects } from '@/hooks/useProjects';
-import { useProjectAssignees, useProjectTypes } from '@/hooks/useCatalog';
+import {
+  useProjectAssignees,
+  useProjectTypes,
+  useStatuses,
+  useWorkPackageCreateForm,
+} from '@/hooks/useCatalog';
 import { useSprints } from '@/hooks/useSprints';
 import { useCreateTask, useTasks } from '@/hooks/useTasks';
 import { msg, t } from '@/lib/i18n';
-import type { CreateTaskInput, TaskPriority, TaskStatusCategory } from '@/types';
+import { allowedValuesOf, idFromHref, schemaField, writableFields } from '@/services/api/forms';
+import type { CreateTaskInput } from '@/types';
 
 const NONE = '__none__';
 
@@ -50,8 +51,11 @@ const schema = z
     // A native OpenProject type id, not an EPM category: only the project
     // knows which types it enables.
     typeId: z.string().min(1, msg('Select a work package type.')),
-    status: z.string().min(1, msg('Select a status.')),
-    priority: z.string().min(1, msg('Select a priority.')),
+    // The instance's own, from the project's create form. Empty only while that
+    // form is on its way, when the delivery system's defaults are what it would
+    // have selected anyway.
+    statusId: z.string().optional(),
+    priorityId: z.string().optional(),
     projectId: z.string().min(1, msg('Select the project this work belongs to.')),
     assigneeId: z.string().optional(),
     parentId: z.string().optional(),
@@ -78,8 +82,8 @@ const DEFAULTS: FormValues = {
   subject: '',
   description: '',
   typeId: '',
-  status: 'todo',
-  priority: 'medium',
+  statusId: '',
+  priorityId: '',
   projectId: '',
   assigneeId: NONE,
   parentId: NONE,
@@ -99,7 +103,22 @@ export function TaskDrawer() {
   const { taskDrawerOpen, taskDrawerPrefill, closeTaskDrawer } = useUI();
   const { data: projects } = useProjects();
   const { data: sprints } = useSprints();
+  const { data: statuses } = useStatuses();
   const createTask = useCreateTask();
+  // Declared early: which projects are offered is decided by what this person may do.
+  const { canInProject } = useAuth();
+
+  /*
+   * Only the projects this person may add work to.
+   *
+   * A public project is visible to anyone signed in, so offering everything visible
+   * offered projects where the server then refused the task with "You do not have
+   * permission to create work packages".
+   */
+  const creatable = useMemo(
+    () => (projects ?? []).filter((project) => canInProject(project.id, 'task:create')),
+    [projects, canInProject],
+  );
 
   const {
     register,
@@ -113,6 +132,9 @@ export function TaskDrawer() {
   const projectId = watch('projectId');
   const typeId = watch('typeId');
   const assigneeId = watch('assigneeId');
+  const statusId = watch('statusId');
+  const priorityId = watch('priorityId');
+  const sprintId = watch('sprintId');
 
   /*
    * Types and assignees are asked of the project, not the instance.
@@ -126,10 +148,49 @@ export function TaskDrawer() {
   const { data: projectTypes } = useProjectTypes(projectId || undefined);
   const { data: assignees } = useProjectAssignees(projectId || undefined);
 
+  /*
+   * Statuses, priorities and sprints are asked of the project's own create form.
+   *
+   * These lists were EPM's categories, Backlog to Blocked and Critical to Low, so
+   * the dialog offered "To Do" and "Medium" on an instance that has "New" and
+   * "Normal", and a priority an administrator added could not be chosen. Each
+   * category then saved as whichever status stood for it. The sprints were every
+   * project's, though a task can only take one its own project has.
+   */
+  const { data: createForm } = useWorkPackageCreateForm(projectId && typeId ? projectId : undefined, typeId || undefined);
+  const optionsOf = (name: string) => {
+    const field = schemaField(createForm, name);
+    return (field ? allowedValuesOf(field) : undefined) ?? [];
+  };
+  const statusOptions = optionsOf('status');
+  const priorityOptions = optionsOf('priority');
+  const sprintOptions = schemaField(createForm, 'version') ? optionsOf('version') : optionsOf('targetVersions');
+  const formDefault = (name: string) => {
+    const links = createForm?.payload._links as Record<string, { href?: string | null } | undefined> | undefined;
+    return idFromHref(links?.[name]?.href ?? undefined);
+  };
+
+  /*
+   * The custom fields a task of this type cannot be saved without.
+   *
+   * The rest wait for Edit all fields, as everything this dialog does not carry
+   * does. These cannot: the delivery system refuses the task without them, and a
+   * required field nobody could reach here stopped anyone adding work to the project.
+   */
+  const requiredFields = useMemo(
+    () =>
+      createForm
+        ? writableFields(createForm.schema)
+            .filter(([key, field]) => /^customField\d+$/.test(key) && field.required)
+            .map(([key]) => key)
+        : [],
+    [createForm],
+  );
+  const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
+
   // Only the project's team can be assigned, so a project nobody has been
   // added to offers no one — which read as a broken picker. Whoever may manage
   // the team can add people from here; the list refreshes when they do.
-  const { canInProject } = useAuth();
   const mayAddPeople = Boolean(projectId) && canInProject(projectId, 'member:manage');
   const [addingPeople, setAddingPeople] = useState(false);
   const addPeople = mayAddPeople ? (
@@ -150,19 +211,35 @@ export function TaskDrawer() {
     sortDir: 'desc',
   });
 
+  /** The project to start in: the one it was opened for, if work can be added there. */
+  const startingProject = () => {
+    const mayAddTo = (id?: string) => (creatable.some((project) => project.id === id) ? id : undefined);
+    // A sprint board opens this with a sprint and no project: the sprint's, then.
+    const ofSprint = sprints?.find((sprint) => sprint.id === taskDrawerPrefill.sprintId)?.projectIds.find(mayAddTo);
+    return mayAddTo(taskDrawerPrefill.projectId) ?? ofSprint ?? creatable[0]?.id ?? '';
+  };
+
+  // Once per opening: the lists below can arrive or refresh while someone is typing.
   useEffect(() => {
     if (!taskDrawerOpen) return;
+    setCustomValues({});
     reset({
       ...DEFAULTS,
       ...Object.fromEntries(
         Object.entries(taskDrawerPrefill).filter(([, value]) => value !== undefined),
       ),
-      projectId: taskDrawerPrefill.projectId ?? projects?.[0]?.id ?? '',
-      status: taskDrawerPrefill.status ?? 'todo',
+      projectId: startingProject(),
       assigneeId: taskDrawerPrefill.assigneeId ?? NONE,
       sprintId: taskDrawerPrefill.sprintId ?? NONE,
     } as FormValues);
-  }, [taskDrawerOpen, taskDrawerPrefill, projects, reset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskDrawerOpen, taskDrawerPrefill, reset]);
+
+  // Opened before the projects had loaded, it takes one when they do.
+  useEffect(() => {
+    if (taskDrawerOpen && !projectId && creatable.length > 0) setValue('projectId', startingProject());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskDrawerOpen, projectId, creatable, setValue]);
 
   /*
    * Hold the type to something this project actually enables.
@@ -178,6 +255,33 @@ export function TaskDrawer() {
     const fallback = projectTypes.find((type) => type.isDefault) ?? projectTypes[0];
     setValue('typeId', fallback?.id ?? '', { shouldValidate: Boolean(typeId) });
   }, [taskDrawerOpen, projectTypes, typeId, setValue]);
+
+  /*
+   * The same for what the form offers: a status, priority or sprint chosen under
+   * another project or type may not be one this form takes.
+   *
+   * Opened from a board column, the status starts in that column if the form has
+   * one that falls in it, so the card lands where it was asked for. Otherwise what
+   * the form would have selected itself: "New" and "Normal" on a stock instance.
+   */
+  useEffect(() => {
+    if (!taskDrawerOpen || !createForm) return;
+    const offered = (options: { id: string }[], id?: string) => options.some((option) => option.id === id);
+
+    const column = taskDrawerPrefill.status;
+    if (!offered(statusOptions, statusId) && (!column || statuses)) {
+      const inColumn = column
+        ? statusOptions.find((option) => statuses?.find((status) => status.id === option.id)?.category === column)
+        : undefined;
+      setValue('statusId', inColumn?.id ?? formDefault('status') ?? statusOptions[0]?.id ?? '');
+    }
+    if (!offered(priorityOptions, priorityId)) {
+      setValue('priorityId', formDefault('priority') ?? priorityOptions[0]?.id ?? '');
+    }
+    if (sprintId && sprintId !== NONE && !offered(sprintOptions, sprintId)) setValue('sprintId', NONE);
+    // The options are worked out from the form on each render; the form is what changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskDrawerOpen, createForm, statuses, statusId, priorityId, sprintId, taskDrawerPrefill, setValue]);
 
   /*
    * An assignee the project will not accept cannot stay selected.
@@ -199,8 +303,13 @@ export function TaskDrawer() {
       subject: values.subject.trim(),
       description: values.description?.trim() || undefined,
       typeId: values.typeId,
-      status: values.status as TaskStatusCategory,
-      priority: values.priority as TaskPriority,
+      statusId: values.statusId || undefined,
+      priorityId: values.priorityId || undefined,
+      // Saved before the form answered, the column it was opened from still counts.
+      status: values.statusId ? undefined : taskDrawerPrefill.status,
+      customValues: requiredFields.some((key) => key in customValues)
+        ? Object.fromEntries(requiredFields.filter((key) => key in customValues).map((key) => [key, customValues[key]]))
+        : undefined,
       projectId: values.projectId,
       assigneeId: values.assigneeId === NONE ? undefined : values.assigneeId,
       parentId: values.parentId === NONE ? undefined : values.parentId,
@@ -284,8 +393,9 @@ export function TaskDrawer() {
                 value={watch('projectId')}
                 onChange={(value) => setValue('projectId', value, { shouldValidate: true })}
                 error={errors.projectId?.message}
+                hint={projects && creatable.length === 0 ? t('You cannot add tasks to any project.') : undefined}
                 placeholder={t('Select a project')}
-                options={(projects ?? []).map((project) => ({
+                options={creatable.map((project) => ({
                   value: project.id,
                   label: project.name,
                 }))}
@@ -309,26 +419,20 @@ export function TaskDrawer() {
                 id="task-status"
                 label={t('Status')}
                 required
-                value={watch('status')}
-                onChange={(value) => setValue('status', value, { shouldValidate: true })}
-                error={errors.status?.message}
-                options={ALL_TASK_STATUSES.map((status) => ({
-                  value: status,
-                  label: TASK_STATUS_META[status].label,
-                }))}
+                value={statusId ?? ''}
+                onChange={(value) => setValue('statusId', value)}
+                placeholder={projectId ? t('Loading…') : t('Select a project first')}
+                options={statusOptions.map((status) => ({ value: status.id, label: status.name }))}
               />
 
               <FormSelect
                 id="task-priority"
                 label={t('Priority')}
                 required
-                value={watch('priority')}
-                onChange={(value) => setValue('priority', value, { shouldValidate: true })}
-                error={errors.priority?.message}
-                options={ALL_TASK_PRIORITIES.map((priority) => ({
-                  value: priority,
-                  label: TASK_PRIORITY_META[priority].label,
-                }))}
+                value={priorityId ?? ''}
+                onChange={(value) => setValue('priorityId', value)}
+                placeholder={projectId ? t('Loading…') : t('Select a project first')}
+                options={priorityOptions.map((priority) => ({ value: priority.id, label: priority.name }))}
               />
 
               <FormSelect
@@ -364,7 +468,7 @@ export function TaskDrawer() {
                 onChange={(value) => setValue('sprintId', value)}
                 options={[
                   { value: NONE, label: t('Backlog') },
-                  ...(sprints ?? []).map((sprint) => ({ value: sprint.id, label: sprint.name })),
+                  ...sprintOptions.map((sprint) => ({ value: sprint.id, label: sprint.name })),
                 ]}
               />
 
@@ -434,6 +538,16 @@ export function TaskDrawer() {
                 <FieldHint>{t('Comma separated.')}</FieldHint>
               </div>
             </div>
+
+            {requiredFields.length > 0 ? (
+              <SchemaForm
+                form={createForm}
+                values={customValues}
+                errors={{}}
+                onChange={(field, value) => setCustomValues((current) => ({ ...current, [field]: value }))}
+                only={requiredFields}
+              />
+            ) : null}
           </div>
 
           <DialogFooter className="pt-4">

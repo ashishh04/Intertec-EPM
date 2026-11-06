@@ -168,6 +168,19 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
       departmentId === NONE || !team.department || team.department.id === departmentId,
   );
 
+  // What to say under the team picker: which teams are on offer, or why none.
+  // A team with no department is offered too, marked, so it does not count as
+  // being in this one.
+  const teamHint = teams.isLoading
+    ? null
+    : (teams.data ?? []).length === 0
+      ? t('No teams yet.')
+      : departmentId !== NONE
+        ? selectableTeams.some((team) => team.department)
+          ? t('Only teams in this department are listed.')
+          : t('No teams in this department.')
+        : null;
+
   const fail = (error: unknown) =>
     setProblem(error instanceof Error ? error.message : t('That could not be saved.'));
 
@@ -485,14 +498,12 @@ export function AccountDialog({ open, onOpenChange, account }: AccountDialogProp
                       <SelectItem value={NONE}>{t('No team')}</SelectItem>
                       {selectableTeams.map((team) => (
                         <SelectItem key={team.id} value={team.id}>
-                          {team.name}
+                          {team.department ? team.name : t('{name} (no department)', { name: team.name })}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {!teams.isLoading && (teams.data ?? []).length === 0 ? (
-                    <FieldHint>{t('No teams yet.')}</FieldHint>
-                  ) : null}
+                  {teamHint ? <FieldHint>{teamHint}</FieldHint> : null}
                 </div>
               </div>
 

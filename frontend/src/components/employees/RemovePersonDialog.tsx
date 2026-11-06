@@ -159,9 +159,11 @@ interface RemovePersonDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   account?: EpmAccount;
+  /** After the account is gone: a page about this person has nothing left to show. */
+  onRemoved?: () => void;
 }
 
-export function RemovePersonDialog({ open, onOpenChange, account }: RemovePersonDialogProps) {
+export function RemovePersonDialog({ open, onOpenChange, account, onRemoved }: RemovePersonDialogProps) {
   const setLocked = useSetAccountLocked();
   const revokeAccess = useRevokeAccess();
   const deleteAccount = useDeleteAccount();
@@ -222,6 +224,7 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
       onSuccess: () => {
         toast.success(t('{name} was deleted', { name: account.name }));
         onOpenChange(false);
+        onRemoved?.();
       },
       onError: fail,
     });
@@ -238,17 +241,21 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
         ? 'ready'
         : 'blocked';
 
+  // Nothing to deactivate is not a reason to hold the later steps back, or an
+  // invitation that was never accepted could never be removed at all.
+  const nothingToStop = deactivated || !account.can.lock;
+
   const revokeState: StepState = revoked
     ? 'done'
     : revokeAccess.isPending
       ? 'running'
-      : deactivated
+      : nothingToStop
         ? 'ready'
         : 'blocked';
 
   const deleteState: StepState = deleteAccount.isPending
     ? 'running'
-    : account.can.remove && deactivated && revoked
+    : account.can.remove && nothingToStop && revoked
       ? 'ready'
       : 'blocked';
 
@@ -305,11 +312,13 @@ export function RemovePersonDialog({ open, onOpenChange, account }: RemovePerson
               )}
               state={deleteState}
               reason={
-                account.can.remove
-                  ? t('Complete the steps above first.')
-                  : t(
+                !account.can.remove
+                  ? t(
                       'Deleting people is switched off for this instance. An administrator can turn on "Users deletable by admins" under Administration → Users and permissions → User settings. Steps 1 and 2 withdraw their access without it.',
                     )
+                  : nothingToStop
+                    ? t('Complete the steps above first.')
+                    : t('Deactivate the account first.')
               }
               action={t('Delete permanently')}
               destructive

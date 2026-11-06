@@ -44,11 +44,11 @@ export interface NavItem {
   /** Renders a live count: unread notifications, or approvals waiting on the person. */
   badge?: 'notifications' | 'approvals';
   /**
-   * Shown only to people holding this global permission. The route behind it
-   * is guarded on the same permission (see App.tsx), so hiding the link is a
-   * courtesy, not the boundary.
+   * Shown only to people holding this global permission, or any one of a list.
+   * The route behind it is guarded on the same permission (see App.tsx, or the
+   * page itself), so hiding the link is a courtesy, not the boundary.
    */
-  permission?: Permission;
+  permission?: Permission | readonly Permission[];
   /** Shown only to these roles. Absent means every role. */
   roles?: readonly AppRole[];
 }
@@ -75,6 +75,22 @@ export const ROLE_ACCESS = {
   insights: ['admin', 'manager'],
   reporting: ['admin', 'manager', 'hr'],
 } as const satisfies Record<string, readonly AppRole[]>;
+
+/**
+ * Resources serves two kinds of people (ResourcesPage.tsx): whoever plans
+ * resources gets every tab, and whoever staffs people gets Availability. Either
+ * permission brings the link, wherever it is offered.
+ */
+export const RESOURCES_PERMISSIONS = ['resources:plan', 'employees:manage'] as const satisfies readonly Permission[];
+
+/** Whether a link's permission is held: the one named, or any one of a list. */
+export function holdsPermission(
+  can: (permission: Permission) => boolean,
+  permission?: Permission | readonly Permission[],
+): boolean {
+  if (permission === undefined) return true;
+  return typeof permission === 'string' ? can(permission) : permission.some((each) => can(each));
+}
 
 /** What each role is called on screen. */
 export function roleLabel(role: AppRole): string {
@@ -126,7 +142,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { get label() { return t('Boards'); }, to: '/boards', icon: SquareKanban },
       { get label() { return t('Sprints'); }, to: '/sprints', icon: Gauge },
       { get label() { return t('Gantt'); }, to: '/gantt', icon: GanttChartSquare },
-      { get label() { return t('Resources'); }, to: '/resources', icon: UsersRound, permission: 'resources:plan' },
+      { get label() { return t('Resources'); }, to: '/resources', icon: UsersRound, permission: RESOURCES_PERMISSIONS },
     ],
   },
   {
@@ -149,6 +165,10 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { get label() { return t('Employees'); }, to: '/employees', icon: UserRound, permission: 'employees:manage' },
       { get label() { return t('Departments'); }, to: '/departments', icon: Building2, permission: 'departments:manage' },
+      // HR has no Delivery section, where everyone else finds Resources, but
+      // records people's time off on its Availability tab, so HR's link is
+      // here. The role keeps it to one link each.
+      { get label() { return t('Resources'); }, to: '/resources', icon: UsersRound, permission: RESOURCES_PERMISSIONS, roles: ['hr'] },
     ],
   },
   {
@@ -195,7 +215,7 @@ export function visibleNavSections(can: (permission: Permission) => boolean, rol
   return NAV_SECTIONS.filter((section) => forRole(section.roles))
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => forRole(item.roles) && (!item.permission || can(item.permission))),
+      items: section.items.filter((item) => forRole(item.roles) && holdsPermission(can, item.permission)),
     }))
     .filter((section) => section.items.length > 0);
 }
@@ -204,7 +224,7 @@ export function visibleNavSections(can: (permission: Permission) => boolean, rol
 export function adminNavItems(can: (permission: Permission) => boolean): NavItem[] {
   // The title is translated, so it is compared in the language it is read in.
   const section = NAV_SECTIONS.find((candidate) => candidate.title === t('Administration'));
-  return (section?.items ?? []).filter((item) => !item.permission || can(item.permission));
+  return (section?.items ?? []).filter((item) => holdsPermission(can, item.permission));
 }
 
 /**

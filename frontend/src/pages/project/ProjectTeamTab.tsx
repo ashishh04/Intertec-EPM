@@ -113,16 +113,13 @@ export default function ProjectTeamTab() {
             count: members.length,
           })}
           actions={
-            <Button
-              size="sm"
-              variant="secondary"
-              // Hiding is a courtesy; the backend rejects the write regardless.
-              disabled={!canInProject(projectId, 'member:manage')}
-              onClick={openAdd}
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              {t('Invite')}
-            </Button>
+            // Hiding is a courtesy; the backend rejects the write regardless.
+            canInProject(projectId, 'member:manage') ? (
+              <Button size="sm" variant="secondary" onClick={openAdd}>
+                <UserPlus className="h-3.5 w-3.5" />
+                {t('Invite')}
+              </Button>
+            ) : null
           }
         />
 
@@ -140,7 +137,11 @@ export default function ProjectTeamTab() {
                 size="inline"
                 icon={Users}
                 title={t('Nobody on this project yet')}
-                description={t('Invite people to give them access and a role here.')}
+                description={
+                  canInProject(projectId, 'member:manage')
+                    ? t('Invite people to give them access and a role here.')
+                    : undefined
+                }
               />
             }
           >

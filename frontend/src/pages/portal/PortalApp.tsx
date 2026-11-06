@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, FileText, LogOut, Upload } from 'lucide-react';
+import { ArrowLeft, Download, FileText, LogOut, ShieldCheck, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ListSkeleton } from '@/components/common/DataTable';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -35,6 +36,7 @@ export default function PortalApp() {
         <Route path="/portal/projects/:id" element={<PortalProjectPage />} />
         <Route path="/portal/tasks/:id" element={<PortalTaskPage />} />
         <Route path="/portal/approvals" element={<PortalApprovalsPage />} />
+        <Route path="/portal/security" element={<PortalSecurityPage />} />
         <Route path="*" element={<Navigate to="/portal" replace />} />
       </Routes>
     </PortalLayout>
@@ -57,6 +59,12 @@ function PortalLayout({ children }: { children: React.ReactNode }) {
           </Link>
           <div className="flex items-center gap-3 text-xs">
             <span dir="auto">{user?.name}</span>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/portal/security">
+                <ShieldCheck className="h-4 w-4" />
+                {t('Security')}
+              </Link>
+            </Button>
             <Button variant="ghost" size="sm" onClick={signOut}>
               <LogOut className="h-4 w-4" />
               {t('Sign out')}
@@ -65,6 +73,16 @@ function PortalLayout({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="mx-auto max-w-6xl space-y-5 px-6 py-6">{children}</main>
+    </div>
+  );
+}
+
+/** A client or vendor can protect their account as anyone else can. */
+function PortalSecurityPage() {
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <h1 className="text-xl font-semibold">{t('Security')}</h1>
+      <TwoFactorCard />
     </div>
   );
 }
@@ -82,7 +100,11 @@ function PortalHomePage() {
           {home.data.approvals > 0 ? (
             <Card>
               <CardContent className="flex items-center justify-between pt-4 text-sm">
-                <span>{t('{count} approvals are waiting for you.', { count: home.data.approvals })}</span>
+                <span>
+                  {t('{count, plural, one {# approval is waiting for you.} other {# approvals are waiting for you.}}', {
+                    count: home.data.approvals,
+                  })}
+                </span>
                 <Button asChild size="sm">
                   <Link to="/portal/approvals">{t('Open')}</Link>
                 </Button>

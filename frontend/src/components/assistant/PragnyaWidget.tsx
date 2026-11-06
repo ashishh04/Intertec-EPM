@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Sparkles, X } from 'lucide-react';
 import { useUI } from '@/providers/UIProvider';
-import { usePrefersReducedMotion } from '@/hooks/useMediaQuery';
+import { useMediaQuery, usePrefersReducedMotion } from '@/hooks/useMediaQuery';
 import { t } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { ID } from '@/types';
@@ -37,6 +37,7 @@ const PANEL_POSITION = cn(
 export function PragnyaWidget() {
   const { pragnyaOpen, openPragnya, closePragnya } = useUI();
   const reducedMotion = usePrefersReducedMotion();
+  const fullBleed = useMediaQuery('(max-width: 639px)');
 
   // The conversation outlives the popup: closing and reopening should come
   // back to the thread rather than to a blank chat.
@@ -98,6 +99,11 @@ export function PragnyaWidget() {
               if (event.key !== 'Escape') return;
               event.stopPropagation();
               closePragnya();
+            }}
+            // On a phone the popup fills the screen, so a page opened from an
+            // answer would open out of sight behind it.
+            onClick={(event) => {
+              if (fullBleed && (event.target as HTMLElement).closest('a')) closePragnya();
             }}
             className={cn(
               // Full-bleed on a phone, a corner popup from `sm` up.

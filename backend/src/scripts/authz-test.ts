@@ -131,6 +131,28 @@ async function status(path: string, options: Parameters<typeof call>[1] = {}): P
   return (await call(path, options)).status;
 }
 
+/**
+ * Deletes a project, and says whether it is gone: 'removed', or what happened.
+ *
+ * OpenProject deletes a project in a background job. EPM waits up to 8 s for
+ * it, then answers 204 if the project is gone, or 202 — accepted, still being
+ * removed — if the job has not finished: a busy job queue, or a project with
+ * much in it (projects.ts:1012-1026). Both are the route keeping its word, so a
+ * 202 is followed here until the project can no longer be read, rather than
+ * counted as a failure; "removed" still means removed. The project list is
+ * cached for about 20 s, which the wait allows for.
+ */
+async function removeProject(id: string, cookie: string): Promise<string> {
+  const answered = await status(`/projects/${id}`, { method: 'DELETE', cookie });
+  if (answered === 204) return 'removed';
+  if (answered !== 202) return `answered ${answered}`;
+  for (const deadline = Date.now() + 3 * 60_000; Date.now() < deadline; ) {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    if ((await status(`/projects/${id}`, { cookie })) === 404) return 'removed';
+  }
+  return 'still there 3 minutes after the 202';
+}
+
 async function main() {
   console.log(`Authorization tests against ${BASE}\n`);
 
@@ -199,6 +221,9 @@ async function main() {
   let resourcesProjectId: string | undefined;
   let resourcesProjectNumber: number | undefined;
   let resourcesRoleId: string | undefined;
+  // The project role made for the restricted account when the instance has
+  // none that is assignable without editing work (see the section).
+  let resourcesWorkerRoleId: string | undefined;
   let resourcesRestrictedRoleBefore: string | null | undefined;
   let resourcesPinnedId: string | undefined;
   const resourcesRunIds: string[] = [];
@@ -2137,6 +2162,13 @@ async function main() {
     await status('/departments', { cookie: restricted }),
     200,
   );
+  check(
+    'but only what a picker needs of them, not who is in them or their hours',
+    ((await (await call('/departments', { cookie: restricted })).json()) as Record<string, unknown>[]).every(
+      (department) => !('capacityHours' in department) && !('memberCount' in department) && !('manager' in department),
+    ),
+    true,
+  );
 
   check(
     'a caller without the grant cannot create one',
@@ -2598,6 +2630,15 @@ async function main() {
     await status(`/teams/${looseTeam.id}`, { method: 'PATCH', cookie: admin, body: { departmentId: deptId } }),
     400,
   );
+  // What the edit form sends: every field, the department it is already in among
+  // them. Refusing that, or dropping it, is how a team lost its department.
+  check(
+    'a team stays in its archived department when edited',
+    ((await (
+      await call(`/teams/${teamId}`, { method: 'PATCH', cookie: admin, body: { description: 'Still here.', departmentId: deptId } })
+    ).json()) as TestTeam).department?.id,
+    deptId,
+  );
 
   check(
     'the department can be restored',
@@ -2741,11 +2782,20 @@ async function main() {
   );
 
   check('a permitted caller can list employees', await status('/employees', { cookie: admin }), 200);
-  check(
-    'a caller without the manage grant can still read them',
-    await status('/employees', { cookie: restricted }),
-    200,
-  );
+  // The directory carries addresses, placements and hours, and is for whoever
+  // looks after people. Names and faces are at /users, for every list and picker.
+  check('anyone else is refused the directory', await status('/employees', { cookie: restricted }), 403);
+  check("and another person's record", await status(`/employees/${adminId}`, { cookie: restricted }), 403);
+  check('but reads their own, for their own week', await status(`/employees/${restrictedId}`, { cookie: restricted }), 200);
+  {
+    const seen = (await (await call('/users', { cookie: restricted })).json()) as { id: string; email: string; department: string }[];
+    check('the people list is open to them', seen.length > 0, true);
+    check(
+      "with names, and no one else's address",
+      seen.every((person) => person.id === restrictedId || (person.email === '' && person.department === '')),
+      true,
+    );
+  }
 
   const directory = await employees(admin);
   check('the directory is returned', directory.length > 0, true);
@@ -2959,6 +3009,11 @@ async function main() {
     400,
   );
   check(
+    'but someone on it is not refused for staying',
+    (await setMapping(adminId, { departmentId: afterTeamArchive.department?.id ?? '', teamId })).status,
+    200,
+  );
+  check(
     'someone can still be moved out of an archived team',
     (await setMapping(adminId, {})).status,
     200,
@@ -2978,6 +3033,11 @@ async function main() {
     'nobody new can be assigned to an archived department',
     (await setMapping(restrictedId, { departmentId: deptId })).status,
     400,
+  );
+  check(
+    'but someone in it is not refused for staying',
+    (await setMapping(adminId, { departmentId: deptId })).status,
+    200,
   );
   // The team is still active, but its department is not, so joining it would be
   // an assignment into an archived department by another route.
@@ -3225,6 +3285,13 @@ async function main() {
   check('an empty team yields no workloads', (await workloadsOf(`?teamId=${looseTeam.id}`)).length, 0);
 
   await setMapping(restrictedId, {});
+  // And the restricted account's capacity back as it was — here, not only in
+  // the cleanup, because later sections read it. Before a person's first work
+  // schedule their available hours are their weekly capacity
+  // (resource-model.ts:67-72), so left at zero the restricted account had no
+  // hours in any past week, and BR-306 under "Time and expense" never found them
+  // outstanding for one: it failed in every full run and passed on its own.
+  await setCapacity(restrictedId, { hoursCapacity: originalCapacity.get(restrictedId) });
 
   // --- Health ----------------------------------------------------------------
   //
@@ -4770,6 +4837,13 @@ async function main() {
     200,
   );
   check(
+    'but only those holding a project they can see',
+    ((await (await call('/portfolios', { cookie: restricted })).json()) as { projectCount: number }[]).every(
+      (portfolio) => portfolio.projectCount > 0,
+    ),
+    true,
+  );
+  check(
     'a caller without the grant cannot create one',
     await status('/portfolios', {
       method: 'POST',
@@ -4986,9 +5060,30 @@ async function main() {
   );
 
   // Someone on two projects in one portfolio must be counted once, or the
-  // capacity is quietly overstated.
-  const distinctBefore = derivedRollup.memberCount;
-  check('members are distinct across projects', distinctBefore <= 2, true);
+  // capacity is quietly overstated. So a second project that shares someone
+  // with the first joins the portfolio for the check — one in no portfolio, so
+  // nothing real is moved out of one — and the count must be the people of the
+  // portfolio's projects together, each once. It was "at most two", which
+  // tested nothing about distinctness and failed whenever the first project
+  // with members had a bigger team.
+  const sharing = allProjects.find(
+    (p) => p.id !== associatedProjectId && !p.portfolioId && p.memberIds.some((id) => anyProject.memberIds.includes(id)),
+  );
+  if (sharing) {
+    originalProjectPortfolio.set(sharing.id, null);
+    await call(`/projects/${sharing.id}/portfolio`, { method: 'PATCH', cookie: admin, body: { portfolioId } });
+  } else {
+    console.log('  (no project outside a portfolio shares a member with it: one project is counted)');
+  }
+  const inPortfolio = ((await (await call('/projects', { cookie: admin })).json()) as typeof allProjects).filter(
+    (p) => p.portfolioId === portfolioId,
+  );
+  check(
+    'members are distinct across projects',
+    (await portfolio(portfolioId)).memberCount,
+    new Set(inPortfolio.flatMap((p) => p.memberIds)).size,
+  );
+  if (sharing) await call(`/projects/${sharing.id}/portfolio`, { method: 'PATCH', cookie: admin, body: {} });
 
   await setCapacity(projectMemberId, { hoursCapacity: 40 });
   await setMapping(projectMemberId, {});
@@ -5904,6 +5999,24 @@ async function main() {
     204,
   );
 
+  // Mark-all must not reach across recipients. What it could reach is everyone
+  // else's unread notifications, so those are noted just before it runs — with
+  // one of the restricted account's own made for the purpose, so there is
+  // always something it could wrongly reach. Read ones elsewhere in the table
+  // are other people's own doing: the check once counted those, and so failed on
+  // any database where anybody had ever read a notification.
+  const bystanderKey = `notif-bystander-${stamp}`;
+  notificationKeys.push(bystanderKey);
+  await notificationDb.notification.create({
+    data: { recipientId: restrictedId, category: 'system', title: 'Probe', body: 'Mark-all isolation probe.', dedupeKey: bystanderKey },
+  });
+  const othersUnread = (
+    await notificationDb.notification.findMany({
+      where: { recipientId: { not: adminId }, readAt: null },
+      select: { id: true },
+    })
+  ).map((row) => row.id);
+
   check(
     'mark-all succeeds',
     await status('/notifications/read-all', { method: 'PATCH', cookie: admin }),
@@ -5914,14 +6027,10 @@ async function main() {
     await notificationDb.notification.count({ where: { recipientId: adminId, readAt: null } }),
     0,
   );
-  // Mark-all must not reach across recipients.
   check(
     'without touching anyone else',
-    (await notificationDb.notification.count({
-      where: { recipientId: { not: adminId }, readAt: { not: null } },
-    })) === 0 ||
-      (await notificationDb.notification.count({ where: { recipientId: { not: adminId } } })) === 0,
-    true,
+    await notificationDb.notification.count({ where: { id: { in: othersUnread }, readAt: { not: null } } }),
+    0,
   );
 
   // --- Project membership ----------------------------------------------------
@@ -5951,6 +6060,11 @@ async function main() {
   check(
     'builtin non-assignable roles are excluded',
     projectRoles.some((role) => role.name === 'Anonymous' || role.name === 'Non member'),
+    false,
+  );
+  check(
+    "and so are EPM's own accounts' roles",
+    projectRoles.some((role) => role.name === 'EPM Service' || role.name === 'EPM Automation'),
     false,
   );
 
@@ -6281,9 +6395,14 @@ async function main() {
     ['a missing login is rejected', { firstName: 'A', lastName: 'B', email: 'a@b.co', password: ACCOUNT_PASSWORD }],
     ['a missing email is rejected', { login: 'x', firstName: 'A', lastName: 'B', password: ACCOUNT_PASSWORD }],
     ['a missing name is rejected', { login: 'x', email: 'a@b.co' }],
+    // Only without an invitation. With one, which is the default, a starting
+    // password is made and the person sets their own from the link
+    // (accounts.ts:296-300), so this payload is a valid person: it made a real
+    // account "x", invited at a@b.co (a real domain), the first time, and was
+    // refused as a taken login (422) every time after.
     [
-      'a missing password is rejected',
-      { login: 'x', firstName: 'A', lastName: 'B', email: 'a@b.co' },
+      'a missing password is rejected when no invitation is sent',
+      { login: 'x', firstName: 'A', lastName: 'B', email: 'a@b.co', sendInvite: false },
     ],
     [
       'an invalid email is rejected',
@@ -6542,11 +6661,27 @@ async function main() {
   }
 
   // --- refusals ---
-  check(
-    'nobody may delete their own account',
-    await status(`/accounts/${adminId}`, { method: 'DELETE', cookie: admin }),
-    403,
-  );
+  // Refused before the delete affordance is read, with its own reason, since
+  // 1 Oct: 400 "You cannot delete your own account." (accounts.ts:801-808).
+  // The 403 this once expected came from the missing affordance, which used to
+  // be checked first and answered "deletion is switched off" even where it is
+  // on. The request carries no body, so no content type is sent with it.
+  {
+    const selfDelete = await call(`/accounts/${adminId}`, { method: 'DELETE', cookie: admin });
+    const refusal = (await selfDelete.json().catch(() => ({}))) as { message?: string };
+    check(
+      'nobody may delete their own account',
+      `${selfDelete.status} ${refusal.message ?? ''}`,
+      '400 You cannot delete your own account.',
+    );
+    const selfLock = await call(`/accounts/${adminId}/lock`, { method: 'POST', cookie: admin });
+    const lockRefusal = (await selfLock.json().catch(() => ({}))) as { message?: string };
+    check(
+      'nobody may deactivate their own account',
+      `${selfLock.status} ${lockRefusal.message ?? ''}`,
+      '400 You cannot deactivate your own account.',
+    );
+  }
   check(
     'a non-numeric id is not found',
     await status('/accounts/not-a-number', { cookie: admin }),
@@ -7370,6 +7505,23 @@ async function main() {
     await recurringChecks({ call, status, check, admin, restricted, adminId, cleanup: { onCleanup: (fn) => surfaceCleanups.push(fn) } });
   }
 
+  // --- Two-factor authentication ---------------------------------------------
+  // On the restricted account, removed however far the run got: authz-mfa.ts.
+  {
+    const { mfaChecks } = await import('./authz-mfa.js');
+    restricted = await mfaChecks({
+      call,
+      status,
+      check,
+      admin,
+      restricted,
+      adminId,
+      restrictedId,
+      credentials: RESTRICTED,
+      cleanup: { onCleanup: (fn) => surfaceCleanups.push(fn) },
+    });
+  }
+
   // --- Calculated fields (BR-406 to BR-408) -----------------------------------
   // In a project of its own; every field, its OpenProject field and the work
   // removed however far the run got: authz-calculated.ts.
@@ -7641,7 +7793,7 @@ async function main() {
       check('the saved view is removed', await status(`/queries/${criticalPathQueryId}`, { method: 'DELETE', cookie: admin }), 204);
       criticalPathQueryId = undefined;
     }
-    check('the project is removed, with its work', await status(`/projects/${cpProject}`, { method: 'DELETE', cookie: admin }), 204);
+    check('the project is removed, with its work', await removeProject(cpProject, admin), 'removed');
     criticalPathProjectId = undefined;
   }
 
@@ -7937,7 +8089,7 @@ async function main() {
     );
 
     // Put things back: the project, with its work, baseline and memberships.
-    check('the project is removed', await status(`/projects/${evProject}`, { method: 'DELETE', cookie: admin }), 204);
+    check('the project is removed', await removeProject(evProject, admin), 'removed');
     check('and its baselines with it', await evDb.evmBaseline.count({ where: { projectId: Number(evProject) } }), 0);
     earnedValueProjectId = undefined;
   }
@@ -8036,7 +8188,8 @@ async function main() {
     check('the HR extract is imported: a schedule and time off', `${first.people}/${first.schedules}/${first.timeOffCreated}/${first.timeOffUpdated}`, '1/1/1/0');
     check('and someone the directory does not know is named, not guessed', (first.unknown ?? []).join(','), `nobody-${stamp}@example.invalid`);
     const second = await json('/resources/hr/import', admin, { method: 'POST', body: extract });
-    check('imported again, the time off is updated, not added twice', `${second.timeOffCreated}/${second.timeOffUpdated}`, '0/1');
+    // Unchanged, it is not written either: a write would propose new dates again (BR-113).
+    check('imported again unchanged, the time off is neither added twice nor written again', `${second.timeOffCreated}/${second.timeOffUpdated}`, '0/0');
     // By hand: W 16, W+1 20, W+2 full time less 4 hours of training: 36.
     const reconciled = await json('/resources/hr/reconcile', admin, {
       method: 'POST',
@@ -8068,9 +8221,32 @@ async function main() {
     const adminRoles = (await json('/admin/roles')) as unknown as { id: string; name: string; kind: string; builtin: boolean; permissions: string[] }[];
     const projectRoleList = adminRoles.filter((role) => role.kind === 'project' && !role.builtin);
     const assigneeRole = projectRoleList.find((role) => role.permissions.includes('work_package_assigned') && role.permissions.includes('edit_project'));
-    const workerRole = projectRoleList.find(
-      (role) => role.name !== 'EPM Automation' && role.permissions.includes('work_package_assigned') && !role.permissions.includes('edit_project'),
+    // The restricted account is given work and must still not edit it: "cannot
+    // pin it" below rests on that, and pinning needs task:edit — upstream's
+    // edit_work_packages (resources.ts:327-333). So its role is chosen by what
+    // it allows: assignable, editing neither work nor the project. Chosen by
+    // assignability alone it was a hand-made role that edits work packages, and
+    // the pin was allowed, rightly. An instance with no such role — this one's
+    // assignable roles all edit work — gets one for the section, holding just
+    // that, removed with the project.
+    let workerRole = projectRoleList.find(
+      (role) =>
+        role.name !== 'EPM Automation' &&
+        role.permissions.includes('work_package_assigned') &&
+        !role.permissions.includes('edit_work_packages') &&
+        !role.permissions.includes('edit_project'),
     );
+    if (!workerRole) {
+      const madeWorkerRole = await call('/admin/roles', {
+        method: 'POST',
+        cookie: admin,
+        body: { name: `Resources Test assignee ${stamp}`, permissions: ['view_work_packages', 'work_package_assigned'] },
+      });
+      if (madeWorkerRole.status === 201) {
+        workerRole = (await madeWorkerRole.json()) as (typeof projectRoleList)[number];
+        resourcesWorkerRoleId = workerRole.id;
+      }
+    }
     check('there are roles to give work with', Boolean(assigneeRole && workerRole), true);
     check(
       'the administrator joins it',
@@ -8354,8 +8530,15 @@ async function main() {
     // Put things back: unpin, the project with its work, the restricted account's schedule, time off and role.
     check('M is unpinned', await status(`/work-packages/${ids.M}/pin`, { method: 'DELETE', cookie: admin }), 204);
     resourcesPinnedId = undefined;
-    check('the project is removed', await status(`/projects/${rcProject}`, { method: 'DELETE', cookie: admin }), 204);
+    check('the project is removed', await removeProject(rcProject, admin), 'removed');
     resourcesProjectId = undefined;
+    // Its memberships went with it, so a role made for the section is no
+    // longer held by anyone and can go too.
+    if (resourcesWorkerRoleId) {
+      const roleRemoved = await status(`/admin/roles/${resourcesWorkerRoleId}`, { method: 'DELETE', cookie: admin });
+      check('and the role made for it', roleRemoved, 204);
+      if (roleRemoved === 204) resourcesWorkerRoleId = undefined;
+    }
   }
 
   // --- Time and expense (BR-304 to BR-309, BR-317) ------------------------------
@@ -8875,7 +9058,7 @@ async function main() {
     for (const id of timeCostEntryIds.splice(0)) {
       await asSystem(() => upstream.request(`/epm_admin/costs/entries/${id}`, { root: true, method: 'DELETE' })).catch(() => undefined);
     }
-    check('the project is removed', await status(`/projects/${teProject}`, { method: 'DELETE', cookie: admin }), 204);
+    check('the project is removed', await removeProject(teProject, admin), 'removed');
     timeProjectId = undefined;
     check('the rules are put back', [200, 409].includes(await status('/time/settings', { method: 'PUT', cookie: admin, body: timeSettingsBefore })), true);
     timeSettingsBefore = undefined;
@@ -8947,7 +9130,7 @@ async function main() {
     const items = (Array.isArray(told) ? told : (told.items ?? [])) as Json[];
     check('in the app as well', items.some((item) => String(item.link ?? '').endsWith(`/tasks/${P}`)), true);
 
-    check('the project is removed', await status(`/projects/${slipProjectId}`, { method: 'DELETE', cookie: admin }), 204);
+    check('the project is removed', await removeProject(String(slipProjectId), admin), 'removed');
     slipProjectId = undefined;
   }
 
@@ -8963,9 +9146,15 @@ async function main() {
     check('scenarios are not for someone without scenarios:manage', await status('/scenarios', { cookie: restricted }), 403);
 
     // A project two months ahead: 40 open hours over two weeks, a milestone, a budget; the restricted account owns it.
+    // The two weeks start on a Monday no later than the 17th, so they end inside the same month, and so do they once
+    // moved a quarter on (the day of the month is kept: scenarios.ts:40-48). Deferred work is spread again over the
+    // working days its moved dates span (scenarios.ts:61-73), and two weeks across a month end can split differently
+    // three months on — 28 Dec–8 Jan is 4 + 6 working days, 28 Mar–8 Apr 3 + 6 — so "the capacity demand moves three
+    // months" below depended on the day the suite ran. The split itself is checked by hand in scenarios.check.ts.
     const DAY = 86_400_000;
     const ahead = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) + 60 * DAY;
-    const monday = ahead - ((new Date(ahead).getUTCDay() + 6) % 7) * DAY;
+    let monday = ahead - ((new Date(ahead).getUTCDay() + 6) % 7) * DAY;
+    while (new Date(monday).getUTCDate() > 17) monday += 7 * DAY;
     const day = (offset: number) => new Date(monday + offset * DAY).toISOString().slice(0, 10);
     const made = await call('/projects', { method: 'POST', cookie: admin, body: { payload: { name: `Scenario Test ${stamp}`, identifier: `scn-${stamp}` } } });
     check('a project is made for the scenario tests', made.status, 201);
@@ -9035,17 +9224,24 @@ async function main() {
     check('BR-222: approved, the scenario is promoted with the decision recorded', `${promoted.status}/${promoted.decision?.comment}/${promoted.decidedBy}`, `promoted/${comment}/${restrictedId}`);
     const after = JSON.parse(await live()) as (string | number | null)[];
     const startNow = promoted.projects?.[0]?.plannedStart;
-    // OpenProject starts work on a working day: a start that lands on a weekend moves to the Monday.
+    // OpenProject starts work on a working day: a start that lands on a weekend moves to the Monday. So does a
+    // milestone's date (SetAttributesService#shift_dates_to_soonest_working_days), and day 25, a Friday, moved by a
+    // quarter of 92 days is a Saturday, as on most of the year's run dates. The plan's start is EPM's and stays put.
     const workingStart = (iso: string) => {
       let at = Date.parse(`${iso}T00:00:00Z`);
       while ([0, 6].includes(new Date(at).getUTCDay())) at += DAY;
       return new Date(at).toISOString().slice(0, 10);
     };
-    check('and applied to live data: the work, the milestone and the plan three months on', [after[0], after[3], after[4]].join(), [workingStart(startNow), promoted.profile?.milestones?.[0]?.date, startNow].join());
+    const movedMilestone = promoted.profile?.milestones?.[0]?.date as string | undefined;
+    check(
+      'and applied to live data: the work, the milestone and the plan three months on',
+      [after[0], after[3], after[4]].join(),
+      [workingStart(startNow), movedMilestone ? workingStart(movedMilestone) : movedMilestone, startNow].join(),
+    );
     const journal = await scDb.auditEvent.findMany({ where: { entityId: scenario.id, occurredAt: { gte: suiteStartedAt } }, select: { action: true } });
     check('the journal has it all', ['scenario.created', 'scenario.adjusted', 'scenario.submitted', 'scenario.promoted'].filter((action) => !journal.some((row) => row.action === action)).join(', '), '');
 
-    check('the project is removed', await status(`/projects/${pid}`, { method: 'DELETE', cookie: admin }), 204);
+    check('the project is removed', await removeProject(pid, admin), 'removed');
     scenarioProjectId = undefined;
     await scDb.scenario.delete({ where: { id: scenario.id } }).catch(() => undefined);
   }
@@ -9182,15 +9378,10 @@ async function main() {
     // health section above, so there is one to see — or not.
     type Person = { id: string; hourlyRate?: number };
     const adminDirectory = (await (await call('/employees', { cookie: admin })).json()) as Person[];
-    const restrictedDirectory = (await (await call('/employees', { cookie: restricted })).json()) as Person[];
     check('whoever sets rates sees them in the directory', adminDirectory.some((person) => person.hourlyRate !== undefined), true);
-    check(
-      'nobody else sees any rate in it',
-      restrictedDirectory.length > 0 && restrictedDirectory.every((person) => !('hourlyRate' in person)),
-      true,
-    );
-    const ownRecord = (await (await call(`/employees/${adminId}`, { cookie: restricted })).json()) as Person;
-    check('not even by asking for one person', 'hourlyRate' in ownRecord, false);
+    check('nobody else reads the directory', await status('/employees', { cookie: restricted }), 403);
+    const ownRecord = (await (await call(`/employees/${restrictedId}`, { cookie: restricted })).json()) as Person;
+    check('and their own record carries no rate', 'hourlyRate' in ownRecord, false);
 
     type Report = { costHidden?: boolean; totalCost?: number; hoursWithoutRate?: number; rows: Record<string, unknown>[] };
     const range = `from=${new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`;
@@ -9248,12 +9439,14 @@ async function main() {
       409,
     );
     check('with it, the costs are there at once', (await reportAs(restricted)).costHidden === undefined, true);
-    check(
-      'and the rates',
-      ((await (await call('/employees', { cookie: restricted })).json()) as Person[]).some((person) => 'hourlyRate' in person) ||
-        restrictedDirectory.every((person) => person.id !== adminId),
-      true,
-    );
+    {
+      const withRates = (await (await call('/employees', { cookie: restricted })).json()) as Person[];
+      check(
+        'and the rates',
+        withRates.some((person) => 'hourlyRate' in person) || withRates.every((person) => person.id !== adminId),
+        true,
+      );
+    }
     const taken = await status(`/admin/permission-grants/${restrictedId}/rates:view`, { method: 'DELETE', cookie: admin });
     if (taken === 204) ratesGrantLent = false;
     check('removing it', taken, 204);
@@ -9300,27 +9493,46 @@ async function main() {
   }
 
   // --- Forecasts and recommended actions (BR-509 to BR-512) -----------------
-  // Each person sees the forecasts and recommendations of the projects they can
-  // see, and only an administrator runs the model or back-tests it. Nothing is
-  // approved here: a decision is only ever tried by someone refused it.
+  // Forecasts are for the roles that work in portfolio insight, on the server as
+  // on the page. Within those, each person sees the forecasts and recommendations
+  // of the projects they can see, and only an administrator runs the model or
+  // back-tests it. Nothing is approved here: a decision is only ever tried by
+  // someone refused it. The restricted account is lent the Manager role for what
+  // a manager sees, and given back the one it had, whatever happens.
   console.log('\nForecasts and recommended actions');
   {
+    check('an employee is refused the forecasts', await status('/forecasts?pageSize=200', { cookie: restricted }), 403);
+    check('and the recommended actions', await status('/recommendations?pageSize=200', { cookie: restricted }), 403);
+    check('and deciding one', await status('/recommendations/no-such-id/decision', { method: 'POST', cookie: restricted, body: { decision: 'approve' } }), 403);
+    check('and reproducing a forecast', await status('/forecasts/no-such-id/reproduce', { cookie: restricted }), 403);
+
     // What the restricted account can see: forecasts and recommendations follow it exactly.
     const visibleProjects = new Set(
       ((await (await call('/projects', { cookie: restricted })).json()) as { id: string | number }[]).map((project) => String(project.id)),
     );
-    const seen = (await (await call('/forecasts?pageSize=200', { cookie: restricted })).json()) as { forecasts?: { projectId: number }[] };
-    check(
-      'someone sees forecasts only for the projects they can see',
-      (seen.forecasts ?? []).every((forecast) => visibleProjects.has(String(forecast.projectId))),
-      true,
-    );
-    const offered = (await (await call('/recommendations?pageSize=200', { cookie: restricted })).json()) as { items?: { projectId: string }[] };
-    check(
-      'and recommended actions only for those projects',
-      (offered.items ?? []).every((recommendation) => visibleProjects.has(String(recommendation.projectId))),
-      true,
-    );
+    const forecastRoles = (await (await call('/admin/app-roles', { cookie: admin })).json()) as { people?: { userId: string; role: string }[] };
+    const forecastRoleBefore = forecastRoles.people?.find((person) => person.userId === restrictedId)?.role ?? 'employee';
+    try {
+      await call(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: admin, body: { role: 'manager' } });
+      const seen = (await (await call('/forecasts?pageSize=200', { cookie: restricted })).json()) as { forecasts?: { projectId: number }[] };
+      check(
+        'a manager sees forecasts only for the projects they can see',
+        Array.isArray(seen.forecasts) && seen.forecasts.every((forecast) => visibleProjects.has(String(forecast.projectId))),
+        true,
+      );
+      const offered = (await (await call('/recommendations?pageSize=200', { cookie: restricted })).json()) as { items?: { projectId: string }[] };
+      check(
+        'and recommended actions only for those projects',
+        Array.isArray(offered.items) && offered.items.every((recommendation) => visibleProjects.has(String(recommendation.projectId))),
+        true,
+      );
+    } finally {
+      await call(`/admin/app-roles/${restrictedId}`, {
+        method: 'PUT',
+        cookie: admin,
+        body: { role: forecastRoleBefore === 'admin' ? 'employee' : forecastRoleBefore },
+      }).catch(() => undefined);
+    }
     check('only an administrator runs the model', await status('/forecasts/run', { method: 'POST', cookie: restricted }), 403);
     check('or reads the back-test', await status('/forecasts/backtest', { cookie: restricted }), 403);
     check('or starts one', await status('/forecasts/backtest', { method: 'POST', cookie: restricted, body: {} }), 403);
@@ -9334,7 +9546,7 @@ async function main() {
       check(
         "someone who cannot see a recommendation's project cannot decide it",
         await status(`/recommendations/${unseenRecommendation.id}/decision`, { method: 'POST', cookie: restricted, body: { decision: 'approve' } }),
-        404,
+        403,
       );
     } else {
       console.log('  SKIP  no waiting recommendation is in a project the restricted account cannot see');
@@ -9345,7 +9557,7 @@ async function main() {
       check(
         'nor reproduce a forecast of a project they cannot see',
         await status(`/forecasts/${unseenForecast.id}/reproduce`, { cookie: restricted }),
-        404,
+        403,
       );
     } else {
       console.log('  SKIP  no forecast is of a project the restricted account cannot see');
@@ -9760,6 +9972,20 @@ async function main() {
   if (resourcesProjectId) {
     const removed = await call(`/projects/${resourcesProjectId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
     console.log(`  (resource test project ${resourcesProjectId}: ${removed?.status === 204 ? 'deleted' : 'NOT deleted — remove it by hand'})`);
+  }
+  // The project role made for the restricted account. A role somebody holds
+  // cannot be deleted, and the project with its one membership may still be on
+  // its way out (a 202), so this is tried for a minute.
+  if (resourcesWorkerRoleId) {
+    let roleGone = false;
+    for (let attempt = 0; attempt < 12 && !roleGone; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 5_000));
+      const answer = await call(`/admin/roles/${resourcesWorkerRoleId}`, { method: 'DELETE', cookie: admin }).catch(() => undefined);
+      roleGone = answer?.status === 204 || answer?.status === 404;
+    }
+    console.log(
+      `  (resource test role ${resourcesWorkerRoleId}: ${roleGone ? 'removed' : 'NOT removed — delete "Resources Test assignee" under Administration → Roles'})`,
+    );
   }
   if (resourcesProjectNumber !== undefined || resourcesRoleId || resourcesRunIds.length > 0 || resourcesRestrictedRoleBefore !== undefined) {
     const { prisma } = await import('../db/prisma.js');

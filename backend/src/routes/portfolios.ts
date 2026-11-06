@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import {
   createPortfolio,
@@ -23,9 +24,11 @@ import { loadProjectsFor } from './projects.js';
  * read live from the projects the caller can already see — so a portfolio can
  * never report a project the caller is not allowed to know about.
  *
- * Reading is open to any signed-in caller, as for departments and teams.
- * Writing needs `portfolios:manage`, which OpenProject cannot grant because it
- * has no portfolio concept. See `auth/grants.ts`.
+ * Reading follows the projects: a project's overview links to its portfolio for
+ * anyone who can see that project, and that is the portfolios someone sees.
+ * Whoever holds `portfolios:manage` sees them all, empty ones included. Writing
+ * needs that permission too, which OpenProject cannot grant because it has no
+ * portfolio concept. See `auth/grants.ts`.
  */
 
 /** Live project facts for the rollups, from projects this caller can see. */
@@ -37,14 +40,25 @@ async function factsFor(
 
 export const portfolioRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { includeInactive?: string } }>('/portfolios', async (request) => {
-    return listPortfolios(
-      { includeInactive: request.query.includeInactive === 'true' },
-      await factsFor(request),
-    );
+    const [portfolios, manager] = await Promise.all([
+      factsFor(request).then((facts) =>
+        listPortfolios({ includeInactive: request.query.includeInactive === 'true' }, facts),
+      ),
+      guard.holds(request, 'portfolios:manage'),
+    ]);
+    // Counted from the projects this caller can see, so a portfolio with none of
+    // theirs in it was only ever telling them its name.
+    return manager ? portfolios : portfolios.filter((portfolio) => portfolio.projectCount > 0);
   });
 
   app.get<{ Params: { id: string } }>('/portfolios/:id', async (request) => {
-    return getPortfolio(request.params.id, await factsFor(request));
+    const [portfolio, manager] = await Promise.all([
+      factsFor(request).then((facts) => getPortfolio(request.params.id, facts)),
+      guard.holds(request, 'portfolios:manage'),
+    ]);
+    // As if it did not exist, like a project they cannot see.
+    if (!manager && portfolio.projectCount === 0) throw EpmError.notFound('That portfolio');
+    return portfolio;
   });
 
   /**
@@ -60,8 +74,13 @@ export const portfolioRoutes: FastifyPluginAsync = async (app) => {
     // Confirms it exists, so the route cannot be used to probe for ids.
     await getPortfolio(id, []);
 
-    const projects = await loadProjectsFor(request);
-    return projects.filter((project) => project.portfolioId === id);
+    const [projects, manager] = await Promise.all([
+      loadProjectsFor(request),
+      guard.holds(request, 'portfolios:manage'),
+    ]);
+    const inPortfolio = projects.filter((project) => project.portfolioId === id);
+    if (!manager && inPortfolio.length === 0) throw EpmError.notFound('That portfolio');
+    return inPortfolio;
   });
 
   app.post<{ Body: PortfolioInput }>('/portfolios', async (request, reply) => {

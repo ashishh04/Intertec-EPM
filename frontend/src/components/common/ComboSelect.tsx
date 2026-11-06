@@ -49,6 +49,8 @@ interface ComboSelectProps {
   disabled?: boolean;
   loading?: boolean;
   className?: string;
+  /** What is being typed, for a list too long to hold here that is searched on the server. */
+  onSearch?: (term: string) => void;
 }
 
 export function ComboSelect({
@@ -63,6 +65,7 @@ export function ComboSelect({
   disabled,
   loading,
   className,
+  onSearch,
 }: ComboSelectProps) {
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.id === value);
@@ -104,7 +107,7 @@ export function ComboSelect({
 
         <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
           <Command>
-            <CommandInput placeholder={t('Search {label}', { label: label.toLowerCase() })} />
+            <CommandInput placeholder={t('Search {label}', { label: label.toLowerCase() })} onValueChange={onSearch} />
             <CommandList>
               <CommandEmpty>{emptyLabel}</CommandEmpty>
               <CommandGroup>

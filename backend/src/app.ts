@@ -58,10 +58,10 @@ const TOKEN_IN_PATH = /(\/(?:invites|password-reset)\/)[^/?#]+/g;
 const withoutTokens = (url: string): string => url.replace(TOKEN_IN_PATH, '$1[redacted]');
 
 /**
- * Where the rate limit is always per address: signing in, and the links a
- * token opens (an invitation, a password reset). A session is not a bucket
- * there, or one account signed in a few times would be a fresh allowance of
- * guesses each time.
+ * Where the rate limit is always per address: signing in and its second factor,
+ * and the links a token opens (an invitation, a password reset). A session is not
+ * a bucket there, or one account signed in a few times would be a fresh allowance
+ * of guesses each time.
  */
 function perAddress(url: string): boolean {
   const path = url.split('?')[0] ?? '';
@@ -69,6 +69,7 @@ function perAddress(url: string): boolean {
   const relative = path.slice(env.API_PREFIX.length);
   return (
     relative === '/auth/login' ||
+    relative === '/auth/mfa/verify' ||
     relative === '/password-reset' ||
     relative.startsWith('/password-reset/') ||
     relative.startsWith('/invites/')
@@ -92,6 +93,9 @@ export async function buildApp(): Promise<FastifyInstance> {
           'req.body.password',
           'body.password',
           'password',
+          // A recovery code is good until it is used.
+          'req.body.code',
+          'body.code',
         ],
         censor: '[redacted]',
       },
@@ -155,6 +159,34 @@ export async function buildApp(): Promise<FastifyInstance> {
     limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 10 },
   });
 
+  /*
+   * An empty body is no body, whatever the Content-Type says.
+   *
+   * Fastify answers a request that declares `application/json` and sends
+   * nothing with 400 "Body cannot be empty" before any route runs, and clients
+   * do exactly that by default: Postman puts the header on a DELETE with no
+   * body. The route never answered, so a deletion or the refusal it would have
+   * given (403, 404) came back as a malformed request. An empty body now
+   * reaches the route as no body at all, as it does without the header. Any
+   * other body goes through Fastify's own parser with the instance's settings,
+   * so the prototype-poisoning protection is unchanged.
+   *
+   * A plugin with a JSON parser of its own (routes/webhooks.ts, which needs the
+   * raw body for the signature) removes this one before adding its own: Fastify
+   * lets a child replace only its built-in parser.
+   */
+  const parseJson = app.getDefaultJsonParser(
+    app.initialConfig.onProtoPoisoning ?? 'error',
+    app.initialConfig.onConstructorPoisoning ?? 'error',
+  );
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body: string, done) => {
+    if (body.length === 0) {
+      done(null, undefined);
+      return;
+    }
+    parseJson(request, body, done);
+  });
+
   await app.register(rateLimit, {
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW_MS,
@@ -182,9 +214,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     // `statusCode` has to be on the returned object: the plugin throws it as
     // the error, and without it the handler below sees no status and reports a
     // 500 — which reads as a server fault rather than a deliberate refusal.
-    errorResponseBuilder: (_request, context) => ({
+    errorResponseBuilder: (request, context) => ({
       statusCode: 429,
-      message: `Too many requests. Please retry in ${Math.ceil(context.ttl / 1000)} seconds.`,
+      message: t(requestLanguage(request), 'Too many requests. Please retry in {seconds} seconds.', {
+        seconds: Math.ceil(context.ttl / 1000),
+      }),
       code: 'RATE_LIMITED',
     }),
   });
@@ -270,7 +304,10 @@ export async function buildApp(): Promise<FastifyInstance> {
    *
    * 503 when either is down, so a load balancer takes the instance out rather
    * than sending traffic to something that cannot answer. The body names which
-   * one, because "not ready" without that is a page of guessing.
+   * one, because "not ready" without that is a page of guessing — in neutral
+   * words: Caddy serves this to anyone, and EPM never names the system behind
+   * it. Nothing reads the keys; the healthchecks and the restore script go by
+   * the status alone.
    */
   app.get('/ready', async (_request, reply) => {
     const [database, upstream] = await Promise.all([
@@ -281,7 +318,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     const ready = database.ok && upstream.ok;
     return reply.status(ready ? 200 : 503).send({
       status: ready ? 'ready' : 'unavailable',
-      checks: { database, openProject: upstream },
+      checks: { database, deliverySystem: upstream },
     });
   });
 
@@ -340,6 +377,22 @@ export async function buildApp(): Promise<FastifyInstance> {
     // through there — departments, teams, people, portfolios, plans, rates,
     // time — so the dashboards catch up within a tick, not an interval.
     if (!NOT_MODELLED.some((prefix) => request.url.startsWith(`${env.API_PREFIX}${prefix}`))) markModelStale();
+  });
+
+  /*
+   * No path parameter is a path. The router decodes `%2F`, and the upstream
+   * client resolves `..` when it builds a URL, so an id such as
+   * `..%2Ftime_entries%2F9` would turn DELETE /api/work-packages/:id into a
+   * delete of a time entry: the caller's own rights upstream, but none of
+   * EPM's rules (the timesheet lock) and none of its journal. Every id, key
+   * and slug here is a single segment, so one that is not cannot exist: 404.
+   */
+  app.addHook('preValidation', async (request) => {
+    for (const value of Object.values((request.params ?? {}) as Record<string, unknown>)) {
+      if (typeof value === 'string' && (/[\\/]/.test(value) || value === '.' || value === '..')) {
+        throw EpmError.notFound();
+      }
+    }
   });
 
   await app.register(registerRoutes, { prefix: env.API_PREFIX });

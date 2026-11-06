@@ -92,6 +92,12 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
   const submit = () => {
     setProblem(undefined);
 
+    // In the order the form asks: the person, then their role.
+    if (!isEdit && !userId) {
+      setProblem(t('Choose someone to add.'));
+      return;
+    }
+
     if (!roleId) {
       setProblem(t('Choose a role.'));
       return;
@@ -108,11 +114,6 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
           onError: fail,
         },
       );
-      return;
-    }
-
-    if (!userId) {
-      setProblem(t('Choose someone to add.'));
       return;
     }
 

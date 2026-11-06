@@ -16,7 +16,7 @@ import {
   withdrawTimesheet,
   type TimesheetViewer,
 } from '../domain/timesheets-store.js';
-import { today as todayIso } from '../lib/dates.js';
+import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { requestLanguage, t } from '../lib/i18n.js';
 
@@ -31,8 +31,7 @@ import { requestLanguage, t } from '../lib/i18n.js';
  * and changed with `time:configure`.
  */
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-const dayQuery = z.object({ day: z.string().regex(DAY).optional() });
+const dayQuery = z.object({ day: calendarDay().optional() });
 
 async function viewerOf(request: FastifyRequest): Promise<TimesheetViewer> {
   return { id: request.auth!.userId, manage: allows(await guard.permissionsFor(request), 'timesheets:manage') };
@@ -87,7 +86,7 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
 
   /** Submits the caller's timesheet for the period the day falls in (BR-304). */
   app.post<{ Body: unknown }>('/timesheets/submit', async (request) => {
-    const body = z.object({ day: z.string().regex(DAY).optional() }).parse(request.body ?? {});
+    const body = z.object({ day: calendarDay().optional() }).parse(request.body ?? {});
     const viewerId = request.auth!.userId;
     return submitTimesheet(viewerId, body.day ?? todayIso(), viewerId);
   });
@@ -100,7 +99,7 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
   app.get('/timesheets/overview', async (request) => {
     const query = z
       .object({
-        day: z.string().regex(DAY).optional(),
+        day: calendarDay().optional(),
         status: z.enum(['submitted', 'approved', 'rejected', 'outstanding']).optional(),
         teamId: z.string().max(40).optional(),
         departmentId: z.string().max(40).optional(),

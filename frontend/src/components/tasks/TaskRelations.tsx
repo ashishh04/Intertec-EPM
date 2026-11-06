@@ -34,9 +34,14 @@ import type { ID } from '@/types';
 
 interface TaskRelationsProps {
   workPackageId: ID;
+  /** Whether this person may add one, as the work package itself offers it. */
+  canAdd: boolean;
 }
 
-export function TaskRelations({ workPackageId }: TaskRelationsProps) {
+/** What a typed lag comes to: whole working days from 0 to 365, as the server stores it. */
+const lagDays = (typed: string) => Math.max(0, Math.min(365, Math.round(Number(typed) || 0)));
+
+export function TaskRelations({ workPackageId, canAdd }: TaskRelationsProps) {
   const relations = useRelations(workPackageId);
   const create = useCreateRelation(workPackageId);
   const remove = useDeleteRelation(workPackageId);
@@ -74,125 +79,130 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
           ) : null}
         </CardTitle>
 
-        <Popover
-          open={adding}
-          onOpenChange={(open) => (open ? setAdding(true) : close())}
-        >
-          <PopoverTrigger asChild>
-            <Button size="sm" variant="secondary" className="h-8">
-              <Plus className="h-3.5 w-3.5" />
-              {t('Add relation')}
-            </Button>
-          </PopoverTrigger>
+        {canAdd ? (
+          <Popover
+            open={adding}
+            onOpenChange={(open) => (open ? setAdding(true) : close())}
+          >
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="secondary" className="h-8">
+                <Plus className="h-3.5 w-3.5" />
+                {t('Add relation')}
+              </Button>
+            </PopoverTrigger>
 
-          <PopoverContent align="end" className="w-80 space-y-2 p-2">
-            <div className="space-y-1">
-              <label
-                htmlFor="relation-type"
-                className="text-2xs font-medium text-muted-foreground"
-              >
-                {t('This task…')}
-              </label>
-              {/* The vocabulary is served by the backend, so a direction added
-                  upstream appears here without a change to this file. */}
-              <select
-                id="relation-type"
-                className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={chosenType ?? ''}
-                disabled={types.isLoading}
-                onChange={(event) => setType(event.target.value)}
-              >
-                {types.data?.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Only a scheduling relation carries a lag, and only it moves dates. */}
-            {chosenType === 'follows' || chosenType === 'precedes' ? (
+            <PopoverContent align="end" className="w-80 space-y-2 p-2">
               <div className="space-y-1">
-                <label htmlFor="relation-lag" className="text-2xs font-medium text-muted-foreground">
-                  {t('Lag, in working days')}
+                <label
+                  htmlFor="relation-type"
+                  className="text-2xs font-medium text-muted-foreground"
+                >
+                  {t('This task…')}
                 </label>
-                <Input
-                  id="relation-lag"
-                  type="number"
-                  min={0}
-                  max={365}
-                  value={lag}
-                  className="h-8 text-xs"
-                  onChange={(event) => setLag(event.target.value)}
-                />
+                {/* The vocabulary is served by the backend, so a direction added
+                    upstream appears here without a change to this file. */}
+                <select
+                  id="relation-type"
+                  className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={chosenType ?? ''}
+                  disabled={types.isLoading}
+                  onChange={(event) => setType(event.target.value)}
+                >
+                  {types.data?.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ) : null}
 
-            <div className="space-y-1">
-              <label htmlFor="relation-search" className="text-2xs font-medium text-muted-foreground">
-                {t('…this one')}
-              </label>
-              <div className="relative">
-                <Search
-                  className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  id="relation-search"
-                  value={term}
-                  placeholder={t('Search by subject or id')}
-                  className="h-8 ps-7 text-xs"
-                  onChange={(event) => setTerm(event.target.value)}
-                />
-              </div>
-            </div>
+              {/* Only a scheduling relation carries a lag, and only it moves dates. */}
+              {chosenType === 'follows' || chosenType === 'precedes' ? (
+                <div className="space-y-1">
+                  <label htmlFor="relation-lag" className="text-2xs font-medium text-muted-foreground">
+                    {t('Lag, in working days')}
+                  </label>
+                  <Input
+                    id="relation-lag"
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={lag}
+                    className="h-8 text-xs"
+                    onChange={(event) => setLag(event.target.value)}
+                    // The field shows what will be stored: -1 and 400 sat here
+                    // with no sign that they would not be kept.
+                    onBlur={() => setLag(String(lagDays(lag)))}
+                  />
+                </div>
+              ) : null}
 
-            {candidates.isLoading ? (
               <div className="space-y-1">
-                <Skeleton className="h-7 w-full" />
-                <Skeleton className="h-7 w-full" />
+                <label htmlFor="relation-search" className="text-2xs font-medium text-muted-foreground">
+                  {t('…this one')}
+                </label>
+                <div className="relative">
+                  <Search
+                    className="pointer-events-none absolute start-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden
+                  />
+                  <Input
+                    id="relation-search"
+                    value={term}
+                    placeholder={t('Search by subject or id')}
+                    className="h-8 ps-7 text-xs"
+                    onChange={(event) => setTerm(event.target.value)}
+                  />
+                </div>
               </div>
-            ) : (candidates.data?.length ?? 0) === 0 ? (
-              <p className="px-1 py-3 text-center text-xs text-muted-foreground">
-                {search ? t('Nothing matched that search.') : t('No other tasks are available.')}
-              </p>
-            ) : (
-              <ul className="relative max-h-56 overflow-y-auto">
-                {candidates.data?.map((candidate) => (
-                  <li key={candidate.id}>
-                    <button
-                      type="button"
-                      disabled={create.isPending || !chosenType}
-                      className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => {
-                        if (!chosenType) return;
-                        const days = Math.max(0, Math.min(365, Math.round(Number(lag) || 0)));
-                        const scheduling = chosenType === 'follows' || chosenType === 'precedes';
-                        create.mutate(
-                          { type: chosenType, relatedId: candidate.id, ...(scheduling && days > 0 ? { lag: days } : {}) },
-                          {
-                            onSuccess: () => {
-                              close();
-                              toast.success(t('Relation added'));
+
+              {candidates.isLoading ? (
+                <div className="space-y-1">
+                  <Skeleton className="h-7 w-full" />
+                  <Skeleton className="h-7 w-full" />
+                </div>
+              ) : (candidates.data?.length ?? 0) === 0 ? (
+                <p className="px-1 py-3 text-center text-xs text-muted-foreground">
+                  {search ? t('Nothing matched that search.') : t('No other tasks are available.')}
+                </p>
+              ) : (
+                <ul className="relative max-h-56 overflow-y-auto">
+                  {candidates.data?.map((candidate) => (
+                    <li key={candidate.id}>
+                      <button
+                        type="button"
+                        disabled={create.isPending || !chosenType}
+                        className="flex w-full items-start gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-muted disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => {
+                          if (!chosenType) return;
+                          const days = lagDays(lag);
+                          const scheduling = chosenType === 'follows' || chosenType === 'precedes';
+                          create.mutate(
+                            { type: chosenType, relatedId: candidate.id, ...(scheduling && days > 0 ? { lag: days } : {}) },
+                            {
+                              onSuccess: () => {
+                                close();
+                                toast.success(t('Relation added'));
+                              },
+                              onError: (error) =>
+                                toast.error(t('Could not add that relation'), {
+                                  description:
+                                    error instanceof Error ? error.message : undefined,
+                                }),
                             },
-                            onError: (error) =>
-                              toast.error(t('Could not add that relation'), {
-                                description:
-                                  error instanceof Error ? error.message : undefined,
-                              }),
-                          },
-                        );
-                      }}
-                    >
-                      <span className="shrink-0 text-muted-foreground">#{candidate.id}</span>
-                      <span dir="auto" className="truncate">{candidate.subject}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </PopoverContent>
-        </Popover>
+                          );
+                        }}
+                      >
+                        <span className="shrink-0 text-muted-foreground">#{candidate.id}</span>
+                        <span dir="auto" className="truncate">{candidate.subject}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PopoverContent>
+          </Popover>
+        ) : null}
       </CardHeader>
 
       <CardContent className="pt-4">
@@ -205,7 +215,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
           <EmptyState
             icon={GitBranch}
             title={t('No relations')}
-            description={t('Link this task to another to record that it blocks, follows or relates to it.')}
+            description={canAdd ? t('Link this task to another to record that it blocks, follows or relates to it.') : undefined}
           />
         ) : (
           <ul className="space-y-1.5">
@@ -229,7 +239,7 @@ export function TaskRelations({ workPackageId }: TaskRelationsProps) {
                   {relation.related.subject}
                 </Link>
 
-                {relation.lag !== undefined ? (
+                {relation.lag ? (
                   <span className="shrink-0 text-2xs text-muted-foreground">
                     {t('{days, number}d lag', { days: relation.lag })}
                   </span>

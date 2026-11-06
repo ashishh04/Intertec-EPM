@@ -22,6 +22,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { FactList } from '@/components/common/FactList';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
+import { TwoFactorCard } from '@/components/settings/TwoFactorCard';
+import { useMfaStatus } from '@/hooks/useMfa';
 import { usePasswordPolicy } from '@/hooks/useUsers';
 import {
   useRevokeOtherSessions,
@@ -48,9 +50,12 @@ import type { EpmBrowserSession } from '@/types';
  * rather than a substitute for them.
  */
 export function SecuritySettings() {
+  const mfa = useMfaStatus();
+
   return (
     <>
       <PasswordCard />
+      <TwoFactorCard />
       <SessionsCard />
 
       <Card>
@@ -66,15 +71,19 @@ export function SecuritySettings() {
           </Alert>
 
           {/*
-            Only what is in force. Single sign-on and a second factor are not
-            part of EPM's sign-in today, so neither is listed; this page once
-            claimed both, and a claim a reviewer can disprove costs more than
-            the gap itself (BR-609). Add a row when one is configured.
+            Only what is in force. Single sign-on is not part of EPM's sign-in
+            today, so it is not listed; this page once claimed it, and a claim a
+            reviewer can disprove costs more than the gap itself (BR-609). Add a
+            row when it is configured.
           */}
           <FactList
             facts={[
               { label: t('Sign-in'), value: t('EPM\'s own form; the password is checked on the server') },
               { label: t('Password rules and lockout'), value: t('As listed above') },
+              {
+                label: t('Two-factor authentication'),
+                value: mfa.data?.required ? t('Required for your role') : t('Your choice, in your account'),
+              },
               { label: t('API credentials'), value: t('Server-side only') },
             ]}
           />

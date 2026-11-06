@@ -77,6 +77,7 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const IntegrationPage = lazy(() => import('@/pages/IntegrationPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
+const MfaSetupPage = lazy(() => import('@/pages/MfaSetupPage'));
 const AdministrationPage = lazy(() => import('@/pages/admin/AdministrationPage'));
 const PortalApp = lazy(() => import('@/pages/portal/PortalApp'));
 
@@ -109,7 +110,7 @@ function SignedInRedirect() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, mustChangePassword, external } = useAuth();
+  const { isAuthenticated, isLoading, mustChangePassword, mfaSetupRequired, external } = useAuth();
   const location = useLocation();
 
   // The session is confirmed with the backend, so it is not known on first
@@ -129,6 +130,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   // requested URL is still there once the password is set.
   if (mustChangePassword) return <SetPasswordPage />;
 
+  // Likewise, where their role requires two-factor authentication and they have
+  // not set it up. After the password, so the app they register is set up by
+  // someone holding a password of their own.
+  if (mfaSetupRequired) return <MfaSetupPage />;
+
   // An external user (BR-611) sees the portal in place of EPM, whatever the address;
   // the server refuses them everything else anyway.
   if (external) return <PortalApp />;
@@ -137,10 +143,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Administration routes. The sidebar already hides these links from anyone
- * without the permission; this is what makes a typed or shared URL honour the
- * same rule. Rendered in place, like the password gate, so the address stays
- * put and explains itself.
+ * Routes behind a permission, and Administration. The sidebar already hides
+ * these links from anyone without the permission; this is what makes a typed
+ * or shared URL honour the same rule. Rendered in place, like the password
+ * gate, so the address stays put and explains itself.
  */
 function RequirePermission({
   permission,
@@ -152,7 +158,10 @@ function RequirePermission({
 }) {
   const { can } = useAuth();
   const allowed = permission === 'administrator' ? isAdministrator(can) : can(permission);
-  if (!allowed) return <ForbiddenPage />;
+  // Only Administration is for administrators. A permission may come with a
+  // Manager's or HR's role or be granted to anyone, so its refusal says the
+  // person's access does not include the area.
+  if (!allowed) return <ForbiddenPage reason={permission === 'administrator' ? 'administrator' : 'permission'} />;
   return <>{children}</>;
 }
 
@@ -287,9 +296,10 @@ export function App() {
           />
           {/* Not gated like the directory above it. A project's overview links
               here for anyone who can see that project, and the backend serves
-              the read to any signed-in caller — gating it would 403 a member
-              who simply clicked the portfolio their project is in. The page
-              still checks `portfolios:manage` before offering edit or archive. */}
+              the read to anyone who can see a project in it — gating it would
+              refuse a member who simply clicked the portfolio their project is
+              in. The page still checks `portfolios:manage` before offering edit
+              or archive. */}
           <Route path="/portfolios/:portfolioId" element={<PortfolioDetailPage />} />
           {/* Saved portfolio views (BR-203). The list is for managers; a single view
               opens for anyone it was shared with, showing only the projects they

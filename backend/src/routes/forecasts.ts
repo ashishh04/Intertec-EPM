@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import { MANAGEMENT_ROLES } from '../assistant/tool-roles.js';
 import { allows } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
 import { latestBacktest, latestForecasts, latestRun, reproduceForecast, runForecasts, startBacktest } from '../domain/forecasting-store.js';
@@ -12,9 +13,12 @@ import { listProjects } from '../mapping/projects.js';
 
 /**
  * Delivery forecasts (BR-509, BR-510) and recommended actions (BR-511,
- * BR-512). Each person sees the forecasts and recommendations of the
- * projects they can see. Running the model and back-testing it are for
- * administrators; deciding a recommendation needs the right to make its change.
+ * BR-512). For the roles that work in portfolio insight, as the Forecasts page
+ * and Pragnya's forecast tools are: refused here as well, or the data behind that
+ * refused page would still answer anyone who asked for it. Within those roles,
+ * each person sees the forecasts and recommendations of the projects they can
+ * see. Running the model and back-testing it are for administrators; deciding a
+ * recommendation needs the right to make its change.
  */
 
 /** Projects the caller can see, read with their own access. */
@@ -26,6 +30,7 @@ async function visibleProjectIds(request: FastifyRequest): Promise<number[]> {
 export const forecastRoutes: FastifyPluginAsync = async (app) => {
   /** One page of the forecasts the caller can see, most at risk first. */
   app.get<{ Querystring: { projectId?: string; page?: string; pageSize?: string } }>('/forecasts', async (request) => {
+    await guard.requireRole(request, MANAGEMENT_ROLES);
     const query = z
       .object({ projectId: z.string().regex(/^\d+$/).optional(), page: z.coerce.number().int().min(1).optional(), pageSize: z.coerce.number().int().min(1).optional() })
       .parse(request.query);
@@ -37,6 +42,7 @@ export const forecastRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/forecasts/:id/reproduce', async (request) => {
+    await guard.requireRole(request, MANAGEMENT_ROLES);
     const result = await reproduceForecast(request.params.id);
     if (!(await visibleProjectIds(request)).includes(result.stored.projectId)) throw EpmError.notFound('That forecast');
     return { identical: result.identical, recomputed: result.recomputed };
@@ -86,6 +92,7 @@ export const forecastRoutes: FastifyPluginAsync = async (app) => {
 
   /** One page of the caller's projects' recommendations: waiting, decided, or one status. */
   app.get<{ Querystring: { status?: string; projectId?: string; page?: string; pageSize?: string } }>('/recommendations', async (request) => {
+    await guard.requireRole(request, MANAGEMENT_ROLES);
     const query = z
       .object({
         status: z.enum(['proposed', 'decided', 'applied', 'rejected', 'failed']).optional(),
@@ -101,6 +108,7 @@ export const forecastRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post<{ Params: { id: string }; Body: unknown }>('/recommendations/:id/decision', async (request) => {
+    await guard.requireRole(request, MANAGEMENT_ROLES);
     const input = z.object({ decision: z.enum(['approve', 'reject']), comment: z.string().max(2000).nullable().optional() }).parse(request.body ?? {});
     const projectId = await recommendationProject(request.params.id);
     if (projectId === null || !(await visibleProjectIds(request)).includes(projectId)) throw EpmError.notFound('That recommendation');

@@ -2,12 +2,13 @@ import { z } from 'zod';
 
 import { runAsSystem } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
-import { daysBetween, today as todayIso } from '../lib/dates.js';
+import { daysBetween, isCalendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { contextLanguage, dateOf, message, msg, t } from '../lib/i18n.js';
 import { endpointProblem, postJson } from '../lib/outbound.js';
 import { buildWorkbook } from '../lib/xlsx.js';
 import { getCatalog } from '../mapping/catalog.js';
+import { deriveStatus, getProjectAggregates } from '../mapping/projects.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
 import type {
@@ -43,6 +44,7 @@ import {
   derivePhasing,
   estimatedRevenue,
   forecastProject,
+  forecastStatus,
   fromCents,
   margin,
   money,
@@ -55,6 +57,7 @@ import {
   toCents,
   type Phase,
 } from './finance.js';
+import { healthViews } from './health.js';
 import { modelFacts, type ModelFacts } from './measure-facts.js';
 import { costOf } from './measures.js';
 import { spread } from './resource-model.js';
@@ -79,7 +82,6 @@ import { entriesOf } from './time-rules.js';
  */
 
 const isoDay = (value: Date) => value.toISOString().slice(0, 10);
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /* -------------------------------------------------------------------------- */
 /* Settings                                                                   */
@@ -447,7 +449,7 @@ export async function projectPhasing(projectId: number, context?: Context): Prom
 
 const phasingSchema = z.object({
   phases: z
-    .array(z.object({ month: z.string().regex(/^\d{4}-\d{2}-01$/, msg('A month is given as its first day, e.g. 2026-10-01.')), amount: z.number().min(0).max(1e12) }))
+    .array(z.object({ month: z.string().refine((value) => value.endsWith('-01') && isCalendarDay(value), msg('A month is given as its first day, e.g. 2026-10-01.')), amount: z.number().min(0).max(1e12) }))
     .min(1)
     .max(240),
 });
@@ -689,19 +691,32 @@ export async function marginFor(projectIds: number[]): Promise<MarginView> {
 /* Revenue forecast (BR-319)                                                  */
 /* -------------------------------------------------------------------------- */
 
-/** OpenProject's project status for each project: what the forecast's confidence goes by. */
+/**
+ * What the forecast's confidence goes by, for each project: OpenProject's project
+ * status, or the delivery status EPM shows beside the project where that says it
+ * is going worse (`forecastStatus`). The same delivery status the reader sees:
+ * from the counts on their own token and the stored health.
+ */
 async function projectStatuses(projectIds: number[]): Promise<Map<number, ProjectStatusKey>> {
   const out = new Map<number, ProjectStatusKey>(projectIds.map((id) => [id, 'none']));
   if (projectIds.length === 0) return out;
-  const rows = await runAsSystem(() =>
-    openProject.getAll<{ id: number; _links?: { status?: HalLink | null } }>('/projects', {
-      filters: [{ field: 'id', operator: '=', values: projectIds.map(String) }],
-      pageSize: 200,
-    }),
-  );
+  const [rows, aggregates] = await Promise.all([
+    runAsSystem(() =>
+      openProject.getAll<{ id: number; active: boolean; _links?: { status?: HalLink | null } }>('/projects', {
+        filters: [{ field: 'id', operator: '=', values: projectIds.map(String) }],
+        pageSize: 200,
+      }),
+    ),
+    getProjectAggregates(),
+  ]);
+  const health = await healthViews(rows.items);
   for (const row of rows.items) {
+    const id = String(row.id);
     const code = row._links?.status?.href?.split('/').pop() ?? null;
-    if (code && PROJECT_STATUSES.includes(code as ProjectStatusKey)) out.set(row.id, code as ProjectStatusKey);
+    const set = code && PROJECT_STATUSES.includes(code as ProjectStatusKey) ? (code as ProjectStatusKey) : 'none';
+    const view = health.get(id);
+    const delivery = view && deriveStatus({ active: row.active, total: aggregates.total.get(id) ?? 0, completed: aggregates.completed.get(id) ?? 0, health: view.effective });
+    out.set(row.id, delivery ? forecastStatus(set, delivery) : set);
   }
   return out;
 }
@@ -923,8 +938,8 @@ function thisMonth(): { from: string; to: string } {
 }
 
 function periodOf(query: { from?: unknown; to?: unknown }): { from: string; to: string } {
-  const from = typeof query.from === 'string' && DAY.test(query.from) ? query.from : null;
-  const to = typeof query.to === 'string' && DAY.test(query.to) ? query.to : null;
+  const from = typeof query.from === 'string' && isCalendarDay(query.from) ? query.from : null;
+  const to = typeof query.to === 'string' && isCalendarDay(query.to) ? query.to : null;
   if (!from || !to) throw EpmError.badRequest('Give the period as from and to dates, e.g. 2026-10-01 and 2026-10-31.');
   if (from > to) throw EpmError.badRequest('from must not be after to.');
   if (daysBetween(from, to) > 366) throw EpmError.badRequest('A period can be at most a year long.');

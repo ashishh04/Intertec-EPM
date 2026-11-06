@@ -29,7 +29,9 @@ import type { ConnectionState } from '@/types';
  * Administrative view of the OpenProject connection.
  *
  * Health only — credentials, tokens and connection secrets are held by the
- * EPM backend and are never returned to the browser.
+ * EPM backend and are never returned to the browser. Nor is anything that
+ * names the system underneath: no product name, version or address appears
+ * here (DEF-012).
  */
 export default function IntegrationPage() {
   const { can } = useAuth();
@@ -111,7 +113,9 @@ export default function IntegrationPage() {
                   icon={Server}
                   label={t('Status')}
                   state={status.state}
-                  detail={`API ${status.apiVersion}`}
+                  detail={t('{count, plural, one {# record type readable} other {# record types readable}}', {
+                    count: status.syncedResources.length,
+                  })}
                 />
                 <StatusTile
                   icon={ShieldCheck}
@@ -154,7 +158,6 @@ export default function IntegrationPage() {
               <CardContent className="space-y-3 pt-4">
                 <FactList
                   facts={[
-                    { label: t('API version'), value: status.apiVersion },
                     {
                       label: t('Authentication'),
                       value: t('A service key and each person\'s own token, held server-side'),

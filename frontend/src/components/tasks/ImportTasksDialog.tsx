@@ -14,6 +14,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { saveBlob } from '@/lib/download';
 import { intlLocale, t } from '@/lib/i18n';
 import { formatNumber } from '@/lib/utils';
+import { useAuth } from '@/providers/AuthProvider';
 import { apiClient } from '@/services/api/client';
 import type { TaskImportView } from '@/types';
 
@@ -28,6 +29,7 @@ import type { TaskImportView } from '@/types';
  */
 export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const projects = useProjects();
+  const { canInProject } = useAuth();
   const client = useQueryClient();
   const [projectId, setProjectId] = useState<string>();
   const [file, setFile] = useState<File | null>(null);
@@ -56,7 +58,15 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
     return () => clearInterval(timer);
   }, [view?.id, view?.status, client]);
 
-  const options = useMemo(() => (projects.data ?? []).map((project) => ({ id: project.id, name: project.name, hint: project.identifier })), [projects.data]);
+  // Only projects the file can go into: a public project is visible to anyone signed
+  // in, and was offered here only for the check to be refused.
+  const options = useMemo(
+    () =>
+      (projects.data ?? [])
+        .filter((project) => canInProject(project.id, 'task:create'))
+        .map((project) => ({ id: project.id, name: project.name, hint: project.identifier })),
+    [projects.data, canInProject],
+  );
 
   const downloadTemplate = async () => {
     if (!projectId) return;

@@ -61,9 +61,14 @@ const dateOnly = (value: string) => new Date(`${value}T00:00:00Z`);
  * start and its finish — OpenProject renders a milestone with `date` alone,
  * though it takes a start and finish when written.
  */
+const withMilestoneDate = (work: WorkPackageJson): WorkPackageJson => ({
+  ...work,
+  startDate: work.startDate ?? work.date ?? null,
+  dueDate: work.dueDate ?? work.date ?? null,
+});
+
 async function readWork(id: number | string): Promise<WorkPackageJson> {
-  const work = await openProject.request<WorkPackageJson>(`/work_packages/${id}`);
-  return { ...work, startDate: work.startDate ?? work.date ?? null, dueDate: work.dueDate ?? work.date ?? null };
+  return withMilestoneDate(await openProject.request<WorkPackageJson>(`/work_packages/${id}`));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -272,6 +277,7 @@ export async function proposeLevelling(input: unknown, caller: Caller): Promise<
       hours: remainingOf(fact),
       start: dayOf(start),
       due: dayOf(due),
+      duration: entry.duration,
       scheduleManually: entry.scheduleManually,
       ignoreNonWorkingDays: entry.ignoreNonWorkingDays,
       fixed: reason,
@@ -473,33 +479,51 @@ interface Target {
 
 const read = (id: number) => readWork(id);
 
-async function write(target: Target): Promise<void> {
+/**
+ * Writes one target, and answers the dates OpenProject kept for it.
+ *
+ * Going back to automatic scheduling takes two writes, the dates first, while
+ * the work is still manual. OpenProject dates automatic work from its
+ * predecessors at the length it holds, so switching the mode alone kept the
+ * length levelling had given it, and left work with no predecessor where
+ * levelling had put it: the undo then found it could not be returned.
+ */
+async function write(target: Target): Promise<{ start: string | null; due: string | null }> {
   const current = await read(target.workPackageId);
-  await openProject.request(`/work_packages/${target.workPackageId}`, {
-    method: 'PATCH',
-    query: { notify: 'false' },
-    body: {
-      lockVersion: current.lockVersion,
-      // Switching an item back to automatic lets OpenProject date it from its
-      // predecessors, which are restored first: the dates are not sent then.
-      ...(target.manual === false ? { scheduleManually: false } : { startDate: target.start, dueDate: target.due }),
-      ...(target.manual === true ? { scheduleManually: true } : {}),
-    },
-  });
+  const dated = withMilestoneDate(
+    await openProject.request<WorkPackageJson>(`/work_packages/${target.workPackageId}`, {
+      method: 'PATCH',
+      query: { notify: 'false' },
+      body: {
+        lockVersion: current.lockVersion,
+        startDate: target.start,
+        dueDate: target.due,
+        ...(target.manual === true ? { scheduleManually: true } : {}),
+      },
+    }),
+  );
+  if (target.manual === false) {
+    await openProject.request(`/work_packages/${target.workPackageId}`, {
+      method: 'PATCH',
+      query: { notify: 'false' },
+      body: { lockVersion: dated.lockVersion, scheduleManually: false },
+    });
+  }
+  return { start: dated.startDate, due: dated.dueDate };
 }
 
 /** Writes the targets in order; on the first refusal, puts back those written, and throws. */
 async function writeAll(
   targets: Target[],
   restoreOf: (target: Target) => Target,
-  onWritten: (target: Target) => Promise<void>,
+  onWritten: (target: Target, kept: { start: string | null; due: string | null }) => Promise<void>,
 ): Promise<void> {
   const written: Target[] = [];
   try {
     for (const target of targets) {
-      await write(target);
+      const kept = await write(target);
       written.push(target);
-      await onWritten(target);
+      await onWritten(target, kept);
     }
   } catch (error) {
     // Put back in reverse, successors first; OpenProject re-dates automatic
@@ -640,6 +664,7 @@ export async function undoLevelling(id: string, actorId: string): Promise<Levell
 
   // Predecessors first, so work returning to automatic scheduling is dated
   // from predecessors that are already back.
+  const kept = new Map<number, { start: string | null; due: string | null }>();
   const backward: Target[] = items.map((item) => ({
     workPackageId: item.workPackageId,
     start: isoDate(item.beforeStart),
@@ -651,18 +676,30 @@ export async function undoLevelling(id: string, actorId: string): Promise<Levell
     return { workPackageId: item.workPackageId, start: isoDate(item.afterStart), due: isoDate(item.afterDue), manual: item.beforeManual ? null : true };
   };
   try {
-    await writeAll(backward, again, async (target) => {
+    await writeAll(backward, again, async (target, dates) => {
+      kept.set(target.workPackageId, dates);
       await prisma.levellingItem.update({
         where: { runId_workPackageId: { runId: id, workPackageId: target.workPackageId } },
         data: { state: 'undone' },
       });
     });
+    // Read back against what OpenProject kept of each date given. A date that
+    // has since become a non-working day cannot go back: OpenProject moves it
+    // to the next working day, as its calendar job does to all such work. Only
+    // what moved after that — automatic scheduling putting it elsewhere — means
+    // the work is not back.
     const off: string[] = [];
     for (const target of backward) {
       const current = await read(target.workPackageId);
-      if (current.startDate !== target.start || current.dueDate !== target.due) off.push(`#${target.workPackageId}`);
+      const dates = kept.get(target.workPackageId)!;
+      if (current.startDate !== dates.start || current.dueDate !== dates.due) off.push(`#${target.workPackageId}`);
     }
-    if (off.length > 0) throw new LevellingFailure(message('{items} could not be returned to the dates before.', { items: off.join(', ') }));
+    if (off.length > 0) {
+      // Everything was written by now, so everything goes forward again: the
+      // message below says the levelled dates stand, and they must.
+      for (const target of [...backward].reverse()) await write(again(target)).catch(() => undefined);
+      throw new LevellingFailure(message('{items} could not be returned to the dates before.', { items: off.join(', ') }));
+    }
   } catch (error) {
     await prisma.levellingItem.updateMany({ where: { runId: id }, data: { state: 'applied' } });
     await prisma.levellingRun.update({ where: { id }, data: { status: 'applied', ...failureOf(error) } });

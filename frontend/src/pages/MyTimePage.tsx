@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { addDays, startOfWeek } from 'date-fns';
+import { addDays, differenceInCalendarDays, startOfWeek } from 'date-fns';
 import {
   CalendarClock,
   ChevronLeft,
@@ -111,6 +111,19 @@ export default function MyTimePage() {
   const workingDays = new Set(preferences.availability.workingDays);
   const today = toISODateOnly(new Date());
   const thisWeek = from === toISODateOnly(startOfWeek(new Date(), { weekStartsOn }));
+  // Which week this is, in words. The only words on the page were the "This week"
+  // button, which goes back to it and so read the same on every other week.
+  const weeksAway = Math.round(differenceInCalendarDays(weekStart, startOfWeek(new Date(), { weekStartsOn })) / 7);
+  const weekName =
+    weeksAway === 0
+      ? t('This week')
+      : weeksAway === -1
+        ? t('Previous week')
+        : weeksAway === 1
+          ? t('Next week')
+          : weeksAway < 0
+            ? t('{count, plural, one {# week ago} other {# weeks ago}}', { count: -weeksAway })
+            : t('{count, plural, one {In # week} other {In # weeks}}', { count: weeksAway });
 
   return (
     <div className="space-y-5">
@@ -157,8 +170,13 @@ export default function MyTimePage() {
       {/* The week in one line: what was logged, against what was contracted. */}
       <Card>
         <CardHeader variant="compact">
-          <CardTitle>
-            {formatWeekdayDate(weekStart)} &ndash; {formatWeekdayDate(days[6])}
+          <CardTitle className="flex flex-wrap items-center gap-2">
+            <span>
+              {formatWeekdayDate(weekStart)} &ndash; {formatWeekdayDate(days[6])}
+            </span>
+            <Badge tone={thisWeek ? 'primary' : 'neutral'} size="sm" data-testid="my-time-week-name">
+              {weekName}
+            </Badge>
           </CardTitle>
           <CardDescription className="text-2xs">
             {capacity > 0
@@ -282,7 +300,7 @@ export default function MyTimePage() {
           <Card>
             <EmptyState
               icon={CalendarClock}
-              title={t('No time logged this week')}
+              title={thisWeek ? t('No time logged this week') : t('No time logged that week')}
               description={t('Log against a task from its page, or add an entry here.')}
               action={{ label: t('Log time'), onClick: () => setCreatingOn(thisWeek ? today : from) }}
             />

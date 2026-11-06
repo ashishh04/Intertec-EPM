@@ -311,10 +311,18 @@ export async function updateTeam(
   }
   if (input.code !== undefined) data.code = validateCode(input.code);
   if (input.description !== undefined) data.description = validateDescription(input.description);
+  // Staying where it is is not joining. A team in an archived department keeps
+  // it when anything else about the team is edited, so only a change is checked.
   if (input.departmentId !== undefined) {
-    data.departmentId = await validateDepartmentId(input.departmentId);
+    data.departmentId =
+      input.departmentId === existing.departmentId
+        ? existing.departmentId
+        : await validateDepartmentId(input.departmentId);
   }
-  if (input.leadId !== undefined) data.leadId = await validateLeadId(input.leadId, signal);
+  // Likewise a lead this caller's directory does not list.
+  if (input.leadId !== undefined) {
+    data.leadId = input.leadId === existing.leadId ? existing.leadId : await validateLeadId(input.leadId, signal);
+  }
 
   if (Object.keys(data).length === 0) {
     throw EpmError.badRequest('There is nothing to update.');

@@ -1,6 +1,7 @@
 import { currentAuth, isAutomation } from '../auth/context.js';
 import { env } from '../config/env.js';
 import { OpenProjectError, EpmError } from '../lib/errors.js';
+import { msg } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
 import { observeUpstream, statusClass } from '../lib/metrics.js';
 import type { HalCollection, HalLink, OpErrorBody } from './types.js';
@@ -179,10 +180,19 @@ export function linkTitle(
  * system behind EPM — white-labelling is the point, and an error is exactly
  * when a product tends to give itself away. `upstream` carries the real detail
  * for the log instead.
+ *
+ * A server error upstream gets one neutral sentence: its own text is the
+ * delivery system's internals ("undefined method 'builtin' for nil"), which
+ * names it and tells the reader nothing they can act on. A refusal of several
+ * fields at once says only "Multiple field constraints have been violated.",
+ * so its first field's message — which says what to change — is used instead.
  */
 function extractUpstreamMessage(payload: unknown, status: number): string {
+  if (status >= 500) return msg('The delivery service could not complete the request.');
+
   const body = payload as OpErrorBody | undefined;
   const nested = body?._embedded?.errors?.[0]?.message;
+  if (nested && body?.errorIdentifier?.endsWith(':MultipleErrors')) return nested;
   return body?.message ?? nested ?? `The delivery service responded with ${status}.`;
 }
 
@@ -307,6 +317,16 @@ export class OpenProjectClient {
         }
 
         const payload = await response.json().catch(() => undefined);
+        // The caller sees a neutral sentence for a server error (see
+        // extractUpstreamMessage), so what the delivery system said is kept
+        // here, whoever the caller is: a scheduler or an import keeps only the
+        // message.
+        if (response.status >= 500) {
+          appLog.warn(
+            { method, path: url.pathname, status: response.status, upstream: payload },
+            'The delivery system answered with a server error',
+          );
+        }
         throw new OpenProjectError(response.status, extractUpstreamMessage(payload, response.status), {
           upstream: payload,
         });

@@ -29,7 +29,7 @@ import {
 } from '@/hooks/useCalculatedFields';
 import { useProjects } from '@/hooks/useProjects';
 import { formatLocalNumber, msg, t } from '@/lib/i18n';
-import { formatRelative } from '@/lib/utils';
+import { cn, formatRelative } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import type {
   CalculatedField,
@@ -290,25 +290,32 @@ function PassesCard({ mayConfigure }: { mayConfigure: boolean }) {
   const last = status.data?.lastCompleted;
   const failed = status.data?.lastRun && status.data.lastRun.status === 'failed' ? status.data.lastRun : undefined;
 
+  /*
+   * A pass is asked for, and it says so at once. Pressed again while one runs, the
+   * server makes sure another follows it, as it does for a change made meanwhile,
+   * so the button stays live and says that instead. It used to go dead for the
+   * length of the pass, and said nothing until the pass was over.
+   */
+  const press = () => {
+    if (status.data?.enabled !== false) toast(recalculate.isPending ? t('Another is on its way.') : t('Recalculation started'));
+    recalculate
+      .mutateAsync()
+      .then((result) => {
+        // One message however many presses it answers. A long pass goes on after
+        // this reply, and the line below reports it.
+        if (!result.pending) toast.success(t('Every calculated field recalculated'), { id: 'calculated-recalculated' });
+      })
+      .catch((error: unknown) => toast.error(t('The recalculation did not start'), { description: describeError(error) }));
+  };
+
   return (
     <Card>
       <CardHeader
         variant="compact"
         actions={
           mayConfigure ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              loading={recalculate.isPending}
-              onClick={() =>
-                recalculate.mutate(undefined, {
-                  onSuccess: (result) =>
-                    toast.success(result.pending ? t('Recalculation started') : t('Every calculated field recalculated')),
-                  onError: (error) => toast.error(t('The recalculation did not start'), { description: describeError(error) }),
-                })
-              }
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
+            <Button size="sm" variant="secondary" aria-busy={recalculate.isPending} onClick={press}>
+              <RefreshCw className={cn('h-3.5 w-3.5', recalculate.isPending && 'animate-spin')} />
               {t('Recalculate now')}
             </Button>
           ) : undefined
@@ -630,6 +637,15 @@ function FieldEditor({
   );
 }
 
+/** How big a formula may be, as the reference and a refusal both state it. */
+function limitsSentence(limits: CalculatedFieldValidation['limits']): string {
+  return t('At most {nodes, number} parts, {depth, number} levels deep and {aggregations, number} child aggregations inside one another.', {
+    nodes: limits.nodes,
+    depth: limits.depth,
+    aggregations: limits.aggregations,
+  });
+}
+
 /** What the check found: the problem and where, or what the formula gives and how big it is. */
 function FormulaVerdict({
   expression,
@@ -648,6 +664,8 @@ function FormulaVerdict({
     return (
       <div className="space-y-1" data-testid="calc-error">
         <FieldError>{message}</FieldError>
+        {/* The one limit it went over, and then what they all are, in case that is the next. */}
+        {validation.error.oversized ? <FieldHint>{limitsSentence(validation.limits)}</FieldHint> : null}
         <pre dir="ltr" className="whitespace-pre-wrap break-all rounded-md bg-muted/50 px-2 py-1.5 font-mono text-2xs text-foreground">
           {expression.slice(0, start)}
           <mark className="rounded-sm bg-danger/20 text-danger">{expression.slice(start, stop) || ' '}</mark>
@@ -768,13 +786,7 @@ function FormulaHelp({ reference, onInsert, loading }: { reference?: FormulaRefe
               {RULES.map((rule) => (
                 <li key={rule}>{t(rule)}</li>
               ))}
-              <li>
-                {t('At most {nodes, number} parts, {depth, number} levels deep and {aggregations, number} child aggregations inside one another.', {
-                  nodes: reference.limits.nodes,
-                  depth: reference.limits.depth,
-                  aggregations: reference.limits.aggregations,
-                })}
-              </li>
+              <li>{limitsSentence(reference.limits)}</li>
             </ul>
           </section>
         </>

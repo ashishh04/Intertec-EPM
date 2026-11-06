@@ -159,7 +159,7 @@ Rails.application.config.to_prepare do
                  d.responsible_id                                              AS "accountableId",
                  d.author_id                                                   AS "authorId",
                  d.parent_id                                                   AS "parentId",
-                 d.version_id                                                  AS "versionId",
+                 #{version_sql}                                                AS "versionId",
                  d.category_id                                                 AS "categoryId",
                  d.subject                                                     AS "subject",
                  to_char(d.start_date, 'YYYY-MM-DD')                           AS "startDate",
@@ -186,6 +186,27 @@ Rails.application.config.to_prepare do
                (SELECT count(*) FROM rows) AS count,
                (SELECT to_char(r.sort_at AT TIME ZONE 'UTC', #{TIMESTAMP}) || '|' || r."id"
                   FROM rows r ORDER BY r.sort_at DESC, r."id" DESC LIMIT 1) AS last_cursor
+      SQL
+    end
+
+    # The version a journal records — EPM's sprint, one per work package.
+    #
+    # 17 keeps a work package's versions in work_package_versions, several of
+    # them where the instance allows it (work_package_multiple_versions, on by
+    # default), and journals them in work_package_version_journals, which its
+    # migration filled for every journal made before. 17 no longer writes the
+    # version_id column, so each journal since the upgrade repeated the version
+    # the work package had then: one moved since stayed in its old sprint, and
+    # one given a version since was in none. Of several, the lowest id stands
+    # for the work package, as it does in API v3 (`version`, and the first of
+    # `targetVersions`) and in 17's own grouping. Before 17 the column is all
+    # there is.
+    def version_sql
+      return "d.version_id" unless ActiveRecord::Base.connection.table_exists?("work_package_version_journals")
+
+      <<~SQL.squish
+        (SELECT MIN(vj.version_id) FROM work_package_version_journals vj
+          WHERE vj.journal_id = j.id AND vj.kind = 'target')
       SQL
     end
 

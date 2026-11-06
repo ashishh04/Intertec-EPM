@@ -173,7 +173,7 @@ export default function DepartmentDetailPage() {
                 <EmptyState
                   size="inline"
                   icon={UserRound}
-                  title={t('No manager')}
+                  title={t('No manager set.')}
                   description={t('Nobody is accountable for this department yet.')}
                 />
               )}

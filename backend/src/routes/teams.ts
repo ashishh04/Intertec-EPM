@@ -171,10 +171,14 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
    * groups, which is what teams used to be read from.
    */
   app.get<{ Params: { id: string } }>('/teams/:id/members', async (request) => {
-    const [members, rates] = await Promise.all([
+    const [members, rates, directory] = await Promise.all([
       listTeamMembers(request.params.id, requestSignal(request)),
       guard.mayViewRates(request),
+      guard.mayReadOrganisation(request),
     ]);
+    // Anyone may see who is on a team, which is what its page lists: the rest of
+    // an employee record stays with the directory it comes from.
+    if (!directory) return members.map(({ id, name, avatarUrl }) => ({ id, name, avatarUrl }));
     // A member is an employee record; its rate follows the same rule (BRL-01).
     return rates ? members : members.map(withoutRate);
   });

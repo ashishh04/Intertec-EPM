@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ID } from '@/types';
+import type { ID, TaskStatusCategory } from '@/types';
 
 /**
  * OpenProject reference data, unreduced.
@@ -20,6 +20,8 @@ export interface CatalogValue {
 export interface StatusValue extends CatalogValue {
   isClosed: boolean;
   isDefault?: boolean;
+  /** EPM's grouping of it: which column of a board it falls in. */
+  category?: TaskStatusCategory;
 }
 
 export interface TypeValue extends CatalogValue {

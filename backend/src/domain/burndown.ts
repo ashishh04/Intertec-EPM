@@ -4,6 +4,7 @@ import { aggregateCache } from '../lib/cache.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { OpVersion, OpWorkPackage } from '../openproject/types.js';
+import { versionFilter, versionIdOf } from '../openproject/versions.js';
 import type { SprintState } from '../types/epm.js';
 
 /**
@@ -147,7 +148,7 @@ export async function sampleBurndown(now = new Date()): Promise<SampleOutcome> {
       getCatalog(),
       openProject.getAll<SprintWorkPackage>(
         '/work_packages',
-        { filters: [{ field: 'version', operator: '=', values: ids }], pageSize: 200 },
+        { filters: [versionFilter(ids)], pageSize: 200 },
       ),
       optional(() => prisma.sprintProfile.findMany({ where: { openProjectId: { in: ids } } }), []),
       prisma.burndownSample.findMany({ where: { sprintId: { in: ids } }, select: { sprintId: true, sampledOn: true } }),
@@ -162,10 +163,11 @@ export async function sampleBurndown(now = new Date()): Promise<SampleOutcome> {
       const id = String(version.id);
       const atStart = committedAtStart.get(id) ?? null;
 
-      // Today, from the live figures, as the chart computes it.
+      // Today, from the live figures, as the chart computes it. Each task in
+      // its one sprint, as the sprint list counts it (openproject/versions.ts).
       if (sprintStateOf(version, today) === 'active') {
         const items = work.items
-          .filter((workPackage) => linkId(workPackage._links, 'version') === id)
+          .filter((workPackage) => versionIdOf(workPackage._links) === id)
           .map((workPackage) => ({ points: workPackage.storyPoints, done: isDone(linkId(workPackage._links, 'status')) }));
         const figures = figuresOf(items);
         const sampledOn = new Date(`${today}T00:00:00Z`);

@@ -14,6 +14,7 @@ import { listProjects, projectIdentifiers } from '../mapping/projects.js';
 import { getUsers } from '../mapping/users.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink, OpProject } from '../openproject/types.js';
+import { versionIdOf, versionLinks } from '../openproject/versions.js';
 import type {
   AutomationRule,
   AutomationRuleInput,
@@ -294,7 +295,9 @@ function workPackageSubject(
         priority: linkId(wp._links, 'priority'),
         project: projectId,
         portfolio: portfolioOf(projectId),
-        version: linkId(wp._links, 'version'),
+        // Its version, or its first target version where several are allowed:
+        // read from `version` alone, a version condition never matched there.
+        version: versionIdOf(wp._links),
         assignee: assigneeId,
         responsible: linkId(wp._links, 'responsible'),
         author: linkId(wp._links, 'author'),
@@ -678,8 +681,12 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Re
         body = { _links: { priority: { href: `/api/v3/priorities/${value}` } } };
         shown = message('Priority set to {priority}', { priority: names.priority(String(value)) });
       } else if (field === 'responsible' || field === 'version') {
-        const href = value ? `/api/v3/${field === 'responsible' ? 'users' : 'versions'}/${value}` : null;
-        body = { _links: { [field]: { href } } };
+        const id = value ? String(value) : null;
+        // A version through both of its names: `version` alone is ignored
+        // where a work package may have several (openproject/versions.ts).
+        body = {
+          _links: field === 'version' ? versionLinks(id) : { responsible: { href: id ? `/api/v3/users/${id}` : null } },
+        };
         shown =
           field === 'responsible'
             ? value

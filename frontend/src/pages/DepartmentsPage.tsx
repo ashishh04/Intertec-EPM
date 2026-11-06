@@ -211,7 +211,7 @@ export default function DepartmentsPage() {
                     </div>
                   ) : (
                     <span className="hidden text-xs text-muted-foreground sm:inline">
-                      {t('No manager')}
+                      {t('No manager set.')}
                     </span>
                   )}
 

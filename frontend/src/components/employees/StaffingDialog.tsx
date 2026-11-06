@@ -121,7 +121,9 @@ export function StaffingDialog({ open, onOpenChange, employee }: StaffingDialogP
   return (
     <Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
       <DialogContent className="sm:max-w-sm">
-        <form onSubmit={submit} className="flex flex-col gap-4">
+        {/* noValidate: the checks above say what is wrong and how to put it
+            right; the browser's own bubble stopped the form before they ran. */}
+        <form onSubmit={submit} noValidate className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>{t('Staffing for {name}', { name: employee?.name })}</DialogTitle>
             <DialogDescription>
