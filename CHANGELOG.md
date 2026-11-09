@@ -65,6 +65,9 @@ Changes since 1.1.0 (21 October 2026).
 - Resending an invitation marks the earlier link as replaced, and its page
   says to use the newer email.
 - Shorter action labels across the app ("Add comment", "Add member").
+- The Projects page sorts: newest or oldest first, by name either way, or by
+  due date. Newest first is still the default, and the choice is remembered
+  in that browser.
 
 ### Fixed
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FolderKanban, LayoutGrid, List, Plus } from 'lucide-react';
+import { ArrowUpDown, FolderKanban, LayoutGrid, List, Plus } from 'lucide-react';
 import { TableCard } from '@/components/common/DataTable';
 import { ListToolbar, ResultCount, SearchInput } from '@/components/common/ListToolbar';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -34,14 +34,69 @@ import {
 import { useProjects } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import { useDebounce } from '@/hooks/useDebounce';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { usePagination } from '@/hooks/usePagination';
 import { ALL_PROJECT_STATUSES, PROJECT_STATUS_META } from '@/lib/domain';
-import { t } from '@/lib/i18n';
+import { intlLocale, t } from '@/lib/i18n';
 import { cn, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
-import type { ProjectStatus } from '@/types';
+import type { EpmProject, ProjectStatus } from '@/types';
 import { useAuth } from '@/providers/AuthProvider';
 
 const ALL = '__all__';
+
+/**
+ * The orders the list offers. Newest first is the order it has always come in,
+ * so it stays the default: nobody's list moves until they choose another.
+ */
+const PROJECT_SORTS = ['newest', 'oldest', 'name-asc', 'name-desc', 'due'] as const;
+type ProjectSort = (typeof PROJECT_SORTS)[number];
+const DEFAULT_SORT: ProjectSort = 'newest';
+
+function isProjectSort(value: unknown): value is ProjectSort {
+  return typeof value === 'string' && (PROJECT_SORTS as readonly string[]).includes(value);
+}
+
+/** Each label written out where it is used, so the translation check finds it. */
+function sortLabel(sort: ProjectSort): string {
+  switch (sort) {
+    case 'newest':
+      return t('Newest first');
+    case 'oldest':
+      return t('Oldest first');
+    case 'name-asc':
+      return t('Name (A–Z)');
+    case 'name-desc':
+      return t('Name (Z–A)');
+    case 'due':
+      return t('Due date (soonest first)');
+  }
+}
+
+const createdTime = (project: EpmProject) => Date.parse(project.createdAt) || 0;
+/** Ids are issued in sequence, so they settle a tie in creation order. */
+const byId = (a: EpmProject, b: EpmProject) => Number(a.id) - Number(b.id);
+
+/** The list in the chosen order, as a copy: the query's array has other readers. */
+function sortProjects(projects: EpmProject[], sort: ProjectSort): EpmProject[] {
+  // Names compare the way a reader of the interface language expects, with
+  // "Phase 2" before "Phase 10".
+  const collator = new Intl.Collator(intlLocale(), { numeric: true, sensitivity: 'base' });
+  const byName = (a: EpmProject, b: EpmProject) => collator.compare(a.name, b.name) || byId(a, b);
+  const compare: Record<ProjectSort, (a: EpmProject, b: EpmProject) => number> = {
+    newest: (a, b) => createdTime(b) - createdTime(a) || byId(b, a),
+    oldest: (a, b) => createdTime(a) - createdTime(b) || byId(a, b),
+    'name-asc': byName,
+    'name-desc': (a, b) => byName(b, a),
+    // A project with no planned finish has nothing to be soon about: it goes last.
+    due: (a, b) => {
+      if (a.dueDate === b.dueDate) return byName(a, b);
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate < b.dueDate ? -1 : 1;
+    },
+  };
+  return [...projects].sort(compare[sort]);
+}
 
 /** Portfolio index: every project the user can see, as cards or a dense table. */
 export default function ProjectsPage() {
@@ -51,6 +106,11 @@ export default function ProjectsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<string>(ALL);
   const [portfolio, setPortfolio] = useState<string>(ALL);
+  // Remembered in this browser, so whoever wants their first project at the top
+  // does not have to ask for it on every visit. Anything stored that is not one
+  // of the orders (an older build's, a hand edit) reads as the default.
+  const [storedSort, setSort] = useLocalStorage<string>('epm.projects.sort', DEFAULT_SORT);
+  const sort = isProjectSort(storedSort) ? storedSort : DEFAULT_SORT;
   const debouncedSearch = useDebounce(search, 250);
 
   const projectsQuery = useProjects({
@@ -66,16 +126,19 @@ export default function ProjectsPage() {
 
   const projects = useMemo(
     () =>
-      (projectsQuery.data ?? []).filter(
-        (project) => portfolio === ALL || project.portfolio === portfolio,
+      sortProjects(
+        (projectsQuery.data ?? []).filter(
+          (project) => portfolio === ALL || project.portfolio === portfolio,
+        ),
+        sort,
       ),
-    [projectsQuery.data, portfolio],
+    [projectsQuery.data, portfolio, sort],
   );
 
-  // Paging resets whenever the query behind the list changes.
+  // Paging resets whenever the query behind the list, or its order, changes.
   const paged = usePagination(projects, {
     pageSize: view === 'grid' ? 12 : 15,
-    resetKey: `${debouncedSearch}|${status}|${portfolio}|${view}`,
+    resetKey: `${debouncedSearch}|${status}|${portfolio}|${view}|${sort}`,
   });
 
   const summary = useMemo(() => {
@@ -180,6 +243,22 @@ export default function ProjectsPage() {
             {ALL_PROJECT_STATUSES.map((key) => (
               <SelectItem key={key} value={key}>
                 {PROJECT_STATUS_META[key].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Sized to its label, so the trigger's spread-out layout keeps the
+            icon beside the text instead of pulling them apart. */}
+        <Select value={sort} onValueChange={setSort}>
+          <SelectTrigger className="h-8 w-auto text-xs" aria-label={t('Sort projects')}>
+            <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PROJECT_SORTS.map((key) => (
+              <SelectItem key={key} value={key}>
+                {sortLabel(key)}
               </SelectItem>
             ))}
           </SelectContent>
