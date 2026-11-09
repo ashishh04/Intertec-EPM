@@ -198,5 +198,7 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    - a document filed under a project opens for another member.
 
    Then ask for the UI test cases that failed on 27 October to be run again.
+7. **Before going live**, clear what testing left behind (`DEPLOY.md`,
+   "Clearing test data").
    The expense-approval cases also need a second account set as the tester's
    line manager.

@@ -522,6 +522,28 @@ optional encryption and off-host copy — and put back by `epm-restore.sh`. The
 schedule, the recovery objectives, the restore test and the runbook are in
 `deploy/backup/README.md`.
 
+### Clearing test data
+
+Before a server goes live, what testing left behind is cleared from the backend
+container: expense claims (with their receipts, approvals and posted cost
+entries), scenarios, scheduled reports, approval chains, automation rules,
+teams, departments, resource roles, custom fields and notifications. Back up
+first; none of it can be undone.
+
+```sh
+dc exec backend node dist/scripts/clear-test-data.js          # lists what would go
+dc exec backend node dist/scripts/clear-test-data.js --apply  # removes it
+dc restart backend                                            # drops what it had cached
+```
+
+`--only=teams,departments` limits it to those kinds. Every record of each kind
+goes except what EPM itself needs: the three approval chains it ships, put back
+to their shipped steps, and the four custom fields the critical path and change
+requests write into. Projects, people, timesheets and the journal are not
+touched. OpenProject keeps notifications of its own (mentions, assignments,
+date alerts), cleared in its database:
+`dc exec openproject-db psql -U openproject -d openproject -c "DELETE FROM notifications;"`.
+
 ## Monitoring
 
 `/metrics` serves health, latency and error figures in the Prometheus format once
