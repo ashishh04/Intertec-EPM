@@ -115,6 +115,9 @@ Changes since 1.1.0 (21 October 2026).
   journal and rates permissions.
 - The client portal lists, and downloads, the documents the team files under a
   project. It showed external people only what they had uploaded themselves.
+- A file uploaded from the client portal no longer stops the Documents page,
+  and the project's Documents tab, from opening ("This page could not be
+  displayed"). Files already uploaded that way show again, grouped by type.
 - Changing what an external role allows now applies to the people who already
   hold it, not only to those given it afterwards.
 - A health override with a misspelt field is refused. It cleared every

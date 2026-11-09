@@ -1,5 +1,6 @@
 import { referenceCache } from './cache.js';
 import { openProject } from '../openproject/client.js';
+import type { DocumentKind } from '../types/epm.js';
 
 /**
  * Shared rules for files travelling through EPM.
@@ -66,4 +67,68 @@ export function contentDispositionFor(fileName: string): string {
   // SVG file execute as script in EPM's own origin, and OpenProject trusts the
   // content type the uploader declared.
   return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
+/** The library's grouping for each file extension it recognises. */
+const EXTENSION_KIND: Record<string, DocumentKind> = {
+  pdf: 'pdf',
+  doc: 'doc',
+  docx: 'doc',
+  odt: 'doc',
+  txt: 'doc',
+  xls: 'sheet',
+  xlsx: 'sheet',
+  csv: 'sheet',
+  ods: 'sheet',
+  ppt: 'slide',
+  pptx: 'slide',
+  odp: 'slide',
+  png: 'image',
+  jpg: 'image',
+  jpeg: 'image',
+  gif: 'image',
+  svg: 'image',
+  webp: 'image',
+  zip: 'archive',
+  gz: 'archive',
+  tar: 'archive',
+  '7z': 'archive',
+  rar: 'archive',
+  md: 'markdown',
+  markdown: 'markdown',
+};
+
+/**
+ * Every kind the library groups by, which is every kind a client knows how to
+ * draw. A record rather than a list, so a kind added to the type and not here
+ * fails to compile.
+ */
+const DOCUMENT_KINDS: Record<DocumentKind, true> = {
+  pdf: true,
+  doc: true,
+  sheet: true,
+  slide: true,
+  image: true,
+  archive: true,
+  markdown: true,
+};
+
+export function isDocumentKind(value: string): value is DocumentKind {
+  return Object.hasOwn(DOCUMENT_KINDS, value);
+}
+
+/**
+ * The kind a filed document is grouped under: by its extension, then by the
+ * content type OpenProject stored, and a plain document otherwise.
+ *
+ * Every route that files a document uses this, the library and the client
+ * portal alike, so a file is grouped the same way whoever uploaded it.
+ */
+export function documentKindOf(fileName: string, contentType: string): DocumentKind {
+  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
+  // Own keys only: a file called `notes.constructor` must not find Object's.
+  if (Object.hasOwn(EXTENSION_KIND, extension)) return EXTENSION_KIND[extension] as DocumentKind;
+  if (contentType.startsWith('image/')) return 'image';
+  if (contentType.includes('pdf')) return 'pdf';
+  return 'doc';
 }

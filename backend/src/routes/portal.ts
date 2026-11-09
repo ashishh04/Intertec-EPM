@@ -12,7 +12,7 @@ import { OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { message } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { contentDispositionFor, maxUploadBytes } from '../lib/uploads.js';
+import { contentDispositionFor, documentKindOf, maxUploadBytes } from '../lib/uploads.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { getUsers } from '../mapping/users.js';
 import { linkId, openProject, type OpFilter } from '../openproject/client.js';
@@ -395,7 +395,14 @@ export const portalRoutes: FastifyPluginAsync = async (app) => {
     const created = await openProject.request<OpAttachment>('/attachments', { method: 'POST', body: form, once: true });
     await prisma.documentMeta.upsert({
       where: { openProjectId: String(created.id) },
-      create: { openProjectId: String(created.id), kind: 'other', shared: false, projectId: String(projectId) },
+      // A kind the library knows, as its own upload records: `other` is not
+      // one, and it broke the workspace's Documents page for everyone.
+      create: {
+        openProjectId: String(created.id),
+        kind: documentKindOf(created.fileName, created.contentType),
+        shared: false,
+        projectId: String(projectId),
+      },
       update: { projectId: String(projectId) },
     });
     await audit(userId, projectId, 'portal.document.uploaded', message('{file} uploaded from the portal.', { file: created.fileName }), { attachmentId: created.id });

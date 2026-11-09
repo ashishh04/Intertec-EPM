@@ -5,55 +5,19 @@ import * as guard from '../auth/guard.js';
 import { allows } from '../auth/capabilities.js';
 import { runAsSystem } from '../auth/context.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
-import { contentDispositionFor, maxUploadBytes } from '../lib/uploads.js';
+import { contentDispositionFor, documentKindOf, isDocumentKind, maxUploadBytes } from '../lib/uploads.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject, linkId } from '../openproject/client.js';
 import { notifyDocumentUploaded } from '../domain/collaboration-notifications.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { OpAttachment } from '../openproject/types.js';
-import type { DocumentKind, EpmDocument } from '../types/epm.js';
+import type { EpmDocument } from '../types/epm.js';
 import { message } from '../lib/i18n.js';
 
 /**
  * The document library is backed by OpenProject attachments. Kind and share
  * state have no upstream equivalent and come from the EPM overlay.
  */
-
-const EXTENSION_KIND: Record<string, DocumentKind> = {
-  pdf: 'pdf',
-  doc: 'doc',
-  docx: 'doc',
-  odt: 'doc',
-  txt: 'doc',
-  xls: 'sheet',
-  xlsx: 'sheet',
-  csv: 'sheet',
-  ods: 'sheet',
-  ppt: 'slide',
-  pptx: 'slide',
-  odp: 'slide',
-  png: 'image',
-  jpg: 'image',
-  jpeg: 'image',
-  gif: 'image',
-  svg: 'image',
-  webp: 'image',
-  zip: 'archive',
-  gz: 'archive',
-  tar: 'archive',
-  '7z': 'archive',
-  rar: 'archive',
-  md: 'markdown',
-  markdown: 'markdown',
-};
-
-function kindOf(fileName: string, contentType: string): DocumentKind {
-  const extension = fileName.split('.').pop()?.toLowerCase() ?? '';
-  if (EXTENSION_KIND[extension]) return EXTENSION_KIND[extension] as DocumentKind;
-  if (contentType.startsWith('image/')) return 'image';
-  if (contentType.includes('pdf')) return 'pdf';
-  return 'doc';
-}
 
 /**
  * Whether this document is read for the caller as the service.
@@ -170,8 +134,13 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
         return {
           id: overlay.openProjectId,
           name: attachment.fileName,
-          kind:
-            (overlay.kind as DocumentKind) ?? kindOf(attachment.fileName, attachment.contentType),
+          // The stored kind only when it is one the library knows. The client
+          // portal filed its uploads as `other`, and every page that drew the
+          // library failed on one such row, so a kind outside the vocabulary
+          // is worked out again from the file rather than passed on.
+          kind: isDocumentKind(overlay.kind)
+            ? overlay.kind
+            : documentKindOf(attachment.fileName, attachment.contentType),
           projectId: overlay.projectId ?? undefined,
           ownerId: attachment.authorId ?? '',
           sizeBytes: attachment.fileSize,
@@ -291,7 +260,7 @@ export const documentRoutes: FastifyPluginAsync = async (app) => {
       });
 
     const id = String(created.id);
-    const kind = kindOf(created.fileName, created.contentType);
+    const kind = documentKindOf(created.fileName, created.contentType);
     const shared = field('shared') === 'true';
 
     // Best effort: the file is stored either way, and losing the overlay costs

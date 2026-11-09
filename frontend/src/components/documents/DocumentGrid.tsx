@@ -160,8 +160,11 @@ export function DocumentGrid({
   return (
     <div className={cn('grid gap-3 sm:grid-cols-2 xl:grid-cols-3', className)}>
       {documents.map((document) => {
-        const meta = DOCUMENT_KIND_META[document.kind];
-        const Icon = KIND_ICON[document.kind];
+        // A kind this build has no entry for draws as a plain document. The
+        // client portal once filed uploads as `other`, and that one unknown
+        // value threw here and took the whole library down with it.
+        const meta = DOCUMENT_KIND_META[document.kind] ?? DOCUMENT_KIND_META.doc;
+        const Icon = KIND_ICON[document.kind] ?? FileText;
         const owner = users.get(document.ownerId);
         const project = document.projectId ? projects?.get(document.projectId) : undefined;
 
