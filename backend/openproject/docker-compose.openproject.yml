@@ -117,6 +117,7 @@ services:
       # EPM's service account (NFR06): which add-on endpoints it may call, and
       # membership of every new project. setup/service-account.rb makes the account.
       - ./zzz_epm_service.rb:/app/config/initializers/zzz_epm_service.rb:ro
+      - ./zzz_epm_no_demo_projects.rb:/app/config/initializers/zzz_epm_no_demo_projects.rb:ro
 
 volumes:
   openproject-db:

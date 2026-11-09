@@ -126,6 +126,9 @@ Changes since 1.1.0 (21 October 2026).
 - Administration → Authentication → Settings opens again ("These settings could
   not be loaded"). OpenProject 17 dropped the setting for how many password
   rules must be met: every rule ticked is now required.
+- Deleting a server's last project no longer stops OpenProject from starting.
+  On its next restart it tried to put its demo projects back, failed, and kept
+  restarting, so nobody could sign in. The demo projects are never seeded now.
 - Changing what an external role allows now applies to the people who already
   hold it, not only to those given it afterwards.
 - A health override with a misspelt field is refused. It cleared every

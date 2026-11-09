@@ -51,6 +51,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 | `zzz_epm_schedule.rb` | The schedule bridge (below): the scheduling network out for EPM's critical path pass, and the float it computes back into three work package fields, kept out of the journal. |
 | `zzz_epm_calculated.rb` | The calculated-field bridge (BR-406 to BR-408): what EPM's formulas read — each work package's own fields, time, custom values and place in the tree — out in one query, and the values EPM computes back into the custom fields it made for them (marked `editable = false`), written only where changed and kept out of the journal, like float. |
 | `zzz_epm_costs.rb` | Cost types and cost entries, which API v3 cannot create: lists and adds cost types, and makes the cost entry an approved expense claim becomes, the way OpenProject's own "Log unit costs" form does (Module 10). |
+| `zzz_epm_no_demo_projects.rb` | OpenProject's demo projects are never seeded. Its start-up seed otherwise brings them back whenever an instance has no project, and on the deployed server that seed failed and kept the container restarting. |
 | `docker-compose.openproject.yml` | Runs OpenProject with every initializer mounted. |
 | `zzz_epm_service.rb` | EPM's service account (NFR06): which add-on endpoints the non-administrator "EPM Service" may call (`EpmService::ALLOWED`; everything else refuses it), and its membership of every new project. Every add-on still admits administrators. |
 | `setup/service-account.rb` | Not an initializer: run by hand. Creates "EPM Service" — the account EPM's system key belongs to — not an administrator, with a directory role (view all principals, view user email), a project role that reads a project and manages its members, membership of every project, and its API key (written to `TOKEN_FILE`, or printed once; `ROTATE=1` issues a new one). Run again after an upgrade. |
@@ -68,6 +69,7 @@ policy, account status, LDAP and brute-force blocking stay with OpenProject.
 /app/config/initializers/zzz_epm_analytics_api.rb
 /app/config/initializers/zzz_epm_schedule.rb
 /app/config/initializers/zzz_epm_costs.rb
+/app/config/initializers/zzz_epm_no_demo_projects.rb
 ```
 
 The `zzz_` prefix matters: Rails loads initializers alphabetically, and the
