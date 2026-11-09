@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
-import { anywhere } from '../auth/capabilities.js';
+import { allows, anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
 import { env } from '../config/env.js';
 import {
@@ -38,9 +38,15 @@ const numeric = (value: string, what: string) => {
   return value;
 };
 
-/** Anyone who works with work packages somewhere may read the definitions. */
-async function requireTaskViewer(request: FastifyRequest): Promise<void> {
-  if (!anywhere(await guard.permissionsFor(request), 'task:view')) {
+/**
+ * Anyone who works with work packages somewhere may read the definitions, and
+ * so may whoever may define them. The second matters on a server with no
+ * projects: an administrator there holds no work package rights anywhere, and
+ * was refused the very page calculated fields are set up on.
+ */
+async function requireDefinitionReader(request: FastifyRequest): Promise<void> {
+  const permissions = await guard.permissionsFor(request);
+  if (!anywhere(permissions, 'task:view') && !allows(permissions, 'fields:configure')) {
     throw EpmError.forbidden('You do not have permission to view work packages.');
   }
 }
@@ -48,24 +54,24 @@ async function requireTaskViewer(request: FastifyRequest): Promise<void> {
 export const calculatedFieldRoutes: FastifyPluginAsync = async (app) => {
   /** Every definition, with how many values each holds and how many are empty. */
   app.get('/calculated-fields', async (request) => {
-    await requireTaskViewer(request);
+    await requireDefinitionReader(request);
     return listCalculatedFields();
   });
 
   /** What a formula can read and call: for the editor's reference. */
   app.get('/calculated-fields/reference', async (request) => {
-    await requireTaskViewer(request);
+    await requireDefinitionReader(request);
     return formulaReference();
   });
 
   /** How the passes are going: the last one, how long it took, what it changed. */
   app.get('/calculated-fields/status', async (request) => {
-    await requireTaskViewer(request);
+    await requireDefinitionReader(request);
     return calculatedStatus();
   });
 
   app.get<{ Params: { id: string } }>('/calculated-fields/:id', async (request) => {
-    await requireTaskViewer(request);
+    await requireDefinitionReader(request);
     return getCalculatedField(request.params.id);
   });
 

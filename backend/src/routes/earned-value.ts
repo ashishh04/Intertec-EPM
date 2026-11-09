@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
-import { anywhere } from '../auth/capabilities.js';
+import { allows, anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
 import { earningMethodsIn } from '../domain/earned-value.js';
 import {
@@ -53,9 +53,15 @@ const ids = (project: ProjectEvaluation, withItems: boolean) => ({
 });
 
 export const earnedValueRoutes: FastifyPluginAsync = async (app) => {
-  /** The rules in force, with the types and rules there are to choose from. */
+  /**
+   * The rules in force, with the types and rules there are to choose from. For
+   * anyone who works with work packages somewhere, and for whoever may set the
+   * rules — on a server with no projects, an administrator has no work package
+   * rights anywhere and could not open the page to set them.
+   */
   app.get('/earned-value/settings', async (request) => {
-    if (!anywhere(await guard.permissionsFor(request), 'task:view')) {
+    const permissions = await guard.permissionsFor(request);
+    if (!anywhere(permissions, 'task:view') && !allows(permissions, 'evm:configure')) {
       throw EpmError.forbidden('You do not have permission to view work packages.');
     }
     const [settings, catalog] = await Promise.all([getEvmSettings(), getCatalog()]);

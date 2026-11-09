@@ -1385,6 +1385,7 @@ export const ar: Readonly<Record<string, string>> = {
   "The header needs a Subject column (or Title, or Name).": "يحتاج الرأس إلى عمود Subject (أو Title أو Name).",
   "The kind of task. Blank: {type}.": "نوع المهمة. فارغ: {type}.",
   "The kinds of character a password may be required to contain.": "أنواع الأحرف التي قد يُشترط أن تحتويها كلمة المرور.",
+  "The kinds of character every password must contain.": "أنواع الأحرف التي يجب أن تحتويها كل كلمة مرور.",
   "The kinds of work package a project can create.": "أنواع حزم العمل التي يمكن للمشروع إنشاؤها.",
   "The kinds of work package that have it. A task can hold a value only if its type has the field.": "أنواع حزم العمل التي تتضمنه. لا يمكن للمهمة أن تحمل قيمة له إلا إذا كان نوعها يتضمن هذا الحقل.",
   "The languages a person may choose from.": "اللغات التي يمكن للشخص الاختيار منها.",

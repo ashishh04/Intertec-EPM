@@ -120,6 +120,12 @@ Changes since 1.1.0 (21 October 2026).
 - A file uploaded from the client portal no longer stops the Documents page,
   and the project's Documents tab, from opening ("This page could not be
   displayed"). Files already uploaded that way show again, grouped by type.
+- Administration's Calculated fields, Earned value and Working days pages open
+  for an administrator on a server with no projects yet. They refused with "You
+  do not have permission to view work packages".
+- Administration → Authentication → Settings opens again ("These settings could
+  not be loaded"). OpenProject 17 dropped the setting for how many password
+  rules must be met: every rule ticked is now required.
 - Changing what an external role allows now applies to the people who already
   hold it, not only to those given it afterwards.
 - A health override with a misspelt field is refused. It cleared every

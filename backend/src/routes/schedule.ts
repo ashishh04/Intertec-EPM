@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
-import { anywhere } from '../auth/capabilities.js';
+import { allows, anywhere } from '../auth/capabilities.js';
 import * as guard from '../auth/guard.js';
 import { env } from '../config/env.js';
 import { recordAuditQuietly } from '../domain/audit.js';
@@ -49,9 +49,14 @@ export const scheduleRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  /** How the passes are going: the last one, how long it took, what it found (BR-104). */
+  /**
+   * How the passes are going: the last one, how long it took, what it found
+   * (BR-104). Also for administrators, who may recalculate (below) and see this
+   * on the Working days page even on a server with no projects to hold rights in.
+   */
   app.get('/schedule/status', async (request) => {
-    if (!anywhere(await guard.permissionsFor(request), 'task:view')) {
+    const permissions = await guard.permissionsFor(request);
+    if (!anywhere(permissions, 'task:view') && !allows(permissions, 'users:manage')) {
       throw EpmError.forbidden('You do not have permission to view work packages.');
     }
     return scheduleStatus();

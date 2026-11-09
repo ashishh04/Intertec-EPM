@@ -154,12 +154,12 @@ Rails.application.config.to_prepare do
            "Self-registration", "Whether an account can be created without an administrator."],
           ["password_min_length", :integer, nil,
            "Minimum password length", "Characters required in a password."],
+          # OpenProject 17 requires every rule ticked here. The count of rules a
+          # password had to meet (password_min_adhered_rules) no longer exists,
+          # and asking for it failed the whole section.
           ["password_active_rules", :multi_enum, :password_rule_options,
            "Password character rules",
-           "The kinds of character a password may be required to contain."],
-          ["password_min_adhered_rules", :integer, nil,
-           "Rules a password must meet",
-           "How many of the rules above are required. Zero enforces none of them, "            "so only the minimum length applies."],
+           "The kinds of character every password must contain."],
           ["brute_force_block_after_failed_logins", :integer, nil,
            "Block after failed attempts", "Consecutive failures before an account is temporarily blocked."],
           ["session_ttl_enabled", :boolean, nil,
