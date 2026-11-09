@@ -24,11 +24,10 @@ Changes since 1.1.0 (21 October 2026).
   pass, re-date the work that decides the finish. Each cites its evidence and
   expected effect. Nothing changes until someone allowed to make the change
   approves it; approvals and rejections are journalled.
-- **EPM roles and workspaces.** An administrator gives each person a role
-  (Manager, HR, Employee or External) on the new Access roles page
-  (Administration → Users and permissions). A role brings a bundle of EPM
-  permissions, its own workspace on the overview and its own sidebar. Every
-  change of role is journalled.
+- **EPM roles.** An administrator gives each person a role (Manager, HR,
+  Employee or External) on the new Access roles page (Administration → Users
+  and permissions). A role brings a bundle of EPM permissions and its own
+  sidebar. Every change of role is journalled.
 - **Forgotten passwords.** "Forgot password?" on the sign-in page now emails a
   link to choose a new password. The link works once, within 60 minutes, and
   using it signs the person out everywhere. Administrator accounts are not
