@@ -5,7 +5,7 @@ import * as guard from '../auth/guard.js';
 import { asCsv, asWorkbook, exportRows } from '../domain/task-export.js';
 import { cancelImport, checkImport, getImport, importView, listImports, startImport, templateFor } from '../domain/task-import.js';
 import { openProject } from '../openproject/client.js';
-import { parseCsv } from '../lib/csv-parse.js';
+import { decodeText, parseCsv } from '../lib/csv-parse.js';
 import { EpmError } from '../lib/errors.js';
 import { contentDispositionFor } from '../lib/uploads.js';
 import { isCompoundFile, readXls } from '../lib/xls-read.js';
@@ -72,8 +72,12 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
     listImports(await projectOf(request, request.params.projectId)),
   );
 
-  /** Uploads a CSV or .xlsx and checks every row; nothing is changed yet. */
-  app.post<{ Params: { projectId: string } }>('/projects/:projectId/task-imports', async (request, reply) => {
+  /**
+   * Uploads a CSV or .xlsx and checks every row; nothing is changed yet.
+   * `withoutPeople=true` checks it to leave out the people the project cannot
+   * give its tasks to, rather than stopping at them.
+   */
+  app.post<{ Params: { projectId: string }; Querystring: { withoutPeople?: string } }>('/projects/:projectId/task-imports', async (request, reply) => {
     const projectId = await projectOf(request, request.params.projectId);
     const uploaded = await request.file({ limits: { fileSize: FILE_LIMIT, files: 1 } }).catch(() => {
       throw EpmError.badRequest('Send the file as multipart/form-data.');
@@ -96,11 +100,13 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
         throw EpmError.validation('The Excel file could not be read. Save it again as .xlsx or CSV and upload it again.');
       }
     } else {
-      records = parseCsv(content.toString('utf8'));
+      records = parseCsv(decodeText(content));
     }
     const mayEdit = await guard.holds(request, 'task:edit', String(projectId));
     reply.code(201);
-    return checkImport(projectId, uploaded.filename || 'tasks.csv', records, request.auth!.userId, mayEdit);
+    return checkImport(projectId, uploaded.filename || 'tasks.csv', records, request.auth!.userId, mayEdit, {
+      withoutPeople: ['true', '1'].includes(request.query.withoutPeople ?? ''),
+    });
   });
 
   app.get<{ Params: { id: string } }>('/task-imports/:id', async (request) => importView(await importOf(request, request.params.id)));

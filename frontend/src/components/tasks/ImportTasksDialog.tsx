@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Download, Upload } from 'lucide-react';
+import { Download, Upload, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { ComboSelect } from '@/components/common/ComboSelect';
@@ -9,14 +9,32 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { env } from '@/config/env';
+import { useAddProjectMember, useProjectRoles } from '@/hooks/useMembers';
 import { useProjects } from '@/hooks/useProjects';
 import { saveBlob } from '@/lib/download';
 import { intlLocale, t } from '@/lib/i18n';
 import { formatNumber } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { apiClient } from '@/services/api/client';
-import type { TaskImportView } from '@/types';
+import type { TaskImportPerson, TaskImportTimeRefusal, TaskImportView } from '@/types';
+
+/** Why spent time will not be logged, as the check says it. */
+function refusalText(reason: TaskImportTimeRefusal): string {
+  switch (reason) {
+    case 'locked':
+      return t('the timesheet for that day has been submitted or approved');
+    case 'backdating':
+      return t('it is older than the back-dating window allows');
+    case 'activity':
+      return t('an activity is required, and the file has none');
+    case 'closed':
+      return t('the task is closed, and closed work takes no time');
+    case 'daily':
+      return t('it would pass the daily maximum of hours');
+  }
+}
 
 /**
  * Imports a CSV or Excel file into a project. One rule: a row whose ID is a
@@ -35,11 +53,20 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
   const [file, setFile] = useState<File | null>(null);
   const [checking, setChecking] = useState(false);
   const [view, setView] = useState<TaskImportView | null>(null);
+  // Checked to leave out the people the project cannot give work to.
+  const [withoutPeople, setWithoutPeople] = useState(false);
+  // The role people the file names are added to the project with.
+  const [roleId, setRoleId] = useState('');
+  const [adding, setAdding] = useState<string | null>(null);
+  const canAddPeople = projectId ? canInProject(projectId, 'member:manage') : false;
+  const roles = useProjectRoles(open && canAddPeople && Boolean(view?.people.some((person) => person.state === 'account')));
+  const addMember = useAddProjectMember(projectId ?? '');
 
   useEffect(() => {
     if (!open) {
       setFile(null);
       setView(null);
+      setWithoutPeople(false);
     }
   }, [open]);
 
@@ -88,13 +115,13 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
     }
   };
 
-  const check = async () => {
+  const check = async (leaveOut = withoutPeople) => {
     if (!projectId || !file) return;
     setChecking(true);
     try {
       const body = new FormData();
       body.append('file', file, file.name);
-      const response = await fetch(`${env.apiBaseUrl}/projects/${projectId}/task-imports`, {
+      const response = await fetch(`${env.apiBaseUrl}/projects/${projectId}/task-imports${leaveOut ? '?withoutPeople=true' : ''}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Accept-Language': intlLocale() },
@@ -123,11 +150,36 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
     if (view) setView(await apiClient.post<TaskImportView>(`/task-imports/${view.id}/cancel`));
   };
 
+  // Adds someone the file names to the project, then checks the file again.
+  const addPerson = async (person: TaskImportPerson) => {
+    if (!person.userId || !roleId) return;
+    setAdding(person.userId);
+    try {
+      await addMember.mutateAsync({ userId: person.userId, roleIds: [roleId] });
+      toast.success(t('{name} was added to the project', { name: person.name }));
+      await check();
+    } catch (error) {
+      toast.error(t('That could not be saved.'), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  const importWithoutPeople = () => {
+    setWithoutPeople(true);
+    void check(true);
+  };
+
   const work = view ? view.toCreate + view.toUpdate : 0;
   const done = view ? view.created + view.updated + view.failed : 0;
   const percent = work > 0 ? Math.min(100, Math.round((done / work) * 100)) : 0;
   const started = view && ['running', 'done', 'cancelled', 'failed'].includes(view.status);
   const clean = view && view.problemCount === 0;
+  // People are shown on their own, with what can be done about each; the rest as problems.
+  const people = view?.people ?? [];
+  const otherProblems = view ? view.problems.filter((problem) => !problem.person) : [];
+  const otherProblemCount = view ? view.problemCount - people.length : 0;
+  const time = view?.time;
 
   const runLabel = (view: TaskImportView) => {
     if (view.status !== 'checked') return t('Resume the import');
@@ -161,7 +213,7 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
             <Label htmlFor="import-project" required>
               {t('Project')}
             </Label>
-            <ComboSelect id="import-project" label={t('Project')} options={options} value={projectId} onChange={(value) => { setProjectId(value); setView(null); }} disabled={view?.status === 'running'} />
+            <ComboSelect id="import-project" label={t('Project')} options={options} value={projectId} onChange={(value) => { setProjectId(value); setView(null); setWithoutPeople(false); }} disabled={view?.status === 'running'} />
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1.5">
@@ -172,7 +224,7 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                 accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 className="w-80"
                 disabled={view?.status === 'running'}
-                onChange={(event) => { setFile(event.target.files?.[0] ?? null); setView(null); }}
+                onChange={(event) => { setFile(event.target.files?.[0] ?? null); setView(null); setWithoutPeople(false); }}
               />
             </div>
             <Button variant="outline" disabled={!projectId} onClick={() => void downloadTemplate()}>
@@ -234,6 +286,42 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
               {clean && view.datesMoved > 0 && !started ? (
                 <div className="text-muted-foreground">{t('{count} dates fall on a weekend or holiday and are moved to the next working day, as the schedule does.', { count: formatNumber(view.datesMoved) })}</div>
               ) : null}
+              {clean && view.peopleLeftOut.length > 0 && !started ? (
+                <div className="text-muted-foreground" dir="auto">
+                  {t('Imported without: {people}. Their cells are left blank on new tasks; tasks being updated keep who they have now.', {
+                    people: view.peopleLeftOut.map((one) => t('{name} ({count, plural, one {# row} other {# rows}})', { name: one.name, count: one.rows })).join(', '),
+                  })}
+                </div>
+              ) : null}
+              {clean && time && !started && (time.entries > 0 || time.withoutPerson.entries > 0 || time.refused.length > 0) ? (
+                <div className="space-y-0.5 text-muted-foreground">
+                  {time.entries > 0 ? (
+                    <div>
+                      {t('Spent time: {hours} h will be logged as {count, plural, one {# entry} other {# entries}}, one for each new task, for its assignee on its finish date.', { hours: formatNumber(time.hours), count: time.entries })}
+                    </div>
+                  ) : null}
+                  {time.withoutPerson.entries > 0 ? (
+                    <div>{t('{hours} h on {count, plural, one {# new task} other {# new tasks}} with no assignee will not be logged.', { hours: formatNumber(time.withoutPerson.hours), count: time.withoutPerson.entries })}</div>
+                  ) : null}
+                  {time.refused.map((entry) => (
+                    <div key={entry.reason}>
+                      {t('{hours} h on {count, plural, one {# new task} other {# new tasks}} will not be logged: {reason}.', { hours: formatNumber(entry.hours), count: entry.entries, reason: refusalText(entry.reason) })}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {clean && view.repeatCount > 0 && !started ? (
+                <Alert tone="warning" title={t('{count, plural, one {# new row repeats an earlier row} other {# new rows repeat an earlier row}}', { count: view.repeatCount })}>
+                  <div>{t('The same name under the same parent: each is created as a task of its own. If they are the same task, take the extra rows out of the file.')}</div>
+                  <div className="mt-1 max-h-24 overflow-y-auto" dir="auto">
+                    {view.repeats.map((entry) => (
+                      <div key={entry.row}>
+                        {t('Line {row}', { row: entry.row })}: {entry.subject} — {t('as line {row}', { row: entry.firstRow })}
+                      </div>
+                    ))}
+                  </div>
+                </Alert>
+              ) : null}
               {clean && view.matchedEarlier > 0 && !started ? (
                 <div className="text-muted-foreground">{t('{count} rows were matched by IDs from an earlier import into this project, and update those tasks.', { count: formatNumber(view.matchedEarlier) })}</div>
               ) : null}
@@ -294,12 +382,67 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                 </div>
               ) : null}
               {clean && work === 0 ? <Alert tone="neutral" title={t('Nothing to do: every row matches its task already.')} /> : null}
-              {view.problemCount > 0 ? (
-                <Alert tone="danger" title={t('{count} problems to fix before importing', { count: formatNumber(view.problemCount) })}>
+              {people.length > 0 && !started ? (
+                <Alert tone="warning" title={t('{count, plural, one {# person in the file cannot be given its tasks here} other {# people in the file cannot be given its tasks here}}', { count: people.length })}>
+                  <div>{t('Add them to the project and the file is checked again, or import without them: their cells are left blank on new tasks, and tasks being updated keep who they have now.')}</div>
+                  {canAddPeople && people.some((person) => person.state === 'account') ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <Label htmlFor="import-member-role">{t('Role for people added')}</Label>
+                      <Select value={roleId} onValueChange={setRoleId}>
+                        <SelectTrigger id="import-member-role" className="h-8 w-56">
+                          <SelectValue placeholder={t('Choose a role')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(roles.data ?? []).map((role) => (
+                            <SelectItem key={role.id} value={role.id}>
+                              {role.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-muted-foreground">{t('Choose one that can be given tasks.')}</span>
+                    </div>
+                  ) : null}
+                  <table className="mt-2 w-full">
+                    <tbody>
+                      {people.map((person) => (
+                        <tr key={person.name} className="border-b border-border last:border-0">
+                          <td className="p-1.5 pe-3 align-top font-medium" dir="auto">
+                            {person.name}
+                          </td>
+                          <td className="p-1.5 pe-3 align-top text-muted-foreground">
+                            {t('{count, plural, one {# row} other {# rows}}', { count: person.rows })} · {person.columns.map((column) => t(column)).join(', ')}
+                          </td>
+                          <td className="p-1.5 pe-3 align-top">
+                            {person.state === 'account'
+                              ? t('Has an account, but is not a member of this project')
+                              : person.state === 'role'
+                                ? t('A member, but their role cannot be given tasks')
+                                : t('No account here')}
+                          </td>
+                          <td className="p-1.5 text-end align-top">
+                            {person.state === 'account' && person.userId && canAddPeople ? (
+                              <Button size="sm" variant="outline" disabled={!roleId || checking || adding !== null} loading={adding === person.userId} onClick={() => void addPerson(person)}>
+                                <UserPlus className="h-4 w-4" />
+                                {t('Add to project')}
+                              </Button>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <Button className="mt-2" size="sm" variant="outline" loading={checking} disabled={adding !== null} onClick={importWithoutPeople}>
+                    {t('Import without them')}
+                  </Button>
+                </Alert>
+              ) : null}
+              {otherProblemCount > 0 ? (
+                <Alert tone="danger" title={t('{count} problems to fix before importing', { count: formatNumber(otherProblemCount) })}>
                   <div className="max-h-56 overflow-y-auto">
                     <table className="w-full">
                       <tbody>
-                        {view.problems.map((problem, index) => (
+                        {otherProblems.map((problem, index) => (
                           <tr key={index}>
                             <td className="pe-3 align-top font-mono">{t('Line {row}', { row: problem.row })}</td>
                             <td className="pe-3 align-top">{problem.column ? t(problem.column) : ''}</td>
@@ -326,6 +469,7 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                     })}
                     {' · '}
                     {t('{linked} dependencies added, {unlinked} removed', { linked: formatNumber(view.linked), unlinked: formatNumber(view.unlinked) })}
+                    {time && time.entries > 0 ? ` · ${t('{logged} of {count} time entries logged', { logged: formatNumber(time.logged), count: formatNumber(time.entries) })}` : ''}
                     {view.status === 'cancelled' ? ` · ${t('Cancelled: resume to carry on.')}` : ''}
                     {view.status === 'failed' ? ` · ${t('Stopped: resume to carry on.')}` : ''}
                   </div>

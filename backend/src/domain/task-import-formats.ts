@@ -16,6 +16,9 @@ import type { CsvRecord } from '../lib/csv-parse.js';
  *   dots day first; otherwise month first, OpenProject's default.
  * - The XLS export "with relations" repeats a task once for each relation:
  *   those rows are merged, and Precedes and Follows become Predecessors.
+ * - `Spent time` counts a task's subtasks too: the time logged on each task
+ *   itself is its figure less its subtasks' in the file, so that logging it
+ *   counts every hour once.
  *
  * Other columns pass through under their own names — custom fields are matched
  * by name later — and those the import has no use for are reported as ignored.
@@ -132,6 +135,23 @@ export function normaliseSource(input: CsvRecord[]): { records: CsvRecord[]; sou
       if (Number.isFinite(fraction)) converted[doneAt] = String(Math.round(fraction * 100));
     }
     rows.set(key, { line: record.line, cells: converted });
+  }
+
+  // Spent time as each task's own: its figure less what its subtasks in the file have.
+  const spentAt = renamed.findIndex((name) => normal(name) === 'spent time');
+  if (spentAt >= 0 && parentAt >= 0) {
+    const hours = (cell: string | undefined) => (/^\d+(?:[.,]\d+)?$/.test((cell ?? '').trim()) ? Number(cell!.trim().replace(',', '.')) : null);
+    const below = new Map<string, number>();
+    for (const row of rows.values()) {
+      const parent = row.cells[parentAt] ?? '';
+      const spent = hours(row.cells[spentAt]);
+      if (parent && spent !== null && rows.has(parent)) below.set(parent, (below.get(parent) ?? 0) + spent);
+    }
+    for (const [key, row] of rows) {
+      const spent = hours(row.cells[spentAt]);
+      const children = below.get(key);
+      if (spent !== null && children !== undefined) row.cells[spentAt] = String(Math.max(0, Math.round((spent - children) * 100) / 100));
+    }
   }
 
   const outHeader = relatedAt >= 0 ? [...renamed, 'Predecessors'] : renamed;

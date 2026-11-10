@@ -3,7 +3,8 @@ import type { TaskImport } from '@prisma/client';
 import { runAsSystem, runWithAuth, type AuthContext } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { parseCsv, type CsvRecord } from '../lib/csv-parse.js';
-import { durationToHours } from '../lib/duration.js';
+import { daysBetween, today as todayIso } from '../lib/dates.js';
+import { durationToHours, hoursToDuration } from '../lib/duration.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { contextConventions, contextLanguage, message, render, t, type Message } from '../lib/i18n.js';
 import { buildWorkbook } from '../lib/xlsx.js';
@@ -11,11 +12,13 @@ import { getCatalog } from '../mapping/catalog.js';
 import { idFromHref, openProject } from '../openproject/client.js';
 import { EVERY_USER } from '../openproject/people.js';
 import { versionIdOf, versionLinks, versionTitleOf } from '../openproject/versions.js';
-import type { TaskImportChange, TaskImportProblem, TaskImportStatus, TaskImportView } from '../types/epm.js';
+import type { TaskImportChange, TaskImportProblem, TaskImportStatus, TaskImportTimeRefusal, TaskImportView } from '../types/epm.js';
 import { withAudit } from './audit.js';
 import { requestCalculatedRecalc } from './calculated-fields.js';
+import { invalidateProjectCost } from './costs.js';
 import { requestHealthRecalc } from './health.js';
 import { requestScheduleRecalc } from './schedule.js';
+import { assertPolicies, assertUnlocked, entriesOf, getTimeSettings, lockOn, locksIn } from './time-rules.js';
 import { href, IMPORT_COLUMNS, readProjectWork, title } from './task-export.js';
 import { fieldValue, parseYesNo, projectFields, type FieldFormat, type TaskField } from './task-fields.js';
 import { normaliseSource } from './task-import-formats.js';
@@ -44,6 +47,14 @@ import { normaliseSource } from './task-import-formats.js';
  * creates); then dependencies removed and added. Progress is saved as it goes:
  * a run stopped part-way — cancelled, a sign-in expired, a server restarted —
  * is resumed from where it stopped, and no row is made twice.
+ *
+ * People are matched to those the project can give work to. Anyone else the
+ * file names is listed once, with whether they have an account (and can be
+ * added to the project) or not, and holds the file back until it is checked
+ * again to import without them: then their cells are left blank on new rows
+ * and as they are on tasks being updated. A Spent time column is logged on a
+ * new task as one entry, for its assignee on its finish date, under the
+ * timesheet rules; updated tasks have theirs already.
  */
 
 export const MAX_ROWS = 20_000;
@@ -76,6 +87,7 @@ const COLUMNS = {
   points: ['story points', 'points'],
   manual: ['manual scheduling', 'scheduled manually', 'schedule manually'],
   predecessors: ['predecessors', 'depends on', 'dependencies', 'follows', 'after'],
+  spent: ['spent time', 'spent hours', 'time spent', 'hours spent', 'logged time', 'logged hours'],
 } as const;
 type Column = keyof typeof COLUMNS;
 
@@ -218,6 +230,24 @@ export interface PlannedRow {
   custom?: CustomValue[];
   /** Keys in the file, or "#123" for existing work. Update rows: only those to add. */
   predecessors: string[];
+  /** Names left out, the file having been checked to import without the people the project cannot give work to. */
+  leftOut?: { column: string; name: string }[];
+  /** A created row with the subject of an earlier row under the same parent: that row's line. */
+  repeatOf?: number;
+  /** A created row's spent time: logged as one entry for its assignee (none: not logged), on its finish date. */
+  time?: { hours: number; userId: string | null; on: string; comment?: string; refused?: TimeRefusal };
+}
+
+/** Why spent time in a file will not be logged: a locked timesheet, or one of the time policies (BR-304, BR-317). */
+type TimeRefusal = TaskImportTimeRefusal;
+
+/** A name in the file the project cannot give work to: a member whose role cannot be, someone with an account who is not a member, or nobody here. */
+interface UnplacedPerson {
+  name: string;
+  columns: string[];
+  rows: number;
+  state: 'role' | 'account' | 'none';
+  userId?: string;
 }
 
 /** A work package of the project as it is now, for comparing an update row with. */
@@ -263,6 +293,8 @@ interface StoredProblem {
   row: number;
   column?: string;
   message: Message;
+  /** One problem for each person the project cannot give work to, for the whole file. */
+  person?: UnplacedPerson;
 }
 
 export interface ProjectContext {
@@ -273,6 +305,10 @@ export interface ProjectContext {
   versions: Map<string, string>;
   /** Login, email and full name (lower case) → user id, for the project's members. */
   members: Map<string, string>;
+  /** The members who can be given work: their role may be assigned tasks. Absent: every member. */
+  assignable?: Set<string>;
+  /** Login, email and full name (lower case) → user id, for everyone else with an account that is not locked. */
+  accounts?: Map<string, string>;
   /** The project's work packages by id, read with the importer's access; absent for a template. */
   existing?: Map<string, ExistingWork>;
   /** IDs earlier imports into the project made work packages from (E1 → 123), latest last. */
@@ -343,14 +379,26 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
     : [null, null];
   const offered = await projectFields(projectId, types.items.map((type) => String(type.id)));
   const memberIds = new Set(memberships.items.map((row) => idFromHref(row._links.principal?.href)).filter((id): id is string => Boolean(id)));
-  const people = await runAsSystem(() => openProject.getAll<{ id: number; login?: string; email?: string; name?: string }>('/principals', { pageSize: 1000, filters: EVERY_USER }));
+  const [people, assignable] = await Promise.all([
+    runAsSystem(() => openProject.getAll<{ id: number; login?: string; email?: string; name?: string; status?: string }>('/principals', { pageSize: 1000, filters: EVERY_USER })),
+    // The members who can be given work, their role allowing it: asked as the importer, who may add tasks here.
+    withWork
+      ? openProject
+          .request<{ _embedded?: { elements?: { id: number }[] } }>(`/projects/${projectId}/available_assignees`)
+          .then((collection) => new Set((collection._embedded?.elements ?? []).map((element) => String(element.id))))
+          .catch(() => undefined)
+      : undefined,
+  ]);
   const members = new Map<string, string>();
+  // Everyone else who could be added to the project: not locked.
+  const accounts = new Map<string, string>();
   const memberNames: string[] = [];
   for (const person of people.items) {
     const id = String(person.id);
-    if (!memberIds.has(id)) continue;
-    if (person.name) memberNames.push(person.name);
-    for (const name of [person.login, person.email, person.name]) if (name) members.set(name.trim().toLowerCase(), id);
+    const member = memberIds.has(id);
+    if (!member && person.status === 'locked') continue;
+    if (member && person.name) memberNames.push(person.name);
+    for (const name of [person.login, person.email, person.name]) if (name) (member ? members : accounts).set(name.trim().toLowerCase(), id);
   }
   const typeMap = new Map(types.items.map((type) => [type.name.toLowerCase(), { id: String(type.id), name: type.name, milestone: Boolean(type.isMilestone) }]));
   const defaultType = typeMap.get('task') ?? [...typeMap.values()].find((type) => !type.milestone) ?? [...typeMap.values()][0];
@@ -410,6 +458,8 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
     statusNames: [...catalog.statusById.values()].map((status) => status.name),
     priorityNames: [...catalog.priorityById.values()].map((priority) => priority.name),
     members,
+    accounts,
+    ...(assignable ? { assignable } : {}),
     memberNames: memberNames.sort((a, b) => a.localeCompare(b)),
     fields: offered.fields,
     categories: offered.categories,
@@ -436,8 +486,15 @@ async function rememberedIds(projectId: number): Promise<Map<string, string>> {
 const sameText = (a: string, b: string) => a.replace(/\r\n?/g, '\n').trim() === b.replace(/\r\n?/g, '\n').trim();
 const hoursText = (hours: number | null) => (hours === null ? '' : String(Math.round(hours * 100) / 100));
 
+export interface CheckOptions {
+  /** Leave out the people the project cannot give work to, rather than stopping at them. */
+  withoutPeople?: boolean;
+  /** The latest day spent time is logged on: today. */
+  today?: string;
+}
+
 /** Reads and checks a file against the project, and works out what each row will do. Nothing is changed. */
-export function checkRows(input: string | CsvRecord[], context: ProjectContext): { rows: PlannedRow[]; problems: StoredProblem[]; ignored: string[] } {
+export function checkRows(input: string | CsvRecord[], context: ProjectContext, options: CheckOptions = {}): { rows: PlannedRow[]; problems: StoredProblem[]; ignored: string[] } {
   // Rows left empty — a spreadsheet keeps formatted ones — are not rows.
   const records = (typeof input === 'string' ? parseCsv(input) : input).filter((record, index) => index === 0 || record.cells.some((cell) => cell.trim()));
   const problems: StoredProblem[] = [];
@@ -466,13 +523,23 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext):
   const ignored = records[0]!.cells.filter((name, column) => !used.has(column) && name.trim()).map((name) => name.trim());
   // An apostrophe the export put before =, +, - or @ (so spreadsheets do not run it as a formula) is not part of the value.
   const cell = (cells: string[], column: Column) => (present(column) ? (cells[index[column]] ?? '').trim().replace(/^'(?=[=+\-@])/, '') : '');
+  // A task of this project by its number; else the one an earlier import into it
+  // made from the same ID — E1, or WP and a number from another project's
+  // export — so a file uploaded again updates its copies rather than repeating them.
   const existingOf = (key: string) => {
-    const number = workPackageNumber(key) ?? context.remembered?.get(key);
-    return number ? context.existing?.get(number) : undefined;
+    const number = workPackageNumber(key);
+    const own = number ? context.existing?.get(number) : undefined;
+    if (own) return own;
+    const earlier = context.remembered?.get(key);
+    return earlier ? context.existing?.get(earlier) : undefined;
   };
 
   const rows: PlannedRow[] = [];
   const keys = new Map<string, number>();
+  // Each name the project cannot give work to, once for the whole file.
+  const people = new Map<string, { name: string; columns: Set<string>; lines: number[]; state: UnplacedPerson['state']; userId?: string }>();
+  // Hours of spent time by line.
+  const spentByLine = new Map<number, number>();
   for (const record of records.slice(1)) {
     const { line, cells } = record;
     const problem = (column: string, text: Message) => problems.push({ row: line, column, message: text });
@@ -534,17 +601,42 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext):
       if (!id) problem(label, message('{value} is not {what}.', { value, what }));
       return id ?? null;
     };
-    const assigneeId = lookup('assignee', 'Assignee', context.members, message('a member of this project (give their login, email or full name)'), current && { id: current.assigneeId, name: current.assignee });
+    // A person is someone the project can give work to. Anyone else is noted once
+    // for the file; left out, they are blank on a new row and as they are on a task being updated.
+    const leftOut: { column: string; name: string }[] = [];
+    const person = (column: 'assignee' | 'accountable', label: string, now?: { id: string | null; name: string }) => {
+      const value = cell(cells, column);
+      if (!value) return null;
+      const name = value.toLowerCase();
+      if (now?.id && name === now.name.toLowerCase()) return now.id;
+      const member = context.members.get(name);
+      if (member && (!context.assignable || context.assignable.has(member))) return member;
+      const account = member ?? context.accounts?.get(name);
+      // Given work here through a group, though not a member in their own name.
+      if (!member && account && context.assignable?.has(account)) return account;
+      // One person, however the file names them: full name on one row, email on the next.
+      const key = account ? `id:${account}` : `name:${name}`;
+      const entry = people.get(key) ?? { name: value, columns: new Set<string>(), lines: [], state: member ? 'role' : account ? 'account' : 'none', ...(account ? { userId: account } : {}) };
+      entry.columns.add(label);
+      if (entry.lines.at(-1) !== line) entry.lines.push(line);
+      people.set(key, entry);
+      if (options.withoutPeople) leftOut.push({ column: label, name: value });
+      return now ? now.id : null;
+    };
+    const assigneeId = person('assignee', 'Assignee', current && { id: current.assigneeId, name: current.assignee });
     const statusId = lookup('status', 'Status', context.statuses, message('a status'), current && { id: current.statusId, name: current.status });
     const priorityId = lookup('priority', 'Priority', context.priorities, message('a priority'), current && { id: current.priorityId, name: current.priority });
     const versionId = lookup('version', 'Version', context.versions, message('a version in this project'), current && { id: current.versionId, name: current.version });
-    const accountableId = lookup('accountable', 'Accountable', context.members, message('a member of this project (give their login, email or full name)'), current && { id: current.accountableId, name: current.accountable });
+    const accountableId = person('accountable', 'Accountable', current && { id: current.accountableId, name: current.accountable });
     const categoryId = lookup('category', 'Category', context.categories ?? new Map(), message('a category in this project'), current && { id: current.categoryId, name: current.category });
     const pointsText = cell(cells, 'points');
     const points = !pointsText ? null : /^\d+$/.test(pointsText) ? Number(pointsText) : undefined;
     if (points === undefined) problem('Story points', message('{value} is not a whole number of points.', { value: pointsText }));
     const manual = parseYesNo(cell(cells, 'manual'));
     if (manual === undefined) problem('Manual scheduling', message('{value} is not Yes or No.', { value: cell(cells, 'manual') }));
+    const spent = parseHours(cell(cells, 'spent'));
+    if (spent === undefined) problem('Spent time', message('{value} is not a number of hours.', { value: cell(cells, 'spent') }));
+    else if (spent) spentByLine.set(line, spent);
     const custom: CustomValue[] = [];
     for (const [key, at] of fieldAt) {
       const field = fieldsByKey.get(key)!;
@@ -590,6 +682,7 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext):
       manual: manual ?? null,
       custom,
       predecessors,
+      ...(leftOut.length > 0 ? { leftOut } : {}),
     });
   }
 
@@ -721,7 +814,7 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext):
       row.predecessors = [];
     }
     row.workPackageId = current.id;
-    if (!workPackageNumber(row.key)) row.matchedEarlier = true;
+    if (current.id !== workPackageNumber(row.key)) row.matchedEarlier = true;
     row.set = [...set];
     row.changes = changes;
   }
@@ -773,6 +866,44 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext):
       row.datesFollow = datesFollow;
     }
     row.action = row.changes!.length > 0 ? 'update' : 'unchanged';
+  }
+
+  // A new row repeating an earlier one: the same subject under the same parent.
+  const seen = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.subject) continue;
+    const same = `${row.parentKey ? `key:${row.parentKey}` : row.parentId ? `id:${row.parentId}` : ''}\n${row.subject.trim().toLowerCase()}`;
+    const first = seen.get(same);
+    if (first === undefined) seen.set(same, row.line);
+    else if (row.action === 'create') row.repeatOf = first;
+  }
+
+  // Spent time on a new task: one entry for its assignee, on its finish date or
+  // else its start, never after today. A task being updated has its time already.
+  const today = options.today ?? todayIso();
+  for (const row of rows) {
+    const hours = spentByLine.get(row.line);
+    if (!hours || row.action !== 'create') continue;
+    const on = row.due ?? row.start ?? today;
+    row.time = { hours, userId: row.assigneeId, on: on > today ? today : on };
+  }
+
+  // Each person the project cannot give work to, once, unless the file is to be imported without them.
+  if (!options.withoutPeople) {
+    for (const entry of people.values()) {
+      const values = { name: entry.name, count: entry.lines.length };
+      problems.push({
+        row: entry.lines[0]!,
+        column: [...entry.columns][0]!,
+        message:
+          entry.state === 'role'
+            ? message('{name} is a member of this project, but their role cannot be given tasks ({count, plural, one {# row} other {# rows}}): give them a role that can, or import without them.', values)
+            : entry.state === 'account'
+              ? message('{name} is not a member of this project ({count, plural, one {# row} other {# rows}}): add them to it, or import without them.', values)
+              : message('{name} has no account here ({count, plural, one {# row} other {# rows}}): import without them, or create the account and check the file again.', values),
+        person: { name: entry.name, columns: [...entry.columns], rows: entry.lines.length, state: entry.state, ...(entry.userId ? { userId: entry.userId } : {}) },
+      });
+    }
   }
   problems.sort((a, b) => a.row - b.row);
   return { rows, problems, ignored };
@@ -834,6 +965,7 @@ const renderProblem = (problem: StoredProblem): TaskImportProblem => ({
   row: problem.row,
   ...(problem.column ? { column: problem.column } : {}),
   message: render(contextLanguage(), problem.message, contextConventions()),
+  ...(problem.person ? { person: problem.person.name } : {}),
 });
 
 const actionOf = (row: PlannedRow): RowAction => row.action ?? 'create';
@@ -843,7 +975,18 @@ const UPDATED = 'upd:';
 const LINKED = 'link:';
 const UNLINKED = 'unlink:';
 const MOVED = 'move:';
-const isCreatedKey = (key: string) => ![UPDATED, LINKED, UNLINKED, MOVED].some((marker) => key.startsWith(marker));
+/** Spent time logged on a new task: `time:` and its row key → the time entry id. */
+const TIMED = 'time:';
+const isCreatedKey = (key: string) => ![UPDATED, LINKED, UNLINKED, MOVED, TIMED].some((marker) => key.startsWith(marker));
+
+/** A row that could not be done, or whose spent time could not be logged. */
+interface RunError {
+  row: number;
+  message: string;
+  kind?: 'time';
+  /** EPM's own reason, as raised: shown in the reader's language. */
+  source?: Message;
+}
 
 function counts(rows: PlannedRow[]) {
   return {
@@ -860,12 +1003,33 @@ function canRun(row: TaskImport): boolean {
 export function importView(row: TaskImport): TaskImportView {
   const rows = row.rows as unknown as PlannedRow[];
   const problems = row.problems as unknown as StoredProblem[];
-  const errors = row.errors as unknown as { row: number; message: string }[];
+  const errors = row.errors as unknown as RunError[];
   const results = Object.keys(row.results as Record<string, string>);
   const { toCreate, toUpdate } = counts(rows);
   const byType: Record<string, number> = {};
   for (const planned of rows) if (actionOf(planned) === 'create') byType[planned.typeName] = (byType[planned.typeName] ?? 0) + 1;
   const updates = rows.filter((planned) => actionOf(planned) === 'update');
+  // Who was left out, with the rows and columns they were named in.
+  const leftOut = new Map<string, { name: string; rows: Set<number>; columns: Set<string> }>();
+  for (const planned of rows) {
+    for (const entry of planned.leftOut ?? []) {
+      const one = leftOut.get(entry.name.toLowerCase()) ?? { name: entry.name, rows: new Set<number>(), columns: new Set<string>() };
+      one.rows.add(planned.line);
+      one.columns.add(entry.column);
+      leftOut.set(entry.name.toLowerCase(), one);
+    }
+  }
+  // Spent time: what will be logged, and what will not and why.
+  const timed = rows.filter((planned) => planned.time);
+  const hoursOf = (list: PlannedRow[]) => Math.round(list.reduce((sum, planned) => sum + planned.time!.hours, 0) * 100) / 100;
+  const toLog = timed.filter((planned) => planned.time!.userId && !planned.time!.refused);
+  const withoutPerson = timed.filter((planned) => !planned.time!.userId);
+  const refused = new Map<TimeRefusal, PlannedRow[]>();
+  for (const planned of timed) {
+    const reason = planned.time!.userId ? planned.time!.refused : undefined;
+    if (reason) refused.set(reason, [...(refused.get(reason) ?? []), planned]);
+  }
+  const repeats = rows.filter((planned) => planned.repeatOf);
   return {
     id: row.id,
     projectId: String(row.projectId),
@@ -880,6 +1044,18 @@ export function importView(row: TaskImport): TaskImportView {
     sameSubject: rows.filter((planned) => planned.sameSubjectAs).slice(0, CHANGES_SHOWN).map((planned) => ({ row: planned.line, key: planned.key.startsWith('#line') ? '' : planned.key, subject: planned.subject, existing: `WP${planned.sameSubjectAs}` })),
     progressIgnored: rows.filter((planned) => planned.progressIgnored).length,
     datesMoved: rows.reduce((sum, planned) => sum + (planned.datesMoved ?? 0), 0),
+    people: problems.flatMap(({ person }) => (person ? [{ name: person.name, rows: person.rows, columns: person.columns, state: person.state, ...(person.userId ? { userId: person.userId } : {}) }] : [])),
+    peopleLeftOut: [...leftOut.values()].map((one) => ({ name: one.name, rows: one.rows.size, columns: [...one.columns] })),
+    repeats: repeats.slice(0, CHANGES_SHOWN).map((planned) => ({ row: planned.line, key: planned.key.startsWith('#line') ? '' : planned.key, subject: planned.subject, firstRow: planned.repeatOf! })),
+    repeatCount: repeats.length,
+    time: {
+      entries: toLog.length,
+      hours: hoursOf(toLog),
+      withoutPerson: { entries: withoutPerson.length, hours: hoursOf(withoutPerson) },
+      refused: [...refused].map(([reason, list]) => ({ reason, entries: list.length, hours: hoursOf(list) })),
+      logged: results.filter((key) => key.startsWith(TIMED)).length,
+      failed: errors.filter((error) => error.kind === 'time').length,
+    },
     created: row.created,
     updated: results.filter((key) => key.startsWith(UPDATED)).length,
     linked: row.linked,
@@ -896,7 +1072,11 @@ export function importView(row: TaskImport): TaskImportView {
     changes: updates.slice(0, CHANGES_SHOWN).map((planned) => ({ row: planned.line, key: planned.key, subject: planned.subject, changes: planned.changes ?? [] })),
     problems: problems.slice(0, 500).map(renderProblem),
     problemCount: problems.length,
-    errors: errors.slice(0, 500),
+    errors: errors.slice(0, 500).map((error) => {
+      if (error.kind !== 'time') return { row: error.row, message: error.message };
+      const reason = error.source ? render(contextLanguage(), error.source, contextConventions()) : error.message;
+      return { row: error.row, message: render(contextLanguage(), message('Its spent time was not logged: {reason}', { reason }), contextConventions()) };
+    }),
     errorCount: errors.length,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
@@ -914,11 +1094,19 @@ export function importView(row: TaskImport): TaskImportView {
  * Checks an uploaded file and keeps it, ready to run if it is clean. Updates
  * need `task:edit` in the project as well as `task:create`.
  */
-export async function checkImport(projectId: number, fileName: string, input: CsvRecord[], actorId: string, mayEdit: boolean): Promise<TaskImportView> {
+export async function checkImport(
+  projectId: number,
+  fileName: string,
+  input: CsvRecord[],
+  actorId: string,
+  mayEdit: boolean,
+  options: { withoutPeople?: boolean } = {},
+): Promise<TaskImportView> {
   const [context, remembered] = await Promise.all([projectContext(projectId), rememberedIds(projectId)]);
   context.remembered = remembered;
   const { records, source } = normaliseSource(input);
-  const { rows, problems, ignored } = checkRows(records, context);
+  const { rows, problems, ignored } = checkRows(records, context, { withoutPeople: Boolean(options.withoutPeople) });
+  await planTime(rows, fileName);
   const { toUpdate } = counts(rows);
   if (toUpdate > 0 && !mayEdit) {
     problems.unshift({ row: 1, message: message('The file changes {count, number} existing tasks, and you may not edit tasks in this project. Take those rows out, or ask for edit access.', { count: toUpdate }) });
@@ -935,6 +1123,53 @@ export async function checkImport(projectId: number, fileName: string, input: Cs
     },
   });
   return { ...importView(row), source: { ...source, ignoredColumns: ignored } };
+}
+
+/**
+ * Spent time to be logged, held to the timesheet rules on the check — so it
+ * says what will not be logged, and why — and again as each entry is written:
+ * a day on a submitted or approved timesheet is locked (BR-304), and the
+ * active policies apply (BR-317). Each entry says where its time came from, in
+ * the importer's language.
+ */
+async function planTime(rows: PlannedRow[], fileName: string): Promise<void> {
+  const timed = rows.filter((row) => row.time);
+  if (timed.length === 0) return;
+  const comment = render(contextLanguage(), message('Time logged on this task before it was imported from {file}.', { file: fileName }), contextConventions());
+  for (const row of timed) row.time!.comment = comment;
+  const planned = timed.filter((row) => row.time!.userId);
+  if (planned.length === 0) return;
+  const days = planned.map((row) => row.time!.on).sort();
+  const [from, to] = [days[0]!, days.at(-1)!];
+  const personIds = [...new Set(planned.map((row) => row.time!.userId!))];
+  const [{ policies }, locks, catalog] = await Promise.all([getTimeSettings(), locksIn(personIds, from, to), getCatalog()]);
+  // What each person has logged on those days already, against the daily maximum.
+  const logged = new Map<string, number>();
+  if (policies.maxDailyHours.active) {
+    for (const personId of personIds) {
+      for (const entry of await entriesOf(personId, from, to).catch(() => [])) {
+        logged.set(`${personId} ${entry.spentOn}`, (logged.get(`${personId} ${entry.spentOn}`) ?? 0) + entry.hours);
+      }
+    }
+  }
+  const today = todayIso();
+  for (const row of planned) {
+    const { userId, on, hours } = row.time!;
+    const day = `${userId} ${on}`;
+    const refused: TimeRefusal | undefined = lockOn(locks, userId!, on)
+      ? 'locked'
+      : policies.backdating.active && on < today && daysBetween(on, today) > policies.backdating.days
+        ? 'backdating'
+        : policies.mandatoryActivity.active
+          ? 'activity'
+          : policies.closedWorkPackages.active && row.statusId && catalog.statusById.get(row.statusId)?.isClosed
+            ? 'closed'
+            : policies.maxDailyHours.active && (logged.get(day) ?? 0) + hours > policies.maxDailyHours.hours + 1e-9
+              ? 'daily'
+              : undefined;
+    if (refused) row.time!.refused = refused;
+    else logged.set(day, (logged.get(day) ?? 0) + hours);
+  }
 }
 
 export async function getImport(id: string): Promise<TaskImport> {
@@ -1065,7 +1300,7 @@ async function execute(id: string): Promise<void> {
   const rows = start.rows as unknown as PlannedRow[];
   const results = new Map(Object.entries(start.results as Record<string, string>));
   // A resumed run tries again every row not yet done, so earlier failures are forgotten.
-  const errors: { row: number; message: string }[] = [];
+  const errors: RunError[] = [];
   let linked = start.linked;
   let sinceSave = 0;
 
@@ -1076,7 +1311,8 @@ async function execute(id: string): Promise<void> {
         results: Object.fromEntries(results) as object,
         errors: errors as unknown as object,
         created: [...results.keys()].filter(isCreatedKey).length,
-        failed: errors.length,
+        // Rows only: spent time that could not be logged is counted on its own.
+        failed: errors.filter((error) => error.kind !== 'time').length,
         linked,
         heartbeatAt: new Date(),
         ...extra,
@@ -1097,13 +1333,18 @@ async function execute(id: string): Promise<void> {
       if (await save()) throw new Stop('cancelled', 'Cancelled.');
     }
   };
-  const fail = (row: PlannedRow, error: unknown) => {
+  const fail = (row: PlannedRow, error: unknown, kind?: 'time') => {
     if (error instanceof OpenProjectError && error.upstreamStatus === 401) {
       // Not this row's fault: it is tried again when the import is resumed.
       stop ??= new Stop('failed', 'Your sign-in expired part-way: sign in again and resume the import.');
       return;
     }
-    errors.push({ row: row.line, message: error instanceof Error ? error.message : String(error) });
+    errors.push({
+      row: row.line,
+      message: error instanceof Error ? error.message : String(error),
+      ...(kind ? { kind } : {}),
+      ...(kind && error instanceof EpmError ? { source: error.source } : {}),
+    });
   };
 
   try {
@@ -1284,6 +1525,40 @@ async function execute(id: string): Promise<void> {
         tick();
       },
     );
+
+    // Spent time on the new tasks, once they exist: one entry each, for the
+    // assignee, held to the timesheet rules as they stand now. One person's day
+    // at a time, so the daily maximum sees every entry before it.
+    let timeLogged = false;
+    await inBatches(
+      rows.filter((row) => actionOf(row) === 'create' && row.time?.userId && !row.time.refused && results.has(row.key) && !results.has(`${TIMED}${row.key}`)),
+      (row) => [`${row.time!.userId} ${row.time!.on}`],
+      async (row) => {
+        const { userId, on, hours, comment } = row.time!;
+        const workPackageId = results.get(row.key)!;
+        try {
+          await assertUnlocked(userId!, [on]);
+          await assertPolicies({ personId: userId!, spentOn: on, hours, workPackageId });
+          const entry = await openProject.request<{ id: number }>('/time_entries', {
+            method: 'POST',
+            body: {
+              hours: hoursToDuration(hours),
+              spentOn: on,
+              ...(comment ? { comment: { raw: comment } } : {}),
+              _links: { workPackage: { href: `/api/v3/work_packages/${workPackageId}` }, user: { href: `/api/v3/users/${userId}` } },
+            },
+            once: true,
+            timeoutMs: 120_000,
+          });
+          results.set(`${TIMED}${row.key}`, String(entry.id));
+          timeLogged = true;
+        } catch (error) {
+          fail(row, error, 'time');
+        }
+        tick();
+      },
+    );
+    if (timeLogged) invalidateProjectCost(String(start.projectId));
     await save({ status: 'done', finishedAt: new Date() });
     const finished = await getImport(id);
     const updated = Object.keys(finished.results as Record<string, string>).filter((key) => key.startsWith(UPDATED)).length;
@@ -1299,7 +1574,14 @@ async function execute(id: string): Promise<void> {
         file: finished.fileName,
         failed: finished.failed,
       }),
-      after: { importId: id, created: finished.created, updated, linked: finished.linked, failed: finished.failed },
+      after: {
+        importId: id,
+        created: finished.created,
+        updated,
+        linked: finished.linked,
+        failed: finished.failed,
+        timeEntries: Object.keys(finished.results as Record<string, string>).filter((key) => key.startsWith(TIMED)).length,
+      },
     });
   } catch (error) {
     if (error instanceof Stop) {

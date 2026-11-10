@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { parseCsv } from '../../lib/csv-parse.js';
+import { decodeText, parseCsv } from '../../lib/csv-parse.js';
 import { buildWorkbook } from '../../lib/xlsx.js';
 import { readXlsx } from '../../lib/xlsx-read.js';
 import { normaliseSource } from '../task-import-formats.js';
@@ -326,6 +326,75 @@ check('the .xlsx the export writes is read back as the same rows', () => {
   assert.deepEqual(records.map((record) => record.cells.slice(0, header.length).map((cell) => cell ?? '')), [header, ...body]);
   const { rows } = checkRows(records, withWork);
   assert.deepEqual(rows.map((row) => row.action), ['unchanged', 'unchanged', 'unchanged', 'unchanged']);
+});
+
+check('a tab-separated sheet a spreadsheet opened as CSV and saved again is read as the sheet it was', () => {
+  // Each line went into one row split at its commas; the save quoted the pieces and padded the rows.
+  const resaved = [
+    '"id\tSubject\tAssignee\tDescription",,',
+    '"101\t""Audit editing: categories"," rules and domains""\tDana Dev\tPlain",,',
+    '"102\tDesign\t\t""One page"," two"," three""",',
+  ].join('\r\n');
+  assert.deepEqual(parseCsv(resaved).map((record) => [record.line, ...record.cells]), [
+    [1, 'id', 'Subject', 'Assignee', 'Description'],
+    [2, '101', 'Audit editing: categories, rules and domains', 'Dana Dev', 'Plain'],
+    [3, '102', 'Design', '', 'One page, two, three'],
+  ]);
+  // Excel's plain CSV is Windows-1252: an ellipsis, a dash and quotes, not three �.
+  assert.equal(decodeText(Uint8Array.from([0x63, 0x6c, 0x6f, 0x73, 0x65, 0x85, 0x20, 0x96, 0x20, 0x93, 0x78, 0x94])), 'close… – “x”');
+  assert.equal(decodeText(new TextEncoder().encode('﻿é')), 'é');
+  assert.equal(decodeText(Uint8Array.from([0xff, 0xfe, 0x41, 0x00, 0x09, 0x00, 0x42, 0x00])), 'A\tB', 'UTF-16, as "Unicode Text" saves it');
+});
+
+check('people the project cannot give work to are listed once each, and the file can be imported without them', () => {
+  const people = {
+    ...withWork,
+    members: new Map([...withWork.members, ['rita reader', '30']]),
+    assignable: new Set(['12']),
+    accounts: new Map([['vera visitor', '31'], ['vera@example.net', '31']]),
+  };
+  const sheet = ['ID,Subject,Assignee,Accountable', 'N1,One,Vera Visitor,Nobody Known', 'N2,Two,vera@example.net,Rita Reader', 'N3,Three,Vera Visitor,', 'WP101,Design,Nobody Known,'].join('\n');
+  const { problems } = checkRows(sheet, people);
+  assert.deepEqual(
+    problems.map((problem) => `${problem.row} ${problem.person?.name}/${problem.person?.state}/${problem.person?.rows}/${problem.person?.columns.join('+')}/${problem.person?.userId ?? ''}`),
+    ['2 Vera Visitor/account/3/Assignee/31', '2 Nobody Known/none/2/Accountable+Assignee/', '3 Rita Reader/role/1/Accountable/30'],
+  );
+  // Without them: blank on new rows, and as it is on the task being updated.
+  const without = checkRows(sheet, people, { withoutPeople: true });
+  assert.deepEqual(without.problems, []);
+  assert.deepEqual(without.rows.map((row) => `${row.assigneeId}/${row.accountableId}/${row.action}`), ['null/null/create', 'null/null/create', 'null/null/create', '12/null/unchanged']);
+  assert.deepEqual(without.rows[0]!.leftOut, [{ column: 'Assignee', name: 'Vera Visitor' }, { column: 'Accountable', name: 'Nobody Known' }]);
+});
+
+check('spent time: an export counts subtasks in, so each task logs its own once — one entry per new task, for its assignee, on its finish date', () => {
+  const sheet = [
+    'id,Subject,Parent,Assignee,Author,Accountable,Start date,Finish date,Spent time,Created on,Updated on',
+    '500,Admin,,,A,,10/15/2026,10/30/2026,11,10/15/2026 10:00 AM,10/15/2026 10:00 AM',
+    '501,Audit screen,Task #500: Admin,Dana Dev,A,,10/15/2026,10/19/2026,3,10/15/2026 10:00 AM,10/15/2026 10:00 AM',
+    '502,Saved queries,Task #500: Admin,Dana Dev,A,,10/21/2026,10/24/2026,8,10/15/2026 10:00 AM,10/15/2026 10:00 AM',
+    '503,Go-live,,,A,,11/05/2026,12/10/2026,2.5,10/15/2026 10:00 AM,10/15/2026 10:00 AM',
+  ];
+  const { records } = normaliseSource(parseCsv(sheet.join('\n')));
+  const { rows, problems, ignored } = checkRows(records, context, { today: '2026-11-10' });
+  assert.deepEqual(problems, []);
+  assert.ok(!ignored.includes('Spent time'), ignored.join());
+  // Admin's 11 hours are its subtasks' 3 and 8; Go-live has no assignee, and is logged no later than today.
+  assert.deepEqual(rows.map((row) => (row.time ? `${row.time.hours}h ${row.time.userId ?? '-'} ${row.time.on}` : '')), ['', '3h 12 2026-10-19', '8h 12 2026-10-24', '2.5h - 2026-11-10']);
+  // A task being updated has its time already.
+  assert.equal(checkRows(['ID,Subject,Spent time', 'WP101,Design,4'].join('\n'), withWork).rows[0]!.time, undefined);
+  assert.deepEqual(checkRows(['ID,Subject,Spent time', 'N1,New,lots'].join('\n'), context).problems.map((problem) => problem.column), ['Spent time']);
+});
+
+check('a new row repeating an earlier one under the same parent is named; the same name elsewhere is not', () => {
+  const { rows } = checkRows(['ID,Parent ID,Subject', 'E1,,Changes', 'T1,E1,List and filters', 'T2,E1,List and filters', 'E2,,Problems', 'T3,E2,List and filters', 'E3,,Changes'].join('\n'), context);
+  assert.deepEqual(rows.map((row) => row.repeatOf ?? null), [null, null, 3, null, null, 2]);
+});
+
+check("another project's export uploaded again updates the copies the first upload made", () => {
+  const remembered = { ...withWork, remembered: new Map([['WP555', '102'], ['WP556', '999']]) };
+  const { rows, problems } = checkRows(['ID,Subject', 'WP555,Build again', 'WP556,Gone since'].join('\n'), remembered);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(rows.map((row) => `${row.action}/${row.workPackageId ?? ''}/${row.matchedEarlier ?? false}/${row.copy ?? false}`), ['update/102/true/false', 'create//false/true']);
 });
 
 console.log(`\n${passed} passed`);

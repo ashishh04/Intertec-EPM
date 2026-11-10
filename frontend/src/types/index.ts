@@ -4312,6 +4312,38 @@ export interface TaskImportProblem {
   row: number;
   column?: string;
   message: string;
+  /** A problem about a person the project cannot give work to: their name, as the file has it. */
+  person?: string;
+}
+
+/** A name in an import file the project cannot give work to, and why. */
+export interface TaskImportPerson {
+  name: string;
+  /** Rows naming them. */
+  rows: number;
+  /** The columns they are named in: Assignee, Accountable. */
+  columns: string[];
+  /** `role`: a member whose role cannot be given tasks; `account`: has an account but is not a member; `none`: no account here. */
+  state: 'role' | 'account' | 'none';
+  /** Their account, when they have one: who would be added. */
+  userId?: ID;
+}
+
+/** Why spent time in an import file will not be logged: a locked timesheet, or one of the time policies. */
+export type TaskImportTimeRefusal = 'locked' | 'backdating' | 'activity' | 'closed' | 'daily';
+
+/** The spent time an import logs: one entry per new task, for its assignee, on its finish date. */
+export interface TaskImportTime {
+  /** Entries to log, and their hours. */
+  entries: number;
+  hours: number;
+  /** Not logged: new tasks with spent time and no assignee to log it for. */
+  withoutPerson: { entries: number; hours: number };
+  /** Not logged: refused by the timesheet rules, by reason. */
+  refused: { reason: TaskImportTimeRefusal; entries: number; hours: number }[];
+  /** Entries logged so far, and those that could not be. */
+  logged: number;
+  failed: number;
 }
 
 /** One cell an update row changes: the column, the value now, and the file's. */
@@ -4344,6 +4376,18 @@ export interface TaskImportView {
   progressIgnored: number;
   /** Dates in the file on a non-working day, moved to the next working day as the schedule does. */
   datesMoved: number;
+  /**
+   * People the file names whom the project cannot give its tasks. Each holds the file back until
+   * it is checked again to import without them (`withoutPeople=true`).
+   */
+  people: TaskImportPerson[];
+  /** People left out, the file having been checked to import without them: blank on new tasks, unchanged on updated ones. */
+  peopleLeftOut: { name: string; rows: number; columns: string[] }[];
+  /** New rows with the subject of an earlier row under the same parent: perhaps entered twice. The first 300. */
+  repeats: { row: number; key: string; subject: string; firstRow: number }[];
+  repeatCount: number;
+  /** Spent time in the file, logged as one entry per new task. */
+  time: TaskImportTime;
   /**
    * How the file was read, on the check only: EPM's own columns, or OpenProject's export translated;
    * the order its dates were read in; and the columns not imported.

@@ -73,6 +73,16 @@ Changes since 1.1.0 (21 October 2026).
   timesheets (last week's outstanding timesheets, approvals), and an employee
   their own work, time and expense claims. Someone who has arranged their
   Overview keeps it; Reset returns to the role's.
+- Tasks → Import reads a work package export as it is, even after a
+  spreadsheet has opened and saved it again, and in Windows-1252 or UTF-16 as
+  well as UTF-8. Each person the file names who cannot be given its tasks is
+  listed once, not on every row, with "Add to project" for someone with an
+  account and "Import without them" for the rest (their cells left blank on new
+  tasks, and as they are on tasks being updated). Spent time is logged on each
+  new task as one entry, for its assignee on its finish date, under the
+  timesheet rules. New rows repeating an earlier one under the same parent are
+  flagged, and the same export uploaded again updates the tasks it made instead
+  of copying them a second time.
 
 ### Fixed
 
