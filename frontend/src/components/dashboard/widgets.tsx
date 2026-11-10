@@ -5,16 +5,22 @@ import {
   AlertTriangle,
   ArrowRight,
   Bell,
+  CalendarCheck,
   CalendarClock,
   CircleDot,
+  ClipboardCheck,
   Clock,
   Eye,
   FolderKanban,
   Gauge,
   ListTodo,
   PenLine,
+  Receipt,
+  ScrollText,
+  ShieldCheck,
   Target,
   TrendingUp,
+  UsersRound,
   type LucideIcon,
 } from 'lucide-react';
 import { addDays, parseISO, startOfWeek } from 'date-fns';
@@ -33,6 +39,15 @@ import {
   SprintSummaryEmpty,
   SprintSummarySkeleton,
 } from '@/components/dashboard/SprintSummary';
+import {
+  ApprovalsWidget,
+  MyClaimsWidget,
+  OverAllocatedWidget,
+  RecentChangesWidget,
+  RoleKpis,
+  TeamTimesheetsWidget,
+  WorkspaceWidget,
+} from '@/components/dashboard/RoleWidgets';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +70,7 @@ import {
   toISODateOnly,
 } from '@/lib/utils';
 import { t } from '@/lib/i18n';
-import type { DashboardWidgetWidth, EpmProject, ID } from '@/types';
+import type { AppRole, DashboardWidgetPlacement, DashboardWidgetWidth, EpmProject, ID, Permission } from '@/types';
 
 /**
  * The Overview widget catalogue.
@@ -81,8 +96,22 @@ export interface DashboardWidget {
   defaultWidth: DashboardWidgetWidth;
   /** True when the widget can usefully be either width. */
   resizable?: boolean;
+  /**
+   * Whether this person can use it. A widget whose data they may not read is
+   * neither offered in the picker nor drawn from a saved layout, rather than
+   * shown as a refusal. Absent means everyone.
+   */
+  available?: (access: WidgetAccess) => boolean;
   Component: () => JSX.Element;
 }
+
+/** What decides a widget's availability: the person's role and their permissions. */
+export interface WidgetAccess {
+  role: AppRole;
+  can: (permission: Permission) => boolean;
+}
+
+export const isAvailable = (widget: DashboardWidget, access: WidgetAccess) => widget.available?.(access) ?? true;
 
 /* -------------------------------------------------------------------------- */
 /* Shared pieces                                                              */
@@ -177,7 +206,17 @@ function TaskListWidget({
 /* Widgets                                                                    */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The four figures a role starts from: a manager's projects and people, HR's
+ * people and timesheets, an administrator's workspace. Everyone else's are
+ * their own work.
+ */
 function KpiWidget() {
+  const { role } = useAuth();
+  return role === 'manager' || role === 'hr' || role === 'admin' ? <RoleKpis role={role} /> : <PersonalKpis />;
+}
+
+function PersonalKpis() {
   const navigate = useNavigate();
   const query = useDashboardMetrics();
   const metrics = query.data;
@@ -692,7 +731,7 @@ export const WIDGETS: DashboardWidget[] = [
   {
     id: 'kpis',
     get title() { return t('Key metrics'); },
-    get description() { return t('My tasks, in progress, overdue and active projects, with their weekly trend.'); },
+    get description() { return t('The four figures your role starts from, each opening the page behind it.'); },
     icon: Gauge,
     defaultWidth: 'full',
     Component: KpiWidget,
@@ -794,15 +833,108 @@ export const WIDGETS: DashboardWidget[] = [
     resizable: true,
     Component: NotificationsWidget,
   },
+  {
+    id: 'approvals',
+    get title() { return t('Waiting for your approval'); },
+    get description() { return t('Timesheets, expense claims and changes that need your decision.'); },
+    icon: ClipboardCheck,
+    defaultWidth: 'half',
+    resizable: true,
+    available: ({ role }) => role !== 'external',
+    Component: ApprovalsWidget,
+  },
+  {
+    id: 'team-timesheets',
+    get title() { return t("Last week's timesheets"); },
+    get description() { return t('Who has submitted last week, and who still has to.'); },
+    icon: CalendarCheck,
+    defaultWidth: 'half',
+    resizable: true,
+    // Whoever manages timesheets sees everyone's; a team lead or department
+    // manager, whatever their role, sees their own people's.
+    available: ({ role, can }) => can('timesheets:manage') || role === 'manager' || role === 'hr',
+    Component: TeamTimesheetsWidget,
+  },
+  {
+    id: 'over-allocated',
+    get title() { return t('Over-allocated'); },
+    get description() { return t('People planned beyond their capacity in the next four weeks.'); },
+    icon: UsersRound,
+    defaultWidth: 'half',
+    resizable: true,
+    available: ({ can }) => can('resources:plan'),
+    Component: OverAllocatedWidget,
+  },
+  {
+    id: 'my-claims',
+    get title() { return t('My expense claims'); },
+    get description() { return t('Your recent claims and where each one stands.'); },
+    icon: Receipt,
+    defaultWidth: 'half',
+    resizable: true,
+    available: ({ role }) => role !== 'external',
+    Component: MyClaimsWidget,
+  },
+  {
+    id: 'workspace',
+    get title() { return t('Workspace'); },
+    get description() { return t('People with access, invitations waiting, locked accounts and the connection behind EPM.'); },
+    icon: ShieldCheck,
+    defaultWidth: 'half',
+    resizable: true,
+    available: ({ can }) => can('users:manage'),
+    Component: WorkspaceWidget,
+  },
+  {
+    id: 'recent-changes',
+    get title() { return t('Recent changes'); },
+    get description() { return t('The latest entries in the audit journal.'); },
+    icon: ScrollText,
+    defaultWidth: 'half',
+    resizable: true,
+    available: ({ can }) => can('audit:view'),
+    Component: RecentChangesWidget,
+  },
 ];
 
 /** Catalogue by id, for resolving a saved layout. */
 export const WIDGETS_BY_ID = new Map(WIDGETS.map((widget) => [widget.id, widget]));
 
+const layout = (...ids: string[]): DashboardWidgetPlacement[] => ids.map((id) => ({ id }));
+
 /**
- * A quick-add widget for the floating action button and the empty state.
- *
- * Not the catalogue order: these are the ones worth suggesting to someone who
- * has just emptied their Overview.
+ * Each role's Overview, until the person arranges their own: an administrator
+ * runs the workspace, a manager keeps projects and people on track, HR looks
+ * after the people and their timesheets, an employee does the work. An
+ * external person never sees the Overview (the portal is theirs); they are
+ * given an employee's so the record has one.
  */
-export const SUGGESTED_WIDGET_IDS = ['kpis', 'my-work', 'project-health', 'activity'];
+export const ROLE_LAYOUTS: Record<AppRole, DashboardWidgetPlacement[]> = {
+  admin: layout('kpis', 'workspace', 'recent-changes', 'approvals', 'activity', 'project-health'),
+  manager: layout('kpis', 'approvals', 'over-allocated', 'project-health', 'delivery-trends', 'upcoming', 'activity'),
+  hr: layout('kpis', 'team-timesheets', 'approvals', 'notifications', 'activity'),
+  employee: layout('kpis', 'my-work', 'time-this-week', 'my-claims', 'upcoming', 'notifications'),
+  external: layout('kpis', 'my-work', 'time-this-week', 'my-claims', 'upcoming', 'notifications'),
+};
+
+/**
+ * The layout every account was given before Overviews followed the role, and
+ * still the stored default (the backend's DEFAULT_PREFERENCES).
+ */
+const SHARED_DEFAULT = layout('kpis', 'my-work', 'sprint', 'project-health', 'delivery-trends', 'activity');
+
+const sameLayout = (a: DashboardWidgetPlacement[], b: DashboardWidgetPlacement[]) =>
+  a.length === b.length && a.every((placement, index) => placement.id === b[index]?.id && placement.width === b[index]?.width);
+
+/**
+ * Whether a saved layout is one nobody arranged: the shared default every
+ * account starts with, or a role's layout, which is what Reset saves. Saving any
+ * other preference stores the dashboard too, so "never touched" cannot be told
+ * from the record itself; matching a default is the next best thing. Such a
+ * layout shows the person's current role's, and follows the role if it changes.
+ */
+export const isUntouchedLayout = (saved: DashboardWidgetPlacement[]) =>
+  [SHARED_DEFAULT, ...Object.values(ROLE_LAYOUTS)].some((candidate) => sameLayout(saved, candidate));
+
+/** The Overview for a role. */
+export const roleLayout = (role: AppRole): DashboardWidgetPlacement[] => ROLE_LAYOUTS[role];

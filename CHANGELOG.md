@@ -26,8 +26,8 @@ Changes since 1.1.0 (21 October 2026).
   approves it; approvals and rejections are journalled.
 - **EPM roles.** An administrator gives each person a role (Manager, HR,
   Employee or External) on the new Access roles page (Administration → Users
-  and permissions). A role brings a bundle of EPM permissions and its own
-  sidebar. Every change of role is journalled.
+  and permissions). A role brings a bundle of EPM permissions, its own
+  sidebar and its own Overview. Every change of role is journalled.
 - **Forgotten passwords.** "Forgot password?" on the sign-in page now emails a
   link to choose a new password. The link works once, within 60 minutes, and
   using it signs the person out everywhere. Administrator accounts are not
@@ -67,6 +67,12 @@ Changes since 1.1.0 (21 October 2026).
 - The Projects page sorts: newest or oldest first, by name either way, or by
   due date. Newest first is still the default, and the choice is remembered
   in that browser.
+- The Overview follows the role. An administrator sees the workspace (people,
+  invitations, the connection, recent changes), a manager projects and people
+  (approvals, over-allocation, project health, delivery), HR people and
+  timesheets (last week's outstanding timesheets, approvals), and an employee
+  their own work, time and expense claims. Someone who has arranged their
+  Overview keeps it; Reset returns to the role's.
 
 ### Fixed
 

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { EmptyState } from '@/components/common/EmptyState';
-import { WIDGETS, type DashboardWidget } from './widgets';
+import { WIDGETS, isAvailable, type DashboardWidget, type WidgetAccess } from './widgets';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { DashboardWidgetWidth } from '@/types';
@@ -115,21 +115,23 @@ export function WidgetFrame({
  *
  * Only offers what is not already on the page — a widget cannot be in two
  * places, and the backend collapses duplicates anyway, so offering one would be
- * a control that appears to do nothing.
+ * a control that appears to do nothing — and what this person may use.
  */
 export function AddWidgetDialog({
   open,
   onOpenChange,
   present,
+  access,
   onAdd,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   present: string[];
+  access: WidgetAccess;
   onAdd: (id: string) => void;
 }) {
   const taken = new Set(present);
-  const available = WIDGETS.filter((widget) => !taken.has(widget.id));
+  const available = WIDGETS.filter((widget) => !taken.has(widget.id) && isAvailable(widget, access));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

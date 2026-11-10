@@ -8,8 +8,8 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { AddWidgetDialog, WidgetFrame } from '@/components/dashboard/WidgetFrame';
-import { WIDGETS_BY_ID, SUGGESTED_WIDGET_IDS } from '@/components/dashboard/widgets';
-import { DEFAULT_PREFERENCES, usePreferences } from '@/hooks/usePreferences';
+import { WIDGETS_BY_ID, isAvailable, isUntouchedLayout, roleLayout } from '@/components/dashboard/widgets';
+import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import { cn, formatLongDate, greetingForHour } from '@/lib/utils';
@@ -33,48 +33,62 @@ const rise = {
  * A saved layout naming a widget this build does not have is skipped rather than
  * erased. A layout written by a newer frontend therefore survives a rollback,
  * and retiring a widget does not require touching anybody's stored settings.
+ * So is a widget the person may not use, which keeps their layout intact for
+ * the day they may.
+ *
+ * Until someone arranges it, the Overview is their role's: an administrator,
+ * a manager, HR and an employee each start from what their work needs, and it
+ * follows the role if that changes (widgets.tsx, ROLE_LAYOUTS).
  */
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, role, can } = useAuth();
   const { openTaskDrawer } = useUI();
   const { preferences, update } = usePreferences();
 
   const [customising, setCustomising] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  const placements = preferences.dashboard.widgets;
+  const access = useMemo(() => ({ role, can }), [role, can]);
+  const saved = preferences.dashboard.widgets;
+  const placements = useMemo(() => (isUntouchedLayout(saved) ? roleLayout(role) : saved), [saved, role]);
 
-  /** Placements that resolve to a widget this build knows, in saved order. */
+  /** Placements that resolve to a widget this build knows and this person may use, in saved order. */
   const resolved = useMemo(
     () =>
       placements.flatMap((placement) => {
         const widget = WIDGETS_BY_ID.get(placement.id);
-        return widget ? [{ placement, widget }] : [];
+        return widget && isAvailable(widget, access) ? [{ placement, widget }] : [];
       }),
-    [placements],
+    [placements, access],
   );
+
+  // Edits name the widget, not its position: the saved layout can hold widgets
+  // that are not drawn, so a position on screen is not a position in the list.
+  const visibleIds = resolved.map(({ placement }) => placement.id);
 
   const save = (next: DashboardWidgetPlacement[]) => update('dashboard', 'widgets', next);
 
-  const move = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= placements.length) return;
+  const move = (id: string, direction: -1 | 1) => {
+    const neighbour = visibleIds[visibleIds.indexOf(id) + direction];
+    if (neighbour === undefined) return;
     const next = [...placements];
+    const from = next.findIndex((placement) => placement.id === id);
+    const to = next.findIndex((placement) => placement.id === neighbour);
     // Destructured swap rather than a splice pair: one statement, and it cannot
     // leave the array short if the second half is ever edited away.
-    [next[index], next[target]] = [next[target]!, next[index]!];
+    [next[from], next[to]] = [next[to]!, next[from]!];
     save(next);
   };
 
-  const setWidth = (index: number, width: DashboardWidgetWidth) =>
-    save(placements.map((placement, at) => (at === index ? { ...placement, width } : placement)));
+  const setWidth = (id: string, width: DashboardWidgetWidth) =>
+    save(placements.map((placement) => (placement.id === id ? { ...placement, width } : placement)));
 
-  const remove = (index: number) => save(placements.filter((_, at) => at !== index));
+  const remove = (id: string) => save(placements.filter((placement) => placement.id !== id));
 
   const add = (id: string) => save([...placements, { id }]);
 
   const reset = () => {
-    save(DEFAULT_PREFERENCES.dashboard.widgets);
+    save(roleLayout(role));
     toast.success(t('Overview reset to the default layout'));
   };
 
@@ -136,10 +150,10 @@ export default function DashboardPage() {
             title={t('Your Overview is empty')}
             description={t('Add the widgets you want to see. Nothing is fetched for a widget that is not on the page.')}
             action={{
-              label: t('Add the usual four'),
+              label: t('Add the widgets for your role'),
               onClick: () => {
-                save(SUGGESTED_WIDGET_IDS.map((id) => ({ id })));
-                toast.success(t('Added key metrics, My Work, project health and activity'));
+                save(roleLayout(role));
+                toast.success(t('Added the widgets for your role'));
               },
             }}
           />
@@ -169,13 +183,13 @@ export default function DashboardPage() {
                   width={width}
                   first={index === 0}
                   last={index === resolved.length - 1}
-                  onMove={(direction) => move(index, direction)}
+                  onMove={(direction) => move(placement.id, direction)}
                   onWidth={
                     widget.resizable
-                      ? () => setWidth(index, width === 'full' ? 'half' : 'full')
+                      ? () => setWidth(placement.id, width === 'full' ? 'half' : 'full')
                       : undefined
                   }
-                  onRemove={() => remove(index)}
+                  onRemove={() => remove(placement.id)}
                 >
                   <Component />
                 </WidgetFrame>
@@ -199,6 +213,7 @@ export default function DashboardPage() {
         open={adding}
         onOpenChange={setAdding}
         present={placements.map((placement) => placement.id)}
+        access={access}
         onAdd={add}
       />
     </div>
