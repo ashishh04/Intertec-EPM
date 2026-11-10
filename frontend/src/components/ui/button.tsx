@@ -8,20 +8,16 @@ import { cn } from '@/lib/utils';
  * Buttons carry most of the Intertec identity: every one is a pill. `link` is
  * the one variant that stays square, because it is text rather than a control.
  *
- * There used to be two filled variants — solid violet for ordinary primary
- * actions, the crimson-to-violet sweep reserved for wide calls to action —
- * because a 90deg sweep degrades badly on a small control. That produced a
- * product where "New task", "Start sprint" and "Sync now" were flat violet
- * while the sign-in button next to them carried the brand. The sweep now runs
- * at 135deg instead, which survives any aspect ratio, so there is one filled
- * treatment and every primary action wears it.
+ * The filled variant is plain violet, darker on hover: one flat colour for
+ * every primary action ("Create", "New task", sign-in), with no gradient, so
+ * a button reads as a button and nothing competes with the page.
  */
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-display text-sm font-semibold transition-[background-image,background-color,color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-display text-sm font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        default: 'bg-brand-diagonal text-white hover:bg-brand-diagonal-hover',
+        default: 'bg-primary text-primary-foreground hover:bg-primary-dark',
         secondary: 'border border-border bg-surface text-foreground hover:bg-muted',
         ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground',
         subtle: 'bg-muted text-foreground hover:bg-border/70',

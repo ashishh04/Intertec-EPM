@@ -113,10 +113,11 @@
     );
 
     /*
-     * Violet — the gradient's end stop — carries every interactive affordance.
-     * The full gradient is reserved for brand moments (hero CTAs, the active
-     * nav rail, KPI numerals, the active tab underline), which keeps crimson
-     * away from --danger and stops red meaning two things at once.
+     * Violet — the gradient's end stop — carries every interactive affordance,
+     * buttons and the active nav rail included, as a flat colour. The full
+     * gradient is reserved for brand moments (the logo, the landing page and
+     * KPI numerals), which keeps crimson away from --danger and stops red
+     * meaning two things at once.
      */
     --primary: 275 54% 41%;             /* #7130A1 */
     --primary-dark: 275 61% 31%;        /* #571F80 */
@@ -182,7 +183,8 @@
 
     --sidebar: 0 0% 100%;
     --sidebar-foreground: 0 0% 5%;
-    --sidebar-muted: 0 0% 43%;
+    /* The rail's links and headings: near-black, to read at a glance. */
+    --sidebar-muted: 0 0% 20%;
     --sidebar-active: var(--primary-soft);
     --sidebar-border: 240 15% 92%;
 

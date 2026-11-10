@@ -89,7 +89,7 @@ export function MobileBottomNav() {
         type="button"
         onClick={() => openTaskDrawer()}
         aria-label={t('Create task')}
-        className="mx-1 my-1 flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-full bg-brand-diagonal text-white shadow-elevated transition-transform active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="mx-1 my-1 flex h-11 w-11 shrink-0 items-center justify-center self-center rounded-full bg-primary text-primary-foreground shadow-elevated transition-transform hover:bg-primary-dark active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <Plus className="h-5 w-5" />
       </button>

@@ -83,6 +83,9 @@ Changes since 1.1.0 (21 October 2026).
   timesheet rules. New rows repeating an earlier one under the same parent are
   flagged, and the same export uploaded again updates the tasks it made instead
   of copying them a second time.
+- The sidebar reads more easily: darker links and headings, 13px text and
+  larger icons. Buttons are flat violet instead of the crimson-to-violet
+  gradient, and so are the active link's bar and the selected tab's underline.
 
 ### Fixed
 

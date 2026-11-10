@@ -86,13 +86,14 @@ export default {
       },
       backgroundImage: {
         // The signature crimson-to-violet band. Reserved for brand moments —
-        // hero CTAs, the active nav rail, KPI numerals, the active tab
-        // underline — never for ordinary surfaces.
+        // the logo, the landing page, KPI numerals —
+        // never for ordinary surfaces, and never for buttons, which are flat
+        // violet (components/ui/button.tsx).
         brand: 'var(--brand-gradient)',
         'brand-y': 'var(--brand-gradient-y)',
         'brand-hover': 'var(--brand-gradient-hover)',
-        // What filled buttons take, at every size — see the note on
-        // --brand-gradient-diagonal in index.css.
+        // The same at 135deg, for marks and panels of any shape — see the
+        // note on --brand-gradient-diagonal in index.css.
         'brand-diagonal': 'var(--brand-gradient-diagonal)',
         'brand-diagonal-hover': 'var(--brand-gradient-diagonal-hover)',
       },

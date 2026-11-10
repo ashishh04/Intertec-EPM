@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button';
 import { CountBadge } from '@/components/ui/badge';
 
-const EXPANDED_WIDTH = 260;
+const EXPANDED_WIDTH = 272;
 const COLLAPSED_WIDTH = 72;
 
 interface SidebarProps {
@@ -26,7 +26,8 @@ interface SidebarProps {
 
 /**
  * Primary navigation rail. Collapses to an icon rail and remembers that choice
- * across sessions.
+ * across sessions. Its links and headings are set dark, at 13px, to read at a
+ * glance.
  */
 export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
   const { sidebarCollapsed, toggleSidebar, openPragnya } = useUI();
@@ -78,7 +79,9 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
         {sections.map((section, sectionIndex) => (
           <div key={section.title ?? `section-${sectionIndex}`} className={cn(sectionIndex > 0 && 'mt-4')}>
             {section.title && !collapsed ? (
-              <p className="epm-eyebrow px-2.5 pb-1.5">{section.title}</p>
+              <p className="px-3 pb-1.5 font-display text-2xs font-semibold uppercase tracking-[0.09em] text-sidebar-muted">
+                {section.title}
+              </p>
             ) : null}
             {section.title && collapsed ? (
               <div className="mx-auto mb-2 h-px w-6 bg-sidebar-border" aria-hidden />
@@ -95,9 +98,9 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                     onClick={onNavigate}
                     aria-current={active ? 'page' : undefined}
                     className={cn(
-                      'group relative flex items-center gap-2.5 rounded-lg font-display text-xs font-medium transition-colors',
+                      'group relative flex items-center gap-3 rounded-lg font-display text-[0.8125rem] font-medium transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar',
-                      collapsed ? 'h-9 w-9 justify-center' : 'px-2.5 py-2',
+                      collapsed ? 'mx-auto h-10 w-10 justify-center' : 'px-3 py-2',
                       active
                         ? 'bg-sidebar-active font-semibold text-primary'
                         : 'text-sidebar-muted hover:bg-muted hover:text-sidebar-foreground',
@@ -106,15 +109,12 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                     {active ? (
                       <motion.span
                         layoutId="sidebar-active-indicator"
-                        // The brand gradient, so the rail that follows you down
-                        // the nav is the same mark as the primary buttons.
-                        // Vertical, because the bar is 2px wide.
-                        className="absolute inset-y-1 start-0 w-0.5 rounded-full bg-brand-y"
+                        className="absolute inset-y-1 start-0 w-1 rounded-full bg-primary"
                         transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
                         aria-hidden
                       />
                     ) : null}
-                    <item.icon className="h-4 w-4 shrink-0" aria-hidden />
+                    <item.icon className="h-[18px] w-[18px] shrink-0" aria-hidden />
                     {!collapsed ? <span className="truncate">{item.label}</span> : null}
                     {badgeCount > 0 ? (
                       collapsed ? (
@@ -162,12 +162,12 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
                 openPragnya();
               }}
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg border border-dashed border-highlight/40 text-xs font-medium text-highlight-strong transition-colors hover:bg-highlight-soft',
+                'flex w-full items-center gap-3 rounded-lg border border-dashed border-highlight/40 text-[0.8125rem] font-medium text-highlight-strong transition-colors hover:bg-highlight-soft',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                collapsed ? 'h-9 w-9 justify-center' : 'px-2.5 py-2',
+                collapsed ? 'mx-auto h-10 w-10 justify-center' : 'px-3 py-2',
               )}
             >
-              <Sparkles className="h-4 w-4 shrink-0" aria-hidden />
+              <Sparkles className="h-[18px] w-[18px] shrink-0" aria-hidden />
               {!collapsed ? <span>Pragnya</span> : <span className="sr-only">Pragnya</span>}
             </button>
           </div>
@@ -182,13 +182,13 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
             collapsed ? 'justify-center' : 'px-1 py-1',
           )}
         >
-          <UserAvatar user={user} size={collapsed ? 'default' : 'default'} showStatus />
+          <UserAvatar user={user} size="default" showStatus />
           {!collapsed ? (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-sidebar-foreground">
+              <p className="truncate text-[0.8125rem] font-medium text-sidebar-foreground">
                 {user?.name ?? t('Loading…')}
               </p>
-              <p className="truncate text-2xs text-sidebar-muted">{roleLabel(role)}</p>
+              <p className="truncate text-xs text-sidebar-muted">{roleLabel(role)}</p>
             </div>
           ) : null}
         </div>
@@ -200,7 +200,7 @@ export function Sidebar({ variant = 'fixed', onNavigate }: SidebarProps) {
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? t('Expand sidebar') : t('Collapse sidebar')}
             aria-expanded={!sidebarCollapsed}
-            className={cn('mt-2 w-full text-2xs', collapsed && 'justify-center px-0')}
+            className={cn('mt-2 w-full text-xs text-sidebar-muted', collapsed && 'justify-center px-0')}
           >
             {sidebarCollapsed ? (
               <ChevronsRight className="h-3.5 w-3.5" />

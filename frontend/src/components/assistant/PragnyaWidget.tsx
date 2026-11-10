@@ -70,7 +70,7 @@ export function PragnyaWidget() {
         aria-expanded={pragnyaOpen}
         aria-controls={PANEL_ID}
         className={cn(
-          'fixed z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand-diagonal text-white shadow-floating',
+          'fixed z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-floating hover:bg-primary-dark',
           'transition-transform duration-150 ease-swift hover:-translate-y-0.5 active:scale-95',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           LAUNCHER_POSITION,

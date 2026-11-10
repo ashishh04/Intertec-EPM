@@ -33,10 +33,10 @@ const TabsTrigger = React.forwardRef<
       'disabled:pointer-events-none disabled:opacity-50',
       variant === 'pill' &&
         'rounded-full px-3 py-1.5 text-muted-foreground hover:text-foreground data-[state=active]:bg-surface data-[state=active]:text-foreground data-[state=active]:shadow-xs',
-      // The active underline is the brand gradient, which a border cannot be —
-      // hence a pseudo-element bar rather than `border-b-2`.
+      // The active underline is a rounded violet bar, flat like the buttons —
+      // a pseudo-element rather than `border-b-2`, so its ends can be round.
       variant === 'underline' &&
-        'relative px-0.5 pb-2.5 pt-1 text-muted-foreground hover:text-foreground data-[state=active]:font-semibold data-[state=active]:text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full data-[state=active]:after:bg-brand',
+        'relative px-0.5 pb-2.5 pt-1 text-muted-foreground hover:text-foreground data-[state=active]:font-semibold data-[state=active]:text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-full data-[state=active]:after:bg-primary',
       className,
     )}
     {...props}
