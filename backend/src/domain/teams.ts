@@ -12,12 +12,25 @@ function teamRecord(row: Team) {
   return {
     name: row.name,
     code: row.code,
+    kind: row.kind,
     description: row.description,
     departmentId: row.departmentId,
     leadId: row.leadId,
+    contactEmail: row.contactEmail,
+    contactPhone: row.contactPhone,
     active: row.active,
   };
 }
+
+/**
+ * The two kinds on the Teams & clients page: a team of the organisation's own
+ * people, or an external client the organisation delivers for. One list, so a
+ * name or code is unique across both.
+ */
+export const TEAM_KINDS = ['internal', 'client'] as const;
+export type TeamKind = (typeof TEAM_KINDS)[number];
+
+const kindOf = (value: string): TeamKind => (value === 'client' ? 'client' : 'internal');
 
 /**
  * Teams — validation and storage.
@@ -35,7 +48,11 @@ export interface EpmTeam {
   id: string;
   name: string;
   code: string;
+  kind: TeamKind;
   description?: string;
+  /** A client's contact details. */
+  contactEmail?: string;
+  contactPhone?: string;
   /**
    * The owning department, resolved for display. `active` is included because a
    * team outlives its department's archival, and the UI has to be able to say
@@ -59,9 +76,12 @@ export interface EpmTeam {
 export interface TeamInput {
   name?: unknown;
   code?: unknown;
+  kind?: unknown;
   description?: unknown;
   departmentId?: unknown;
   leadId?: unknown;
+  contactEmail?: unknown;
+  contactPhone?: unknown;
 }
 
 const NAME_MAX = 120;
@@ -69,6 +89,12 @@ const CODE_MIN = 2;
 const CODE_MAX = 16;
 const DESCRIPTION_MAX = 2000;
 const CODE_PATTERN = /^[A-Z0-9-]+$/;
+const EMAIL_MAX = 254;
+const PHONE_MAX = 40;
+/** Something, an @, something, a dot, something: a typing check, not delivery. */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Digits with the punctuation people write numbers with. */
+const PHONE_PATTERN = /^\+?[0-9 ().-]{4,}$/;
 
 type TeamWithDepartment = Team & { department: Department | null };
 
@@ -111,6 +137,36 @@ function validateDescription(value: unknown): string | null {
     throw EpmError.badRequest(message('The description cannot be longer than {max} characters.', { max: DESCRIPTION_MAX }));
   }
   return description || null;
+}
+
+function validateKind(value: unknown): TeamKind {
+  if (value === undefined || value === null || value === '') return 'internal';
+  if (typeof value !== 'string' || !(TEAM_KINDS as readonly string[]).includes(value)) {
+    throw EpmError.badRequest('The type must be an internal team or an external client.');
+  }
+  return value as TeamKind;
+}
+
+function validateEmail(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+
+  const email = asString(value, 'The email');
+  if (!email) return null;
+  if (email.length > EMAIL_MAX || !EMAIL_PATTERN.test(email)) {
+    throw EpmError.badRequest('That email address is not valid.');
+  }
+  return email;
+}
+
+function validatePhone(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+
+  const phone = asString(value, 'The phone number');
+  if (!phone) return null;
+  if (phone.length > PHONE_MAX || !PHONE_PATTERN.test(phone)) {
+    throw EpmError.badRequest('That phone number is not valid.');
+  }
+  return phone;
 }
 
 /**
@@ -173,7 +229,10 @@ function toEpmTeam(
     id: row.id,
     name: row.name,
     code: row.code,
+    kind: kindOf(row.kind),
     description: row.description ?? undefined,
+    contactEmail: row.contactEmail ?? undefined,
+    contactPhone: row.contactPhone ?? undefined,
     department: row.department
       ? { id: row.department.id, name: row.department.name, active: row.department.active }
       : undefined,
@@ -201,10 +260,11 @@ function asConflict(error: unknown): never {
       ? violation.meta.target.join(', ')
       : String(violation.meta?.target ?? '');
 
+    // Teams and clients share one list, so the clash may be with either.
     throw EpmError.badRequest(
       target.includes('code')
-        ? 'A team with that code already exists.'
-        : 'A team with that name already exists.',
+        ? 'A team or client with that code already exists.'
+        : 'A team or client with that name already exists.',
     );
   }
 
@@ -226,11 +286,42 @@ async function assertNameAvailable(name: string, exceptId?: string): Promise<voi
     select: { id: true },
   });
 
-  if (clash) throw EpmError.badRequest('A team with that name already exists.');
+  if (clash) throw EpmError.badRequest('A team or client with that name already exists.');
+}
+
+/** The journal's line for a change, naming a client as a client. */
+function summaryOf(action: 'created' | 'changed' | 'archived' | 'restored' | 'deleted', row: Team) {
+  const name = row.name;
+  if (row.kind === 'client') {
+    switch (action) {
+      case 'created':
+        return message('Created client {name}', { name });
+      case 'changed':
+        return message('Changed client {name}', { name });
+      case 'archived':
+        return message('Archived client {name}', { name });
+      case 'restored':
+        return message('Restored client {name}', { name });
+      case 'deleted':
+        return message('Deleted client {name}', { name });
+    }
+  }
+  switch (action) {
+    case 'created':
+      return message('Created team {name}', { name });
+    case 'changed':
+      return message('Changed team {name}', { name });
+    case 'archived':
+      return message('Archived team {name}', { name });
+    case 'restored':
+      return message('Restored team {name}', { name });
+    case 'deleted':
+      return message('Deleted team {name}', { name });
+  }
 }
 
 export async function listTeams(
-  options: { includeInactive?: boolean; departmentId?: string },
+  options: { includeInactive?: boolean; departmentId?: string; kind?: TeamKind },
   signal: AbortSignal,
 ): Promise<EpmTeam[]> {
   const [rows, names, counts] = await Promise.all([
@@ -238,6 +329,7 @@ export async function listTeams(
       where: {
         ...(options.includeInactive ? {} : { active: true }),
         ...(options.departmentId ? { departmentId: options.departmentId } : {}),
+        ...(options.kind ? { kind: options.kind } : {}),
       },
       include: { department: true },
       orderBy: { name: 'asc' },
@@ -259,9 +351,12 @@ export async function getTeam(id: string, signal: AbortSignal): Promise<EpmTeam>
 export async function createTeam(input: TeamInput, signal: AbortSignal): Promise<EpmTeam> {
   const name = validateName(input.name);
   const code = validateCode(input.code);
+  const kind = validateKind(input.kind);
   const description = validateDescription(input.description);
   const departmentId = await validateDepartmentId(input.departmentId);
   const leadId = await validateLeadId(input.leadId, signal);
+  const contactEmail = validateEmail(input.contactEmail);
+  const contactPhone = validatePhone(input.contactPhone);
 
   await assertNameAvailable(name);
 
@@ -271,7 +366,7 @@ export async function createTeam(input: TeamInput, signal: AbortSignal): Promise
     (tx) =>
       tx.team
         .create({
-          data: { name, code, description, departmentId, leadId },
+          data: { name, code, kind, description, departmentId, leadId, contactEmail, contactPhone },
           include: { department: true },
         })
         .catch(asConflict),
@@ -279,7 +374,7 @@ export async function createTeam(input: TeamInput, signal: AbortSignal): Promise
       entityType: 'team',
       entityId: created.id,
       action: 'team.created',
-      summary: message('Created team {name}', { name: created.name }),
+      summary: summaryOf('created', created),
       after: teamRecord(created),
     }),
   );
@@ -300,9 +395,12 @@ export async function updateTeam(
   const data: {
     name?: string;
     code?: string;
+    kind?: TeamKind;
     description?: string | null;
     departmentId?: string | null;
     leadId?: string | null;
+    contactEmail?: string | null;
+    contactPhone?: string | null;
   } = {};
 
   if (input.name !== undefined) {
@@ -310,7 +408,10 @@ export async function updateTeam(
     await assertNameAvailable(data.name, id);
   }
   if (input.code !== undefined) data.code = validateCode(input.code);
+  if (input.kind !== undefined) data.kind = validateKind(input.kind);
   if (input.description !== undefined) data.description = validateDescription(input.description);
+  if (input.contactEmail !== undefined) data.contactEmail = validateEmail(input.contactEmail);
+  if (input.contactPhone !== undefined) data.contactPhone = validatePhone(input.contactPhone);
   // Staying where it is is not joining. A team in an archived department keeps
   // it when anything else about the team is edited, so only a change is checked.
   if (input.departmentId !== undefined) {
@@ -334,7 +435,7 @@ export async function updateTeam(
       entityType: 'team',
       entityId: id,
       action: 'team.updated',
-      summary: message('Changed team {name}', { name: updated.name }),
+      summary: summaryOf('changed', updated),
       before: teamRecord(existing),
       after: teamRecord(updated),
     }),
@@ -365,9 +466,7 @@ export async function setTeamActive(
       entityType: 'team',
       entityId: id,
       action: active ? 'team.restored' : 'team.archived',
-      summary: active
-        ? message('Restored team {name}', { name: updated.name })
-        : message('Archived team {name}', { name: updated.name }),
+      summary: summaryOf(active ? 'restored' : 'archived', updated),
       before: { active: existing.active },
       after: { active: updated.active },
     }),
@@ -402,7 +501,7 @@ export async function deleteTeam(id: string): Promise<void> {
     entityType: 'team',
     entityId: id,
     action: 'team.deleted',
-    summary: message('Deleted team {name}', { name: existing.name }),
+    summary: summaryOf('deleted', existing),
     before: teamRecord(existing),
   });
 }

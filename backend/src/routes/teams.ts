@@ -15,6 +15,7 @@ import {
   listTeams,
   deleteTeam,
   setTeamActive,
+  TEAM_KINDS,
   updateTeam,
   type TeamInput,
 } from '../domain/teams.js';
@@ -59,14 +60,19 @@ function currentWeek(): [string, string] {
 }
 
 export const teamRoutes: FastifyPluginAsync = async (app) => {
-  /** Teams, optionally within one department. Inactive excluded unless asked for. */
-  app.get<{ Querystring: { departmentId?: string; includeInactive?: string } }>(
+  /**
+   * Teams and clients, optionally of one kind or within one department.
+   * Inactive excluded unless asked for.
+   */
+  app.get<{ Querystring: { departmentId?: string; includeInactive?: string; kind?: string } }>(
     '/teams',
     async (request) => {
+      const { kind } = z.object({ kind: z.enum(TEAM_KINDS).optional() }).parse(request.query);
       return listTeams(
         {
           includeInactive: request.query.includeInactive === 'true',
           departmentId: request.query.departmentId || undefined,
+          kind,
         },
         requestSignal(request),
       );

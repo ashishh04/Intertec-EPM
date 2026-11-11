@@ -40,6 +40,31 @@ Changes since 1.1.0 (21 October 2026).
 - **Integration events** (BR-506). Events from OpenProject are kept, retried
   and, if they keep failing, set aside, then replayed from the Integration
   page once the cause is fixed. An outage loses nothing.
+- **Risk register** (Delivery → Risk register). Every risk in the projects a
+  person can see, scored on a five-by-five matrix of probability and impact,
+  with its category, response (avoid, mitigate, transfer, accept or escalate),
+  mitigation and contingency plans and a review date. A heat map narrows the
+  list to one square; the worst risks come first, and a risk past its review
+  date says so. A risk is a work item of the Risk type, so its owner, status
+  and comments are where they always are, and its priority follows its rating,
+  so the dashboards and project health count it the same way. Every assessment
+  is journalled.
+- **Manager dashboard** (Insights → Dashboards). Cost against budget and effort
+  against estimate, late work, the milestones coming up and missed, and high
+  risks; then each project with its health, the upcoming milestones, budget
+  tracking and the open high risks. Dashboards is now a group in the sidebar
+  that opens to the Portfolio dashboard, the Manager dashboard and Resource
+  utilisation; the other dashboards stay as tabs on the page. A new measure,
+  Effort used, is hours logged against hours estimated.
+- **Milestones** (Delivery → Milestones). Every project's milestones on one
+  timeline, each with its project's schedule health and progress: overdue, due
+  in the next 30 days, upcoming or completed, with a line for today. The
+  timeline shows three, six or twelve months, moved with the arrows, or fits
+  every milestone shown.
+- **Teams & clients.** The Teams page has two tabs: internal teams, and
+  external clients, each client with a contact email and phone and an account
+  manager. A team can be made a client and back, and a name or code is unique
+  across both.
 - **Two-factor authentication.** A code from an authenticator app (Microsoft
   Authenticator, Google Authenticator, Authy and the like) when signing in, so a
   stolen password alone is not enough. Anyone can turn it on in Settings →
@@ -195,8 +220,13 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    allow-list, the password and document actions, and the custom field and time
    zone lists), so a new backend beside an old `epm-openproject` cannot accept
    invitations, send reset links, open project documents or put a custom field
-   on a type. The backend applies eight database
-   migrations as it starts; nothing else needs running.
+   on a type. The backend applies nine database
+   migrations as it starts; nothing else needs running. The last of them adds
+   the risk register's table and the client fields on teams; every existing
+   team stays an internal one.
+   The risk register keeps risks as work items of the Risk type. A server that
+   never ran the governance types set-up has none: run it (`DEPLOY.md`,
+   "Approvals need the governance types"), which is harmless where it has run.
 3. **Switch to the service account**, if the server still uses an
    administrator's key. Create it and read its key as `DEPLOY.md` describes
    ("After the very first `up`", step 1). Set `OPENPROJECT_API_KEY` in

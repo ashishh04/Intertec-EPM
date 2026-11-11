@@ -2520,7 +2520,14 @@ export interface MeasureTrend {
   points: MeasureTrendPoint[];
 }
 
-export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
+export type DashboardId =
+  | 'portfolio-health'
+  | 'manager'
+  | 'delivery'
+  | 'utilisation'
+  | 'budget'
+  | 'earned-value'
+  | 'risk';
 export type DashboardLinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person' | 'work_package';
 
 export interface DashboardColumn {
@@ -4578,4 +4585,106 @@ export interface AssistantUsageRow {
   tokens: number;
   refused: number;
   lastAt: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Risk register                                                              */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * A risk is a work package of a risk type (the health rules' choice, or any
+ * type named Risk): its title, owner, status, dates and severity (its
+ * priority) are the work package's, with its journal and comments. The register
+ * adds what no field holds there: how likely it is, how bad it would be, and
+ * the plan for it.
+ */
+
+export type RiskCategory =
+  | 'schedule'
+  | 'cost'
+  | 'scope'
+  | 'quality'
+  | 'resources'
+  | 'technical'
+  | 'external'
+  | 'compliance'
+  | 'security'
+  | 'other';
+
+/** The response chosen for a risk. */
+export type RiskResponse = 'avoid' | 'mitigate' | 'transfer' | 'accept' | 'escalate';
+
+/** Probability times impact, banded: 1-4 low, 5-9 medium, 10-14 high, 15-25 critical. */
+export type RiskRating = 'low' | 'medium' | 'high' | 'critical';
+
+/**
+ * Where a risk stands, worked out rather than stored: identified (not scored
+ * yet), analysed (scored, no response chosen), responding (a response chosen),
+ * review (its review date has passed) or closed (the work package is closed).
+ */
+export type RiskStage = 'identified' | 'analysed' | 'responding' | 'review' | 'closed';
+
+export interface RiskAssessment {
+  /** 1 (rare) to 5 (almost certain). */
+  probability: number | null;
+  /** 1 (negligible) to 5 (severe). */
+  impact: number | null;
+  category: RiskCategory | null;
+  response: RiskResponse | null;
+  mitigation: string | null;
+  contingency: string | null;
+  /** When the risk is next looked at again. */
+  reviewOn: ISODate | null;
+  updatedAt: string | null;
+  updatedById: ID | null;
+}
+
+export interface RiskEntry {
+  /** The work package that is the risk. */
+  task: EpmTask;
+  assessment: RiskAssessment;
+  /** Probability times impact, 1 to 25; null until both are set. */
+  score: number | null;
+  rating: RiskRating | null;
+  stage: RiskStage;
+}
+
+export interface RiskRegister {
+  /** False when the server has no risk type to keep risks as. */
+  configured: boolean;
+  /** The risk types, the first being the one new risks are created as. */
+  typeIds: ID[];
+  items: RiskEntry[];
+  /** More risks than one read returns: the list is the most recently changed. */
+  truncated: boolean;
+}
+
+export interface RiskAssessmentInput {
+  probability?: number | null;
+  impact?: number | null;
+  category?: RiskCategory | null;
+  response?: RiskResponse | null;
+  mitigation?: string | null;
+  contingency?: string | null;
+  reviewOn?: ISODate | null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Milestones across projects                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** A milestone in any project the reader can see: a work package of a milestone type. */
+export interface MilestoneEntry {
+  id: ID;
+  projectId: ID;
+  name: string;
+  /** Its date. Absent when none has been set. */
+  date?: ISODate;
+  /** Its status's name, as the project's workflow calls it. */
+  statusName: string;
+  /** Closed: delivered, or decided. */
+  closed: boolean;
+  /** Open past its date. */
+  overdue: boolean;
+  assigneeId?: ID;
 }

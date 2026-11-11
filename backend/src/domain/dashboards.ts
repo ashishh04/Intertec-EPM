@@ -46,9 +46,9 @@ import {
  * as the measures' own are.
  */
 
-export type DashboardId = 'portfolio-health' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
+export type DashboardId = 'portfolio-health' | 'manager' | 'delivery' | 'utilisation' | 'budget' | 'earned-value' | 'risk';
 
-export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk'];
+export const DASHBOARD_IDS: DashboardId[] = ['portfolio-health', 'manager', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk'];
 
 export type LinkKind = 'portfolio' | 'project' | 'department' | 'team' | 'role' | 'person' | 'work_package';
 
@@ -110,6 +110,12 @@ const TITLES: Record<DashboardId, { title: string; description: string }> = {
   'portfolio-health': {
     title: msg('Portfolio health'),
     description: msg('How every project is doing on the health rules, what is slipping and what is late.'),
+  },
+  manager: {
+    title: msg('Manager dashboard'),
+    description: msg(
+      'Your projects at a glance: cost and effort against plan, late work, the milestones coming up, budgets and the risks that need attention.',
+    ),
   },
   delivery: {
     title: msg('Delivery'),
@@ -729,6 +735,136 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
   };
 }
 
+/**
+ * A manager's dashboard: the projects they can see, at a glance. Cost against
+ * budget and effort against estimate, what is late, the milestones coming up,
+ * each budget, and the high risks still open.
+ */
+async function manager(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+  const tiles = [
+    'projects.active',
+    'projects.atRisk',
+    'budget.consumed',
+    'effort.consumed',
+    'work.overdue',
+    'milestones.upcoming',
+    'milestones.missed',
+    'risk.high',
+  ];
+  const { facts, today, period } = context;
+  const language = contextLanguage();
+
+  const projects = await measureTable(shared, {
+    id: 'projects',
+    title: msg('My projects'),
+    description: msg('Every project you can see: its health, progress, late work, budget and effort used.'),
+    firstColumn: msg('Project'),
+    rows: projectRows(context),
+    measures: ['work.progress', 'work.overdue', 'milestones.upcoming', 'risk.high', 'budget.consumed', 'effort.consumed'],
+    period,
+    today,
+  });
+  // Health is a level, not a measure's number: added as its own column.
+  projects.columns.splice(1, 0, { key: 'health', label: t(language, 'Health') });
+  for (const row of projects.rows) {
+    const health = context.health.get(Number(row.link?.id));
+    row.cells.health = health?.assessed ? health.overall : null;
+  }
+
+  // Open milestones already late, and those due in the next 30 days.
+  const horizon = addDays(today, 29);
+  const milestones = context.work
+    .filter((item) => item.isMilestone && isOpen(item) && item.dueDate !== null && item.dueDate <= horizon)
+    .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '') || a.subject.localeCompare(b.subject));
+  const when = (due: string) =>
+    due < today ? t(language, 'Past its date') : due === today ? t(language, 'Due today') : t(language, 'Coming up');
+
+  const budgets = await measureTable(shared, {
+    id: 'budgets',
+    title: msg('Budget tracking'),
+    description: msg('Projects with a budget: what has been spent, what was planned to date, and what is left.'),
+    firstColumn: msg('Project'),
+    rows: projectRows(context).filter((row) => (facts.projects.get(Number(row.link.id))?.budget ?? 0) > 0),
+    measures: ['budget.total', 'cost.actual', 'cost.plannedToDate', 'cost.variance', 'budget.consumed'],
+    period,
+    today,
+  });
+
+  const highRisks = context.work
+    .filter(
+      (item) =>
+        isOpen(item) &&
+        context.risk.typeIds.has(item.typeId) &&
+        item.priorityId !== null &&
+        context.risk.highPriorityIds.has(item.priorityId),
+    )
+    .sort(
+      (a, b) =>
+        (facts.priorities.get(b.priorityId ?? -1)?.position ?? 0) - (facts.priorities.get(a.priorityId ?? -1)?.position ?? 0) ||
+        (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'),
+    );
+
+  const tables: DashboardTable[] = [
+    projects,
+    {
+      id: 'milestones',
+      title: t(language, 'Upcoming milestones'),
+      description: t(language, 'Open milestones that are late or due in the next 30 days.'),
+      columns: [
+        { key: 'name', label: t(language, 'Milestone') },
+        { key: 'project', label: t(language, 'Project') },
+        { key: 'due', label: t(language, 'Due') },
+        { key: 'when', label: t(language, 'Status') },
+      ],
+      rows: milestones.map((item) => ({
+        key: `wp:${item.id}`,
+        link: { kind: 'work_package', id: String(item.id) },
+        cells: {
+          name: item.subject,
+          project: facts.projects.get(item.projectId)?.name ?? '',
+          due: item.dueDate,
+          when: when(item.dueDate!),
+        },
+      })),
+    },
+    budgets,
+    {
+      id: 'risks',
+      title: t(language, 'High risks'),
+      description: t(language, 'Open risks at a high priority, the most severe first.'),
+      columns: [
+        { key: 'name', label: t(language, 'Risk') },
+        { key: 'project', label: t(language, 'Project') },
+        { key: 'severity', label: t(language, 'Severity') },
+        { key: 'owner', label: t(language, 'Assignee') },
+        { key: 'due', label: t(language, 'Due') },
+      ],
+      rows: highRisks.map((item) => ({
+        key: `wp:${item.id}`,
+        link: { kind: 'work_package', id: String(item.id) },
+        cells: {
+          name: item.subject,
+          project: facts.projects.get(item.projectId)?.name ?? '',
+          severity: item.priorityId !== null ? (facts.priorities.get(item.priorityId)?.name ?? null) : null,
+          owner: item.assigneeId !== null ? (facts.users.get(item.assigneeId)?.name ?? null) : null,
+          due: item.dueDate,
+        },
+      })),
+    },
+  ];
+
+  const bucket = bucketFor(period);
+  return {
+    tiles,
+    tables,
+    series: [
+      await series(context, 'cost.spent', msg('Spent'), bucket),
+      await series(context, 'work.overdue', msg('Overdue work'), bucket),
+    ],
+    measures: await evaluateInContext(tiles, context),
+  };
+}
+
 /** The dashboards there are, for a menu: in English, as stored and logged. */
 export const DASHBOARDS = DASHBOARD_IDS.map((id) => ({ id, ...TITLES[id] }));
 
@@ -739,6 +875,7 @@ export function dashboardsIn(language: Language): { id: DashboardId; title: stri
 
 const BUILDERS: Record<DashboardId, (shared: Shared, context: MeasureContext) => Promise<Partial<Dashboard>>> = {
   'portfolio-health': portfolioHealth,
+  manager,
   delivery,
   utilisation,
   budget,

@@ -7001,7 +7001,7 @@ async function main() {
     check('high risks: the risk dashboard agrees with the measure', riskBoard.measures['risk.high'].value, direct.measures['risk.high'].value);
 
     // BR-405: every dashboard, within the response target.
-    for (const id of ['portfolio-health', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk']) {
+    for (const id of ['portfolio-health', 'manager', 'delivery', 'utilisation', 'budget', 'earned-value', 'risk']) {
       const response = await call(`/dashboards/${id}`, { cookie: admin });
       const body = (await response.json()) as { timing?: { withinTarget: boolean; serverMs: number }; tiles?: string[] };
       check(`the ${id} dashboard answers`, response.status, 200);

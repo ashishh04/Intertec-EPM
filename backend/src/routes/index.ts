@@ -49,6 +49,7 @@ import { assistantAdminRoutes } from './assistant-admin.js';
 import { forecastRoutes } from './forecasts.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
+import { riskRoutes } from './risks.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { taskSeriesRoutes } from './task-series.js';
@@ -81,6 +82,8 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(taskSeriesRoutes);
   await app.register(timeEntryRoutes);
   await app.register(teamRoutes);
+  // The risk register, and milestones across projects.
+  await app.register(riskRoutes);
   await app.register(sprintRoutes);
   await app.register(dashboardRoutes);
   await app.register(reportRoutes);

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Archive, Building2, Pencil, RotateCcw, UserRound, Users } from 'lucide-react';
+import { Archive, Building2, Mail, Pencil, Phone, RotateCcw, UserRound, Users } from 'lucide-react';
 
 import { ListSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -94,11 +94,16 @@ export default function TeamDetailPage() {
             title={team.data.name}
             description={team.data.description}
             meta={
-              team.data.active ? null : (
-                <Badge tone="warning" size="sm">
-                  {t('Archived')}
+              <>
+                <Badge tone={team.data.kind === 'client' ? 'accent' : 'neutral'} size="sm">
+                  {team.data.kind === 'client' ? t('External client') : t('Internal team')}
                 </Badge>
-              )
+                {team.data.active ? null : (
+                  <Badge tone="warning" size="sm">
+                    {t('Archived')}
+                  </Badge>
+                )}
+              </>
             }
             actions={
               mayManage ? (
@@ -160,6 +165,39 @@ export default function TeamDetailPage() {
             </Card>
           </div>
 
+          {team.data.kind === 'client' ? (
+            <Card>
+              <CardHeader variant="compact">
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  {t('Contact')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-x-8 gap-y-2 p-4 text-sm">
+                <span className="inline-flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                  {team.data.contactEmail ? (
+                    <a href={`mailto:${team.data.contactEmail}`} className="hover:text-primary" dir="ltr">
+                      {team.data.contactEmail}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">{t('No email')}</span>
+                  )}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <Phone className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                  {team.data.contactPhone ? (
+                    <a href={`tel:${team.data.contactPhone.replace(/[^+0-9]/g, '')}`} className="hover:text-primary" dir="ltr">
+                      {team.data.contactPhone}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground">{t('No phone')}</span>
+                  )}
+                </span>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>
               <CardHeader variant="compact">
@@ -193,7 +231,7 @@ export default function TeamDetailPage() {
               <CardHeader variant="compact">
                 <CardTitle className="flex items-center gap-2">
                   <UserRound className="h-4 w-4 text-muted-foreground" aria-hidden />
-                  {t('Lead')}
+                  {team.data.kind === 'client' ? t('Account manager') : t('Lead')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-4">
@@ -204,6 +242,13 @@ export default function TeamDetailPage() {
                     <UserAvatar user={users.get(team.data.lead.id)} size="sm" />
                     <span className="text-sm" dir="auto">{team.data.lead.name}</span>
                   </div>
+                ) : team.data.kind === 'client' ? (
+                  <EmptyState
+                    size="inline"
+                    icon={UserRound}
+                    title={t('No account manager')}
+                    description={t('Nobody has been named to look after this client.')}
+                  />
                 ) : (
                   <EmptyState
                     size="inline"

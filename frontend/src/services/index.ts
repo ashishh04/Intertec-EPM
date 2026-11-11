@@ -53,6 +53,7 @@ import {
 import { ApiInviteRepository } from './api/invites';
 import { ApiPlaceholderPersonRepository } from './api/placeholder-people';
 import { ApiTimeEntryRepository } from './api/time-entries';
+import { ApiRiskRepository } from './api/risks';
 import { ApiRelationRepository, ApiWatcherRepository } from './api/collaboration';
 import {
   ApiFormRepository,
@@ -164,5 +165,8 @@ export const placeholderPersonService = new ApiPlaceholderPersonRepository();
 
 /** Logged time. Authorised by OpenProject at the point of the write. */
 export const timeEntryService = new ApiTimeEntryRepository();
+
+/** The risk register, and milestones across projects. */
+export const riskService = new ApiRiskRepository();
 
 export type { EpmRepositories } from './repositories';

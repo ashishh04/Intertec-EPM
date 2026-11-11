@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Archive, Building2, Pencil, Plus, RotateCcw, Trash2, Users } from 'lucide-react';
+import { Archive, Briefcase, Building2, Mail, Pencil, Phone, Plus, RotateCcw, Trash2, Users } from 'lucide-react';
 
 import { ListSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -30,20 +30,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDepartments } from '@/hooks/useDepartments';
 import { usePagination } from '@/hooks/usePagination';
 import { useDeleteTeam, useSetTeamActive, useTeams } from '@/hooks/useTeams';
 import { useUserMap } from '@/hooks/useUsers';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
-import type { EpmTeam } from '@/services/api/teams';
+import type { EpmTeam, TeamKind } from '@/services/api/teams';
 
 /**
- * The team directory.
+ * Teams & clients.
  *
- * Backed entirely by EPM's own database. Teams used to be a reading of
- * OpenProject groups, of which this instance defines none, so the page could
- * only ever be empty.
+ * Two tabs over one list: internal teams, the organisation's own people, and
+ * external clients it delivers for, each with a contact and an account manager.
+ * Backed entirely by EPM's own database.
  *
  * Everyone signed in can read; creating and changing needs `teams:manage`,
  * which the backend checks on every write regardless of what is rendered here.
@@ -57,12 +58,25 @@ export default function TeamsPage() {
   const { can } = useAuth();
   const mayManage = can('teams:manage');
 
+  // In the address, so "External clients" can be linked to and survives a reload.
+  const [search, setSearch] = useSearchParams();
+  const kind: TeamKind = search.get('kind') === 'client' ? 'client' : 'internal';
+  const isClient = kind === 'client';
+  const setKind = (next: string) => {
+    const params = new URLSearchParams(search);
+    if (next === 'client') params.set('kind', 'client');
+    else params.delete('kind');
+    setSearch(params, { replace: true });
+  };
+
   const [showArchived, setShowArchived] = useState(false);
   const [departmentId, setDepartmentId] = useState(ALL);
 
   const teams = useTeams({
     includeInactive: showArchived,
-    departmentId: departmentId === ALL ? undefined : departmentId,
+    // Clients are not filed under departments here; the filter is the internal tab's.
+    departmentId: departmentId === ALL || isClient ? undefined : departmentId,
+    kind,
   });
   const departments = useDepartments(true);
   const setActive = useSetTeamActive();
@@ -107,7 +121,16 @@ export default function TeamsPage() {
     setActive.mutate(
       { id: team.id, active },
       {
-        onSuccess: () => toast.success(active ? t('Team restored') : t('Team archived')),
+        onSuccess: () =>
+          toast.success(
+            team.kind === 'client'
+              ? active
+                ? t('Client restored')
+                : t('Client archived')
+              : active
+                ? t('Team restored')
+                : t('Team archived'),
+          ),
         onError: (error) =>
           toast.error(t('That could not be changed'), {
             description: error instanceof Error ? error.message : undefined,
@@ -122,44 +145,73 @@ export default function TeamsPage() {
   // first page whenever the filters change.
   const paged = usePagination(items, {
     pageSize: PAGE_SIZE,
-    resetKey: `${departmentId}|${showArchived}`,
+    resetKey: `${kind}|${departmentId}|${showArchived}`,
   });
+
+  const RowIcon = isClient ? Briefcase : Users;
 
   return (
     <div className="space-y-5">
       <PageHeader
-        title={t('Teams')}
-        description={t('Delivery teams defined in EPM.')}
+        title={t('Teams & clients')}
+        description={
+          isClient
+            ? t('The external clients the organisation delivers for, with a contact and an account manager each.')
+            : t('The organisation’s own delivery teams.')
+        }
         actions={
           mayManage ? (
             <Button size="sm" onClick={openCreate}>
               <Plus className="h-3.5 w-3.5" />
-              {t('New team')}
+              {isClient ? t('New client') : t('New team')}
             </Button>
           ) : null
         }
       />
 
-      <ListToolbar trailing={<ResultCount count={items.length} label={t('team')} plural={t('teams')} />}>
-        <Select value={departmentId} onValueChange={setDepartmentId}>
-          <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by department')}>
-            <SelectValue placeholder={t('All departments')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>{t('All departments')}</SelectItem>
-            {(departments.data ?? []).map((department) => (
-              <SelectItem key={department.id} value={department.id}>
-                {department.active ? department.name : t('{name} (archived)', { name: department.name })}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <Tabs value={kind} onValueChange={setKind}>
+        <TabsList>
+          <TabsTrigger value="internal">
+            <Users className="h-3.5 w-3.5" aria-hidden />
+            {t('Internal teams')}
+          </TabsTrigger>
+          <TabsTrigger value="client">
+            <Briefcase className="h-3.5 w-3.5" aria-hidden />
+            {t('External clients')}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      <ListToolbar
+        trailing={
+          isClient ? (
+            <ResultCount count={items.length} label={t('client')} plural={t('clients')} />
+          ) : (
+            <ResultCount count={items.length} label={t('team')} plural={t('teams')} />
+          )
+        }
+      >
+        {!isClient ? (
+          <Select value={departmentId} onValueChange={setDepartmentId}>
+            <SelectTrigger className="h-8 w-44 text-xs" aria-label={t('Filter by department')}>
+              <SelectValue placeholder={t('All departments')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{t('All departments')}</SelectItem>
+              {(departments.data ?? []).map((department) => (
+                <SelectItem key={department.id} value={department.id}>
+                  {department.active ? department.name : t('{name} (archived)', { name: department.name })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
 
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <Switch
             checked={showArchived}
             onCheckedChange={setShowArchived}
-            aria-label={t('Show archived teams')}
+            aria-label={isClient ? t('Show archived clients') : t('Show archived teams')}
           />
           {t('Show archived')}
         </label>
@@ -169,19 +221,31 @@ export default function TeamsPage() {
         isLoading={teams.isLoading}
         isError={teams.isError}
         onRetry={() => teams.refetch()}
-        errorTitle={t('Unable to load teams')}
+        errorTitle={isClient ? t('Unable to load clients') : t('Unable to load teams')}
         skeleton={<ListSkeleton rows={4} height="h-16" />}
         isEmpty={items.length === 0}
         empty={
-          <EmptyState
-            icon={Users}
-            title={departmentId === ALL ? t('No teams') : t('No teams in this department')}
-            description={
-              mayManage
-                ? t('Create a team to describe how delivery is organised.')
-                : t('No teams have been set up yet.')
-            }
-          />
+          isClient ? (
+            <EmptyState
+              icon={Briefcase}
+              title={t('No clients')}
+              description={
+                mayManage
+                  ? t('Add the clients the organisation delivers for, with a contact and an account manager.')
+                  : t('No clients have been added yet.')
+              }
+            />
+          ) : (
+            <EmptyState
+              icon={Users}
+              title={departmentId === ALL ? t('No teams') : t('No teams in this department')}
+              description={
+                mayManage
+                  ? t('Create a team to describe how delivery is organised.')
+                  : t('No teams have been set up yet.')
+              }
+            />
+          )
         }
       >
         <div className="space-y-3">
@@ -190,7 +254,7 @@ export default function TeamsPage() {
               <li key={team.id}>
                 <Card className="group relative flex items-center gap-4 p-4 transition-colors hover:border-primary/40">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <Users className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    <RowIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -221,40 +285,71 @@ export default function TeamsPage() {
                     ) : null}
                   </div>
 
-                  <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-                    <Users className="h-3.5 w-3.5" aria-hidden />
-                    {/* Both counted from EPM's employee mapping, never from an
-                        OpenProject group. */}
-                    <span className="tabular-nums">
-                      {t('{count, plural, one {# member} other {# members}}', { count: team.memberCount })} ·{' '}
-                      {t('{hours, number} h/wk', { hours: team.capacityHours })}
-                    </span>
-                  </div>
-
-                  <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
-                    <Building2 className="h-3.5 w-3.5" aria-hidden />
-                    {team.department ? (
-                      <span>
-                        {/* A team outlives its department's archival, so say so
-                            rather than showing a name that looks current. */}
-                        {team.department.active
-                          ? team.department.name
-                          : t('{name} (archived)', { name: team.department.name })}
+                  {team.kind === 'client' ? (
+                    <div className="hidden min-w-0 shrink-0 flex-col gap-0.5 text-xs text-muted-foreground sm:flex">
+                      {/* A real mail link: the card's stretched link sits under it. */}
+                      {team.contactEmail ? (
+                        <a
+                          href={`mailto:${team.contactEmail}`}
+                          className="relative z-10 inline-flex items-center gap-1.5 truncate hover:text-primary"
+                          dir="ltr"
+                        >
+                          <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          {team.contactEmail}
+                        </a>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Mail className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          {t('No email')}
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1.5" dir={team.contactPhone ? 'ltr' : undefined}>
+                        <Phone className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        {team.contactPhone ?? t('No phone')}
                       </span>
-                    ) : (
-                      <span>{t('No department')}</span>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                        <Users className="h-3.5 w-3.5" aria-hidden />
+                        {/* Both counted from EPM's employee mapping, never from an
+                            OpenProject group. */}
+                        <span className="tabular-nums">
+                          {t('{count, plural, one {# member} other {# members}}', { count: team.memberCount })} ·{' '}
+                          {t('{hours, number} h/wk', { hours: team.capacityHours })}
+                        </span>
+                      </div>
+
+                      <div className="hidden shrink-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                        <Building2 className="h-3.5 w-3.5" aria-hidden />
+                        {team.department ? (
+                          <span>
+                            {/* A team outlives its department's archival, so say so
+                                rather than showing a name that looks current. */}
+                            {team.department.active
+                              ? team.department.name
+                              : t('{name} (archived)', { name: team.department.name })}
+                          </span>
+                        ) : (
+                          <span>{t('No department')}</span>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   {team.lead ? (
                     <div className="flex shrink-0 items-center gap-2">
                       <UserAvatarWithTooltip user={users.get(team.lead.id)} size="xs" />
                       <span className="hidden text-xs text-muted-foreground sm:inline" dir="auto">
-                        {team.lead.name}
+                        {team.kind === 'client'
+                          ? t('Account manager: {name}', { name: team.lead.name })
+                          : team.lead.name}
                       </span>
                     </div>
                   ) : (
-                    <span className="hidden text-xs text-muted-foreground sm:inline">{t('No lead')}</span>
+                    <span className="hidden text-xs text-muted-foreground sm:inline">
+                      {team.kind === 'client' ? t('No account manager') : t('No lead')}
+                    </span>
                   )}
 
                   {mayManage ? (
@@ -311,8 +406,8 @@ export default function TeamsPage() {
                 onPageChange={paged.setPage}
                 onPageSizeChange={paged.setPageSize}
                 pageSizeOptions={[12, 24, 48]}
-                itemLabel={t('team')}
-                itemLabelPlural={t('teams')}
+                itemLabel={isClient ? t('client') : t('team')}
+                itemLabelPlural={isClient ? t('clients') : t('teams')}
               />
             </Card>
         </div>
@@ -323,9 +418,13 @@ export default function TeamsPage() {
           <DialogHeader>
             <DialogTitle>{t('Delete {name}?', { name: removing?.name })}</DialogTitle>
             <DialogDescription>
-              {t(
-                'This removes the team from EPM permanently. Archiving keeps it and can be undone; deleting cannot. It is refused if anyone is still on the team.',
-              )}
+              {removing?.kind === 'client'
+                ? t(
+                    'This removes the client from EPM permanently. Archiving keeps it and can be undone; deleting cannot. It is refused if anyone is still on it.',
+                  )
+                : t(
+                    'This removes the team from EPM permanently. Archiving keeps it and can be undone; deleting cannot. It is refused if anyone is still on the team.',
+                  )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -347,7 +446,8 @@ export default function TeamsPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         team={editing}
-        defaultDepartmentId={departmentId === ALL ? undefined : departmentId}
+        defaultKind={kind}
+        defaultDepartmentId={departmentId === ALL || isClient ? undefined : departmentId}
       />
     </div>
   );

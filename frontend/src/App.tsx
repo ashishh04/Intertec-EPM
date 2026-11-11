@@ -48,6 +48,8 @@ const AgilePage = lazy(() => import('@/pages/AgilePage'));
 const BoardsPage = lazy(() => import('@/pages/BoardsPage'));
 const SprintsPage = lazy(() => import('@/pages/SprintsPage'));
 const GanttPage = lazy(() => import('@/pages/GanttPage'));
+const MilestonesPage = lazy(() => import('@/pages/MilestonesPage'));
+const RisksPage = lazy(() => import('@/pages/RisksPage'));
 const ResourcesPage = lazy(() => import('@/pages/ResourcesPage'));
 const TimesheetsPage = lazy(() => import('@/pages/TimesheetsPage'));
 const TimesheetPage = lazy(() => import('@/pages/TimesheetPage'));
@@ -347,6 +349,24 @@ export function App() {
             element={
               <RequireRole roles={ROLE_ACCESS.delivery}>
                 <GanttPage />
+              </RequireRole>
+            }
+          />
+          {/* Every project's milestones on one timeline, and the risk register.
+              Both list only what the person may read; the backend scopes them. */}
+          <Route
+            path="/milestones"
+            element={
+              <RequireRole roles={ROLE_ACCESS.delivery}>
+                <MilestonesPage />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/risks"
+            element={
+              <RequireRole roles={ROLE_ACCESS.delivery}>
+                <RisksPage />
               </RequireRole>
             }
           />

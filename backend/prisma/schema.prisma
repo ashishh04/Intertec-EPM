@@ -360,6 +360,12 @@ model Team {
   /// department's manager is not one — OpenProject owns users.
   leadId       String?
   active       Boolean     @default(true)
+  /// "internal" for a team of the organisation's own people, "client" for an
+  /// external client's: one list, two kinds (Teams & clients).
+  kind         String      @default("internal")
+  /// A client's contact details, for the list of clients. Unused on an internal team.
+  contactEmail String?
+  contactPhone String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -2389,4 +2395,31 @@ model MfaPolicy {
   updatedAt     DateTime @updatedAt
 
   @@map("mfa_policy")
+}
+
+/// What EPM records about a risk beyond the work package that is the risk.
+///
+/// A risk is a work package of a risk type (the health rules' choice, or any
+/// type named Risk): its title, owner, status, severity (its priority) and
+/// dates are OpenProject's, with its journal and comments. The register adds
+/// what no field holds there: how likely and how bad, and the plan for it.
+model RiskAssessment {
+  workPackageId Int       @id
+  projectId     Int
+  /// 1 (rare) to 5 (almost certain).
+  probability   Int?
+  /// 1 (negligible) to 5 (severe).
+  impact        Int?
+  category      String?
+  /// avoid, mitigate, transfer, accept or escalate.
+  response      String?
+  mitigation    String?
+  contingency   String?
+  reviewOn      DateTime? @db.Date
+  updatedBy     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([projectId])
+  @@map("risk_assessments")
 }

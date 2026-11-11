@@ -53,6 +53,7 @@ import type { DashboardId, MeasureScopeKind } from '@/types';
 
 const DASHBOARDS: { id: DashboardId; label: string }[] = [
   { id: 'portfolio-health', get label() { return t('Portfolio health'); } },
+  { id: 'manager', get label() { return t('Manager dashboard'); } },
   { id: 'delivery', get label() { return t('Delivery'); } },
   { id: 'utilisation', get label() { return t('Utilisation'); } },
   { id: 'budget', get label() { return t('Budget'); } },
@@ -125,7 +126,7 @@ export default function InsightsPage() {
         description={
           data?.description ??
           t(
-            'Portfolio health, delivery, utilisation, budget, earned value and risk. Every figure is defined once, and opens on what is behind it.',
+            'Portfolio health, your projects, delivery, utilisation, budget, earned value and risk. Every figure is defined once, and opens on what is behind it.',
           )
         }
         meta={
@@ -252,7 +253,14 @@ export default function InsightsPage() {
       >
         {data ? (
           <div className={dashboard.isPlaceholderData ? 'space-y-5 opacity-60 transition-opacity' : 'space-y-5'}>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {/* Eight tiles sit in two rows of four rather than six and two. */}
+            <div
+              className={
+                data.tiles.length === 8
+                  ? 'grid grid-cols-2 gap-3 md:grid-cols-4'
+                  : 'grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6'
+              }
+            >
               {data.tiles.map((id) => {
                 const measure = data.measures[id];
                 return measure ? <MeasureTile key={id} measure={measure} onOpen={() => setDrill(id)} /> : null;

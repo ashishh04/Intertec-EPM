@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Sidebar } from './Sidebar';
-import { MOBILE_NAV_ITEMS, visibleNavSections } from '@/config/navigation';
+import { flatNavItems, MOBILE_NAV_ITEMS, visibleNavSections } from '@/config/navigation';
 import { useUI } from '@/providers/UIProvider';
 import { useAuth } from '@/providers/AuthProvider';
 import { useUnreadCount } from '@/hooks/useNotifications';
@@ -113,7 +113,8 @@ export function MobileBottomNav() {
           {moreSections.map((section) => (
             <div key={section.title}>
               <DropdownMenuLabel>{section.title}</DropdownMenuLabel>
-              {section.items.map((item) => (
+              {/* A menu cannot nest, so a group's links are listed in its place. */}
+              {flatNavItems(section.items).map((item) => (
                 <DropdownMenuItem key={item.to} onSelect={() => navigate(item.to)}>
                   <item.icon />
                   {item.label}

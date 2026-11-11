@@ -16,11 +16,21 @@ import type { ID, TeamMemberWorkload } from '@/types';
  * and does not exist yet.
  */
 
+/**
+ * A team of the organisation's own people, or an external client it delivers
+ * for. One list (Teams & clients), so a name or code is unique across both.
+ */
+export type TeamKind = 'internal' | 'client';
+
 export interface EpmTeam {
   id: ID;
   name: string;
   code: string;
+  kind: TeamKind;
   description?: string;
+  /** A client's contact details. */
+  contactEmail?: string;
+  contactPhone?: string;
   /** `active` is present because a team outlives its department's archival. */
   department?: { id: ID; name: string; active: boolean };
   lead?: { id: ID; name: string };
@@ -40,14 +50,19 @@ export interface EpmTeam {
 export interface TeamInput {
   name: string;
   code: string;
+  kind?: TeamKind;
   description?: string;
   departmentId?: string;
   leadId?: string;
+  contactEmail?: string;
+  contactPhone?: string;
 }
 
 export interface TeamListOptions {
   includeInactive?: boolean;
   departmentId?: string;
+  /** One kind only; absent for both. */
+  kind?: TeamKind;
 }
 
 export class ApiTeamRepository {
@@ -55,6 +70,7 @@ export class ApiTeamRepository {
     return apiClient.get<EpmTeam[]>('/teams', {
       ...(options.includeInactive ? { includeInactive: 'true' } : {}),
       ...(options.departmentId ? { departmentId: options.departmentId } : {}),
+      ...(options.kind ? { kind: options.kind } : {}),
     });
   }
 

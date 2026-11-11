@@ -1086,6 +1086,26 @@ export const MEASURES: MeasureDefinition[] = [
     },
   },
 
+  {
+    id: 'effort.consumed',
+    label: msg('Effort used'),
+    unit: 'percent',
+    definition: msg(
+      'Hours logged to date on the projects in scope as a share of the hours estimated for their work. Work with no estimate adds nothing to the plan.',
+    ),
+    scopes: PROJECT_SCOPES,
+    usesPeriod: false,
+    version: 1,
+    rollup: ratioRollup(['actual'], ['planned'], msg('Hours logged of the hours estimated, both added across the projects.')),
+    compute: ({ work, time }) => {
+      const planned = roundMoney(work.reduce((sum, item) => sum + (item.estimatedHours ?? 0), 0));
+      const actual = roundMoney(time.reduce((sum, entry) => sum + entry.hours, 0));
+      return planned <= 0
+        ? { value: null, note: tr('No work in scope has an estimate.'), parts: { actual, planned: 0 } }
+        : { value: pct(actual, planned), parts: { actual, planned } };
+    },
+  },
+
   /* --------------------------------------------------------- earned value */
   evmMeasure({
     id: 'evm.bac',

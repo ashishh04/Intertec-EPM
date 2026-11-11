@@ -25,13 +25,15 @@ import { useCreateTeam, useUpdateTeam } from '@/hooks/useTeams';
 import { useDepartments } from '@/hooks/useDepartments';
 import { useUsers } from '@/hooks/useUsers';
 import { t } from '@/lib/i18n';
-import type { EpmTeam } from '@/services/api/teams';
+import type { EpmTeam, TeamKind } from '@/services/api/teams';
 
 /**
- * Create or edit a team.
+ * Create or edit a team or a client.
  *
  * A hand-written form, as for departments: teams are EPM-owned and have no
- * OpenProject schema to drive a `SchemaForm`.
+ * OpenProject schema to drive a `SchemaForm`. A client is the same record of
+ * the other kind, with a contact's email and phone, and its lead read as the
+ * account manager who looks after it.
  *
  * Only active departments are offered. A team already in an archived one keeps
  * that association, and it stays on the list, marked, for that team alone: the
@@ -46,11 +48,13 @@ interface TeamDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Omit to create. */
   team?: EpmTeam;
+  /** The kind a new one starts as: the tab it was created from. */
+  defaultKind?: TeamKind;
   /** Preselected department, when creating from a filtered list. */
   defaultDepartmentId?: string;
 }
 
-export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: TeamDialogProps) {
+export function TeamDialog({ open, onOpenChange, team, defaultKind = 'internal', defaultDepartmentId }: TeamDialogProps) {
   const isEdit = Boolean(team);
   const create = useCreateTeam();
   const update = useUpdateTeam();
@@ -58,12 +62,16 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
   const departments = useDepartments(true);
   const users = useUsers();
 
+  const [kind, setKind] = useState<TeamKind>(defaultKind);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
   const [departmentId, setDepartmentId] = useState(NONE);
   const [leadId, setLeadId] = useState(NONE);
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
   const [problem, setProblem] = useState<string>();
+  const isClient = kind === 'client';
 
   // Reset each time it opens, so a cancelled edit does not leak into the next.
   // Keyed on the id, not the object: the record is a fresh object on every
@@ -71,13 +79,16 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
+    setKind(team?.kind ?? defaultKind);
     setName(team?.name ?? '');
     setCode(team?.code ?? '');
     setDescription(team?.description ?? '');
     setDepartmentId(team?.department?.id ?? defaultDepartmentId ?? NONE);
     setLeadId(team?.lead?.id ?? NONE);
+    setContactEmail(team?.contactEmail ?? '');
+    setContactPhone(team?.contactPhone ?? '');
     setProblem(undefined);
-  }, [open, team?.id, defaultDepartmentId]);
+  }, [open, team?.id, defaultDepartmentId, defaultKind]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -91,9 +102,12 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
     const input = {
       name: name.trim(),
       code: code.trim().toUpperCase(),
+      kind,
       description: description.trim() || undefined,
       departmentId: sent(departmentId),
       leadId: sent(leadId),
+      // Empty clears it on an edit; a team keeps whatever it had.
+      ...(isClient ? { contactEmail: contactEmail.trim(), contactPhone: contactPhone.trim() } : {}),
     };
 
     if (!input.name) return setProblem(t('A name is required.'));
@@ -101,7 +115,15 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
     if (!CODE_PATTERN.test(input.code)) return setProblem(t(CODE_PROBLEM));
 
     const onSuccess = () => {
-      toast.success(isEdit ? t('Team updated') : t('Team created'));
+      toast.success(
+        isClient
+          ? isEdit
+            ? t('Client updated')
+            : t('Client added')
+          : isEdit
+            ? t('Team updated')
+            : t('Team created'),
+      );
       onOpenChange(false);
     };
     const onError = (error: unknown) =>
@@ -135,13 +157,30 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
             column layout for the body to scroll under a pinned footer. */}
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{isEdit ? t('Edit team') : t('New team')}</DialogTitle>
+            <DialogTitle>
+              {isClient ? (isEdit ? t('Edit client') : t('New client')) : isEdit ? t('Edit team') : t('New team')}
+            </DialogTitle>
             <DialogDescription>
-              {t('Teams exist only in EPM. Nothing about them leaves it.')}
+              {isClient
+                ? t('Clients exist only in EPM. Nothing about them leaves it.')
+                : t('Teams exist only in EPM. Nothing about them leaves it.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="epm-dialog-body epm-scroll -me-1 space-y-4 py-1 pe-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="team-kind">{t('Type')}</Label>
+              <Select value={kind} onValueChange={(value) => setKind(value === 'client' ? 'client' : 'internal')}>
+                <SelectTrigger id="team-kind" aria-label={t('Type')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal">{t('Internal team')}</SelectItem>
+                  <SelectItem value="client">{t('External client')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="team-name" required>
                 {t('Name')}
@@ -152,11 +191,40 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
                 maxLength={120}
                 autoFocus
                 onChange={(event) => setName(event.target.value)}
-                placeholder={t('Platform Delivery')}
+                placeholder={isClient ? t('The client’s company name') : t('Platform Delivery')}
               />
             </div>
 
-            <CodeField id="team-code" value={code} onChange={setCode} placeholder="PLAT" />
+            <CodeField id="team-code" value={code} onChange={setCode} placeholder={isClient ? 'CLIENT' : 'PLAT'} />
+
+            {isClient ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="team-email">{t('Contact email')}</Label>
+                  <Input
+                    id="team-email"
+                    type="email"
+                    dir="ltr"
+                    value={contactEmail}
+                    maxLength={254}
+                    onChange={(event) => setContactEmail(event.target.value)}
+                    placeholder="name@client.com"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="team-phone">{t('Contact phone')}</Label>
+                  <Input
+                    id="team-phone"
+                    type="tel"
+                    dir="ltr"
+                    value={contactPhone}
+                    maxLength={40}
+                    onChange={(event) => setContactPhone(event.target.value)}
+                    placeholder="+971 4 000 0000"
+                  />
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="team-department">{t('Department')}</Label>
@@ -182,24 +250,28 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
                 </SelectContent>
               </Select>
               <FieldHint>
-                {!departments.isLoading && options.length === 0
-                  ? t('No departments yet. A team may exist without one.')
-                  : t('A team may exist without one.')}
+                {isClient
+                  ? t('The department that serves this client, if one does.')
+                  : !departments.isLoading && options.length === 0
+                    ? t('No departments yet. A team may exist without one.')
+                    : t('A team may exist without one.')}
               </FieldHint>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="team-lead">{t('Lead')}</Label>
+              <Label htmlFor="team-lead">{isClient ? t('Account manager') : t('Lead')}</Label>
               <Select
                 value={users.isLoading ? '' : leadId}
                 onValueChange={setLeadId}
                 disabled={users.isLoading}
               >
-                <SelectTrigger id="team-lead" aria-label={t('Select a lead')}>
-                  <SelectValue placeholder={users.isLoading ? t('Loading…') : t('No lead')} />
+                <SelectTrigger id="team-lead" aria-label={isClient ? t('Select an account manager') : t('Select a lead')}>
+                  <SelectValue
+                    placeholder={users.isLoading ? t('Loading…') : isClient ? t('No account manager') : t('No lead')}
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NONE}>{t('No lead')}</SelectItem>
+                  <SelectItem value={NONE}>{isClient ? t('No account manager') : t('No lead')}</SelectItem>
                   {people.map((user) => (
                     <SelectItem key={user.id} value={String(user.id)}>
                       {user.name}
@@ -220,7 +292,7 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
                 value={description}
                 maxLength={2000}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder={t('What this team delivers.')}
+                placeholder={isClient ? t('What the organisation delivers for this client.') : t('What this team delivers.')}
               />
             </div>
 
@@ -232,7 +304,7 @@ export function TeamDialog({ open, onOpenChange, team, defaultDepartmentId }: Te
               {t('Cancel')}
             </Button>
             <Button type="submit" loading={create.isPending || update.isPending}>
-              {isEdit ? t('Save changes') : t('Create team')}
+              {isEdit ? t('Save changes') : isClient ? t('Add client') : t('Create team')}
             </Button>
           </DialogFooter>
         </form>

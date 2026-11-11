@@ -125,6 +125,11 @@ function partsLine(measure: MeasureResult): string {
         actual: formatMeasure(parts.actual ?? 0, 'money'),
         budget: formatMeasure(parts.budget ?? 0, 'money'),
       });
+    case 'effort.consumed':
+      return t('{actual} of {planned}', {
+        actual: formatMeasure(parts.actual ?? 0, 'hours'),
+        planned: formatMeasure(parts.planned ?? 0, 'hours'),
+      });
     case 'sprint.velocity':
       return t('{sprints, plural, one {over # sprint} other {over # sprints}}', { sprints: parts.sprints ?? 0 });
     case 'evm.pv':

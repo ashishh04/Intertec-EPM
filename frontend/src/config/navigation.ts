@@ -17,10 +17,12 @@ import {
   ListTodo,
   MailCheck,
   Megaphone,
+  Milestone,
   PieChart,
   Plug,
   ScrollText,
   Settings,
+  ShieldAlert,
   ShieldCheck,
   SquareKanban,
   Timer,
@@ -51,6 +53,13 @@ export interface NavItem {
   permission?: Permission | readonly Permission[];
   /** Shown only to these roles. Absent means every role. */
   roles?: readonly AppRole[];
+  /**
+   * A group: a heading that opens and closes over these links. `to` is where
+   * the group leads when the sidebar is folded to icons.
+   */
+  children?: NavItem[];
+  /** Other addresses that open this same page, e.g. a default tab. */
+  aliases?: string[];
 }
 
 export interface NavSection {
@@ -142,13 +151,32 @@ export const NAV_SECTIONS: NavSection[] = [
       { get label() { return t('Boards'); }, to: '/boards', icon: SquareKanban },
       { get label() { return t('Sprints'); }, to: '/sprints', icon: Gauge },
       { get label() { return t('Gantt'); }, to: '/gantt', icon: GanttChartSquare },
+      // Every project's milestones on one timeline, and the risk register.
+      { get label() { return t('Milestones'); }, to: '/milestones', icon: Milestone },
+      { get label() { return t('Risk register'); }, to: '/risks', icon: ShieldAlert },
       { get label() { return t('Resources'); }, to: '/resources', icon: UsersRound, permission: RESOURCES_PERMISSIONS },
     ],
   },
   {
     get title() { return t('Insights'); },
     items: [
-      { get label() { return t('Dashboards'); }, to: '/insights', icon: PieChart, matchNested: true, roles: ROLE_ACCESS.insights },
+      {
+        get label() { return t('Dashboards'); },
+        to: '/insights',
+        icon: PieChart,
+        roles: ROLE_ACCESS.insights,
+        // The dashboards a manager opens most; the rest are tabs on the page.
+        children: [
+          {
+            get label() { return t('Portfolio dashboard'); },
+            to: '/insights/portfolio-health',
+            aliases: ['/insights'],
+            icon: PieChart,
+          },
+          { get label() { return t('Manager dashboard'); }, to: '/insights/manager', icon: Gauge },
+          { get label() { return t('Resource utilisation'); }, to: '/insights/utilisation', icon: UsersRound },
+        ],
+      },
       { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true, roles: ROLE_ACCESS.insights },
       { get label() { return t('Scenarios'); }, to: '/scenarios', icon: GitCompare, matchNested: true, permission: 'scenarios:manage' },
       { get label() { return t('Forecasts'); }, to: '/forecasts', icon: TrendingUp, roles: ROLE_ACCESS.insights },
@@ -174,7 +202,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     get title() { return t('Collaboration'); },
     items: [
-      { get label() { return t('Teams'); }, to: '/teams', icon: Users, matchNested: true },
+      // Internal teams and external clients, as two tabs of one page.
+      { get label() { return t('Teams & clients'); }, to: '/teams', icon: Users, matchNested: true },
       { get label() { return t('Meetings'); }, to: '/meetings', icon: CalendarClock, matchNested: true },
       { get label() { return t('News'); }, to: '/news', icon: Megaphone },
       { get label() { return t('Wiki'); }, to: '/wiki', icon: BookOpen, matchNested: true },
@@ -212,12 +241,29 @@ export const NAV_SECTIONS: NavSection[] = [
  */
 export function visibleNavSections(can: (permission: Permission) => boolean, role: AppRole): NavSection[] {
   const forRole = (roles?: readonly AppRole[]) => !roles || roles.includes(role);
+  const allowed = (item: NavItem) => forRole(item.roles) && holdsPermission(can, item.permission);
   return NAV_SECTIONS.filter((section) => forRole(section.roles))
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => forRole(item.roles) && holdsPermission(can, item.permission)),
+      items: section.items
+        .filter(allowed)
+        // A group keeps the links in it this person may open, and goes when none is left.
+        .map((item) => (item.children ? { ...item, children: item.children.filter(allowed) } : item))
+        .filter((item) => !item.children || item.children.length > 0),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+/** Whether a link is the page open now: its own address, an alias, or (when nested) below it. */
+export function navItemActive(item: NavItem, pathname: string): boolean {
+  if (item.children) return item.children.some((child) => navItemActive(child, pathname));
+  if (pathname === item.to || item.aliases?.includes(pathname)) return true;
+  return Boolean(item.matchNested) && pathname.startsWith(`${item.to}/`);
+}
+
+/** A section's links with each group opened out into the links in it, for menus that cannot nest. */
+export function flatNavItems(items: NavItem[]): NavItem[] {
+  return items.flatMap((item) => item.children ?? [item]);
 }
 
 /** The Administration section, filtered to what this person may open. */
