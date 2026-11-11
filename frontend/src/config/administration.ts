@@ -260,6 +260,12 @@ export const ADMIN_AREAS: AdminArea[] = [
         get description() { return t('Defaults for new projects, such as enabled modules and visibility.'); },
       },
       {
+        id: 'attributes',
+        get label() { return t('Project attributes'); },
+        kind: 'live',
+        get description() { return t('Fields every project can carry, such as a cost centre or a sponsor, grouped in sections.'); },
+      },
+      {
         id: 'health-rules',
         get label() { return t('Health rules'); },
         kind: 'live',

@@ -118,6 +118,7 @@ services:
       # membership of every new project. setup/service-account.rb makes the account.
       - ./zzz_epm_service.rb:/app/config/initializers/zzz_epm_service.rb:ro
       - ./zzz_epm_no_demo_projects.rb:/app/config/initializers/zzz_epm_no_demo_projects.rb:ro
+      - ./zzz_epm_project.rb:/app/config/initializers/zzz_epm_project.rb:ro
 
 volumes:
   openproject-db:

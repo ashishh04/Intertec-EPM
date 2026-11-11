@@ -61,6 +61,7 @@ COPY zzz_epm_calculated.rb      /app/config/initializers/zzz_epm_calculated.rb
 COPY zzz_epm_costs.rb           /app/config/initializers/zzz_epm_costs.rb
 COPY zzz_epm_service.rb         /app/config/initializers/zzz_epm_service.rb
 COPY zzz_epm_no_demo_projects.rb /app/config/initializers/zzz_epm_no_demo_projects.rb
+COPY zzz_epm_project.rb /app/config/initializers/zzz_epm_project.rb
 
 # Configuration scripts, run on demand rather than at boot — the governance
 # types (Change Request, Risk) the approval chains and health rules use, the

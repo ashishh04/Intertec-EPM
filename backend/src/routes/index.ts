@@ -52,6 +52,8 @@ import { reportRoutes } from './reports.js';
 import { riskRoutes } from './risks.js';
 import { reservedIdentifierRoutes } from './reserved-identifiers.js';
 import { statusReportRoutes } from './status-reports.js';
+import { projectSettingRoutes } from './project-settings.js';
+import { programRoutes } from './programs.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { taskSeriesRoutes } from './task-series.js';
@@ -90,6 +92,10 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(reservedIdentifierRoutes);
   // Status reports on projects and portfolios, written by their managers.
   await app.register(statusReportRoutes);
+  // A project's modules, attributes, template flag, life cycle and roadmap, and copying one.
+  await app.register(projectSettingRoutes);
+  // Programs: projects run together, between a portfolio and its projects.
+  await app.register(programRoutes);
   await app.register(sprintRoutes);
   await app.register(dashboardRoutes);
   await app.register(reportRoutes);

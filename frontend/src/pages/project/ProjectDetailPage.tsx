@@ -25,7 +25,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { PROJECT_TABS } from '@/config/navigation';
+import { PROJECT_TAB_MODULE, PROJECT_TABS } from '@/config/navigation';
+import { useProjectModules } from '@/hooks/useProjectSettings';
 import { useProject } from '@/hooks/useProjects';
 import { useUserMap } from '@/hooks/useUsers';
 import {
@@ -125,6 +126,9 @@ export default function ProjectDetailPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const { data: project, isLoading, isError, error, refetch } = useProject(projectId);
   const users = useUserMap();
+  // Which modules the project uses decides which tabs it has. Until that is
+  // known every tab shows, so a slow answer never hides one that is in use.
+  const modules = useProjectModules(projectId);
 
   if (isError) {
     // A project that is not there, or not there for this person, has nothing to
@@ -164,6 +168,13 @@ export default function ProjectDetailPage() {
   const mayArchive = project.status !== 'paused' && project.can.archive;
   const mayRestore = project.status === 'paused' && project.can.remove;
   const mayChangeState = mayArchive || mayRestore || project.can.remove;
+
+  const enabledModules = modules.data ? new Set(modules.data.modules.filter((module) => module.enabled).map((module) => module.name)) : undefined;
+  const visibleTabs = PROJECT_TABS.filter((tab) => {
+    if (tab.segment === 'settings') return canInProject(projectId, 'project:edit');
+    const needed = PROJECT_TAB_MODULE[tab.segment];
+    return !needed || !enabledModules || enabledModules.has(needed);
+  });
 
   return (
     <div className="space-y-5">
@@ -269,10 +280,10 @@ export default function ProjectDetailPage() {
         </span>
       </div>
 
-      {/* Project navigation */}
+      {/* Project navigation: tabs whose module the project has switched off are left out. */}
       <nav aria-label={t('Project sections')} className="epm-scroll -mx-1 overflow-x-auto px-1 pb-1">
         <ul className="inline-flex min-w-max items-center gap-1 rounded-full bg-muted p-1">
-          {PROJECT_TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <li key={tab.segment || 'overview'}>
               <NavLink
                 to={tab.segment ? `/projects/${project.id}/${tab.segment}` : `/projects/${project.id}`}

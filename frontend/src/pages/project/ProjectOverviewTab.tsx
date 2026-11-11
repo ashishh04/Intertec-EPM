@@ -27,6 +27,7 @@ import {
 import { useSetProjectOwner } from '@/hooks/useProjects';
 import { toast } from 'sonner';
 import { ProjectPortfolioCard } from '@/components/portfolios/ProjectPortfolioCard';
+import { ProjectProgramCard } from '@/components/programs/ProjectProgramCard';
 import { ProjectHierarchyCard } from '@/components/projects/ProjectHierarchyCard';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
 import { PriorityBadge } from '@/components/common/StatusBadge';
@@ -40,6 +41,7 @@ import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
 import { StatusReportsCard } from '@/components/status/StatusReportsCard';
+import { ProjectAttributesCard } from '@/components/projects/ProjectAttributesCard';
 import { PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
 import {
   cn,
@@ -248,6 +250,9 @@ export default function ProjectOverviewTab() {
 
         {/* Where it stands, in its manager's words. */}
         <StatusReportsCard scopeKind="project" scopeId={project.id} mayWrite={canEditProject} />
+
+        {/* The organisation's own fields for projects, with their values here. */}
+        <ProjectAttributesCard projectId={project.id} />
 
         {/* Progress */}
         <Card>
@@ -462,6 +467,8 @@ export default function ProjectOverviewTab() {
         <ProjectHealthCard project={project} />
 
         <ProjectPortfolioCard project={project} />
+
+        <ProjectProgramCard project={project} />
 
         {/* Next to the portfolio card because both answer "where does this
             project sit" — but this one is upstream's own hierarchy, not an

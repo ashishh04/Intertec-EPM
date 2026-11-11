@@ -8,6 +8,7 @@ import { useTeam } from '@/hooks/useTeams';
 import { usePortfolio } from '@/hooks/usePortfolios';
 import { useDepartment } from '@/hooks/useDepartments';
 import { usePortfolioView } from '@/hooks/usePortfolioViews';
+import { useProgram } from '@/hooks/useProjectSettings';
 import { cn } from '@/lib/utils';
 import { findAdminArea, findAdminPage } from '@/config/administration';
 import { t } from '@/lib/i18n';
@@ -19,6 +20,8 @@ const SEGMENT_LABEL: Record<string, string> = {
   get employees() { return t('Employees'); },
   get departments() { return t('Departments'); },
   get portfolios() { return t('Portfolios'); },
+  get programs() { return t('Programs'); },
+  get roadmap() { return t('Roadmap'); },
   get 'portfolio-views'() { return t('Portfolio views'); },
   get 'my-work'() { return t('My Work'); },
   get 'my-time'() { return t('My Time'); },
@@ -84,6 +87,7 @@ export function Breadcrumbs({ className }: { className?: string }) {
   const { data: portfolio } = usePortfolio(params.portfolioId);
   const { data: department } = useDepartment(params.departmentId);
   const { data: view } = usePortfolioView(params.viewId);
+  const { data: program } = useProgram(params.programId);
   // A person's profile in Administration → Users is addressed by id; the
   // account list the page has already loaded names them.
   const onUserProfile = params.areaId === 'users' && params.pageId === 'users' && Boolean(params.itemId);
@@ -120,6 +124,10 @@ export function Breadcrumbs({ className }: { className?: string }) {
       crumbs.push({ label: view?.name ?? t('View'), to: path });
       continue;
     }
+    if (segment === params.programId) {
+      crumbs.push({ label: program?.name ?? t('Program'), to: path });
+      continue;
+    }
 
     if (onUserProfile && index === 3 && segment === params.itemId) {
       crumbs.push({ label: accounts?.find((account) => account.id === segment)?.name ?? t('User'), to: path });
@@ -128,6 +136,12 @@ export function Breadcrumbs({ className }: { className?: string }) {
 
     // An approval link's token is a credential, not a place: never shown.
     if (segments[0] === 'approvals' && segments[1] === 'decide' && index === 2) continue;
+
+    // /dashboard is the Overview; a project's own dashboard is its Dashboard tab.
+    if (segment === 'dashboard' && segments[0] === 'projects' && index > 0) {
+      crumbs.push({ label: t('Dashboard'), to: path });
+      continue;
+    }
 
     // Administration routes carry area and page ids; their labels live in the
     // administration config rather than in the static table above.

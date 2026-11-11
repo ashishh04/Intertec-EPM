@@ -90,6 +90,29 @@ Changes since 1.1.0 (21 October 2026).
   for. The identifiers the delivery system refuses are flagged as you type.
 - **Tasks as cards.** The Tasks page and a project's Tasks tab can show the
   result as cards as well as a table.
+- **Programs** (Insights → Programs). Related projects run together, between a
+  portfolio and its projects. Each program adds up its projects (as many as
+  the reader can see): their health, how far they have got and their budget. A
+  project is in at most one, set on its Overview or the program's page by
+  whoever manages portfolios, and every move is in the project's history.
+- **A project's own Dashboard and Roadmap.** The Dashboard tab shows any of the
+  dashboards for that one project. The Roadmap tab lists its sprints and
+  releases, including those shared from another project, with the work planned
+  into each, how much of it is done and its points.
+- **Project settings** (a project's Settings tab, for whoever may edit it):
+  switch its modules on and off (a module switched off takes its tab away),
+  choose which of the organisation's project attributes it shows, make it a
+  template, and set its life cycle: switch the Initiating, Planning, Executing
+  and Closing phases on and date them. Later phases move when an earlier one's
+  dates change.
+- **Project attributes** (Administration → Projects → Project attributes).
+  Fields every project can carry, such as a cost centre or a sponsor, grouped
+  in sections, each shown on every project or chosen project by project. Their
+  values are set and shown on the project's Overview.
+- **Project templates.** Create → Project → Start from a template makes the new
+  project a copy of it, bringing across what is chosen: its work, versions and
+  sprints, members, boards, saved views, categories, overview, life cycle and
+  wiki.
 - **Teams & clients.** The Teams page has two tabs: internal teams, and
   external clients, each client with a contact email and phone and an account
   manager. A team can be made a client and back, and a name or code is unique
@@ -249,11 +272,18 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    allow-list, the password and document actions, and the custom field and time
    zone lists), so a new backend beside an old `epm-openproject` cannot accept
    invitations, send reset links, open project documents or put a custom field
-   on a type. The backend applies ten database
-   migrations as it starts; nothing else needs running. The last two add the
+   on a type. A new add-on also carries a project's modules, attributes,
+   template flag, life cycle and copies, so without it a project's Settings
+   tab and starting from a template fail. The backend applies eleven database
+   migrations as it starts; nothing else needs running. The last three add the
    risk register's table and the client fields on teams (every existing team
    stays an internal one), then meeting series, agenda items, reserved
-   identifiers and status reports. Both only add.
+   identifiers and status reports, then programs. All of them only add.
+   **Before the images go up, add a column OpenProject's job queue expects.**
+   An instance upgraded from OpenProject 15 lacks it, and every project copy
+   then fails, although the copy carries on and makes the project. The
+   statement does nothing where the column exists:
+   `docker compose -f docker-compose.prod.yml exec -T openproject-db psql -U openproject -d openproject -c "ALTER TABLE good_job_batches ADD COLUMN IF NOT EXISTS jobs_finished_at timestamp(6) with time zone;"`
    The risk register keeps risks as work items of the Risk type. A server that
    never ran the governance types set-up has none: run it (`DEPLOY.md`,
    "Approvals need the governance types"), which is harmless where it has run.
@@ -277,7 +307,9 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    - an administrator signs in and sees Access roles;
    - a reset link sent to yourself arrives and works;
    - an invitation can be accepted;
-   - a document filed under a project opens for another member.
+   - a document filed under a project opens for another member;
+   - a project's Settings tab opens, and a project started from a template
+     opens with the template's tasks (delete it afterwards).
 
    Then ask for the UI test cases that failed on 27 October to be run again.
 7. **Before going live**, clear what testing left behind (`DEPLOY.md`,

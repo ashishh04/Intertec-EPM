@@ -14,6 +14,7 @@ import {
   Gauge,
   LayoutDashboard,
   Layers,
+  Layers3,
   ListTodo,
   MailCheck,
   Megaphone,
@@ -178,6 +179,8 @@ export const NAV_SECTIONS: NavSection[] = [
         ],
       },
       { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true, roles: ROLE_ACCESS.insights },
+      // Related projects run together, between a portfolio and its projects.
+      { get label() { return t('Programs'); }, to: '/programs', icon: Layers3, matchNested: true, roles: ROLE_ACCESS.insights },
       { get label() { return t('Scenarios'); }, to: '/scenarios', icon: GitCompare, matchNested: true, permission: 'scenarios:manage' },
       { get label() { return t('Forecasts'); }, to: '/forecasts', icon: TrendingUp, roles: ROLE_ACCESS.insights },
       { get label() { return t('Reports'); }, to: '/reports', icon: FileText, roles: ROLE_ACCESS.reporting },
@@ -294,9 +297,11 @@ export const MOBILE_NAV_ITEMS: NavItem[] = [
 /** Sub-navigation shown inside a project. */
 export const PROJECT_TABS = [
   { get label() { return t('Overview'); }, segment: '' },
+  { get label() { return t('Dashboard'); }, segment: 'dashboard' },
   { get label() { return t('Tasks'); }, segment: 'tasks' },
   { get label() { return t('Board'); }, segment: 'board' },
   { get label() { return t('Sprint'); }, segment: 'sprint' },
+  { get label() { return t('Roadmap'); }, segment: 'roadmap' },
   { get label() { return t('Gantt'); }, segment: 'gantt' },
   { get label() { return t('Team'); }, segment: 'team' },
   { get label() { return t('Documents'); }, segment: 'documents' },
@@ -305,7 +310,24 @@ export const PROJECT_TABS = [
   { get label() { return t('Wiki'); }, segment: 'wiki' },
   { get label() { return t('Activity'); }, segment: 'activity' },
   { get label() { return t('Reports'); }, segment: 'reports' },
+  { get label() { return t('Settings'); }, segment: 'settings' },
 ] as const;
+
+/**
+ * The module a project tab needs, by the delivery system's own name. A tab whose
+ * module the project has switched off is not shown. Tabs not listed always are.
+ */
+export const PROJECT_TAB_MODULE: Partial<Record<(typeof PROJECT_TABS)[number]['segment'], string>> = {
+  tasks: 'work_package_tracking',
+  board: 'board_view',
+  sprint: 'backlogs',
+  roadmap: 'work_package_tracking',
+  gantt: 'gantt',
+  documents: 'documents',
+  meetings: 'meetings',
+  news: 'news',
+  activity: 'activity',
+};
 
 /**
  * Settings categories. `group` splits the page the way OpenProject does: the

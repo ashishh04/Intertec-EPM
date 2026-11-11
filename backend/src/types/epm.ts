@@ -583,6 +583,11 @@ export interface EpmProject {
   openRiskCount: number;
   /** Whether the reader has starred it. Their own: everyone has their own favourites. */
   favorited?: boolean;
+  /** A template other projects can be started from. */
+  templated?: boolean;
+  /** The program it belongs to, if any. */
+  programId?: ID;
+  programName?: string;
   /**
    * The portfolio's name, resolved for display. Falls back to the legacy
    * free-text column for a project that has not been linked yet.
@@ -4831,4 +4836,156 @@ export interface RunningTimer {
   startedAt: string;
   /** The day the time will be logged on. */
   spentOn: ISODate;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Project settings: modules, attributes, templates, life cycle, roadmap       */
+/* -------------------------------------------------------------------------- */
+
+/** A module a project can use, by the delivery system's own name, and whether it does. */
+export interface ProjectModule {
+  name: string;
+  enabled: boolean;
+}
+
+export interface ProjectModules {
+  modules: ProjectModule[];
+  /** Whether the reader may switch modules on and off here. */
+  canEdit: boolean;
+}
+
+/** A project attribute: a field the organisation defines for projects. */
+export interface ProjectAttribute {
+  id: ID;
+  name: string;
+  /** The field's format: string, text, int, float, date, bool, list, user, version, link. */
+  format: string;
+  required: boolean;
+  /** Shown in every project, so it cannot be switched off in one. */
+  forAll: boolean;
+  /** Shown in this project. */
+  enabled: boolean;
+  /** Its value here, as text; absent when empty or not shown. */
+  value?: string;
+}
+
+export interface ProjectAttributeSection {
+  id: ID;
+  name: string;
+  fields: ProjectAttribute[];
+}
+
+export interface ProjectAttributes {
+  sections: ProjectAttributeSection[];
+  /** Whether the reader may choose which attributes this project shows. */
+  canSelect: boolean;
+  /** Whether the reader may change the values. */
+  canEdit: boolean;
+}
+
+/** What a copy of a project brings with it. */
+export interface ProjectCopyOptions {
+  members?: boolean;
+  versions?: boolean;
+  categories?: boolean;
+  workPackages?: boolean;
+  workPackageAttachments?: boolean;
+  wiki?: boolean;
+  queries?: boolean;
+  boards?: boolean;
+  overview?: boolean;
+  phases?: boolean;
+}
+
+export interface ProjectCopyInput {
+  name: string;
+  identifier?: string;
+  parentId?: ID | null;
+  copy?: ProjectCopyOptions;
+}
+
+/** A copy being made, in the background. */
+export interface ProjectCopyJob {
+  jobId: ID;
+  status: 'in_queue' | 'in_process' | 'success' | 'failure' | 'error' | 'cancelled';
+  /** The new project, once it exists. */
+  projectId?: ID;
+  message?: string;
+}
+
+/** One phase of a project's life cycle, with the gates that open and close it. */
+export interface ProjectPhase {
+  definitionId: ID;
+  name: string;
+  position: number;
+  active: boolean;
+  startDate?: ISODate;
+  finishDate?: ISODate;
+  startGate: boolean;
+  startGateName?: string;
+  finishGate: boolean;
+  finishGateName?: string;
+}
+
+export interface ProjectPhases {
+  phases: ProjectPhase[];
+  /** Whether the reader may switch phases on and off here. */
+  canSelect: boolean;
+  /** Whether the reader may date them. */
+  canEdit: boolean;
+  canView: boolean;
+}
+
+/** A version of a project on its roadmap, with the work planned into it. */
+export interface RoadmapVersion {
+  id: ID;
+  name: string;
+  description?: string;
+  status: 'open' | 'locked' | 'closed';
+  startDate?: ISODate;
+  endDate?: ISODate;
+  /** The project that defines it, when shared from another. */
+  definingProjectId?: ID;
+  definingProjectName?: string;
+  total: number;
+  closed: number;
+  pointsTotal: number;
+  pointsDone: number;
+  items: EpmTask[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Programs                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/** A group of related projects run together, between a portfolio and its projects. */
+export interface EpmProgram {
+  id: ID;
+  name: string;
+  code: string;
+  description?: string;
+  /** The portfolio it sits in, if any. */
+  portfolioId?: ID;
+  portfolioName?: string;
+  /** The person running it. */
+  managerId?: ID;
+  managerName?: string;
+  active: boolean;
+  /** Counted from the projects the reader can see. */
+  projectCount: number;
+  health: { healthy: number; warning: number; critical: number; unassessed: number };
+  /** Average completion of its projects, 0-100. */
+  progress: number;
+  budgetTotal: number;
+  budgetUsed: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProgramInput {
+  name: string;
+  code: string;
+  description?: string;
+  portfolioId?: ID | null;
+  managerId?: ID | null;
 }

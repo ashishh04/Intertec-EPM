@@ -147,6 +147,9 @@ model ProjectProfile {
   portfolio          String?
   portfolioId        String?
   portfolioRef       Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Restrict)
+  /// The program the project is run in, if any.
+  programId          String?
+  programRef         Program?   @relation(fields: [programId], references: [id], onDelete: Restrict)
   budgetTotal        Float?
   /// Retired: a hand-typed "spent so far" figure. Actual cost is now calculated
   /// from logged time (see `domain/costs.ts`), so nothing reads or writes this.
@@ -198,6 +201,7 @@ model ProjectProfile {
   updatedAt          DateTime   @updatedAt
 
   @@index([portfolioId])
+  @@index([programId])
   @@map("project_profiles")
 }
 
@@ -416,10 +420,34 @@ model Portfolio {
   updatedAt   DateTime @updatedAt
 
   projects ProjectProfile[]
+  programs Program[]
 
   /// The list route filters on this by default.
   @@index([active])
   @@map("portfolios")
+}
+
+/// A group of related projects run together, between a portfolio and its
+/// projects. EPM-owned: a project belongs to at most one, through its profile.
+model Program {
+  id          String     @id @default(cuid())
+  /// Unique regardless of case, checked before writing, as for portfolios.
+  name        String
+  code        String     @unique
+  description String?
+  portfolioId String?
+  portfolio   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: SetNull)
+  /// OpenProject user id of whoever runs it. Not a relation: people live upstream.
+  managerId   String?
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  projects ProjectProfile[]
+
+  @@index([portfolioId])
+  @@index([active])
+  @@map("programs")
 }
 
 /// A saved portfolio view (BR-203): a set of projects — portfolios, named

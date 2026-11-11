@@ -121,6 +121,9 @@ export interface ProjectOverlay {
   portfolioId?: string | null;
   /** The linked portfolio, whose name supersedes the free text above. */
   portfolioRef?: { name: string } | null;
+  /** The program it is run in, if any. */
+  programId?: string | null;
+  programRef?: { name: string } | null;
   budgetTotal?: number | null;
   /** EPM's own owner. Upstream has no project owner field at all. */
   ownerId?: string | null;
@@ -179,7 +182,7 @@ const isoDay = (value: Date | null | undefined) => (value ? value.toISOString().
 export function toEpmProject(
   project: OpProject,
   aggregates: ProjectAggregates,
-  options: { memberIds?: ID[]; overlay?: ProjectOverlay; health: ProjectHealthView },
+  options: { memberIds?: ID[]; overlay?: ProjectOverlay; health: ProjectHealthView; templated?: boolean },
 ): EpmProject {
   const id = String(project.id);
   // Archiving is a PATCH, so it rides on the update affordance; deletion has
@@ -222,11 +225,15 @@ export function toEpmProject(
     openRiskCount: health.openRisks,
     // Upstream's, and the caller's own: it is starred for them, not for everyone.
     favorited: Boolean(project.favorited),
+    templated: Boolean(options.templated),
     // The link is authoritative. The free-text column is a fallback for a
     // deployment that populated it before portfolios existed; this one never
     // did. Neither is invented — an unassigned project reports nothing.
     portfolio: options.overlay?.portfolioRef?.name ?? options.overlay?.portfolio ?? '',
     portfolioId: options.overlay?.portfolioId ?? undefined,
+    // EPM's own grouping between a portfolio and its projects.
+    programId: options.overlay?.programId ?? undefined,
+    programName: options.overlay?.programRef?.name ?? undefined,
     // Upstream's hierarchy, read from the resource's own link rather than
     // stored here. A project whose parent the caller cannot see reports no
     // parent at all: OpenProject omits the href, and inventing one would name
@@ -250,7 +257,7 @@ export async function getProjectOverlays(): Promise<Map<string, ProjectOverlay>>
   const rows = await optional(
     () =>
       prisma.projectProfile.findMany({
-        include: { portfolioRef: { select: { name: true } } },
+        include: { portfolioRef: { select: { name: true } }, programRef: { select: { name: true } } },
       }),
     [],
   );

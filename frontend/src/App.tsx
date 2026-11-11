@@ -34,6 +34,9 @@ const ProjectNewsTab = lazy(() => import('@/pages/project/ProjectNewsTab'));
 const ProjectWikiTab = lazy(() => import('@/pages/project/ProjectWikiTab'));
 const ProjectActivityTab = lazy(() => import('@/pages/project/ProjectActivityTab'));
 const ProjectReportsTab = lazy(() => import('@/pages/project/ProjectReportsTab'));
+const ProjectDashboardTab = lazy(() => import('@/pages/project/ProjectDashboardTab'));
+const ProjectRoadmapTab = lazy(() => import('@/pages/project/ProjectRoadmapTab'));
+const ProjectSettingsTab = lazy(() => import('@/pages/project/ProjectSettingsTab'));
 const TasksPage = lazy(() => import('@/pages/TasksPage'));
 const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
 const TeamsPage = lazy(() => import('@/pages/TeamsPage'));
@@ -41,6 +44,8 @@ const DepartmentsPage = lazy(() => import('@/pages/DepartmentsPage'));
 const EmployeesPage = lazy(() => import('@/pages/EmployeesPage'));
 const PortfoliosPage = lazy(() => import('@/pages/PortfoliosPage'));
 const PortfolioDetailPage = lazy(() => import('@/pages/PortfolioDetailPage'));
+const ProgramsPage = lazy(() => import('@/pages/ProgramsPage'));
+const ProgramDetailPage = lazy(() => import('@/pages/ProgramDetailPage'));
 const DepartmentDetailPage = lazy(() => import('@/pages/DepartmentDetailPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
@@ -237,6 +242,9 @@ export function App() {
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:projectId" element={<ProjectDetailPage />}>
             <Route index element={<ProjectOverviewTab />} />
+            <Route path="dashboard" element={<ProjectDashboardTab />} />
+            <Route path="roadmap" element={<ProjectRoadmapTab />} />
+            <Route path="settings" element={<ProjectSettingsTab />} />
             <Route path="tasks" element={<ProjectTasksTab />} />
             <Route path="board" element={<ProjectBoardTab />} />
             <Route path="sprint" element={<ProjectSprintTab />} />
@@ -303,6 +311,16 @@ export function App() {
               in. The page still checks `portfolios:manage` before offering edit
               or archive. */}
           <Route path="/portfolios/:portfolioId" element={<PortfolioDetailPage />} />
+          {/* Programs: the list is for managers; one opens for anyone who can see a project in it. */}
+          <Route
+            path="/programs"
+            element={
+              <RequireRole roles={ROLE_ACCESS.insights}>
+                <ProgramsPage />
+              </RequireRole>
+            }
+          />
+          <Route path="/programs/:programId" element={<ProgramDetailPage />} />
           {/* Saved portfolio views (BR-203). The list is for managers; a single view
               opens for anyone it was shared with, showing only the projects they
               may read, and the backend refuses a view not shared with them. */}

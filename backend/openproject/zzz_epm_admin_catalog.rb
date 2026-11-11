@@ -162,6 +162,33 @@ Rails.application.config.to_prepare do
             { key: "isFilter", label: "Usable as a filter", type: "boolean", default: true }
           ]
         },
+        # Project attributes: fields every project can carry, grouped in sections.
+        # Free in OpenProject except three formats (hierarchy, weighted item list,
+        # calculated value), which are not offered. Which projects show one that is
+        # not for all projects is chosen per project (zzz_epm_project.rb).
+        "project-attributes" => {
+          label: "Project attributes",
+          singular: "project attribute",
+          description: "Fields every project can carry, such as a cost centre, a sponsor or a business unit, grouped in sections.",
+          model: -> { ProjectCustomField },
+          order: -> { ProjectCustomField.order(:custom_field_section_id, :position) },
+          fields: [
+            { key: "name", label: "Name", type: "string", required: true },
+            { key: "fieldFormat", label: "Format", type: "enum", options: :project_format_options,
+              required: true, help: "What kind of value it holds. Cannot change once in use." },
+            { key: "possibleValues", label: "Possible values", type: "text",
+              help: "One per line. Only for a list." },
+            { key: "multiValue", label: "Several values", type: "boolean",
+              help: "Lets a project hold more than one of the possible values. Only for a list or a user." },
+            { key: "isRequired", label: "Required", type: "boolean" },
+            { key: "isForAll", label: "For all projects", type: "boolean",
+              help: "Shown in every project. Otherwise each project chooses whether to show it." },
+            { key: "customFieldSectionId", label: "Section", type: "enum", options: :project_section_options,
+              required: true, help: "The heading it is listed under on a project." },
+            { key: "adminOnly", label: "Administrators only", type: "boolean",
+              help: "Only administrators can see or change it." }
+          ]
+        },
         # The instance's user custom fields, under the name its newer releases
         # give them. `build` and `find!` take the model as given here, so these
         # rows are UserCustomField and never touch the work package fields.
@@ -277,9 +304,19 @@ Rails.application.config.to_prepare do
     end
 
     def build(spec)
+      model = spec[:model].call
       # A work package custom field is the only kind this edits; the base class
       # is abstract about what it belongs to.
-      spec[:model].call == CustomField ? WorkPackageCustomField.new : spec[:model].call.new
+      return WorkPackageCustomField.new if model == CustomField
+
+      record = model.new
+      # A project attribute is listed under a section. Left unchosen, it goes
+      # under the first one (made on first use); a chosen one replaces it.
+      if model == ProjectCustomField
+        project_section_options
+        record.custom_field_section_id = ProjectCustomFieldSection.order(:position).first&.id
+      end
+      record
     end
 
     def find!(spec, id)
@@ -526,6 +563,29 @@ Rails.application.config.to_prepare do
 
     def project_options
       Project.active.order(:name).map { |project| { value: project.id.to_s, label: project.name } }
+    end
+
+    # The formats a project attribute can take: those free in this edition.
+    def project_format_options
+      [
+        { value: "string", label: "Text" },
+        { value: "text", label: "Long text" },
+        { value: "int", label: "Integer" },
+        { value: "float", label: "Float" },
+        { value: "list", label: "List" },
+        { value: "date", label: "Date" },
+        { value: "bool", label: "Boolean" },
+        { value: "user", label: "User" },
+        { value: "version", label: "Version" },
+        { value: "link", label: "Link (URL)" }
+      ]
+    end
+
+    # The sections project attributes are listed under. A first one is made when
+    # there is none, so the first attribute has somewhere to go.
+    def project_section_options
+      ProjectCustomFieldSection.create!(name: "Project attributes") if ProjectCustomFieldSection.none?
+      ProjectCustomFieldSection.order(:position).map { |section| { value: section.id.to_s, label: section.name } }
     end
 
     # The formats a user custom field can take: the instance offers user,

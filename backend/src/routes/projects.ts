@@ -105,11 +105,16 @@ export function invalidateProjects() {
 }
 
 async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
-  const [projects, aggregates, members, overlays] = await Promise.all([
+  const [projects, aggregates, members, overlays, templates] = await Promise.all([
     openProject.getAll<OpProject>('/projects', { pageSize: MAX_PAGE_SIZE }, { signal }),
     getProjectAggregates(signal),
     membersByProject(signal),
     getProjectOverlays(),
+    // Which are templates: the flag is a filter upstream, not an attribute.
+    openProject
+      .getAll<OpProject>('/projects', { filters: [{ field: 'templated', operator: '=', values: ['t'] }], pageSize: MAX_PAGE_SIZE }, { signal })
+      .then((found) => new Set(found.items.map((project) => String(project.id))))
+      .catch(() => new Set<string>()),
   ]);
 
   // Stored health, one authoritative value per project, for exactly the
@@ -123,6 +128,7 @@ async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
       // A project without a view reads as not assessed rather than vanishing
       // from the list.
       health: health.get(String(project.id)) ?? unassessedView(message('Health has not been calculated yet.')),
+      templated: templates.has(String(project.id)),
     }),
   );
 }

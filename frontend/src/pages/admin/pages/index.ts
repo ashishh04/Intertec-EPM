@@ -56,6 +56,7 @@ export const ADMIN_PAGE_COMPONENTS: Record<string, LazyExoticComponent<Component
   'work-packages/calculated-fields': lazy(() => import('./CalculatedFieldsPage')),
   'projects/list': lazy(() => import('./ProjectsListPage')),
   'projects/settings': settingsSection('projects'),
+  'projects/attributes': catalog('project-attributes'),
   'projects/health-rules': lazy(() => import('./HealthRulesPage')),
   'projects/earned-value': lazy(() => import('./EarnedValuePage')),
   'automation/rules': lazy(() => import('./RulesPage')),
