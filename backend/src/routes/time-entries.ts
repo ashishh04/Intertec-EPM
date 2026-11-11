@@ -15,7 +15,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { getUsers } from '../mapping/users.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
-import type { EpmTimeEntry, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
+import type { EpmTimeEntry, RunningTimer, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
 import { nonPersonIds } from '../domain/service-account.js';
 import { mayViewRates } from '../auth/guard.js';
 import { message } from '../lib/i18n.js';
@@ -137,6 +137,37 @@ async function withLocks(entries: EpmTimeEntry[]): Promise<EpmTimeEntry[]> {
   return entries.map((entry) =>
     lockOn(locks, entry.userId, entry.spentOn) ? { ...entry, locked: true, can: { update: false, delete: false } } : entry,
   );
+}
+
+/** The caller's running time entry, if any. */
+async function runningEntry(request: FastifyRequest): Promise<OpTimeEntry | undefined> {
+  const found = await openProject
+    .getCollection<OpTimeEntry>(
+      '/time_entries',
+      {
+        filters: [
+          { field: 'ongoing', operator: '=', values: ['t'] },
+          { field: 'user', operator: '=', values: [request.auth!.userId] },
+        ],
+        pageSize: 1,
+      },
+      requestSignal(request),
+    )
+    .catch(() => null);
+  return found?._embedded?.elements?.[0];
+}
+
+function toRunningTimer(entry: OpTimeEntry): RunningTimer {
+  const links = entry._links ?? {};
+  return {
+    id: String(entry.id),
+    workPackageId: linkId(links, 'workPackage') ?? linkId(links, 'entity') ?? '',
+    workPackageSubject: linkTitle(links, 'workPackage') ?? linkTitle(links, 'entity'),
+    projectId: linkId(links, 'project') ?? '',
+    projectName: linkTitle(links, 'project'),
+    startedAt: entry.createdAt,
+    spentOn: entry.spentOn,
+  };
 }
 
 function toEpmTimeEntry(entry: OpTimeEntry): EpmTimeEntry {
@@ -364,6 +395,87 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
    * which is what a personal timesheet wants. OpenProject scopes it to what
    * they may see regardless of what is asked for.
    */
+  /*
+   * The timer: one running time entry per person, kept by the delivery system
+   * itself. Started on a task, it runs until stopped, which logs the time it
+   * ran under the same rules as any other time; or until discarded.
+   */
+
+  /** The caller's running timer, or null. */
+  app.get('/time-entries/timer', async (request): Promise<RunningTimer | null> => {
+    const running = await runningEntry(request);
+    return running ? toRunningTimer(running) : null;
+  });
+
+  /** Starts a timer on a task. One runs at a time: a second is refused with the reason. */
+  app.post<{ Body: unknown }>('/time-entries/timer', async (request, reply): Promise<RunningTimer> => {
+    const { workPackageId, activityId } = z
+      .object({
+        workPackageId: z.string().regex(/^\d+$/, 'That task is not valid.'),
+        activityId: z.string().regex(/^\d+$/).optional(),
+      })
+      .parse(request.body ?? {});
+    if (await runningEntry(request)) throw EpmError.badRequest('A timer is already running. Stop it before starting another.');
+    const spentOn = new Date().toISOString().slice(0, 10);
+    // A timer on a locked day could never be stopped.
+    await assertUnlocked(request.auth!.userId, [spentOn]);
+    const created = await openProject
+      .request<OpTimeEntry>('/time_entries', {
+        method: 'POST',
+        body: {
+          ongoing: true,
+          spentOn,
+          _links: {
+            workPackage: { href: `/api/v3/work_packages/${workPackageId}` },
+            ...(activityId ? { activity: { href: `/api/v3/time_entries/activities/${activityId}` } } : {}),
+          },
+        },
+        signal: requestSignal(request),
+      })
+      .catch(rethrow('That task'));
+    reply.code(201);
+    return toRunningTimer(created);
+  });
+
+  /** Stops the caller's timer and logs the time it ran, to the hundredth of an hour. */
+  app.post<{ Body: unknown }>('/time-entries/timer/stop', async (request): Promise<EpmTimeEntry> => {
+    const { comment } = z.object({ comment: z.string().max(1000).optional() }).parse(request.body ?? {});
+    const running = await runningEntry(request);
+    if (!running) throw EpmError.badRequest('No timer is running.');
+    const timer = toRunningTimer(running);
+    const hours = Math.max(0.01, Math.round(((Date.now() - Date.parse(timer.startedAt)) / 3_600_000) * 100) / 100);
+    const personId = request.auth!.userId;
+    await assertUnlocked(personId, [timer.spentOn]);
+    await assertPolicies({
+      personId,
+      spentOn: timer.spentOn,
+      hours,
+      activityId: linkId(running._links ?? {}, 'activity'),
+      workPackageId: timer.workPackageId,
+      replacingId: timer.id,
+    });
+    const stopped = await openProject
+      .request<OpTimeEntry>(`/time_entries/${timer.id}`, {
+        method: 'PATCH',
+        body: { ongoing: false, hours: hoursToDuration(hours), ...(comment ? { comment: { raw: comment } } : {}) },
+        signal: requestSignal(request),
+      })
+      .catch(rethrow('That time entry'));
+    const entry = toEpmTimeEntry(stopped);
+    spendChanged(entry.projectId);
+    return entry;
+  });
+
+  /** Throws the running timer away without logging anything. */
+  app.delete('/time-entries/timer', async (request, reply) => {
+    const running = await runningEntry(request);
+    if (!running) throw EpmError.badRequest('No timer is running.');
+    await openProject
+      .request<void>(`/time_entries/${running.id}`, { method: 'DELETE', signal: requestSignal(request) })
+      .catch(rethrow('That time entry'));
+    reply.code(204);
+  });
+
   app.get('/time-entries', async (request) => {
     const query = listQuery.parse(request.query);
     const signal = requestSignal(request);

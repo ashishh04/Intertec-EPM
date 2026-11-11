@@ -10,7 +10,10 @@ import { versionFilter, versionIdOf } from '../openproject/versions.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
 import type { OpVersion, OpWorkPackage } from '../openproject/types.js';
-import type { BurndownPoint, EpmSprint } from '../types/epm.js';
+import type { BurndownPoint, EpmSprint, SprintSharing } from '../types/epm.js';
+
+/** Who may plan work into a sprint besides its own project, as the delivery system names it. */
+const SHARINGS = ['none', 'descendants', 'hierarchy', 'tree', 'system'] as const;
 import { sprintStateOf as stateOf } from '../domain/burndown.js';
 
 /**
@@ -93,6 +96,8 @@ function buildSprint(version: OpVersion, context: SprintContext): EpmSprint {
     committedPoints,
     completedPoints: completed,
     burndown,
+    sharing: (SHARINGS as readonly string[]).includes(version.sharing) ? (version.sharing as SprintSharing) : 'none',
+    canEdit: Boolean(version._links && (Object.hasOwn(version._links, 'update') || Object.hasOwn(version._links, 'updateImmediately'))),
   };
 }
 
@@ -237,7 +242,7 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
    * answers "may this caller define a version here" authoritatively, 200 or
    * 403. That is the check, made as the caller.
    */
-  app.post<{ Body: { name?: unknown; projectId?: unknown; startDate?: unknown; endDate?: unknown } }>(
+  app.post<{ Body: { name?: unknown; projectId?: unknown; startDate?: unknown; endDate?: unknown; sharing?: unknown } }>(
     '/sprints',
     async (request, reply) => {
       const name = typeof request.body?.name === 'string' ? request.body.name.trim() : '';
@@ -253,6 +258,7 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
       const { startDate, endDate } = z
         .object({ startDate: calendarDay().optional(), endDate: calendarDay().optional() })
         .parse({ startDate: request.body?.startDate || undefined, endDate: request.body?.endDate || undefined });
+      const sharing = z.enum(SHARINGS).optional().parse(request.body?.sharing || undefined);
 
       const mayDefine = await openProject
         .request<unknown>('/versions/form', {
@@ -275,6 +281,9 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
           // `startDate`. Both optional — a version with neither is a backlog.
           ...(startDate ? { startDate } : {}),
           ...(endDate ? { endDate } : {}),
+          // Which other projects may use it. The delivery system decides who may
+          // share how widely (all projects is an administrator's), and says so.
+          ...(sharing ? { sharing } : {}),
           _links: { definingProject: { href: `/api/v3/projects/${projectId}` } },
         },
         signal: requestSignal(request),
@@ -347,6 +356,27 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
       return buildSprint(updated, await contextFor(updated, signal));
     },
   );
+
+  /**
+   * Changes who may plan work into a sprint besides its own project. Refused,
+   * with the delivery system's reason, when the caller may not share it that
+   * widely.
+   */
+  app.patch<{ Params: { id: string }; Body: { sharing?: unknown } }>('/sprints/:id/sharing', async (request) => {
+    const { id } = request.params;
+    if (!/^\d+$/.test(id)) throw EpmError.notFound('That sprint');
+    const sharing = z.enum(SHARINGS).parse(request.body?.sharing);
+    const signal = requestSignal(request);
+    const version = await openProject.request<OpVersion>(`/versions/${id}`, { signal }).catch(() => null);
+    if (!version) throw EpmError.notFound('That sprint');
+    const links = version._links ?? {};
+    if (!Object.hasOwn(links, 'update') && !Object.hasOwn(links, 'updateImmediately')) {
+      throw EpmError.forbidden('You do not have permission to change this sprint.');
+    }
+    const updated = await openProject.request<OpVersion>(`/versions/${id}`, { method: 'PATCH', body: { sharing }, signal });
+    aggregateCache.invalidatePrefix('sprints');
+    return buildSprint(updated, await contextFor(updated, signal));
+  });
 
   /**
    * Deletes a sprint.

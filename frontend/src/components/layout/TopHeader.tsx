@@ -1,19 +1,13 @@
-import { Suspense, lazy, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
-  CalendarClock,
   CircleHelp,
-  FolderPlus,
   Info,
-  Megaphone,
   Keyboard,
   Menu,
-  Plus,
   Search,
   Sparkles,
-  Timer,
-  ListPlus,
   LifeBuoy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,10 +24,10 @@ import { InfoTooltip } from '@/components/ui/tooltip';
 import { Breadcrumbs } from './Breadcrumbs';
 import { NotificationPanel } from './NotificationPanel';
 import { UserMenu } from './UserMenu';
+import { CreateMenu } from './CreateMenu';
+import { TimerIndicator } from '@/components/time/TimerIndicator';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { AboutDialog } from './AboutDialog';
-import { ProjectDialog } from '@/components/common/ProjectDialog';
-import { SprintDialog } from '@/components/sprints/SprintDialog';
 import { useUI } from '@/providers/UIProvider';
 import { APP_NAME, featureFlags } from '@/config/env';
 import { shortcutHint } from '@/config/shortcuts';
@@ -41,37 +35,12 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { t } from '@/lib/i18n';
 
-/*
- * The Create menu's heavier dialogs, loaded on demand.
- *
- * The header is in the shell's critical chunk — it paints on every page — and
- * importing these statically put their pickers, their markdown preview and their
- * hooks in it too, for a dialog most page loads never open. Lazily, they cost
- * nothing until the menu item is chosen.
- *
- * Mounted only while open, rather than rendered closed: a lazy component that is
- * mounted has already been fetched, which would defeat the point.
- */
-const MeetingDialog = lazy(() =>
-  import('@/components/meetings/MeetingDialog').then((module) => ({
-    default: module.MeetingDialog,
-  })),
-);
-
-const NewsDialog = lazy(() =>
-  import('@/components/news/NewsDialog').then((module) => ({ default: module.NewsDialog })),
-);
-
 /** Sticky application header: context on the left, search and actions on the right. */
 export function TopHeader() {
-  const { setCommandPaletteOpen, setMobileNavOpen, openTaskDrawer, openPragnya } = useUI();
-  const [projectOpen, setProjectOpen] = useState(false);
-  const [sprintOpen, setSprintOpen] = useState(false);
+  const { setCommandPaletteOpen, setMobileNavOpen, openPragnya } = useUI();
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [meetingOpen, setMeetingOpen] = useState(false);
-  const [newsOpen, setNewsOpen] = useState(false);
-  const { can, canAnywhere } = useAuth();
+  const { can } = useAuth();
   const navigate = useNavigate();
 
   // Read from the shortcut registry rather than written here, so the chip on
@@ -123,56 +92,11 @@ export function TopHeader() {
         <Search className="h-4 w-4" />
       </Button>
 
-      {/* Create */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="sm" className="shrink-0">
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('Create')}</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuLabel>{t('Create new')}</DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={() => openTaskDrawer()}
-            disabled={!canAnywhere('task:create')}
-          >
-            <ListPlus />
-            {t('New Task')}
-            <DropdownMenuShortcut>C</DropdownMenuShortcut>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={!can('project:create')}
-            onSelect={() => setProjectOpen(true)}
-          >
-            <FolderPlus />
-            {t('New Project')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setSprintOpen(true)}>
-            <Timer />
-            {t('New Sprint')}
-          </DropdownMenuItem>
+      {/* Create: every kind of thing a person can start from anywhere. */}
+      <CreateMenu />
 
-          {/* The collaboration modules. Meetings and announcements open their own
-              dialog, which carries a project picker — so creating one from the
-              header works without a project in context. A wiki page cannot: it is
-              created inside a tree, at a position, so this opens the wiki and lets
-              the person choose where it goes. */}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setMeetingOpen(true)}>
-            <CalendarClock />
-            {t('New Meeting')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setNewsOpen(true)}>
-            <Megaphone />
-            {t('New Announcement')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => navigate('/wiki')}>
-            <BookOpen />
-            {t('New Wiki page')}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* A running timer, while there is one. */}
+      <TimerIndicator />
 
       <NotificationPanel />
 
@@ -248,19 +172,9 @@ export function TopHeader() {
 
       <UserMenu />
 
-      <Suspense fallback={null}>
-        {meetingOpen ? <MeetingDialog open onOpenChange={setMeetingOpen} /> : null}
-        {newsOpen ? <NewsDialog open onOpenChange={setNewsOpen} /> : null}
-      </Suspense>
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
 
-      <ProjectDialog open={projectOpen} onOpenChange={setProjectOpen} />
-      <SprintDialog
-        open={sprintOpen}
-        onOpenChange={setSprintOpen}
-        onCreated={(sprint) => navigate(`/agile?sprint=${sprint.id}`)}
-      />
     </header>
   );
 }

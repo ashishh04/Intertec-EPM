@@ -581,6 +581,8 @@ export interface EpmProject {
   completedTaskCount: number;
   /** Open work packages of a risk type, at any priority. */
   openRiskCount: number;
+  /** Whether the reader has starred it. Their own: everyone has their own favourites. */
+  favorited?: boolean;
   /**
    * The portfolio's name, resolved for display. Falls back to the legacy
    * free-text column for a project that has not been linked yet.
@@ -907,7 +909,17 @@ export interface EpmSprint {
   completedPoints: number;
   /** Ideal vs. actual remaining points, one entry per sprint day. */
   burndown: BurndownPoint[];
+  /** Which other projects may plan work into it, besides the one that defines it. */
+  sharing: SprintSharing;
+  /** Whether the reader may change it. */
+  canEdit: boolean;
 }
+
+/**
+ * Who may use a sprint besides its own project: nobody, its sub-projects, its
+ * whole hierarchy (up and down), every project in its tree, or every project.
+ */
+export type SprintSharing = 'none' | 'descendants' | 'hierarchy' | 'tree' | 'system';
 
 /* -------------------------------------------------------------------------- */
 /* Activity, notifications, documents                                          */
@@ -1779,10 +1791,59 @@ export interface EpmMeeting extends CollaborationScope {
   createdAt: ISODate;
   updatedAt: ISODate;
   can: RecordAbilities;
+  /** The series it is an occurrence of, when it repeats. */
+  series?: MeetingSeriesInfo;
+}
+
+export type MeetingFrequency = 'daily' | 'workdays' | 'weekly' | 'fortnightly' | 'monthly';
+
+export interface MeetingSeriesInfo {
+  id: ID;
+  frequency: MeetingFrequency;
+  /** The last day an occurrence may fall on; absent when the series has no end. */
+  until?: ISODate;
+}
+
+/** One item on a meeting's agenda, perhaps about a task. */
+export interface MeetingAgendaItem {
+  id: ID;
+  meetingId: ID;
+  position: number;
+  title: string;
+  durationMinutes?: number;
+  presenterId?: ID;
+  presenterName?: string;
+  /** Markdown: what was said and decided. */
+  notes?: string;
+  /** The task it is about, as the reader sees it: only its id when they may not see it. */
+  task?: MeetingAgendaTask;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+}
+
+export interface MeetingAgendaTask {
+  id: ID;
+  /** False when the reader may not see the task: then only its id is given. */
+  visible: boolean;
+  key?: string;
+  subject?: string;
+  status?: string;
+  statusCategory?: TaskStatusCategory;
+  projectId?: ID;
+}
+
+export interface MeetingAgendaItemInput {
+  title?: string;
+  durationMinutes?: number | null;
+  workPackageId?: ID | null;
+  presenterId?: ID | null;
+  notes?: string | null;
 }
 
 export interface MeetingFilters {
   projectId?: ID;
+  /** Only meetings with this task on their agenda. */
+  workPackageId?: ID;
   /** `upcoming` is from now on; `past` is everything before. */
   window?: 'upcoming' | 'past' | 'all';
   state?: MeetingState;
@@ -1803,6 +1864,8 @@ export interface MeetingInput {
   state?: MeetingState;
   /** The full participant list. Sending it replaces whatever was there. */
   participantIds?: ID[];
+  /** Makes it repeat, from this first occurrence. On create only. */
+  repeat?: { frequency: MeetingFrequency; until?: ISODate; timeZone?: string };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -4687,4 +4750,85 @@ export interface MilestoneEntry {
   /** Open past its date. */
   overdue: boolean;
   assigneeId?: ID;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reserved project identifiers                                               */
+/* -------------------------------------------------------------------------- */
+
+/** A project identifier an administrator keeps back for a project to come. */
+export interface ReservedIdentifierEntry {
+  identifier: string;
+  /** What it is kept for, shown to whoever tries to use it. */
+  note?: string;
+  reservedBy: ID;
+  reservedByName?: string;
+  createdAt: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Status reports                                                             */
+/* -------------------------------------------------------------------------- */
+
+/** How a manager rates where something stands. */
+export type StatusRating = 'on_track' | 'at_risk' | 'off_track';
+
+/** Where a project or a portfolio stands, in its manager's words. */
+export interface StatusReport {
+  id: ID;
+  scopeKind: 'project' | 'portfolio';
+  scopeId: ID;
+  /** The project's or portfolio's name, for a list that mixes them. */
+  scopeName?: string;
+  /** The day the report speaks for. */
+  reportDate: ISODate;
+  overall: StatusRating;
+  schedule?: StatusRating;
+  budget?: StatusRating;
+  scope?: StatusRating;
+  resources?: StatusRating;
+  /** Markdown. */
+  summary: string;
+  achievements?: string;
+  nextSteps?: string;
+  issues?: string;
+  createdBy: ID;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Whether the reader may change or delete it. */
+  canEdit: boolean;
+}
+
+export interface StatusReportInput {
+  scopeKind: 'project' | 'portfolio';
+  scopeId: ID;
+  reportDate: ISODate;
+  overall: StatusRating;
+  schedule?: StatusRating | null;
+  budget?: StatusRating | null;
+  scope?: StatusRating | null;
+  resources?: StatusRating | null;
+  summary: string;
+  achievements?: string | null;
+  nextSteps?: string | null;
+  issues?: string | null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Timer                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** A timer running for the reader on one task: stopping it logs the time. */
+export interface RunningTimer {
+  /** The running time entry. */
+  id: ID;
+  workPackageId: ID;
+  workPackageSubject?: string;
+  projectId: ID;
+  projectName?: string;
+  /** When it started. */
+  startedAt: string;
+  /** The day the time will be logged on. */
+  spentOn: ISODate;
 }

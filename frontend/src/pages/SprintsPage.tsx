@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Flag, Plus, Timer } from 'lucide-react';
 import { SprintDialog } from '@/components/sprints/SprintDialog';
+import { SprintSharingSelect } from '@/components/sprints/SprintSharingSelect';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -126,6 +127,9 @@ export default function SprintsPage() {
                         <p className="mt-0.5 font-mono text-2xs tabular-nums text-muted-foreground">
                           {formatShortDate(sprint.startDate)} — {formatShortDate(sprint.endDate)}
                         </p>
+                        <div className="mt-1.5">
+                          <SprintSharingSelect sprint={sprint} />
+                        </div>
                       </div>
 
                       <dl className="flex gap-6 text-end">

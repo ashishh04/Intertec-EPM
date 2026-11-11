@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { projectService } from '@/services';
+import { projectService, projectWriteService } from '@/services';
 import { apiClient, retryUnlessNotFound } from '@/services/api/client';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
-import type { HealthOverride, ID, ProjectPlanInput } from '@/types';
+import type { EpmProject, HealthOverride, ID, ProjectPlanInput } from '@/types';
 
 export function useProjects(params?: { search?: string; status?: string[] }) {
   return useQuery({
@@ -40,6 +40,27 @@ export function useSetProjectOwner() {
       for (const key of invalidationGroups.projectWrite) {
         void client.invalidateQueries({ queryKey: key });
       }
+    },
+  });
+}
+
+/**
+ * Stars or unstars a project for the reader. The star turns at once, and
+ * turns back if the change is refused.
+ */
+export function useToggleFavoriteProject() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { id: ID; favorite: boolean }) => projectWriteService.setFavorite(vars.id, vars.favorite),
+    onMutate: (vars) => {
+      for (const [key, data] of client.getQueriesData<EpmProject[]>({ queryKey: ['projects'] })) {
+        if (Array.isArray(data)) {
+          client.setQueryData(key, data.map((project) => (project.id === vars.id ? { ...project, favorited: vars.favorite } : project)));
+        }
+      }
+    },
+    onSettled: () => {
+      for (const key of invalidationGroups.projectWrite) void client.invalidateQueries({ queryKey: key });
     },
   });
 }

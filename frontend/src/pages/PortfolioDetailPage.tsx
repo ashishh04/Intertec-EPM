@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { PortfolioDialog } from '@/components/portfolios/PortfolioDialog';
 import { OverviewPeriodSelect, overviewQuery, type OverviewPeriodId } from '@/components/portfolios/OverviewPeriodSelect';
 import { PortfolioOverviewPanel } from '@/components/portfolios/PortfolioOverviewPanel';
+import { StatusReportsCard } from '@/components/status/StatusReportsCard';
 import { blankView, PortfolioViewDialog } from '@/components/portfolios/PortfolioViewDialog';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Badge } from '@/components/ui/badge';
@@ -136,6 +137,9 @@ export default function PortfolioDetailPage() {
           >
             {overview.data ? <PortfolioOverviewPanel overview={overview.data} stale={overview.isPlaceholderData} /> : null}
           </QueryBoundary>
+
+          {/* Where the portfolio stands, in its manager's words. */}
+          <StatusReportsCard scopeKind="portfolio" scopeId={portfolio.data.id} mayWrite={mayManage || can('health:manage')} />
 
           {/* Teams are derived from the members of this portfolio's projects,
               never declared on the portfolio itself. */}

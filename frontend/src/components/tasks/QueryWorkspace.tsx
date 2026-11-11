@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ListTree, Pencil, Sigma, Star, Trash2 } from 'lucide-react';
+import { LayoutGrid, ListTree, Pencil, Rows3, Sigma, Star, Trash2 } from 'lucide-react';
 
 import { ColumnPicker } from './ColumnPicker';
 import { QueryBuilder } from './QueryBuilder';
+import { TaskCardGrid } from './TaskCardGrid';
 import { TaskTable, TaskTableSkeleton } from './TaskTable';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 import { ConfirmDialog, PromptDialog } from '@/components/common/ConfirmDialog';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Button } from '@/components/ui/button';
@@ -161,6 +163,9 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
    * at once produces an arrangement that answers to neither.
    */
   const [hierarchy, setHierarchy] = useState(true);
+  // Table or cards, remembered in this browser. Cards are the same result,
+  // flat, for reading at a glance; the table keeps columns, sorting and bulk edits.
+  const [layout, setLayout] = useLocalStorage<'table' | 'cards'>('epm.tasks.layout', 'table');
   // Which confirmation is open. Bulk delete carries the ids so the dialog can
   // say how many rows are about to go.
   const [renaming, setRenaming] = useState(false);
@@ -608,8 +613,31 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
             selected={effectiveColumns}
             onChange={setColumns}
             required={REQUIRED_COLUMNS}
-            disabled={schemaQuery.isLoading}
+            disabled={schemaQuery.isLoading || layout === 'cards'}
           />
+
+          <div className="flex shrink-0 items-center rounded-lg border border-border p-0.5" role="group" aria-label={t('Layout')}>
+            <Button
+              variant={layout === 'table' ? 'secondary' : 'ghost'}
+              size="icon-sm"
+              aria-pressed={layout === 'table'}
+              aria-label={t('Table')}
+              title={t('Table')}
+              onClick={() => setLayout('table')}
+            >
+              <Rows3 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant={layout === 'cards' ? 'secondary' : 'ghost'}
+              size="icon-sm"
+              aria-pressed={layout === 'cards'}
+              aria-label={t('Cards')}
+              title={t('Cards')}
+              onClick={() => setLayout('cards')}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -623,6 +651,30 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
         // the toolbar and column controls stay put when a filter matches nothing.
         errorTitle={t('This view could not be loaded')}
       >
+        {layout === 'cards' ? (
+          <TaskCardGrid
+            tasks={result.data?.tasks ?? []}
+            projects={projectsById}
+            users={users}
+            total={result.data?.total ?? 0}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+            hideProject={Boolean(projectId)}
+            emptyAction={
+              (projectId ? canInProject(projectId, 'task:create') : canAnywhere('task:create'))
+                ? {
+                    label: t('New task'),
+                    onClick: () => openTaskDrawer(projectId ? { projectId } : undefined),
+                  }
+                : undefined
+            }
+          />
+        ) : (
         <TaskTable
           tasks={result.data?.tasks ?? []}
           projects={projectsById}
@@ -680,6 +732,7 @@ export function QueryWorkspace({ projectId, className }: QueryWorkspaceProps) {
               : undefined
           }
         />
+        )}
       </QueryBoundary>
 
       {current ? (

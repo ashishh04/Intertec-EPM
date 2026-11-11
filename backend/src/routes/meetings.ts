@@ -11,10 +11,19 @@ import {
   visibleProjects,
 } from '../domain/collaboration.js';
 import { notifyMeetingInvited } from '../domain/collaboration-notifications.js';
+import { MEETING_FREQUENCIES, type MeetingFrequency } from '../domain/meeting-series.js';
+import { createSeries, endSeriesAfter, topUpSeriesSoon } from '../domain/meeting-occurrences.js';
+import { isTimeZone } from '../domain/report-schedule.js';
 import { prisma } from '../db/prisma.js';
 import { EpmError } from '../lib/errors.js';
+import { calendarDay } from '../lib/dates.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
-import type { EpmMeeting, MeetingState } from '../types/epm.js';
+import { requestSignal } from '../lib/request-signal.js';
+import { getCatalog } from '../mapping/catalog.js';
+import { projectIdentifiers } from '../mapping/projects.js';
+import { toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
+import { openProject } from '../openproject/client.js';
+import type { EpmMeeting, MeetingAgendaItem, MeetingAgendaTask, MeetingState } from '../types/epm.js';
 
 /**
  * Meetings.
@@ -35,6 +44,8 @@ const STATES = ['planned', 'held', 'cancelled'] as const;
 
 const listQuery = z.object({
   projectId: z.string().optional(),
+  /** Only meetings with this work package on their agenda. */
+  workPackageId: z.string().regex(/^\d+$/).optional(),
   window: z.enum(['upcoming', 'past', 'all']).default('upcoming'),
   state: z.enum(STATES).optional(),
   participantId: z.string().optional(),
@@ -54,9 +65,25 @@ const writeBody = z.object({
   minutes: z.string().max(50_000).optional(),
   state: z.enum(STATES).optional(),
   participantIds: z.array(z.string()).max(200).optional(),
+  /** Makes it repeat from this first occurrence. On create only. */
+  repeat: z
+    .object({
+      frequency: z.enum(MEETING_FREQUENCIES),
+      until: calendarDay().optional(),
+      timeZone: z.string().optional(),
+    })
+    .optional(),
 });
 
-const patchBody = writeBody.partial();
+const patchBody = writeBody.omit({ repeat: true }).partial();
+
+const agendaBody = z.object({
+  title: z.string().trim().max(300).optional(),
+  durationMinutes: z.coerce.number().int().min(1).max(24 * 60).nullable().optional(),
+  workPackageId: z.string().regex(/^\d+$/, 'That task is not valid.').nullable().optional(),
+  presenterId: z.string().regex(/^\d+$/).nullable().optional(),
+  notes: z.string().max(20_000).nullable().optional(),
+});
 
 type MeetingRow = {
   id: string;
@@ -72,10 +99,12 @@ type MeetingRow = {
   createdAt: Date;
   updatedAt: Date;
   participants: { userId: string; invited: boolean; attended: boolean }[];
+  series: { id: string; frequency: string; until: Date | null } | null;
 };
 
 const withParticipants = {
   participants: { select: { userId: true, invited: true, attended: true } },
+  series: { select: { id: true, frequency: true, until: true } },
 } as const;
 
 /** Every user id a meeting mentions, for one directory lookup per response. */
@@ -118,7 +147,88 @@ function toEpmMeeting(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     can,
+    ...(row.series
+      ? {
+          series: {
+            id: row.series.id,
+            frequency: row.series.frequency as MeetingFrequency,
+            ...(row.series.until ? { until: row.series.until.toISOString().slice(0, 10) } : {}),
+          },
+        }
+      : {}),
   };
+}
+
+type AgendaRow = {
+  id: string;
+  meetingId: string;
+  position: number;
+  title: string;
+  durationMinutes: number | null;
+  workPackageId: number | null;
+  presenterId: string | null;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/**
+ * The tasks agenda items are about, as the reader sees them.
+ *
+ * Read as the caller, so a task in a project they cannot see comes back as an
+ * id alone: the item stays on the agenda without telling them what it is.
+ */
+async function agendaTasks(request: FastifyRequest, ids: number[]): Promise<Map<number, MeetingAgendaTask>> {
+  const unique = [...new Set(ids)];
+  const found = new Map<number, MeetingAgendaTask>();
+  if (unique.length === 0) return found;
+  const signal = requestSignal(request);
+  const [catalog, identifiers, collection] = await Promise.all([
+    getCatalog(signal),
+    projectIdentifiers(signal),
+    openProject
+      .getCollection<WorkPackageWithPoints>(
+        '/work_packages',
+        { filters: [{ field: 'id', operator: '=', values: unique.map(String) }], pageSize: unique.length },
+        signal,
+      )
+      .catch(() => null),
+  ]);
+  for (const workPackage of collection?._embedded?.elements ?? []) {
+    const task = toEpmTask(workPackage, catalog, identifiers);
+    found.set(Number(task.id), {
+      id: task.id,
+      visible: true,
+      key: task.key,
+      subject: task.subject,
+      status: task.status.name,
+      statusCategory: task.statusCategory,
+      projectId: task.projectId,
+    });
+  }
+  for (const id of unique) if (!found.has(id)) found.set(id, { id: String(id), visible: false });
+  return found;
+}
+
+async function toAgendaItems(request: FastifyRequest, rows: AgendaRow[]): Promise<MeetingAgendaItem[]> {
+  const [tasks, names] = await Promise.all([
+    agendaTasks(request, rows.flatMap((row) => (row.workPackageId === null ? [] : [row.workPackageId]))),
+    namesFor(rows.flatMap((row) => (row.presenterId ? [row.presenterId] : []))),
+  ]);
+  return rows.map((row) => ({
+    id: row.id,
+    meetingId: row.meetingId,
+    position: row.position,
+    title: row.title,
+    ...(row.durationMinutes === null ? {} : { durationMinutes: row.durationMinutes }),
+    ...(row.presenterId
+      ? { presenterId: row.presenterId, ...(names.has(row.presenterId) ? { presenterName: names.get(row.presenterId)! } : {}) }
+      : {}),
+    ...(row.notes ? { notes: row.notes } : {}),
+    ...(row.workPackageId === null ? {} : { task: tasks.get(row.workPackageId)! }),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
 }
 
 /**
@@ -142,6 +252,8 @@ async function readable(request: FastifyRequest, id: string): Promise<MeetingRow
 export const meetingRoutes: FastifyPluginAsync = async (app) => {
   app.get('/meetings', async (request) => {
     const query = listQuery.parse(request.query);
+    // Repeating meetings with no end are made ahead and topped up as time passes.
+    topUpSeriesSoon();
     const page = resolvePage(query.page, query.pageSize);
     const now = new Date();
 
@@ -164,6 +276,9 @@ export const meetingRoutes: FastifyPluginAsync = async (app) => {
       ...(query.window === 'past' ? { startsAt: { lt: now } } : {}),
       ...(query.participantId
         ? { participants: { some: { userId: query.participantId } } }
+        : {}),
+      ...(query.workPackageId
+        ? { agendaItems: { some: { workPackageId: Number(query.workPackageId) } } }
         : {}),
     };
 
@@ -214,6 +329,35 @@ export const meetingRoutes: FastifyPluginAsync = async (app) => {
 
     const projectId = optionalProjectId(input.projectId);
     await requireScopeWrite(request, projectId);
+
+    if (input.repeat) {
+      const startsAt = new Date(input.startsAt);
+      const timeZone = input.repeat.timeZone && isTimeZone(input.repeat.timeZone) ? input.repeat.timeZone : 'UTC';
+      if (input.repeat.until && input.repeat.until < input.startsAt.slice(0, 10)) {
+        throw EpmError.badRequest('A series cannot end before its first meeting.');
+      }
+      const participantIds = uniqueParticipants(input.participantIds ?? [userId]);
+      const { firstMeetingId } = await createSeries({
+        title: input.title,
+        projectId: projectId ?? null,
+        location: input.location || null,
+        durationMinutes: input.durationMinutes,
+        agenda: input.agenda || null,
+        participantIds,
+        frequency: input.repeat.frequency,
+        firstStartsAt: startsAt,
+        timeZone,
+        until: input.repeat.until ?? null,
+        createdBy: userId,
+      });
+      if (!firstMeetingId) throw EpmError.badRequest('That series has no meeting in it.');
+      const first = await prisma.meeting.findUniqueOrThrow({ where: { id: firstMeetingId }, include: withParticipants });
+      // One invitation, for the first: a mail for every occurrence would bury it.
+      void notifyMeetingInvited(first, participantIds, userId);
+      const [names, projects] = await Promise.all([namesFor(peopleIn([first])), visibleProjects(request)]);
+      reply.code(201);
+      return toEpmMeeting(first, names, projects, { update: true, delete: true });
+    }
 
     const row = await prisma.meeting.create({
       data: {
@@ -378,6 +522,119 @@ export const meetingRoutes: FastifyPluginAsync = async (app) => {
     });
     const [names, projects] = await Promise.all([namesFor(peopleIn([row])), visibleProjects(request)]);
     return toEpmMeeting(row, names, projects, { update: true, delete: true });
+  });
+
+  /**
+   * Ends a repeating meeting's series after this occurrence. Later occurrences
+   * are removed unless something happened in them; those are kept and counted.
+   */
+  app.post<{ Params: { id: string } }>('/meetings/:id/end-series', async (request) => {
+    const existing = await readable(request, request.params.id);
+    await requireRecordWrite(request, { authorId: existing.createdBy, projectId: existing.projectId }, 'meeting');
+    if (!existing.series) throw EpmError.badRequest('That meeting does not repeat.');
+    return endSeriesAfter(existing.id);
+  });
+
+  /** The agenda, item by item, in order. */
+  app.get<{ Params: { id: string } }>('/meetings/:id/agenda-items', async (request) => {
+    const meeting = await readable(request, request.params.id);
+    const rows = await prisma.meetingAgendaItem.findMany({
+      where: { meetingId: meeting.id },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    });
+    return toAgendaItems(request, rows);
+  });
+
+  /**
+   * Adds an item, perhaps about a task. A task item takes the task's title
+   * unless it is given one; the task must be one the caller can see.
+   */
+  app.post<{ Params: { id: string }; Body: unknown }>('/meetings/:id/agenda-items', async (request, reply) => {
+    const input = agendaBody.parse(request.body ?? {});
+    const meeting = await readable(request, request.params.id);
+    await requireRecordWrite(request, { authorId: meeting.createdBy, projectId: meeting.projectId }, 'meeting');
+
+    let title = input.title?.trim() ?? '';
+    const workPackageId = input.workPackageId ? Number(input.workPackageId) : null;
+    if (workPackageId !== null) {
+      const task = (await agendaTasks(request, [workPackageId])).get(workPackageId);
+      if (!task?.visible) throw EpmError.badRequest('That task could not be found.');
+      if (!title) title = task.subject ?? '';
+    }
+    if (!title) throw EpmError.badRequest('A title is required.');
+
+    const last = await prisma.meetingAgendaItem.aggregate({ where: { meetingId: meeting.id }, _max: { position: true } });
+    const row = await prisma.meetingAgendaItem.create({
+      data: {
+        meetingId: meeting.id,
+        position: (last._max.position ?? 0) + 1,
+        title,
+        durationMinutes: input.durationMinutes ?? null,
+        workPackageId,
+        presenterId: input.presenterId ?? null,
+        notes: input.notes || null,
+        createdBy: request.auth!.userId,
+      },
+    });
+    reply.code(201);
+    return (await toAgendaItems(request, [row]))[0];
+  });
+
+  app.patch<{ Params: { id: string; itemId: string }; Body: unknown }>(
+    '/meetings/:id/agenda-items/:itemId',
+    async (request) => {
+      const input = agendaBody.parse(request.body ?? {});
+      if (Object.keys(input).length === 0) throw EpmError.badRequest('Nothing to change.');
+      const meeting = await readable(request, request.params.id);
+      await requireRecordWrite(request, { authorId: meeting.createdBy, projectId: meeting.projectId }, 'meeting');
+      const item = await prisma.meetingAgendaItem.findFirst({ where: { id: request.params.itemId, meetingId: meeting.id } });
+      if (!item) throw EpmError.notFound('That agenda item');
+
+      const workPackageId =
+        input.workPackageId === undefined ? undefined : input.workPackageId ? Number(input.workPackageId) : null;
+      if (workPackageId) {
+        const task = (await agendaTasks(request, [workPackageId])).get(workPackageId);
+        if (!task?.visible) throw EpmError.badRequest('That task could not be found.');
+      }
+      if (input.title !== undefined && !input.title.trim()) throw EpmError.badRequest('A title is required.');
+
+      const row = await prisma.meetingAgendaItem.update({
+        where: { id: item.id },
+        data: {
+          ...(input.title === undefined ? {} : { title: input.title.trim() }),
+          ...(input.durationMinutes === undefined ? {} : { durationMinutes: input.durationMinutes }),
+          ...(workPackageId === undefined ? {} : { workPackageId }),
+          ...(input.presenterId === undefined ? {} : { presenterId: input.presenterId }),
+          ...(input.notes === undefined ? {} : { notes: input.notes || null }),
+        },
+      });
+      return (await toAgendaItems(request, [row]))[0];
+    },
+  );
+
+  /** Puts the agenda in the order given: every item, by id. */
+  app.put<{ Params: { id: string }; Body: unknown }>('/meetings/:id/agenda-items/order', async (request) => {
+    const { ids } = z.object({ ids: z.array(z.string()).max(500) }).parse(request.body ?? {});
+    const meeting = await readable(request, request.params.id);
+    await requireRecordWrite(request, { authorId: meeting.createdBy, projectId: meeting.projectId }, 'meeting');
+    const items = await prisma.meetingAgendaItem.findMany({ where: { meetingId: meeting.id }, select: { id: true } });
+    const known = new Set(items.map((item) => item.id));
+    if (ids.length !== known.size || ids.some((id) => !known.has(id)) || new Set(ids).size !== ids.length) {
+      throw EpmError.badRequest('Give every item on the agenda, once each.');
+    }
+    await prisma.$transaction(
+      ids.map((id, index) => prisma.meetingAgendaItem.update({ where: { id }, data: { position: index + 1 } })),
+    );
+    const rows = await prisma.meetingAgendaItem.findMany({ where: { meetingId: meeting.id }, orderBy: { position: 'asc' } });
+    return toAgendaItems(request, rows);
+  });
+
+  app.delete<{ Params: { id: string; itemId: string } }>('/meetings/:id/agenda-items/:itemId', async (request, reply) => {
+    const meeting = await readable(request, request.params.id);
+    await requireRecordWrite(request, { authorId: meeting.createdBy, projectId: meeting.projectId }, 'meeting');
+    const deleted = await prisma.meetingAgendaItem.deleteMany({ where: { id: request.params.itemId, meetingId: meeting.id } });
+    if (deleted.count === 0) throw EpmError.notFound('That agenda item');
+    reply.code(204);
   });
 
   app.delete<{ Params: { id: string } }>('/meetings/:id', async (request, reply) => {

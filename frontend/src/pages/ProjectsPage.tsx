@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowUpDown, FolderKanban, LayoutGrid, List, Plus } from 'lucide-react';
+import { ArrowUpDown, FolderKanban, LayoutGrid, List, Plus, Star } from 'lucide-react';
 import { TableCard } from '@/components/common/DataTable';
 import { ListToolbar, ResultCount, SearchInput } from '@/components/common/ListToolbar';
 import { PageHeader } from '@/components/common/PageHeader';
@@ -13,6 +13,7 @@ import { ProjectCardSkeleton, ProjectHealthCard } from '@/components/common/Proj
 import { ProjectStatusBadge, HealthIndicator } from '@/components/common/StatusBadge';
 import { AvatarGroup } from '@/components/common/UserAvatar';
 import { Button } from '@/components/ui/button';
+import { FavoriteStar } from '@/components/projects/FavoriteStar';
 import { Card } from '@/components/ui/card';
 import { ProgressBar } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -124,21 +125,25 @@ export default function ProjectsPage() {
     [projectsQuery.data],
   );
 
-  const projects = useMemo(
-    () =>
-      sortProjects(
-        (projectsQuery.data ?? []).filter(
-          (project) => portfolio === ALL || project.portfolio === portfolio,
-        ),
-        sort,
+  // Favourites only, remembered in this browser.
+  const [favouritesOnly, setFavouritesOnly] = useLocalStorage<boolean>('epm.projects.favourites', false);
+
+  const projects = useMemo(() => {
+    const sorted = sortProjects(
+      (projectsQuery.data ?? []).filter(
+        (project) =>
+          (portfolio === ALL || project.portfolio === portfolio) && (!favouritesOnly || project.favorited),
       ),
-    [projectsQuery.data, portfolio, sort],
-  );
+      sort,
+    );
+    // Starred projects first, each group in the chosen order.
+    return [...sorted.filter((project) => project.favorited), ...sorted.filter((project) => !project.favorited)];
+  }, [projectsQuery.data, portfolio, sort, favouritesOnly]);
 
   // Paging resets whenever the query behind the list, or its order, changes.
   const paged = usePagination(projects, {
     pageSize: view === 'grid' ? 12 : 15,
-    resetKey: `${debouncedSearch}|${status}|${portfolio}|${view}|${sort}`,
+    resetKey: `${debouncedSearch}|${status}|${portfolio}|${view}|${sort}|${favouritesOnly}`,
   });
 
   const summary = useMemo(() => {
@@ -219,6 +224,16 @@ export default function ProjectsPage() {
           placeholder={t('Search projects...')}
           aria-label={t('Search projects')}
         />
+
+        <Button
+          variant={favouritesOnly ? 'secondary' : 'ghost'}
+          size="sm"
+          aria-pressed={favouritesOnly}
+          onClick={() => setFavouritesOnly(!favouritesOnly)}
+        >
+          <Star className={cn('h-3.5 w-3.5', favouritesOnly && 'fill-current text-warning')} />
+          {t('Favourites')}
+        </Button>
 
         <Select value={portfolio} onValueChange={setPortfolio}>
           <SelectTrigger className="h-8 w-auto min-w-36 text-xs" aria-label={t('Filter by portfolio')}>
@@ -313,7 +328,7 @@ export default function ProjectsPage() {
                     show: { opacity: 1, y: 0, transition: { duration: 0.26 } },
                   }}
                 >
-                  <ProjectHealthCard project={project} users={users} />
+                  <ProjectHealthCard project={project} users={users} corner={<FavoriteStar project={project} />} />
                 </motion.div>
               ))}
             </motion.div>
@@ -363,7 +378,8 @@ export default function ProjectsPage() {
               <TableBody>
                 {paged.items.map((project) => (
                   <TableRow key={project.id} interactive>
-                    <TableCell>
+                    <TableCell className="flex items-center gap-1">
+                      <FavoriteStar project={project} />
                       <Link
                         to={`/projects/${project.id}`}
                         className="flex items-center gap-2 font-medium text-foreground hover:text-primary"

@@ -1,10 +1,11 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { identifierProblem } from '../domain/reserved-identifiers.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
-import { message } from '../lib/i18n.js';
+import { contextConventions, contextLanguage, message, render } from '../lib/i18n.js';
 import { markCalculatedInForm } from '../domain/calculated-fields.js';
 
 /**
@@ -71,6 +72,19 @@ async function requestForm(
   return toFormResult(form);
 }
 
+/**
+ * Adds a reserved identifier to the form's own validation, so the project form
+ * says so while it is being filled in. Only an identifier the person typed is
+ * checked: on an edit form, the one the project already has is its own.
+ */
+async function withIdentifierCheck(request: FastifyRequest, form: FormResult, editing = false): Promise<FormResult> {
+  const sent = (request.body as { payload?: Record<string, unknown> } | undefined)?.payload?.identifier;
+  if (editing && sent === undefined) return form;
+  const problem = await identifierProblem(sent ?? form.payload.identifier, await guard.holds(request, 'users:manage'));
+  if (!problem) return form;
+  return { ...form, errors: { ...form.errors, identifier: render(contextLanguage(), problem, contextConventions()) }, commit: undefined };
+}
+
 export const formRoutes: FastifyPluginAsync = async (app) => {
   /**
    * Schema for creating a work package in a project.
@@ -135,7 +149,10 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
   /** Schema for creating a project — including every custom project field. */
   app.post<{ Body: { payload?: Record<string, unknown> } }>('/forms/projects', async (request) => {
     await guard.require(request, 'project:create');
-    return requestForm('/projects/form', request.body?.payload ?? {}, requestSignal(request));
+    return withIdentifierCheck(
+      request,
+      await requestForm('/projects/form', request.body?.payload ?? {}, requestSignal(request)),
+    );
   });
 
   /** Schema for editing a project. */
@@ -143,10 +160,10 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
     '/forms/projects/:id',
     async (request) => {
       await guard.require(request, 'project:edit', request.params.id);
-      return requestForm(
-        `/projects/${request.params.id}/form`,
-        request.body?.payload ?? {},
-        requestSignal(request),
+      return withIdentifierCheck(
+        request,
+        await requestForm(`/projects/${request.params.id}/form`, request.body?.payload ?? {}, requestSignal(request)),
+        true,
       );
     },
   );

@@ -263,4 +263,9 @@ export class ApiProjectWriteRepository {
   remove(id: ID) {
     return apiClient.delete<void>(`/projects/${id}`);
   }
+
+  /** Stars or unstars the project for the reader alone. */
+  setFavorite(id: ID, favorite: boolean) {
+    return favorite ? apiClient.post<void>(`/projects/${id}/favorite`) : apiClient.delete<void>(`/projects/${id}/favorite`);
+  }
 }

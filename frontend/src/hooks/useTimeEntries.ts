@@ -87,3 +87,28 @@ export function useDeleteTimeEntry() {
     onSuccess: invalidate,
   });
 }
+
+/** The reader's running timer, checked every minute and whenever the window regains focus. */
+export function useRunningTimer() {
+  return useQuery({
+    queryKey: ['time-entries', 'timer'],
+    queryFn: () => timeEntryService.timer(),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+}
+
+/** Starts, stops (logging the time) and discards the timer. */
+export function useTimerMutations() {
+  const client = useQueryClient();
+  const invalidate = useTimeInvalidation();
+  const settle = () => {
+    void client.invalidateQueries({ queryKey: ['time-entries', 'timer'] });
+    invalidate();
+  };
+  return {
+    start: useMutation({ mutationFn: (workPackageId: ID) => timeEntryService.startTimer(workPackageId), onSuccess: settle }),
+    stop: useMutation({ mutationFn: (comment?: string) => timeEntryService.stopTimer(comment), onSuccess: settle }),
+    discard: useMutation({ mutationFn: () => timeEntryService.discardTimer(), onSuccess: settle }),
+  };
+}

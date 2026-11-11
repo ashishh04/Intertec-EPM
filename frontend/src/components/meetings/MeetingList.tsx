@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CalendarClock, Clock, MapPin, Plus, Users } from 'lucide-react';
+import { CalendarClock, Clock, MapPin, Plus, Repeat, Users } from 'lucide-react';
 
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { MeetingDialog } from '@/components/meetings/MeetingDialog';
+import { frequencyLabel, seriesLabel } from '@/components/meetings/meetingRepeat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -233,6 +234,12 @@ function MeetingCard({
           {showProject ? (
             <Badge tone="neutral" size="sm">
               {meeting.projectName ?? (meeting.projectId ? t('Project') : t('Organisation-wide'))}
+            </Badge>
+          ) : null}
+          {meeting.series ? (
+            <Badge tone="accent" size="sm" title={seriesLabel(meeting.series)}>
+              <Repeat className="h-3 w-3" aria-hidden />
+              {frequencyLabel(meeting.series.frequency)}
             </Badge>
           ) : null}
         </div>

@@ -31,6 +31,7 @@ import { clauses } from '../domain/notifications.js';
 import { contextLanguage, contextReader, dateOf, listOf, message, type Message } from '../lib/i18n.js';
 import { forgetProjectBaselines } from '../domain/earned-value-store.js';
 import { forgetProjectSeries } from '../domain/task-series.js';
+import { assertIdentifierAllowed, releaseTaken } from '../domain/reserved-identifiers.js';
 
 const listQuery = z.object({
   search: z.string().optional(),
@@ -98,7 +99,7 @@ export async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
  * Not scoped to the caller: a project's name, parent or portfolio is the same
  * for everyone who can see it, so one person's edit staleness is everyone's.
  */
-function invalidateProjects() {
+export function invalidateProjects() {
   aggregateCache.invalidatePrefix('projects');
   aggregateCache.invalidatePrefix('project-aggregates');
 }
@@ -368,6 +369,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       // The overlay keys below stay supported for the curated screens.
       const payload = patch.payload;
       if (payload && typeof payload === 'object') {
+        const identifier = (payload as { identifier?: unknown }).identifier;
+        const mayUseReserved = await guard.holds(request, 'users:manage');
+        if (identifier !== undefined) await assertIdentifierAllowed(identifier, mayUseReserved);
         await openProject.request<{ id: number }>(`/projects/${id}`, {
           method: 'PATCH',
           body: payload,
@@ -432,12 +436,17 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
       // Project creation is a global capability in OpenProject.
       await guard.require(request, 'project:create');
+      // A reserved identifier is an administrator's to give out.
+      const mayUseReserved = await guard.holds(request, 'users:manage');
+      await assertIdentifierAllowed(payload.identifier, mayUseReserved);
 
-      const created = await openProject.request<{ id: number; name: string }>('/projects', {
+      const created = await openProject.request<{ id: number; name: string; identifier?: string }>('/projects', {
         method: 'POST',
         body: payload,
         signal: requestSignal(request),
       });
+      // Taken now, so no longer held back.
+      if (mayUseReserved) await releaseTaken(created.identifier ?? payload.identifier);
 
       invalidateProjects();
       await noteRuleEvent({
@@ -453,6 +462,24 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       return { id: String(created.id), name: created.name };
     },
   );
+
+  /**
+   * Stars or unstars a project for the caller. Their own favourites, kept by
+   * the delivery system per person: nobody can star a project for anyone else.
+   */
+  app.post<{ Params: { id: string } }>('/projects/:id/favorite', async (request, reply) => {
+    if (!/^\d+$/.test(request.params.id)) throw EpmError.notFound('That project');
+    await openProject.request(`/projects/${request.params.id}/favorite`, { method: 'POST', signal: requestSignal(request) });
+    invalidateProjects();
+    reply.code(204);
+  });
+
+  app.delete<{ Params: { id: string } }>('/projects/:id/favorite', async (request, reply) => {
+    if (!/^\d+$/.test(request.params.id)) throw EpmError.notFound('That project');
+    await openProject.request(`/projects/${request.params.id}/favorite`, { method: 'DELETE', signal: requestSignal(request) });
+    invalidateProjects();
+    reply.code(204);
+  });
 
   /** Archive rather than delete: OpenProject deletion is asynchronous and final. */
 

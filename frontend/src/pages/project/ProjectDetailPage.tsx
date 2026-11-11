@@ -12,6 +12,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { PageHeader } from '@/components/common/PageHeader';
+import { FavoriteStar } from '@/components/projects/FavoriteStar';
 import { ErrorState } from '@/components/common/ErrorState';
 import { ProjectStatusBadge } from '@/components/common/StatusBadge';
 import { AvatarGroup, UserAvatar } from '@/components/common/UserAvatar';
@@ -176,7 +177,12 @@ export default function ProjectDetailPage() {
         }
         title={project.name}
         description={project.description}
-        meta={<ProjectStatusBadge status={project.status} />}
+        meta={
+          <>
+            <ProjectStatusBadge status={project.status} />
+            <FavoriteStar project={project} />
+          </>
+        }
         actions={
           <>
             <div className="hidden items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 sm:flex">

@@ -39,6 +39,7 @@ import { useProject, useProjectMilestones } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
 import { useAuth } from '@/providers/AuthProvider';
+import { StatusReportsCard } from '@/components/status/StatusReportsCard';
 import { PROJECT_STATUS_META, TONE_FILL } from '@/lib/domain';
 import {
   cn,
@@ -244,6 +245,9 @@ export default function ProjectOverviewTab() {
             </dl>
           </CardContent>
         </Card>
+
+        {/* Where it stands, in its manager's words. */}
+        <StatusReportsCard scopeKind="project" scopeId={project.id} mayWrite={canEditProject} />
 
         {/* Progress */}
         <Card>

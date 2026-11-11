@@ -27,7 +27,18 @@ import { useProjects } from '@/hooks/useProjects';
 import { useUsers } from '@/hooks/useUsers';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
-import type { EpmMeeting, ID, MeetingState } from '@/types';
+import type { EpmMeeting, ID, MeetingFrequency, MeetingState } from '@/types';
+import { frequencyLabel } from './meetingRepeat';
+
+/** The patterns a meeting can repeat on, in the order people reach for them. */
+const REPEATS: { value: MeetingFrequency; label: string }[] = (
+  ['weekly', 'fortnightly', 'workdays', 'daily', 'monthly'] as MeetingFrequency[]
+).map((value) => ({
+  value,
+  get label() {
+    return frequencyLabel(value);
+  },
+}));
 
 /**
  * Schedules or edits a meeting.
@@ -85,6 +96,8 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
   const [state, setState] = useState<MeetingState>('planned');
   const [agenda, setAgenda] = useState('');
   const [participants, setParticipants] = useState<MultiSelectOption[]>([]);
+  const [repeat, setRepeat] = useState<MeetingFrequency | 'none'>('none');
+  const [until, setUntil] = useState('');
   const [problem, setProblem] = useState<string>();
 
   const projectsQuery = useProjects();
@@ -129,6 +142,8 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
           ? [{ id: user.id, name: user.name }]
           : [],
     );
+    setRepeat('none');
+    setUntil('');
     setProblem(undefined);
   }, [open, meeting, projectId, user]);
 
@@ -141,6 +156,9 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
 
     const startsAt = new Date(`${date}T${time}`);
     if (Number.isNaN(startsAt.getTime())) return setProblem(t('That date and time could not be read.'));
+    if (!meeting && repeat !== 'none' && until && until < date) {
+      return setProblem(t('A series cannot end before its first meeting.'));
+    }
 
     const input = {
       title: title.trim(),
@@ -172,13 +190,28 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
       return;
     }
 
-    create.mutate(input, {
-      onSuccess: () => {
-        toast.success(t('Meeting scheduled'));
-        onOpenChange(false);
+    create.mutate(
+      {
+        ...input,
+        // Every occurrence keeps this start time on the organiser's own clock.
+        ...(repeat !== 'none'
+          ? {
+              repeat: {
+                frequency: repeat,
+                until: until || undefined,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              },
+            }
+          : {}),
       },
-      onError: failed,
-    });
+      {
+        onSuccess: () => {
+          toast.success(repeat !== 'none' ? t('Repeating meeting scheduled') : t('Meeting scheduled'));
+          onOpenChange(false);
+        },
+        onError: failed,
+      },
+    );
   };
 
   return (
@@ -267,6 +300,42 @@ export function MeetingDialog({ open, onOpenChange, meeting, projectId }: Meetin
                 </Select>
               </div>
             </div>
+
+            {!meeting ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="meeting-repeat">{t('Repeat')}</Label>
+                  <Select value={repeat} onValueChange={(value) => setRepeat(value as MeetingFrequency | 'none')}>
+                    <SelectTrigger id="meeting-repeat">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t('Does not repeat')}</SelectItem>
+                      {REPEATS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {repeat !== 'none' ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="meeting-until">{t('Until')}</Label>
+                    <Input
+                      id="meeting-until"
+                      type="date"
+                      value={until}
+                      min={date || undefined}
+                      onChange={(event) => setUntil(event.target.value)}
+                    />
+                    <FieldHint>{t('Leave it empty for no end: meetings are scheduled six months ahead.')}</FieldHint>
+                  </div>
+                ) : null}
+              </div>
+            ) : meeting.series ? (
+              <Alert tone="neutral">{t('This meeting repeats. Changes here apply to this meeting only.')}</Alert>
+            ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">

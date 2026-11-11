@@ -20,6 +20,10 @@ export interface MilestoneListOptions {
 }
 
 export class ApiRiskRepository {
+  setup(): Promise<Pick<RiskRegister, 'configured' | 'typeIds'>> {
+    return apiClient.get<Pick<RiskRegister, 'configured' | 'typeIds'>>('/risks/setup');
+  }
+
   register(options: RiskListOptions = {}): Promise<RiskRegister> {
     return apiClient.get<RiskRegister>('/risks', {
       ...(options.projectId ? { projectId: options.projectId } : {}),

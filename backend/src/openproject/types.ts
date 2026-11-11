@@ -57,6 +57,8 @@ export interface OpProject extends HalResource {
   public: boolean;
   description?: Formattable;
   statusExplanation?: Formattable;
+  /** Whether the caller has starred it: their own, read-only here. */
+  favorited?: boolean;
   createdAt: string;
   updatedAt: string;
 }

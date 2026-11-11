@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, Clock, MapPin, Save, Users } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, Repeat, Save, Users } from 'lucide-react';
 
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { Markdown } from '@/components/common/Markdown';
@@ -9,7 +9,9 @@ import { PageHeader } from '@/components/common/PageHeader';
 import { PageSkeleton } from '@/components/common/PageSkeleton';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { UserAvatar } from '@/components/common/UserAvatar';
+import { AgendaItemsCard } from '@/components/meetings/AgendaItemsCard';
 import { MeetingDialog } from '@/components/meetings/MeetingDialog';
+import { seriesLabel } from '@/components/meetings/meetingRepeat';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +20,7 @@ import { Textarea } from '@/components/ui/input';
 import { FieldHint, Label } from '@/components/ui/label';
 import {
   useDeleteMeeting,
+  useEndMeetingSeries,
   useMeeting,
   useSetAttendance,
   useUpdateMeeting,
@@ -57,6 +60,8 @@ export default function MeetingDetailPage() {
 
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [endingSeries, setEndingSeries] = useState(false);
+  const endSeries = useEndMeetingSeries();
   const [minutes, setMinutes] = useState('');
   const [attended, setAttended] = useState<Set<string>>(new Set());
 
@@ -113,6 +118,12 @@ export default function MeetingDetailPage() {
                     {t('Organisation-wide')}
                   </Badge>
                 )}
+                {meeting.series ? (
+                  <Badge tone="accent" size="sm">
+                    <Repeat className="h-3 w-3" aria-hidden />
+                    {seriesLabel(meeting.series)}
+                  </Badge>
+                ) : null}
               </>
             }
             description={t('{date}, {start}–{end}', {
@@ -125,6 +136,11 @@ export default function MeetingDetailPage() {
                 {meeting.can.update ? (
                   <Button variant="secondary" onClick={() => setEditing(true)}>
                     {t('Edit details')}
+                  </Button>
+                ) : null}
+                {meeting.can.update && meeting.series ? (
+                  <Button variant="ghost" onClick={() => setEndingSeries(true)}>
+                    {t('End the series here')}
                   </Button>
                 ) : null}
                 {meeting.can.delete ? (
@@ -157,6 +173,8 @@ export default function MeetingDetailPage() {
                   </Markdown>
                 </CardContent>
               </Card>
+
+              <AgendaItemsCard meeting={meeting} />
 
               <Card>
                 <CardHeader variant="compact">
@@ -354,6 +372,33 @@ export default function MeetingDetailPage() {
           </div>
 
           <MeetingDialog open={editing} onOpenChange={setEditing} meeting={meeting} />
+
+          <ConfirmDialog
+            open={endingSeries}
+            onOpenChange={setEndingSeries}
+            title={t('End the series after this meeting?')}
+            description={t(
+              'No meeting in the series is scheduled after this one. Later ones are removed, except any that already have minutes or attendance, which are kept.',
+            )}
+            confirmLabel={t('End the series')}
+            pending={endSeries.isPending}
+            onConfirm={() =>
+              endSeries.mutate(meeting.id, {
+                onSuccess: (result) => {
+                  setEndingSeries(false);
+                  toast.success(
+                    result.kept > 0
+                      ? t('Series ended: {removed, number} later meetings removed, {kept, number} kept because something was recorded in them', result)
+                      : t('Series ended: {removed, number} later meetings removed', result),
+                  );
+                },
+                onError: (error) =>
+                  toast.error(t('The series could not be ended'), {
+                    description: error instanceof Error ? error.message : undefined,
+                  }),
+              })
+            }
+          />
 
           <ConfirmDialog
             open={deleting}

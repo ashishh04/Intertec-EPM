@@ -1,6 +1,6 @@
 import { ApiError, apiClient } from './client';
 import type { CreateSprintInput, SprintRepository } from '../repositories';
-import type { ID, EpmSprint } from '@/types';
+import type { ID, EpmSprint, SprintSharing } from '@/types';
 
 /**
  * Sprints are a EPM concept layered over OpenProject versions and backlogs.
@@ -25,6 +25,11 @@ export class ApiSprintRepository implements SprintRepository {
       if (error instanceof ApiError && error.isNotFound) return null;
       throw error;
     }
+  }
+
+  /** Changes who may plan work into a sprint besides its own project. */
+  setSharing(id: ID, sharing: SprintSharing): Promise<EpmSprint> {
+    return apiClient.patch<EpmSprint>(`/sprints/${id}/sharing`, { sharing });
   }
 
   createSprint(input: CreateSprintInput): Promise<{ id: ID; name: string }> {

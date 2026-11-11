@@ -25,6 +25,7 @@ import type {
   HealthOverride,
   ProjectPlanInput,
   EpmSprint,
+  SprintSharing,
   EpmTask,
   EpmUser,
   Paginated,
@@ -93,6 +94,8 @@ export interface CreateSprintInput {
   projectId: ID;
   startDate?: string;
   endDate?: string;
+  /** Which other projects may plan work into it. */
+  sharing?: SprintSharing;
 }
 
 export interface SprintRepository {
@@ -106,6 +109,8 @@ export interface SprintRepository {
    */
   getActiveSprint(): Promise<EpmSprint | null>;
   createSprint(input: CreateSprintInput): Promise<{ id: ID; name: string }>;
+  /** Changes who may plan work into a sprint besides its own project. */
+  setSharing(id: ID, sharing: SprintSharing): Promise<EpmSprint>;
   /** Starts (`active`) or completes (`completed`) a sprint. */
   setSprintState(id: ID, state: 'active' | 'completed'): Promise<EpmSprint>;
 }

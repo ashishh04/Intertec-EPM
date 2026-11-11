@@ -23,7 +23,8 @@ import {
 import { useProjects } from '@/hooks/useProjects';
 import { useCreateSprint } from '@/hooks/useSprints';
 import { t } from '@/lib/i18n';
-import type { ID } from '@/types';
+import { SPRINT_SHARINGS, sharingLabel } from './sprintSharing';
+import type { ID, SprintSharing } from '@/types';
 
 /**
  * Creates a sprint.
@@ -46,6 +47,7 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
   const [projectId, setProjectId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [sharing, setSharing] = useState<SprintSharing>('none');
   const [problem, setProblem] = useState<string>();
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
     setProjectId('');
     setStartDate('');
     setEndDate('');
+    setSharing('none');
     setProblem(undefined);
   }, [open]);
 
@@ -83,6 +86,7 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
         projectId,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
+        ...(sharing !== 'none' ? { sharing } : {}),
       },
       {
         onSuccess: (created) => {
@@ -164,6 +168,23 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
             </div>
           </div>
           <FieldHint>{t('Leave both empty for a backlog rather than a timeboxed sprint.')}</FieldHint>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="sprint-sharing">{t('Shared with')}</Label>
+            <Select value={sharing} onValueChange={(value) => setSharing(value as SprintSharing)}>
+              <SelectTrigger id="sprint-sharing">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SPRINT_SHARINGS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {sharingLabel(value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FieldHint>{t('Other projects it is shared with can plan their work into it too. Sharing with every project is for administrators.')}</FieldHint>
+          </div>
 
           {problem ? <Alert tone="danger">{problem}</Alert> : null}
         </div>

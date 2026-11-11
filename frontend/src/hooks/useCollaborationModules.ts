@@ -4,6 +4,7 @@ import { exceptDetailOf } from '@/lib/queryKeys';
 import { meetingService, newsService, wikiService } from '@/services';
 import type {
   ID,
+  MeetingAgendaItemInput,
   MeetingFilters,
   MeetingInput,
   NewsFilters,
@@ -117,6 +118,53 @@ export function useDeleteMeeting() {
         client.invalidateQueries({ queryKey: ['calendar'] }),
       ]),
   });
+}
+
+export function useEndMeetingSeries() {
+  const settle = useMeetingInvalidation();
+  return useMutation({
+    mutationFn: (id: ID) => meetingService.endSeries(id),
+    onSuccess: settle,
+  });
+}
+
+/** A meeting's agenda, item by item. */
+export function useAgendaItems(meetingId?: ID) {
+  return useQuery({
+    queryKey: ['meetings', 'agenda', meetingId ?? 'unknown'],
+    queryFn: () => meetingService.agendaItems(meetingId!),
+    enabled: Boolean(meetingId),
+    staleTime: 30_000,
+  });
+}
+
+/** Adds, changes, reorders and removes agenda items; every write refreshes the agenda and the meetings a task is on. */
+export function useAgendaMutations(meetingId: ID) {
+  const client = useQueryClient();
+  const settle = () =>
+    Promise.all([
+      client.invalidateQueries({ queryKey: ['meetings', 'agenda', meetingId] }),
+      client.invalidateQueries({ queryKey: ['meetings', 'list'] }),
+    ]);
+  return {
+    add: useMutation({
+      mutationFn: (input: MeetingAgendaItemInput) => meetingService.addAgendaItem(meetingId, input),
+      onSuccess: settle,
+    }),
+    update: useMutation({
+      mutationFn: ({ itemId, input }: { itemId: ID; input: MeetingAgendaItemInput }) =>
+        meetingService.updateAgendaItem(meetingId, itemId, input),
+      onSuccess: settle,
+    }),
+    order: useMutation({
+      mutationFn: (ids: ID[]) => meetingService.orderAgendaItems(meetingId, ids),
+      onSuccess: settle,
+    }),
+    remove: useMutation({
+      mutationFn: (itemId: ID) => meetingService.removeAgendaItem(meetingId, itemId),
+      onSuccess: settle,
+    }),
+  };
 }
 
 /* -------------------------------------------------------------------------- */

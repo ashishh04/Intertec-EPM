@@ -17,6 +17,16 @@ export const riskKeys = {
   milestones: (options: MilestoneListOptions) => ['milestones', options] as const,
 };
 
+/** The risk types alone, for raising a risk from outside the register. */
+export function useRiskSetup(enabled = true) {
+  return useQuery({
+    queryKey: ['risks', 'setup'],
+    queryFn: () => riskService.setup(),
+    enabled,
+    staleTime: 10 * 60_000,
+  });
+}
+
 export function useRiskRegister(options: RiskListOptions = {}) {
   return useQuery({
     queryKey: riskKeys.register(options),

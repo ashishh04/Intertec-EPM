@@ -4,6 +4,8 @@ import type {
   EpmNewsPost,
   EpmWikiPage,
   ID,
+  MeetingAgendaItem,
+  MeetingAgendaItemInput,
   MeetingFilters,
   MeetingInput,
   NewsFilters,
@@ -57,6 +59,31 @@ export class ApiMeetingRepository {
 
   remove(id: ID): Promise<void> {
     return apiClient.delete<void>(`/meetings/${id}`);
+  }
+
+  /** Ends a repeating meeting's series after this occurrence. */
+  endSeries(id: ID): Promise<{ removed: number; kept: number }> {
+    return apiClient.post<{ removed: number; kept: number }>(`/meetings/${id}/end-series`);
+  }
+
+  agendaItems(id: ID): Promise<MeetingAgendaItem[]> {
+    return apiClient.get<MeetingAgendaItem[]>(`/meetings/${id}/agenda-items`);
+  }
+
+  addAgendaItem(id: ID, input: MeetingAgendaItemInput): Promise<MeetingAgendaItem> {
+    return apiClient.post<MeetingAgendaItem>(`/meetings/${id}/agenda-items`, input);
+  }
+
+  updateAgendaItem(id: ID, itemId: ID, input: MeetingAgendaItemInput): Promise<MeetingAgendaItem> {
+    return apiClient.patch<MeetingAgendaItem>(`/meetings/${id}/agenda-items/${itemId}`, input);
+  }
+
+  orderAgendaItems(id: ID, ids: ID[]): Promise<MeetingAgendaItem[]> {
+    return apiClient.put<MeetingAgendaItem[]>(`/meetings/${id}/agenda-items/order`, { ids });
+  }
+
+  removeAgendaItem(id: ID, itemId: ID): Promise<void> {
+    return apiClient.delete<void>(`/meetings/${id}/agenda-items/${itemId}`);
   }
 }
 

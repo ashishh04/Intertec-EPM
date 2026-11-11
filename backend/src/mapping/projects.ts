@@ -220,6 +220,8 @@ export function toEpmProject(
     // Real risks now: open work packages of a risk type. It used to be the
     // overdue count under another name.
     openRiskCount: health.openRisks,
+    // Upstream's, and the caller's own: it is starred for them, not for everyone.
+    favorited: Boolean(project.favorited),
     // The link is authoritative. The free-text column is a fallback for a
     // deployment that populated it before portfolios existed; this one never
     // did. Neither is invented — an unassigned project reports nothing.

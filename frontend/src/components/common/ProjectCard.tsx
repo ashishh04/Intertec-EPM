@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarDays, CheckCircle2, Users } from 'lucide-react';
 import { t } from '@/lib/i18n';
@@ -13,15 +14,17 @@ interface ProjectHealthCardProps {
   project: EpmProject;
   users: Map<ID, EpmUser>;
   className?: string;
+  /** A control over the tile's top corner, such as the favourite star: beside the link, never inside it. */
+  corner?: ReactNode;
 }
 
 /** Project health tile used on the dashboard and the projects grid. */
-function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps) {
+function ProjectHealthCard({ project, users, className, corner }: ProjectHealthCardProps) {
   const members = project.memberIds.map((id) => users.get(id));
   const tone = PROJECT_STATUS_META[project.status].tone;
   const overdue = isOverdue(project.dueDate) && project.status !== 'completed';
 
-  return (
+  const tile = (
     // The lift is a CSS transition on the link itself, so the whole tile is
     // one focusable element with no wrapper to animate.
     <Link
@@ -32,7 +35,7 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className={cn('flex items-start justify-between gap-3', corner ? 'pe-7' : undefined)}>
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold tracking-tight text-foreground" dir="auto">
             {project.name}
@@ -89,6 +92,14 @@ function ProjectHealthCard({ project, users, className }: ProjectHealthCardProps
         </div>
       </dl>
     </Link>
+  );
+
+  if (!corner) return tile;
+  return (
+    <div className="relative h-full">
+      {tile}
+      <div className="absolute end-2 top-2.5">{corner}</div>
+    </div>
   );
 }
 

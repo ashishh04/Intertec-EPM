@@ -50,6 +50,8 @@ import {
 import { ApprovalPanel } from '@/components/approvals/ApprovalPanel';
 import { TaskAttachments } from '@/components/tasks/TaskAttachments';
 import { TaskComments } from '@/components/tasks/TaskComments';
+import { TaskMeetings } from '@/components/tasks/TaskMeetings';
+import { TaskTimerButton } from '@/components/time/TaskTimerButton';
 import { TaskRelations } from '@/components/tasks/TaskRelations';
 import { TaskEarnedValue } from '@/components/tasks/TaskEarnedValue';
 import { TaskCalculatedValues } from '@/components/tasks/TaskCalculatedValues';
@@ -259,6 +261,9 @@ export default function TaskDetailPage() {
               </DropdownMenu>
             ) : null}
 
+            {/* A timer on this task: stopping it logs the time it ran. */}
+            {may.logTime ? <TaskTimerButton workPackageId={task.id} /> : null}
+
             <WatchButton workPackageId={task.id} />
 
             <DropdownMenu>
@@ -389,6 +394,8 @@ export default function TaskDetailPage() {
           <TaskRelations workPackageId={task.id} canAdd={may.relate} />
 
           <TaskWatchers workPackageId={task.id} />
+
+          <TaskMeetings workPackageId={task.id} />
 
           <Card>
             <Tabs defaultValue="comments">

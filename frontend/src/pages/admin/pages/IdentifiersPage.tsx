@@ -30,6 +30,7 @@ import { invalidationGroups } from '@/lib/queryKeys';
 import { projectWriteService } from '@/services';
 import type { AdminProject } from '@/services/api/admin';
 import { describeError } from './shared-format';
+import { ReservedIdentifiersCard } from './ReservedIdentifiersCard';
 import { AdminPagination, AdminTable } from './shared-tables';
 
 /**
@@ -53,7 +54,7 @@ const SAMPLE_NUMBER = 1234;
 /** The instance's own rule: a-z, 0-9, dashes and underscores, not digits alone. */
 const IDENTIFIER_PATTERN = /^(?!\d+$)[a-z0-9_-]+$/;
 const IDENTIFIER_MAX_LENGTH = 100;
-const RESERVED = new Set(['new', 'menu', 'queries', 'export_list_modal']);
+const RESERVED = new Set(['new', 'menu', 'queries', 'filters', 'identifier_update_dialog', 'identifier_suggestion', 'export_list_modal']);
 
 const PAGE_SIZE = 25;
 
@@ -122,6 +123,8 @@ export default function IdentifiersPage() {
 
   return (
     <div className="space-y-5">
+      <ReservedIdentifiersCard />
+
       <Card>
         <CardHeader>
           <CardTitle>{t('Project-based identifiers')}</CardTitle>

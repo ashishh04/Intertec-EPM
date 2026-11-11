@@ -53,6 +53,12 @@ const projectOf = (workPackage: WorkPackageWithPoints): string | undefined => {
 };
 
 export const riskRoutes: FastifyPluginAsync = async (app) => {
+  /** The risk types, for raising a risk from anywhere without reading the register. */
+  app.get('/risks/setup', async (request): Promise<Pick<RiskRegister, 'configured' | 'typeIds'>> => {
+    const { typeIds } = await resolveRiskSelection(await getHealthRules(), requestSignal(request));
+    return { configured: typeIds.length > 0, typeIds };
+  });
+
   /** Every risk the reader may see, each with its assessment, score and stage. */
   app.get('/risks', async (request): Promise<RiskRegister> => {
     const query = registerQuery.parse(request.query);

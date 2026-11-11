@@ -61,6 +61,35 @@ Changes since 1.1.0 (21 October 2026).
   in the next 30 days, upcoming or completed, with a line for today. The
   timeline shows three, six or twelve months, moved with the arrows, or fits
   every milestone shown.
+- **The Create menu** is a grid of everything that can be started from
+  anywhere: project, task, timesheet, expense, sprint, meeting, announcement
+  and wiki page; the apps (portfolio status, project status, risk); and a
+  client. Each is offered only to people who may go on to create it.
+- **Status reports** on projects and portfolios: how it stands overall and on
+  schedule, budget, scope and resources, with what was achieved, what comes
+  next and what is in the way. The latest shows on the project's Overview and
+  the portfolio's page, with the earlier ones a click away. A project's report
+  also sets its status in the delivery system, so the two never disagree.
+- **Repeating meetings.** A meeting can repeat every day, weekday, week, two
+  weeks or month, until a date or with no end (scheduled six months ahead and
+  topped up). Each occurrence keeps its own agenda, minutes and attendance, and
+  a series can be ended after any meeting in it.
+- **Agenda items, and tasks on the agenda.** A meeting's agenda is a list of
+  items, each with a time, a presenter and notes, and each may be about a
+  task, shown with its status as it stands. A task lists the meetings it is
+  discussed in.
+- **Favourite projects.** Star a project to keep it first on the Projects page,
+  with a Favourites filter. Everyone has their own.
+- **A timer.** Start a timer on a task; it runs in the header until stopped,
+  which logs the time it ran under the usual timesheet rules, or discarded.
+- **Sprint sharing.** A sprint can be shared with its sub-projects, its
+  hierarchy, its whole tree or every project, so they can plan work into it.
+- **Reserved project identifiers.** An administrator can keep an identifier
+  back for a project to come (Administration → Work packages → Identifiers);
+  anyone else typing it into a project form is told it is reserved and what
+  for. The identifiers the delivery system refuses are flagged as you type.
+- **Tasks as cards.** The Tasks page and a project's Tasks tab can show the
+  result as cards as well as a table.
 - **Teams & clients.** The Teams page has two tabs: internal teams, and
   external clients, each client with a contact email and phone and an account
   manager. A team can be made a client and back, and a name or code is unique
@@ -220,10 +249,11 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    allow-list, the password and document actions, and the custom field and time
    zone lists), so a new backend beside an old `epm-openproject` cannot accept
    invitations, send reset links, open project documents or put a custom field
-   on a type. The backend applies nine database
-   migrations as it starts; nothing else needs running. The last of them adds
-   the risk register's table and the client fields on teams; every existing
-   team stays an internal one.
+   on a type. The backend applies ten database
+   migrations as it starts; nothing else needs running. The last two add the
+   risk register's table and the client fields on teams (every existing team
+   stays an internal one), then meeting series, agenda items, reserved
+   identifiers and status reports. Both only add.
    The risk register keeps risks as work items of the Risk type. A server that
    never ran the governance types set-up has none: run it (`DEPLOY.md`,
    "Approvals need the governance types"), which is harmless where it has run.

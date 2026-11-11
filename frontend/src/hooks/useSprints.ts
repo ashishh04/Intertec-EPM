@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { sprintService } from '@/services';
 import type { CreateSprintInput } from '@/services/repositories';
 import { queryKeys } from '@/lib/queryKeys';
-import type { ID } from '@/types';
+import type { ID, SprintSharing } from '@/types';
 
 export function useSprints() {
   return useQuery({
@@ -26,6 +26,17 @@ export function useActiveSprint() {
  * so a new or completed sprint is visible everywhere on the next paint.
  */
 const SPRINT_WRITE_KEYS = [['sprints'], ['tasks'], ['dashboard'], ['reports']] as const;
+
+/** Changes who may plan work into a sprint. */
+export function useSetSprintSharing() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, sharing }: { id: ID; sharing: SprintSharing }) => sprintService.setSharing(id, sharing),
+    onSuccess: async () => {
+      await Promise.all(SPRINT_WRITE_KEYS.map((queryKey) => client.invalidateQueries({ queryKey })));
+    },
+  });
+}
 
 export function useCreateSprint() {
   const client = useQueryClient();

@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import type {
+  RunningTimer,
   CreateTimeEntryInput,
   EpmTimeEntry,
   ID,
@@ -19,6 +20,24 @@ import type {
  * a real answer with a real reason, not a bug.
  */
 export class ApiTimeEntryRepository {
+  /** The reader's running timer, or null. */
+  timer(): Promise<RunningTimer | null> {
+    return apiClient.get<RunningTimer | null>('/time-entries/timer');
+  }
+
+  startTimer(workPackageId: ID): Promise<RunningTimer> {
+    return apiClient.post<RunningTimer>('/time-entries/timer', { workPackageId });
+  }
+
+  /** Stops the timer and logs the time it ran. */
+  stopTimer(comment?: string): Promise<EpmTimeEntry> {
+    return apiClient.post<EpmTimeEntry>('/time-entries/timer/stop', comment ? { comment } : {});
+  }
+
+  discardTimer(): Promise<void> {
+    return apiClient.delete<void>('/time-entries/timer');
+  }
+
   list(filters: TimeEntryFilters = {}): Promise<Paginated<EpmTimeEntry>> {
     return apiClient.get<Paginated<EpmTimeEntry>>('/time-entries', { ...filters });
   }

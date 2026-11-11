@@ -1122,17 +1122,82 @@ model Meeting {
   state           String   @default("planned")
   /// OpenProject user id of whoever scheduled it.
   createdBy       String
+  /// The series it is one occurrence of, when it repeats. Each occurrence is a
+  /// meeting of its own: its agenda, minutes and attendance are its own.
+  seriesId        String?
+  series          MeetingSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   participants MeetingParticipant[]
+  agendaItems  MeetingAgendaItem[]
 
   @@index([projectId])
   @@index([startsAt])
+  /// One occurrence per instant in a series: what makes topping a series up safe to repeat.
+  @@unique([seriesId, startsAt])
   @@map("meetings")
 }
 
 /// Somebody invited to a meeting, and whether they turned up.
+/// A meeting that repeats: the pattern, and what each occurrence starts with.
+///
+/// Occurrences are made ahead as meetings of their own (to the end of the series,
+/// or 26 weeks ahead for one with no end), and topped up as time passes. Editing
+/// an occurrence changes that meeting alone.
+model MeetingSeries {
+  id              String    @id @default(cuid())
+  title           String
+  projectId       String?
+  location        String?
+  durationMinutes Int       @default(60)
+  /// Markdown each new occurrence's agenda starts from.
+  agenda          String?
+  /// OpenProject user ids invited to every occurrence.
+  participantIds  String[]
+  /// daily | workdays | weekly | fortnightly | monthly
+  frequency       String
+  /// The first occurrence. Later ones keep its wall-clock time in `timeZone`.
+  firstStartsAt   DateTime
+  timeZone        String    @default("UTC")
+  /// The last calendar day an occurrence may fall on, inclusive. Null: no end.
+  until           DateTime? @db.Date
+  /// The start of the latest occurrence ever made. None at or before it is made
+  /// again, so an occurrence someone deleted stays deleted.
+  generatedThrough DateTime?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  meetings Meeting[]
+
+  @@index([projectId])
+  @@map("meeting_series")
+}
+
+/// One item on a meeting's agenda, perhaps about a task.
+model MeetingAgendaItem {
+  id              String   @id @default(cuid())
+  meetingId       String
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  position        Int
+  title           String
+  durationMinutes Int?
+  /// The OpenProject work package it is about, if any.
+  workPackageId   Int?
+  /// OpenProject user id of whoever presents it.
+  presenterId     String?
+  /// Markdown: what was said and decided, written during or after.
+  notes           String?
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([meetingId, position])
+  @@index([workPackageId])
+  @@map("meeting_agenda_items")
+}
+
 model MeetingParticipant {
   id        String  @id @default(cuid())
   meetingId String
@@ -2422,4 +2487,49 @@ model RiskAssessment {
 
   @@index([projectId])
   @@map("risk_assessments")
+}
+
+/// A project identifier kept back for a project that does not exist yet.
+///
+/// Only an administrator may give a project a reserved identifier, and doing
+/// so releases it. Identifiers the delivery system itself refuses ("new" and
+/// the like) are refused without being listed here.
+model ReservedIdentifier {
+  identifier String   @id
+  /// What it is kept for, shown to whoever tries to use it.
+  note       String?
+  reservedBy String
+  createdAt  DateTime @default(now())
+
+  @@map("reserved_identifiers")
+}
+
+/// Where a project or a portfolio stands, in its manager's words: an overall
+/// status and one per dimension, with what was achieved, what comes next and
+/// what is in the way. Written by people, unlike health, which the rules work out.
+model StatusReport {
+  id           String   @id @default(cuid())
+  /// project | portfolio
+  scopeKind    String
+  /// An OpenProject project id, or an EPM portfolio id.
+  scopeId      String
+  /// The day the report speaks for.
+  reportDate   DateTime @db.Date
+  /// on_track | at_risk | off_track, overall and for each dimension.
+  overall      String
+  schedule     String?
+  budget       String?
+  scope        String?
+  resources    String?
+  /// Markdown.
+  summary      String
+  achievements String?
+  nextSteps    String?
+  issues       String?
+  createdBy    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([scopeKind, scopeId, reportDate])
+  @@map("status_reports")
 }

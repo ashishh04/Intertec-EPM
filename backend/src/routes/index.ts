@@ -50,6 +50,8 @@ import { forecastRoutes } from './forecasts.js';
 import { sessionRoutes } from './sessions.js';
 import { reportRoutes } from './reports.js';
 import { riskRoutes } from './risks.js';
+import { reservedIdentifierRoutes } from './reserved-identifiers.js';
+import { statusReportRoutes } from './status-reports.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { taskSeriesRoutes } from './task-series.js';
@@ -84,6 +86,10 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(teamRoutes);
   // The risk register, and milestones across projects.
   await app.register(riskRoutes);
+  // Project identifiers kept back by an administrator.
+  await app.register(reservedIdentifierRoutes);
+  // Status reports on projects and portfolios, written by their managers.
+  await app.register(statusReportRoutes);
   await app.register(sprintRoutes);
   await app.register(dashboardRoutes);
   await app.register(reportRoutes);
