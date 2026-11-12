@@ -34,8 +34,10 @@ export default function ProjectGanttTab() {
         description={t('Scheduled work packages, dependencies, milestones and the critical path')}
         actions={projectId ? <GanttPdfButton projectId={projectId} /> : null}
       />
+      {/* Moving between projects, the last one's timeline is a placeholder
+          until this one's arrives: the skeleton shows instead of its bars. */}
       <QueryBoundary
-        isLoading={tasksQuery.isLoading}
+        isLoading={tasksQuery.isLoading || tasksQuery.isPlaceholderData}
         isError={tasksQuery.isError}
         error={tasksQuery.error}
         onRetry={() => tasksQuery.refetch()}

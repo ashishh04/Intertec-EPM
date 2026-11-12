@@ -157,11 +157,33 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
 
   // The date scale spans the whole plan; only the rows page, so scrolling the
   // timeline never means scrolling past dozens of task rows.
+  // Zooming keeps the page; only a change in which rows there are (the
+  // highlight) starts the list again.
   const paged = usePagination(allScheduled, {
     pageSize: 15,
-    resetKey: `${zoom}|${onlyHighlighted ? threshold : 'all'}`,
+    resetKey: onlyHighlighted ? `near|${threshold}` : 'all',
   });
   const scheduled = paged.items;
+
+  // Which rows to open on: the page holding the first work due today or later,
+  // so the chart opens on what is happening now rather than on the oldest work
+  // (rows run in due-date order); when all of it is past, the last page. Set
+  // when the plan or the highlight changes, never while someone is paging.
+  const { setPage, pageSize } = paged;
+  const planKey = [
+    allScheduled.length,
+    allScheduled[0]?.id ?? '',
+    allScheduled[allScheduled.length - 1]?.id ?? '',
+    onlyHighlighted ? threshold : 'all',
+  ].join('|');
+  useEffect(() => {
+    if (allScheduled.length === 0) return;
+    const now = new Date();
+    const current = allScheduled.findIndex((task) => differenceInCalendarDays(parseISO(task.dueDate!), now) >= 0);
+    setPage(Math.floor((current === -1 ? allScheduled.length - 1 : current) / pageSize) + 1);
+    // Keyed on the plan, not on every render of the same plan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey]);
 
   const range = useMemo(() => {
     if (allScheduled.length === 0) {
@@ -194,17 +216,6 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
   const totalWidth = days.length * columnWidth;
   const today = new Date();
   const todayOffset = differenceInCalendarDays(today, range.start) * columnWidth;
-
-  // The plan can start months before today. Open the timeline on the current
-  // date so the bars people care about are visible without scrolling.
-  useEffect(() => {
-    const container = scrollRef.current;
-    if (!container) return;
-    // Right to left, the browser counts scroll from the right edge and goes
-    // negative toward the past, so the same distance is applied with its sign
-    // turned (BR-603).
-    container.scrollLeft = (isRightToLeft() ? -1 : 1) * Math.max(0, todayOffset - container.clientWidth / 4);
-  }, [todayOffset, zoom]);
 
   // Month bands drawn above the day scale.
   const monthBands = useMemo(() => {
@@ -262,6 +273,31 @@ export function GanttChart({ tasks, users, milestones = [], schedule, className 
       }),
     [schedule, geometry, criticalOn],
   );
+
+  // Open the timeline where this page's bars are: with today among them, on
+  // today, a quarter of the way in; otherwise on the page's first bar. Opening
+  // on today alone left every bar off screen whenever a page's work lay before
+  // or after it. Runs when the page, its rows or the zoom change, so someone
+  // scrolling is never pulled back.
+  const pageKey = `${paged.page}|${zoom}|${scheduled.map((task) => task.id).join(',')}`;
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || geometry.size === 0) return;
+    let first = Infinity;
+    let last = -Infinity;
+    for (const bar of geometry.values()) {
+      first = Math.min(first, bar.left);
+      last = Math.max(last, bar.right);
+    }
+    const target =
+      todayOffset >= first && todayOffset <= last ? todayOffset - container.clientWidth / 4 : first - 2 * columnWidth;
+    // Right to left, the browser counts scroll from the right edge and goes
+    // negative toward the past, so the same distance is applied with its sign
+    // turned (BR-603).
+    container.scrollLeft = (isRightToLeft() ? -1 : 1) * Math.max(0, target);
+    // Keyed on what is shown, so a refetch of the same rows leaves the scroll alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageKey, todayOffset]);
 
   if (allScheduled.length === 0 && !onlyHighlighted) {
     return (

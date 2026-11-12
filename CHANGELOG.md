@@ -211,6 +211,14 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- The Gantt page shows a chart again. It opened on the newest project, often
+  one with nothing on it yet, and the timeline opened on today while its rows
+  began with the oldest work, so even a full plan showed rows with no bars. It
+  now opens on a project with work to draw (favourites first), or the one
+  looked at last, which the address keeps; it opens on the rows around today
+  and scrolls to the bars of whichever page is shown. A project's Gantt tab
+  does the same, zooming keeps the page, and switching project shows the
+  loading state instead of the last project's timeline.
 - A board's New board button shows only to people the project lets manage
   boards, not to everyone who can edit its tasks (who were then refused).
 - Saved views no longer lists a board's columns or a dashboard's widgets as
