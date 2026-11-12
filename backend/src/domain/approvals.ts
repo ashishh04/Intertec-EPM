@@ -537,7 +537,7 @@ export async function submitSubject(type: ApprovalSubjectType, subjectId: string
       workPackage
         ? 'No approval chain applies to this work package.'
         : message(
-            'No approval chain is set up for {kind, select, timesheet {timesheets} other {expense claims}}. Ask an administrator to add one under Approval chains.',
+            'No approval chain is set up for {kind, select, timesheet {timesheets} scenario {portfolio scenarios} project_request {project requests} stage_gate {stage gates} other {expense claims}}. Ask an administrator to add one under Approval chains.',
             { kind: type },
           ),
     );

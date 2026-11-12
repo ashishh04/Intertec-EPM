@@ -29,6 +29,7 @@ import { LocaleSettings } from '@/components/settings/LocaleSettings';
 import { NotificationSettings } from '@/components/settings/NotificationSettings';
 import { ScheduleSettings } from '@/components/settings/ScheduleSettings';
 import { SecuritySettings } from '@/components/settings/SecuritySettings';
+import { FeedSettings } from '@/components/settings/FeedSettings';
 import { ToggleRow } from '@/components/settings/SettingsRows';
 import { SETTINGS_SECTIONS, isAdministrator, type SettingsSectionId } from '@/config/navigation';
 import { useAuth } from '@/providers/AuthProvider';
@@ -361,6 +362,8 @@ export default function SettingsPage() {
           ) : null}
 
           {section === 'security' ? <SecuritySettings /> : null}
+
+          {section === 'feeds' ? <FeedSettings /> : null}
 
           {section === 'api' ? (
             <Card>

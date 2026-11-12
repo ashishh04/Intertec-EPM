@@ -129,6 +129,25 @@ Changes since 1.1.0 (21 October 2026).
 - **Impediments.** Something in the way of a sprint is raised on the project's
   Sprint tab, blocking the tasks it holds up. It shows with them until it is
   resolved.
+- **Project requests** (Work → Project requests, or Create → Project request).
+  Anyone can propose a project: what it is for, the business case, a sponsor,
+  where it would sit, which template it would start from, its budget and
+  dates. The approval chain for project requests decides it. Once approved,
+  someone who may create projects turns it into one in a click, blank or as a
+  copy of the template, with its portfolio, program, budget and dates set.
+- **Stage gates.** Each gate between the phases of a project's life cycle is
+  passed through the approval chain for stage gates, asked for from the
+  project's Settings tab or Create → Stage gate approval, with the case for
+  passing it. Each gate shows whether it is waiting, passed or not passed, and
+  every decision is in the project's history.
+- **Internal comments.** A task's comments can be marked internal: only the
+  organisation's own people see them, never a client or a vendor. They sit in
+  the discussion with an Internal mark.
+- **The Gantt chart as a PDF** (a project's Gantt tab → Export PDF): every task
+  on a time scale, milestones and today marked, in the reader's language.
+- **Atom feeds** (Settings → Feeds): your notifications, or the activity of a
+  project you are a member of, in any feed reader. The address holds a secret
+  of your own, shown once; making a new one ends the old.
 - **Teams & clients.** The Teams page has two tabs: internal teams, and
   external clients, each client with a contact email and phone and an account
   manager. A team can be made a client and back, and a name or code is unique
@@ -292,12 +311,17 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    invitations, send reset links, open project documents or put a custom field
    on a type. A new add-on also carries a project's modules, attributes,
    template flag, life cycle and copies, so without it a project's Settings
-   tab and starting from a template fail. The backend applies twelve database
-   migrations as it starts; nothing else needs running. The last four add the
+   tab and starting from a template fail. The backend applies fourteen database
+   migrations as it starts; nothing else needs running. The last six add the
    risk register's table and the client fields on teams (every existing team
    stays an internal one), then meeting series, agenda items, reserved
-   identifiers and status reports, then programs, then the backlog's order. All
-   of them only add.
+   identifiers and status reports, then programs, then the backlog's order,
+   then project requests and gate reviews, then internal comments and feed
+   tokens. All of them only add.
+   Project requests and stage gates are decided by approval chains of their
+   own: until an administrator adds one for each (Administration → Work
+   packages → Approval chains), submitting either says so. Feed addresses are
+   built from `APP_BASE_URL`, so it must be the address people use.
    **Before the images go up, add a column OpenProject's job queue expects.**
    An instance upgraded from OpenProject 15 lacks it, and every project copy
    then fails, although the copy carries on and makes the project. The

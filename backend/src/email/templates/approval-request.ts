@@ -43,7 +43,7 @@ export interface ApprovalRequestPayload {
   rejectUrl: string;
   openUrl: string;
   /** What is being approved; a work package when absent (rows queued before Module 10). */
-  subjectKind?: 'work_package' | 'timesheet' | 'expense_claim' | 'scenario';
+  subjectKind?: 'work_package' | 'timesheet' | 'expense_claim' | 'scenario' | 'project_request' | 'stage_gate';
 }
 
 /**
@@ -99,7 +99,11 @@ export function render(payload: ApprovalRequestPayload, locale: EmailLocale): Re
                   ? tr('open the claim')
                   : payload.subjectKind === 'scenario'
                     ? tr('open the scenario')
-                    : tr('open the work package'),
+                    : payload.subjectKind === 'project_request'
+                      ? tr('open the request')
+                      : payload.subjectKind === 'stage_gate'
+                        ? tr('open the gate review')
+                        : tr('open the work package'),
             ),
           ),
       ) +

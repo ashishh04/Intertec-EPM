@@ -47,6 +47,9 @@ const PortfoliosPage = lazy(() => import('@/pages/PortfoliosPage'));
 const PortfolioDetailPage = lazy(() => import('@/pages/PortfolioDetailPage'));
 const ProgramsPage = lazy(() => import('@/pages/ProgramsPage'));
 const ProgramDetailPage = lazy(() => import('@/pages/ProgramDetailPage'));
+const ProjectRequestsPage = lazy(() => import('@/pages/ProjectRequestsPage'));
+const ProjectRequestDetailPage = lazy(() => import('@/pages/ProjectRequestDetailPage'));
+const StageGateReviewPage = lazy(() => import('@/pages/StageGateReviewPage'));
 const DepartmentDetailPage = lazy(() => import('@/pages/DepartmentDetailPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'));
@@ -323,6 +326,10 @@ export function App() {
             }
           />
           <Route path="/programs/:programId" element={<ProgramDetailPage />} />
+          {/* Requests to start a project, and gate reviews: each opens for those involved. */}
+          <Route path="/project-requests" element={<ProjectRequestsPage />} />
+          <Route path="/project-requests/:requestId" element={<ProjectRequestDetailPage />} />
+          <Route path="/stage-gate-reviews/:reviewId" element={<StageGateReviewPage />} />
           {/* Saved portfolio views (BR-203). The list is for managers; a single view
               opens for anyone it was shared with, showing only the projects they
               may read, and the backend refuses a view not shared with them. */}

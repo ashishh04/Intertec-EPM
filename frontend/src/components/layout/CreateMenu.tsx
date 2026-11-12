@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   BookOpen,
   Briefcase,
+  DoorOpen,
+  FilePlus2,
   CalendarClock,
   Clock3,
   FolderPlus,
@@ -46,6 +48,12 @@ const TeamDialog = lazy(() => import('@/components/teams/TeamDialog').then((modu
 const StatusReportDialog = lazy(() =>
   import('@/components/status/StatusReportDialog').then((module) => ({ default: module.StatusReportDialog })),
 );
+const ProjectRequestDialog = lazy(() =>
+  import('@/components/requests/ProjectRequestDialog').then((module) => ({ default: module.ProjectRequestDialog })),
+);
+const GateReviewDialog = lazy(() =>
+  import('@/components/projects/StageGatesCard').then((module) => ({ default: module.GateReviewDialog })),
+);
 
 type DialogKey =
   | 'project'
@@ -56,7 +64,9 @@ type DialogKey =
   | 'risk'
   | 'client'
   | 'project-status'
-  | 'portfolio-status';
+  | 'portfolio-status'
+  | 'project-request'
+  | 'stage-gate';
 
 interface Tile {
   key: string;
@@ -140,6 +150,20 @@ export function CreateMenu() {
           shown: canAnywhere('project:edit'),
         },
         {
+          key: 'project-request',
+          label: t('Project request'),
+          icon: FilePlus2,
+          onSelect: choose(() => setDialog('project-request')),
+          shown: true,
+        },
+        {
+          key: 'stage-gate',
+          label: t('Stage gate approval'),
+          icon: DoorOpen,
+          onSelect: choose(() => setDialog('stage-gate')),
+          shown: canAnywhere('project:edit'),
+        },
+        {
           key: 'risk',
           label: t('Risk'),
           icon: ShieldAlert,
@@ -193,6 +217,12 @@ export function CreateMenu() {
       break;
     case 'portfolio-status':
       mounted = <StatusReportDialog open onOpenChange={close} scopeKind="portfolio" />;
+      break;
+    case 'project-request':
+      mounted = <ProjectRequestDialog open onOpenChange={close} />;
+      break;
+    case 'stage-gate':
+      mounted = <GateReviewDialog open onOpenChange={close} />;
       break;
     default:
       mounted = null;

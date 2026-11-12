@@ -41,8 +41,12 @@ const PUBLIC_PATHS = new Set([
   '/webhooks/openproject',
 ]);
 
-/** Everything under here is public: the token in the path is the credential. */
-const PUBLIC_PREFIXES = ['/invites/', '/password-reset/'];
+/**
+ * Everything under here is public: the token in the path is the credential.
+ * `/feed/` is a person's Atom feeds (routes/feeds.ts); `/feeds/token`, which
+ * makes that token, is not under it and needs a session.
+ */
+const PUBLIC_PREFIXES = ['/invites/', '/password-reset/', '/feed/'];
 
 /**
  * What someone held at a door can still reach: signing in or out, who they are,

@@ -1978,7 +1978,7 @@ export type ApprovalApproverSpec =
 export type ApprovalConditionOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq' | 'in' | 'not_in';
 
 /** What a chain decides: a work package, a timesheet (BR-305) or an expense claim (BR-308). */
-export type ApprovalSubjectType = 'work_package' | 'timesheet' | 'expense_claim' | 'scenario';
+export type ApprovalSubjectType = 'work_package' | 'timesheet' | 'expense_claim' | 'scenario' | 'project_request' | 'stage_gate';
 
 /**
  * When a step applies (BR-211). `field` is `value` (the chain's value field),
@@ -5093,4 +5093,98 @@ export interface ImpedimentInput {
   assigneeId?: ID;
   /** Tasks it blocks: at least one, all in the sprint's project. */
   blocksIds: ID[];
+}
+
+export type ProjectRequestStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'created';
+
+/** A request to start a project, decided through an approval chain. */
+export interface ProjectRequest {
+  id: ID;
+  /** A short reference, e.g. "PR-4F2A1C". */
+  key: string;
+  title: string;
+  identifier?: string;
+  description?: string;
+  businessCase?: string;
+  sponsorId?: ID;
+  sponsorName?: string;
+  portfolioId?: ID;
+  portfolioName?: string;
+  programId?: ID;
+  programName?: string;
+  templateId?: ID;
+  templateName?: string;
+  budget?: number;
+  startDate?: ISODate;
+  finishDate?: ISODate;
+  status: ProjectRequestStatus;
+  /** The approval request deciding it, once submitted. */
+  requestId?: ID;
+  requestedBy: ID;
+  requestedByName?: string;
+  submittedAt?: ISODate;
+  decidedAt?: ISODate;
+  decidedByName?: string;
+  decisionNote?: string;
+  /** The project it became. */
+  projectId?: ID;
+  createdAt: ISODate;
+  /** The approval deciding it, latest first: its steps and who decides. */
+  request?: ApprovalRequestView;
+  /** What the reader may do with it now. */
+  can: { edit: boolean; submit: boolean; withdraw: boolean; remove: boolean; createProject: boolean };
+}
+
+export interface ProjectRequestInput {
+  title: string;
+  identifier?: string;
+  description?: string;
+  businessCase?: string;
+  sponsorId?: ID | null;
+  portfolioId?: ID | null;
+  programId?: ID | null;
+  templateId?: ID | null;
+  budget?: number | null;
+  startDate?: ISODate | null;
+  finishDate?: ISODate | null;
+}
+
+/** What turning an approved request into a project started: the project, or a copy still running. */
+export type ProjectRequestCreation = { projectId: ID } | { jobId: ID };
+
+export type StageGateReviewStatus = 'submitted' | 'approved' | 'rejected' | 'withdrawn';
+
+export interface StageGateReview {
+  id: ID;
+  key: string;
+  projectId: ID;
+  projectName?: string;
+  definitionId: ID;
+  gate: 'start' | 'finish';
+  gateName: string;
+  phaseName: string;
+  notes?: string;
+  status: StageGateReviewStatus;
+  requestId?: ID;
+  requestedBy: ID;
+  requestedByName?: string;
+  createdAt: ISODate;
+  decidedAt?: ISODate;
+  decidedByName?: string;
+  decisionNote?: string;
+  request?: ApprovalRequestView;
+  canWithdraw: boolean;
+}
+
+/** A gate of a project's life cycle, with its latest review. */
+export interface ProjectGate {
+  definitionId: ID;
+  phaseName: string;
+  /** Whether the phase it opens or closes is switched on in the project. */
+  phaseActive: boolean;
+  gate: 'start' | 'finish';
+  gateName: string;
+  review?: StageGateReview;
+  /** Whether the reader may ask for it to be reviewed. */
+  canRequest: boolean;
 }

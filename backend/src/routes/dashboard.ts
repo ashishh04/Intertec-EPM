@@ -116,7 +116,8 @@ async function recordSnapshots(values: Record<string, number>, scopeUserId: stri
  * Failure is absence, not an error. A missing activity costs the feed an actor
  * name; it should never cost the reader the page.
  */
-async function lastActivity(
+/** A work package's latest activity record. Exported for the project feed. */
+export async function lastActivity(
   workPackageId: string,
   signal: AbortSignal,
 ): Promise<OpActivity | undefined> {

@@ -345,13 +345,19 @@ function ChainEditor({
                   <SelectItem value="timesheet">{t('Timesheets')}</SelectItem>
                   <SelectItem value="expense_claim">{t('Expense claims')}</SelectItem>
                   <SelectItem value="scenario">{t('Portfolio scenarios')}</SelectItem>
+                  <SelectItem value="project_request">{t('Project requests')}</SelectItem>
+                  <SelectItem value="stage_gate">{t('Stage gates')}</SelectItem>
                 </SelectContent>
               </Select>
               {draft.subjectType !== 'work_package' ? (
                 <FieldHint>
                   {draft.subjectType === 'timesheet'
                     ? t('A value condition compares the timesheet’s hours.')
-                    : t('A value condition compares the claim’s amount.')}
+                    : draft.subjectType === 'project_request'
+                      ? t('A value condition compares the requested budget.')
+                      : draft.subjectType === 'stage_gate'
+                        ? t('A gate has no value to compare: route by portfolio, or name the approvers.')
+                        : t('A value condition compares the claim’s amount.')}
                 </FieldHint>
               ) : null}
             </div>

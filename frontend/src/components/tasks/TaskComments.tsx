@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Pencil, Send } from 'lucide-react';
+import { Lock, Pencil, Send, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { Textarea } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { UserAvatar } from '@/components/common/UserAvatar';
 import { ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
-import { useAddComment, useComments, useEditComment } from '@/hooks/useComments';
+import { useAddComment, useComments, useEditComment, useInternalCommentMutations, useInternalComments } from '@/hooks/useComments';
 import { usePagination } from '@/hooks/usePagination';
 import { useUserMap } from '@/hooks/useUsers';
 import { formatRelative } from '@/lib/utils';
@@ -39,25 +40,30 @@ interface TaskCommentsProps {
 
 export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
   const comments = useComments(workPackageId);
+  const internal = useInternalComments(workPackageId);
   const add = useAddComment(workPackageId);
   const edit = useEditComment(workPackageId);
+  const internalWrites = useInternalCommentMutations(workPackageId);
   const users = useUserMap();
 
   const [draft, setDraft] = useState('');
+  const [internalDraft, setInternalDraft] = useState(false);
   const [editingId, setEditingId] = useState<ID>();
   const [editDraft, setEditDraft] = useState('');
 
-  const page = usePagination(comments.data ?? [], { pageSize: 10, resetKey: workPackageId });
+  // The discussion and the internal comments, in the order they were written.
+  const all = [...(comments.data ?? []), ...(internal.data ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const page = usePagination(all, { pageSize: 10, resetKey: workPackageId });
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const body = draft.trim();
     if (!body) return;
 
-    add.mutate(body, {
+    (internalDraft ? internalWrites.add : add).mutate(body, {
       onSuccess: () => {
         setDraft('');
-        toast.success(t('Comment added'));
+        toast.success(internalDraft ? t('Internal comment added') : t('Comment added'));
       },
       onError: (error) =>
         toast.error(t('Could not add that comment'), {
@@ -70,7 +76,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
     const body = editDraft.trim();
     if (!body) return;
 
-    edit.mutate(
+    (comment.internal ? internalWrites.edit : edit).mutate(
       { commentId: comment.id, body },
       {
         onSuccess: () => {
@@ -93,7 +99,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
         onRetry={() => comments.refetch()}
         errorTitle={t('Unable to load comments')}
         skeleton={<ActivityTimelineSkeleton rows={3} />}
-        isEmpty={(comments.data?.length ?? 0) === 0}
+        isEmpty={all.length === 0}
         empty={
           <EmptyState
             size="inline"
@@ -116,6 +122,12 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="text-xs font-medium">{comment.author.name}</span>
+                  {comment.internal ? (
+                    <span className="inline-flex items-center gap-1 rounded bg-warning-soft px-1.5 text-2xs font-medium text-warning-strong" title={t('Only the organisation’s own people see this comment.')}>
+                      <Lock className="h-2.5 w-2.5" aria-hidden />
+                      {t('Internal')}
+                    </span>
+                  ) : null}
                   <time className="text-2xs text-muted-foreground">
                     {formatRelative(comment.createdAt)}
                   </time>
@@ -136,6 +148,21 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                       }}
                     >
                       <Pencil className="h-3 w-3" aria-hidden />
+                    </button>
+                  ) : null}
+                  {comment.internal && comment.deletable && editingId !== comment.id ? (
+                    <button
+                      type="button"
+                      aria-label={t('Delete comment by {name}', { name: comment.author.name })}
+                      className={`${comment.editable ? '' : 'ms-auto '}rounded p-1 text-muted-foreground hover:bg-muted hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+                      onClick={() =>
+                        internalWrites.remove.mutate(comment.id, {
+                          onSuccess: () => toast.success(t('Comment deleted')),
+                          onError: (error) => toast.error(t('That could not be deleted'), { description: error instanceof Error ? error.message : undefined }),
+                        })
+                      }
+                    >
+                      <Trash2 className="h-3 w-3" aria-hidden />
                     </button>
                   ) : null}
                 </div>
@@ -161,7 +188,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                         type="button"
                         size="sm"
                         disabled={!editDraft.trim()}
-                        loading={edit.isPending}
+                        loading={edit.isPending || internalWrites.edit.isPending}
                         onClick={() => saveEdit(comment)}
                       >
                         {t('Save')}
@@ -171,7 +198,7 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
                 ) : (
                   // Markdown source shown as written. `whitespace-pre-wrap`
                   // keeps line breaks without interpreting any of it as markup.
-                  <p dir="auto" className="mt-1 whitespace-pre-wrap rounded-lg bg-muted/70 px-3 py-2 text-xs leading-relaxed text-foreground">
+                  <p dir="auto" className={`mt-1 whitespace-pre-wrap rounded-lg px-3 py-2 text-xs leading-relaxed text-foreground ${comment.internal ? 'border border-warning/30 bg-warning-soft/40' : 'bg-muted/70'}`}>
                     {comment.body}
                   </p>
                 )}
@@ -204,10 +231,15 @@ export function TaskComments({ workPackageId, canComment }: TaskCommentsProps) {
             onChange={(event) => setDraft(event.target.value)}
             placeholder={t('Add a comment, decision or blocker...')}
           />
-          <div className="flex justify-end">
-            <Button type="submit" size="sm" disabled={!draft.trim()} loading={add.isPending}>
+          <div className="flex items-center justify-between gap-3">
+            <label className="flex items-center gap-2 text-2xs text-muted-foreground">
+              <Switch checked={internalDraft} onCheckedChange={setInternalDraft} aria-label={t('Internal comment')} />
+              <Lock className="h-3 w-3" aria-hidden />
+              {t('Internal: only our own people see it')}
+            </label>
+            <Button type="submit" size="sm" disabled={!draft.trim()} loading={add.isPending || internalWrites.add.isPending}>
               <Send className="h-3.5 w-3.5" />
-              {t('Comment')}
+              {internalDraft ? t('Add internal comment') : t('Comment')}
             </Button>
           </div>
         </form>

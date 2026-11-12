@@ -9,6 +9,7 @@ import { usePortfolio } from '@/hooks/usePortfolios';
 import { useDepartment } from '@/hooks/useDepartments';
 import { usePortfolioView } from '@/hooks/usePortfolioViews';
 import { useProgram } from '@/hooks/useProjectSettings';
+import { useProjectRequest, useStageGateReview } from '@/hooks/useRequests';
 import { cn } from '@/lib/utils';
 import { findAdminArea, findAdminPage } from '@/config/administration';
 import { t } from '@/lib/i18n';
@@ -23,6 +24,8 @@ const SEGMENT_LABEL: Record<string, string> = {
   get programs() { return t('Programs'); },
   get roadmap() { return t('Roadmap'); },
   get backlog() { return t('Backlog'); },
+  get 'project-requests'() { return t('Project requests'); },
+  get 'stage-gate-reviews'() { return t('Gate reviews'); },
   get 'portfolio-views'() { return t('Portfolio views'); },
   get 'my-work'() { return t('My Work'); },
   get 'my-time'() { return t('My Time'); },
@@ -89,6 +92,8 @@ export function Breadcrumbs({ className }: { className?: string }) {
   const { data: department } = useDepartment(params.departmentId);
   const { data: view } = usePortfolioView(params.viewId);
   const { data: program } = useProgram(params.programId);
+  const { data: projectRequest } = useProjectRequest(params.requestId);
+  const { data: gateReview } = useStageGateReview(params.reviewId);
   // A person's profile in Administration → Users is addressed by id; the
   // account list the page has already loaded names them.
   const onUserProfile = params.areaId === 'users' && params.pageId === 'users' && Boolean(params.itemId);
@@ -127,6 +132,14 @@ export function Breadcrumbs({ className }: { className?: string }) {
     }
     if (segment === params.programId) {
       crumbs.push({ label: program?.name ?? t('Program'), to: path });
+      continue;
+    }
+    if (segment === params.requestId) {
+      crumbs.push({ label: projectRequest?.title ?? t('Request'), to: path });
+      continue;
+    }
+    if (segment === params.reviewId) {
+      crumbs.push({ label: gateReview?.gateName ?? t('Gate review'), to: path });
       continue;
     }
 

@@ -462,6 +462,98 @@ model BacklogRank {
   @@map("backlog_ranks")
 }
 
+/// A request to start a project: what it is for, why, what it would cost and
+/// who sponsors it, decided through an approval chain. Once approved, someone
+/// who may create projects turns it into one, from a template if it names one.
+model ProjectRequest {
+  id           String    @id @default(cuid())
+  title        String
+  identifier   String?
+  description  String?
+  businessCase String?
+  sponsorId    String?
+  portfolioId  String?
+  programId    String?
+  /// The template project to copy, by its delivery-system id.
+  templateId   String?
+  budget       Float?
+  startDate    DateTime? @db.Date
+  finishDate   DateTime? @db.Date
+  /// draft | submitted | approved | rejected | created
+  status       String    @default("draft")
+  requestId    String?
+  requestedBy  String
+  submittedAt  DateTime?
+  decidedAt    DateTime?
+  decidedBy    String?
+  decisionNote String?
+  /// The project it became.
+  projectId    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status])
+  @@index([requestedBy])
+  @@map("project_requests")
+}
+
+/// A review of a gate in a project's life cycle (the start or finish of a
+/// phase), decided through an approval chain. The delivery system's gates are
+/// markers only; this is the decision behind passing one.
+model StageGateReview {
+  id           String    @id @default(cuid())
+  projectId    String
+  /// The phase definition the gate belongs to, by its delivery-system id.
+  definitionId String
+  /// start | finish
+  gate         String
+  gateName     String
+  phaseName    String
+  /// What has been done, and the evidence for passing it.
+  notes        String?
+  /// submitted | approved | rejected | withdrawn
+  status       String    @default("submitted")
+  requestId    String?
+  requestedBy  String
+  decidedAt    DateTime?
+  decidedBy    String?
+  decisionNote String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([projectId, definitionId, gate])
+  @@map("stage_gate_reviews")
+}
+
+/// A comment on a task for the organisation's own people: never shown to an
+/// external user (a client or a vendor). The delivery system's own internal
+/// comments are in its paid editions only.
+model InternalComment {
+  id            String   @id @default(cuid())
+  workPackageId String
+  projectId     String
+  authorId      String
+  body          String
+  edited        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([workPackageId, createdAt])
+  @@map("internal_comments")
+}
+
+/// The secret in a person's feed addresses (Atom), so a feed reader can follow
+/// what they may see without signing in. Kept as a hash: shown once, when made.
+model FeedToken {
+  id         String    @id @default(cuid())
+  userId     String    @unique
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@map("feed_tokens")
+}
+
 /// A saved portfolio view (BR-203): a set of projects — portfolios, named
 /// projects, a health filter — the period and columns to show them with, and
 /// who it is shared with. Evaluated for each person with their own access, so

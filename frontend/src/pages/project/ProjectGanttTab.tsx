@@ -1,4 +1,10 @@
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { toast } from 'sonner';
+import { FileDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { apiClient } from '@/services/api/client';
+import { saveBlob } from '@/lib/download';
 import { GanttChart, GanttChartSkeleton } from '@/components/gantt/GanttChart';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { SectionHeader } from '@/components/common/PageHeader';
@@ -26,6 +32,7 @@ export default function ProjectGanttTab() {
       <SectionHeader
         title={t('Timeline')}
         description={t('Scheduled work packages, dependencies, milestones and the critical path')}
+        actions={projectId ? <GanttPdfButton projectId={projectId} /> : null}
       />
       <QueryBoundary
         isLoading={tasksQuery.isLoading}
@@ -46,5 +53,27 @@ export default function ProjectGanttTab() {
         </div>
       </QueryBoundary>
     </div>
+  );
+}
+
+/** The project's schedule as a PDF, in the reader's language. */
+function GanttPdfButton({ projectId }: { projectId: string }) {
+  const [busy, setBusy] = useState(false);
+  const exportPdf = async () => {
+    setBusy(true);
+    try {
+      const blob = await apiClient.download(`/projects/${projectId}/gantt.pdf`, undefined, 120_000);
+      saveBlob(blob, `gantt-${projectId}-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (error) {
+      toast.error(t('The PDF could not be made'), { description: error instanceof Error ? error.message : undefined });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button size="sm" variant="secondary" loading={busy} onClick={() => void exportPdf()}>
+      <FileDown className="h-3.5 w-3.5" />
+      {t('Export PDF')}
+    </Button>
   );
 }

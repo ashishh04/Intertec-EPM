@@ -14,6 +14,7 @@ import type { ID } from '@/types';
 
 export const commentKeys = {
   list: (workPackageId: ID) => ['comments', workPackageId] as const,
+  internal: (workPackageId: ID) => ['comments', workPackageId, 'internal'] as const,
 };
 
 export function useComments(workPackageId?: ID) {
@@ -52,4 +53,24 @@ export function useEditComment(workPackageId: ID) {
       commentService.update(workPackageId, commentId, body),
     onSuccess: settle,
   });
+}
+
+/** Internal comments: for the organisation’s own people, never shown to an external user. */
+export function useInternalComments(workPackageId?: ID) {
+  return useQuery({
+    queryKey: commentKeys.internal(workPackageId ?? 'unknown'),
+    queryFn: () => commentService.listInternal(workPackageId!),
+    enabled: Boolean(workPackageId),
+    staleTime: 30_000,
+  });
+}
+
+export function useInternalCommentMutations(workPackageId: ID) {
+  const client = useQueryClient();
+  const settle = () => void client.invalidateQueries({ queryKey: commentKeys.internal(workPackageId) });
+  return {
+    add: useMutation({ mutationFn: (body: string) => commentService.createInternal(workPackageId, body), onSuccess: settle }),
+    edit: useMutation({ mutationFn: ({ commentId, body }: { commentId: ID; body: string }) => commentService.updateInternal(commentId, body), onSuccess: settle }),
+    remove: useMutation({ mutationFn: (commentId: ID) => commentService.removeInternal(commentId), onSuccess: settle }),
+  };
 }

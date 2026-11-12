@@ -21,6 +21,7 @@ import { useProject } from '@/hooks/useProjects';
 import { t } from '@/lib/i18n';
 import { useAuth } from '@/providers/AuthProvider';
 import type { ProjectPhase } from '@/types';
+import { StageGatesCard } from '@/components/projects/StageGatesCard';
 
 /** The modules EPM has screens for, by the delivery system's own name, with what each brings. */
 const MODULES: { name: string; label: () => string; hint: () => string }[] = [
@@ -56,6 +57,7 @@ export default function ProjectSettingsTab() {
       <div className="space-y-5">
         <AttributesCard projectId={projectId!} />
         {can('users:manage') ? <TemplateCard projectId={projectId!} templated={Boolean(project.data?.templated)} /> : null}
+        <StageGatesCard projectId={projectId!} />
       </div>
     </div>
   );

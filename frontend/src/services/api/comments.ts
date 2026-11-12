@@ -22,6 +22,8 @@ export interface EpmComment {
   updatedAt?: string;
   editable: boolean;
   deletable: boolean;
+  /** For the organisation’s own people only: never shown to an external user. */
+  internal?: boolean;
 }
 
 export class ApiCommentRepository {
@@ -38,5 +40,22 @@ export class ApiCommentRepository {
       `/work-packages/${workPackageId}/comments/${commentId}`,
       { body },
     );
+  }
+
+  /** Internal comments: EPM’s own, for the organisation’s people only. */
+  listInternal(workPackageId: ID): Promise<EpmComment[]> {
+    return apiClient.get<EpmComment[]>(`/work-packages/${workPackageId}/internal-comments`);
+  }
+
+  createInternal(workPackageId: ID, body: string): Promise<EpmComment> {
+    return apiClient.post<EpmComment>(`/work-packages/${workPackageId}/internal-comments`, { body });
+  }
+
+  updateInternal(commentId: ID, body: string): Promise<EpmComment> {
+    return apiClient.patch<EpmComment>(`/internal-comments/${commentId}`, { body });
+  }
+
+  removeInternal(commentId: ID): Promise<void> {
+    return apiClient.delete<void>(`/internal-comments/${commentId}`);
   }
 }

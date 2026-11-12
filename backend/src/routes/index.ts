@@ -56,6 +56,11 @@ import { projectSettingRoutes } from './project-settings.js';
 import { programRoutes } from './programs.js';
 import { boardRoutes } from './boards.js';
 import { backlogRoutes } from './backlog.js';
+import { projectRequestRoutes } from './project-requests.js';
+import { stageGateRoutes } from './stage-gates.js';
+import { internalCommentRoutes } from './internal-comments.js';
+import { ganttPdfRoutes } from './gantt-pdf.js';
+import { feedRoutes } from './feeds.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { taskSeriesRoutes } from './task-series.js';
@@ -102,6 +107,16 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(boardRoutes);
   // A project's backlog in order, sprint planning, and a sprint's impediments.
   await app.register(backlogRoutes);
+  // Requests to start a project, decided through an approval chain.
+  await app.register(projectRequestRoutes);
+  // Gate reviews in a project's life cycle, decided through an approval chain.
+  await app.register(stageGateRoutes);
+  // Comments on a task for the organisation's own people, never shown to external users.
+  await app.register(internalCommentRoutes);
+  // A project's Gantt chart as a PDF.
+  await app.register(ganttPdfRoutes);
+  // Atom feeds, and the token in their addresses.
+  await app.register(feedRoutes);
   await app.register(sprintRoutes);
   await app.register(dashboardRoutes);
   await app.register(reportRoutes);

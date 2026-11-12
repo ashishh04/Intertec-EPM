@@ -88,7 +88,11 @@ export default function ApprovalDecidePage() {
                   ? t('Open the claim')
                   : request.subjectType === 'scenario'
                     ? t('Open the scenario')
-                    : t('Open the work package')}
+                    : request.subjectType === 'project_request'
+                      ? t('Open the request')
+                      : request.subjectType === 'stage_gate'
+                        ? t('Open the gate review')
+                        : t('Open the work package')}
             </Link>
           </Button>
           <Button asChild variant="secondary">

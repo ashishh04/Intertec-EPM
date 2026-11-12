@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/select';
 import NotFoundPage from '@/pages/NotFoundPage';
 import { ApiError } from '@/services/api/client';
-import { useComments } from '@/hooks/useComments';
+import { useComments, useInternalComments } from '@/hooks/useComments';
 import { useTask, useUpdateTask } from '@/hooks/useTasks';
 import { useProject } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
@@ -72,6 +72,7 @@ export default function TaskDetailPage() {
   // Read here only for the tab's count. TaskComments asks for the same data and
   // React Query serves both from one request.
   const comments = useComments(taskId);
+  const internalComments = useInternalComments(taskId);
   const activityQuery = useActivity({ projectId: task?.projectId, limit: 12 });
   const users = useUserMap();
   const sprintsQuery = useSprints();
@@ -404,7 +405,7 @@ export default function TaskDetailPage() {
                   <TabsTrigger value="comments" variant="underline">
                     {t('Comments')}{' '}
                     <span className="font-mono text-2xs text-muted-foreground">
-                      {comments.data?.length ?? 0}
+                      {(comments.data?.length ?? 0) + (internalComments.data?.length ?? 0)}
                     </span>
                   </TabsTrigger>
                   <TabsTrigger value="activity" variant="underline">
