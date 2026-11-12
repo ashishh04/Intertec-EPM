@@ -8,6 +8,7 @@ import { SectionHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TruncationNotice } from '@/components/common/TruncationNotice';
+import { ImpedimentsPanel } from '@/components/sprints/ImpedimentsPanel';
 import { SprintWorkList } from '@/components/sprints/SprintWorkList';
 import { Card } from '@/components/ui/card';
 import { useActiveSprint } from '@/hooks/useSprints';
@@ -56,7 +57,7 @@ export default function ProjectSprintTab() {
   return (
     <div className="space-y-5">
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="lg:col-span-1">
+        <div className="space-y-5 lg:col-span-1">
           {/* Loading, a running sprint, or none — see DashboardPage. */}
           {sprintQuery.isPending ? (
             <SprintSummarySkeleton />
@@ -65,6 +66,9 @@ export default function ProjectSprintTab() {
           ) : (
             <SprintSummaryEmpty />
           )}
+          {sprintQuery.data && inSprint && projectId ? (
+            <ImpedimentsPanel sprintId={sprintQuery.data.id} projectId={projectId} tasks={tasks} />
+          ) : null}
         </div>
 
         <div className="space-y-3 lg:col-span-2">

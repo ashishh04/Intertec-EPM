@@ -4989,3 +4989,108 @@ export interface ProgramInput {
   portfolioId?: ID | null;
   managerId?: ID | null;
 }
+
+/**
+ * A board's kind. A basic board's lists hold whatever is put in them; on the
+ * others each column stands for one value of a task attribute, and moving a
+ * card there gives the task that value.
+ */
+export type BoardKind = 'basic' | 'status' | 'assignee' | 'version' | 'subproject' | 'subtasks';
+
+export interface EpmBoardSummary {
+  id: ID;
+  name: string;
+  kind: BoardKind;
+  projectId: ID;
+  columnCount: number;
+  /** Whether the reader may rename it, change its columns or delete it. */
+  canManage: boolean;
+}
+
+export interface EpmBoardColumn {
+  /** The saved view behind the column. */
+  queryId: ID;
+  name: string;
+  /**
+   * The value the column stands for: a status, person, version, sub-project
+   * or parent task. None on a basic board.
+   */
+  value?: ID;
+  cards: EpmTask[];
+  /** How many tasks the column holds, which can be more than it shows. */
+  total: number;
+}
+
+export interface EpmBoard extends EpmBoardSummary {
+  columns: EpmBoardColumn[];
+}
+
+export interface BoardInput {
+  name: string;
+  kind: BoardKind;
+}
+
+/** A value a new column could stand for. */
+export interface BoardColumnOption {
+  value: ID;
+  label: string;
+  /** A secondary line: a task's key, a version's dates, a person's email. */
+  detail?: string;
+}
+
+export interface BoardMoveInput {
+  workPackageId: ID;
+  /** Where it was, when it was on the board already. */
+  fromQueryId?: ID;
+  toQueryId: ID;
+  /** Its place in the column it lands in, from 0. */
+  position: number;
+}
+
+/** A project's backlog: the work in no sprint, in order, and the sprints it can go into. */
+export interface ProjectBacklog {
+  backlog: EpmTask[];
+  sprints: BacklogSprint[];
+  /** Whether the reader may reorder the backlog and move work between it and the sprints. */
+  canPlan: boolean;
+}
+
+export interface BacklogSprint {
+  sprint: EpmSprint;
+  /** The sprint’s own dates, absent where it has none (a sprint fills today in for them). */
+  startDate?: ISODate;
+  endDate?: ISODate;
+  items: EpmTask[];
+  points: number;
+  /** Points finished in the project's last three closed sprints, on average; none before the first. */
+  velocity?: number;
+}
+
+export interface BacklogMoveInput {
+  workPackageId: ID;
+  /** The sprint it goes into, or null for the backlog. */
+  sprintId: ID | null;
+  /** The task it lands before; at the end of the list when absent. */
+  beforeId?: ID;
+}
+
+/** Something in the way of a sprint, and the tasks it holds up. */
+export interface Impediment {
+  id: ID;
+  key: string;
+  subject: string;
+  description?: string;
+  status: EpmTask['status'];
+  assigneeId?: ID;
+  createdAt: ISODate;
+  /** The tasks it blocks, as far as the reader can see them. */
+  blocks: { id: ID; key: string; subject: string }[];
+}
+
+export interface ImpedimentInput {
+  subject: string;
+  description?: string;
+  assigneeId?: ID;
+  /** Tasks it blocks: at least one, all in the sprint's project. */
+  blocksIds: ID[];
+}

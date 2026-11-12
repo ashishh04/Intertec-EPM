@@ -236,7 +236,8 @@ function DraggableCard({ task, assignee }: { task: EpmTask; assignee?: EpmUser }
   );
 }
 
-function KanbanCard({
+/** A task as a board card: its key, priority, subject, labels, assignee, points and due date. */
+export function KanbanCard({
   task,
   assignee,
   dragging = false,

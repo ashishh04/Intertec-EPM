@@ -450,6 +450,18 @@ model Program {
   @@map("programs")
 }
 
+/// A task's place in its project's backlog, or in a sprint's list. The
+/// delivery system's sprints are its versions, which keep no order of their
+/// own. Lower comes first; a task with none comes after every one that has one.
+model BacklogRank {
+  workPackageId String   @id
+  rank          Float
+  updatedBy     String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("backlog_ranks")
+}
+
 /// A saved portfolio view (BR-203): a set of projects — portfolios, named
 /// projects, a health filter — the period and columns to show them with, and
 /// who it is shared with. Evaluated for each person with their own access, so

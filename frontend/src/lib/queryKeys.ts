@@ -161,6 +161,11 @@ export const invalidationGroups = {
     ['activity'],
     ['projects'],
     ['reports'],
+    // Boards, the backlog and impediments show tasks too: a task made from a
+    // column's add button, or closed from the task page, has to appear there.
+    ['boards'],
+    ['backlog'],
+    ['impediments'],
   ],
   // `current-user` carries the per-project permission map, and it is fetched
   // once per session with `staleTime: Infinity`. Creating a project grants the

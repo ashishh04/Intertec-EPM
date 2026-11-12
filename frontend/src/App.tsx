@@ -36,6 +36,7 @@ const ProjectActivityTab = lazy(() => import('@/pages/project/ProjectActivityTab
 const ProjectReportsTab = lazy(() => import('@/pages/project/ProjectReportsTab'));
 const ProjectDashboardTab = lazy(() => import('@/pages/project/ProjectDashboardTab'));
 const ProjectRoadmapTab = lazy(() => import('@/pages/project/ProjectRoadmapTab'));
+const ProjectBacklogTab = lazy(() => import('@/pages/project/ProjectBacklogTab'));
 const ProjectSettingsTab = lazy(() => import('@/pages/project/ProjectSettingsTab'));
 const TasksPage = lazy(() => import('@/pages/TasksPage'));
 const TaskDetailPage = lazy(() => import('@/pages/TaskDetailPage'));
@@ -243,6 +244,7 @@ export function App() {
           <Route path="/projects/:projectId" element={<ProjectDetailPage />}>
             <Route index element={<ProjectOverviewTab />} />
             <Route path="dashboard" element={<ProjectDashboardTab />} />
+            <Route path="backlog" element={<ProjectBacklogTab />} />
             <Route path="roadmap" element={<ProjectRoadmapTab />} />
             <Route path="settings" element={<ProjectSettingsTab />} />
             <Route path="tasks" element={<ProjectTasksTab />} />

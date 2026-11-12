@@ -54,6 +54,8 @@ import { reservedIdentifierRoutes } from './reserved-identifiers.js';
 import { statusReportRoutes } from './status-reports.js';
 import { projectSettingRoutes } from './project-settings.js';
 import { programRoutes } from './programs.js';
+import { boardRoutes } from './boards.js';
+import { backlogRoutes } from './backlog.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { taskSeriesRoutes } from './task-series.js';
@@ -96,6 +98,10 @@ export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(projectSettingRoutes);
   // Programs: projects run together, between a portfolio and its projects.
   await app.register(programRoutes);
+  // Boards of every kind, kept by the delivery system as grids of saved views.
+  await app.register(boardRoutes);
+  // A project's backlog in order, sprint planning, and a sprint's impediments.
+  await app.register(backlogRoutes);
   await app.register(sprintRoutes);
   await app.register(dashboardRoutes);
   await app.register(reportRoutes);

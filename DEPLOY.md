@@ -164,11 +164,13 @@ ssh -L 8080:localhost:8080 user@host
 docker run --rm -d --network epm_epm -p 8080:80 alpine/socat tcp-listen:80,fork tcp:openproject:80
 ```
 
-Approvals need the governance types — Change Request and Risk, the Pending
-approval, Approved and Rejected statuses, and the Change value field that
-approval thresholds read. A fresh OpenProject has none of them. The script that
-creates them is in the `epm-openproject` image; it creates only what is missing,
-so running it again is harmless:
+Approvals need the governance types — Change Request, Risk and Impediment, the
+Pending approval, Approved and Rejected statuses, and the Change value field that
+approval thresholds read. The risk register keeps risks as the Risk type, and a
+sprint's impediments are the Impediment type. A fresh OpenProject has none of
+them. The script that creates them is in the `epm-openproject` image; it creates
+only what is missing, so running it again is harmless (and needed after an
+upgrade that adds a type):
 
 ```bash
 docker compose -f docker-compose.deploy.yml --env-file .env.prod exec -T openproject \

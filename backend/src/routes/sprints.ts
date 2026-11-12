@@ -135,7 +135,8 @@ async function contextFor(version: OpVersion, signal: AbortSignal): Promise<Spri
   return { catalog, workPackages, overlay, samples };
 }
 
-async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
+/** Every sprint the caller can see. Exported for the backlog, which plans into them. */
+export async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
   return aggregateCache.get(userScopedKey('sprints'), async () => {
     const versions = await openProject
       .getAll<OpVersion>('/versions', { pageSize: 100 }, { signal })

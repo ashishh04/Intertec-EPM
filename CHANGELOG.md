@@ -113,6 +113,22 @@ Changes since 1.1.0 (21 October 2026).
   project a copy of it, bringing across what is chosen: its work, versions and
   sprints, members, boards, saved views, categories, overview, life cycle and
   wiki.
+- **Boards of every kind** (a project's Board tab, and Delivery → Boards). Next
+  to the task board every project has, a project can have boards of its own:
+  basic boards, whose lists hold what is put in them in the order it is put
+  there, and boards whose columns are statuses, people, versions, sub-projects
+  or parent tasks. Dragging a card into a column gives the task that value (a
+  new status, assignee, version, project or parent); dragging within a column
+  orders it. Columns are added, removed and reordered, and a board renamed or
+  deleted, by whoever manages boards in the project.
+- **The backlog** (a project's Backlog tab). The project's open work in no
+  sprint, in order, beside the sprints it can plan into. Dragging ranks the
+  backlog and plans work into a sprint or back out of it. Each sprint shows its
+  points against the project's velocity, the average finished in its last
+  three sprints.
+- **Impediments.** Something in the way of a sprint is raised on the project's
+  Sprint tab, blocking the tasks it holds up. It shows with them until it is
+  resolved.
 - **Teams & clients.** The Teams page has two tabs: internal teams, and
   external clients, each client with a contact email and phone and an account
   manager. A team can be made a client and back, and a name or code is unique
@@ -166,6 +182,8 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- Saved views no longer lists a board's columns or a dashboard's widgets as
+  views of their own ("New", "In progress", "Wish list" and the like).
 - Create task offers what the chosen project's own form allows: its statuses,
   priorities and sprints, not a fixed list and every project's sprints.
 - A custom field can be put on types and projects in Administration, so it
@@ -274,19 +292,22 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    invitations, send reset links, open project documents or put a custom field
    on a type. A new add-on also carries a project's modules, attributes,
    template flag, life cycle and copies, so without it a project's Settings
-   tab and starting from a template fail. The backend applies eleven database
-   migrations as it starts; nothing else needs running. The last three add the
+   tab and starting from a template fail. The backend applies twelve database
+   migrations as it starts; nothing else needs running. The last four add the
    risk register's table and the client fields on teams (every existing team
    stays an internal one), then meeting series, agenda items, reserved
-   identifiers and status reports, then programs. All of them only add.
+   identifiers and status reports, then programs, then the backlog's order. All
+   of them only add.
    **Before the images go up, add a column OpenProject's job queue expects.**
    An instance upgraded from OpenProject 15 lacks it, and every project copy
    then fails, although the copy carries on and makes the project. The
    statement does nothing where the column exists:
    `docker compose -f docker-compose.prod.yml exec -T openproject-db psql -U openproject -d openproject -c "ALTER TABLE good_job_batches ADD COLUMN IF NOT EXISTS jobs_finished_at timestamp(6) with time zone;"`
-   The risk register keeps risks as work items of the Risk type. A server that
-   never ran the governance types set-up has none: run it (`DEPLOY.md`,
-   "Approvals need the governance types"), which is harmless where it has run.
+   The risk register keeps risks as work items of the Risk type, and a sprint's
+   impediments are the new Impediment type. **Run the governance types set-up
+   on every server**, including one that ran it before (`DEPLOY.md`, "Approvals
+   need the governance types"): it adds the Impediment type, and it is written
+   again for OpenProject 17, on which the earlier version failed. It only adds.
 3. **Switch to the service account**, if the server still uses an
    administrator's key. Create it and read its key as `DEPLOY.md` describes
    ("After the very first `up`", step 1). Set `OPENPROJECT_API_KEY` in

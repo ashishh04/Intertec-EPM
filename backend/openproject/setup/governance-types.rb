@@ -1,10 +1,17 @@
-# EPM governance types: Change Request and Risk.
+# EPM governance types: Change Request, Risk and Impediment.
 #
 # The BRD treats change control and the risk register as things a delivery
 # platform holds "by configuration" — work package types with their own
 # statuses and workflow. OpenProject can hold them; nothing on a fresh instance
 # does, and EPM's catalogue can create a type but not give it a workflow or
 # enable it in existing projects. This script does all three, once.
+#
+#   Change Request  a proposed change to scope, schedule or budget, decided
+#                   through an approval chain
+#   Risk            something that may happen and would hurt delivery; its
+#                   priority is its severity
+#   Impediment      something in the way of a sprint, holding up the tasks it
+#                   blocks until it is resolved
 #
 # It is configuration, not a patch: it writes OpenProject's own records through
 # its own models, the way an administrator would through the admin pages, and
@@ -15,6 +22,10 @@
 # (In development, where the file is not in the image yet:
 #   docker cp backend/openproject/setup/governance-types.rb openproject:/tmp/governance-types.rb
 #   docker exec openproject bash -lc 'cd /app && bundle exec rails runner /tmp/governance-types.rb')
+#
+# Written for OpenProject 17, where a type's settings (whether new projects get
+# it, its custom fields, its workflow) belong to its base variant, and which
+# projects use it is a row of its own (ProjectType).
 #
 # Idempotent. A second run creates nothing, and it only ever adds: an existing
 # type, status, field or workflow transition an administrator has changed is
@@ -48,37 +59,38 @@ ActiveRecord::Base.transaction do
 
   # --------------------------------------------------------------------- types
   color = ->(name) { Color.find_by(name: name) }
-  type = lambda do |name, color_name, description|
+  type = lambda do |name, color_name|
     found = Type.find_by(name: name)
     next found if found
 
+    # Saving builds the type's base variant.
     created = Type.create!(
       name: name,
       position: (Type.maximum(:position) || 0) + 1,
       is_in_roadmap: false,
       is_milestone: false,
-      # Enabled in every project created from now on, not only in the ones
-      # that exist today.
-      is_default: true,
-      color: color.call(color_name),
-      description: description
+      color: color.call(color_name)
     )
+    # Enabled in every project created from now on, not only in the ones that
+    # exist today.
+    created.default_variant.update!(enabled_in_new_projects: true)
     log.call("type #{name} created")
     created
   end
 
-  change_request = type.call("Change Request", "Orange",
-                             "A proposed change to scope, schedule or budget, decided through an approval chain.")
-  risk = type.call("Risk", "Red",
-                   "Something that may happen and would hurt delivery. Priority is its severity.")
+  change_request = type.call("Change Request", "Orange")
+  risk = type.call("Risk", "Red")
+  impediment = type.call("Impediment", "Magenta")
+  governance = [change_request, risk, impediment]
 
-  # Enabled in every project, so a project manager can raise either at once.
+  # Enabled in every project, so a project manager can raise any of them at
+  # once. Each project applies the type's base variant.
   Project.find_each do |project|
-    added = [change_request, risk].reject { |t| project.types.include?(t) }
+    added = governance.reject { |t| ProjectType.exists?(project_id: project.id, type_id: t.id) }
     next if added.empty?
 
-    project.types << added
-    log.call("enabled #{added.map(&:name).join(' and ')} in #{project.identifier}")
+    added.each { |t| ProjectType.create!(project: project, type: t) }
+    log.call("enabled #{added.map(&:name).join(', ')} in #{project.identifier}")
   end
 
   # ------------------------------------------------------------- custom field
@@ -94,27 +106,30 @@ ActiveRecord::Base.transaction do
                    editable: true
                  ).tap { log.call("custom field Change value created") }
 
-  unless change_request.custom_field_ids.include?(change_value.id)
+  change_base = change_request.default_variant
+  unless change_base.custom_field_ids.include?(change_value.id)
     # Activating the field is what makes it writable on the type, and a type on
     # the default form shows every active field without being told to. Not
     # `reset_attribute_groups`: that starts by deactivating every custom field.
-    change_request.custom_field_ids = change_request.custom_field_ids + [change_value.id]
-    change_request.save!
+    change_base.custom_field_ids = change_base.custom_field_ids + [change_value.id]
+    change_base.save!
     log.call("Change value added to Change Request")
   end
 
   # ------------------------------------------------------------------ workflow
   # The roles that can move a Task are the ones that can move these too.
   task = Type.find_by(name: "Task") || Type.order(:position).first
-  role_ids = Workflow.where(type_id: task.id).distinct.pluck(:role_id)
+  task_base = task.default_variant
+  role_ids = Workflow.where(type_variant_id: task_base.id).distinct.pluck(:role_id)
 
   transitions = lambda do |for_type, pairs|
+    variant_id = for_type.default_variant.id
     added = 0
     role_ids.each do |role_id|
       pairs.each do |from, to|
-        next if Workflow.exists?(type_id: for_type.id, role_id: role_id, old_status_id: from.id, new_status_id: to.id)
+        next if Workflow.exists?(type_variant_id: variant_id, role_id: role_id, old_status_id: from.id, new_status_id: to.id)
 
-        Workflow.create!(type_id: for_type.id, role_id: role_id, old_status_id: from.id, new_status_id: to.id)
+        Workflow.create!(type_variant_id: variant_id, role_id: role_id, old_status_id: from.id, new_status_id: to.id)
         added += 1
       end
     end
@@ -136,15 +151,23 @@ ActiveRecord::Base.transaction do
   ])
 
   # A risk is worked like a task: open, being mitigated, on hold, closed or
-  # rejected as not a risk after all. Copied from the Task workflow.
-  Workflow.where(type_id: task.id).find_each do |row|
-    next if Workflow.exists?(type_id: risk.id, role_id: row.role_id,
-                             old_status_id: row.old_status_id, new_status_id: row.new_status_id)
+  # rejected as not a risk after all. So is an impediment: raised, worked on,
+  # resolved. Both copied from the Task workflow.
+  [risk, impediment].each do |for_type|
+    variant_id = for_type.default_variant.id
+    added = 0
+    Workflow.where(type_variant_id: task_base.id).find_each do |row|
+      next if Workflow.exists?(type_variant_id: variant_id, role_id: row.role_id,
+                               old_status_id: row.old_status_id, new_status_id: row.new_status_id)
 
-    Workflow.create!(type_id: risk.id, role_id: row.role_id, old_status_id: row.old_status_id,
-                     new_status_id: row.new_status_id, author: row.author, assignee: row.assignee)
+      Workflow.create!(type_variant_id: variant_id, role_id: row.role_id, old_status_id: row.old_status_id,
+                       new_status_id: row.new_status_id, author: row.author, assignee: row.assignee)
+      added += 1
+    end
+    log.call("#{added} workflow transitions copied to #{for_type.name}") if added.positive?
   end
 
-  puts "Done: Change Request ##{change_request.id}, Risk ##{risk.id}, Change value customField#{change_value.id}, " \
+  puts "Done: Change Request ##{change_request.id}, Risk ##{risk.id}, Impediment ##{impediment.id}, " \
+       "Change value customField#{change_value.id}, " \
        "Pending approval ##{pending.id}, Approved ##{approved.id}, Rejected ##{rejected.id}"
 end

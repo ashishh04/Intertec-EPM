@@ -300,6 +300,7 @@ export const PROJECT_TABS = [
   { get label() { return t('Dashboard'); }, segment: 'dashboard' },
   { get label() { return t('Tasks'); }, segment: 'tasks' },
   { get label() { return t('Board'); }, segment: 'board' },
+  { get label() { return t('Backlog'); }, segment: 'backlog' },
   { get label() { return t('Sprint'); }, segment: 'sprint' },
   { get label() { return t('Roadmap'); }, segment: 'roadmap' },
   { get label() { return t('Gantt'); }, segment: 'gantt' },
@@ -320,6 +321,7 @@ export const PROJECT_TABS = [
 export const PROJECT_TAB_MODULE: Partial<Record<(typeof PROJECT_TABS)[number]['segment'], string>> = {
   tasks: 'work_package_tracking',
   board: 'board_view',
+  backlog: 'backlogs',
   sprint: 'backlogs',
   roadmap: 'work_package_tracking',
   gantt: 'gantt',

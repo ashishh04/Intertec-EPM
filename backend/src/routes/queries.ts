@@ -21,6 +21,7 @@ import {
 import type { HalCollection, OpWorkPackage } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
 import { message } from '../lib/i18n.js';
+import { widgetQueryIds } from './boards.js';
 
 /**
  * Work package queries, backed by OpenProject's Queries API.
@@ -717,15 +718,20 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
     if (projectId) await guard.require(request, 'task:view', projectId);
 
     try {
-      const collection = await openProject.getAll<Parameters<typeof toEpmQuery>[0]>(
-        '/queries',
-        projectId
-          ? { filters: [{ field: 'project', operator: '=', values: [projectId] }], pageSize: 100 }
-          : { pageSize: 100 },
-        { signal },
-      );
+      const [collection, parts] = await Promise.all([
+        openProject.getAll<Parameters<typeof toEpmQuery>[0]>(
+          '/queries',
+          projectId
+            ? { filters: [{ field: 'project', operator: '=', values: [projectId] }], pageSize: 100 }
+            : { pageSize: 100 },
+          { signal },
+        ),
+        // A board's columns and a dashboard's widgets are saved views too,
+        // but nobody saved them as one.
+        widgetQueryIds(signal),
+      ]);
 
-      return collection.items.map(toEpmQuery);
+      return collection.items.filter((query) => !parts.has(String(query.id))).map(toEpmQuery);
     } catch (error) {
       throw asEpmError(error);
     }

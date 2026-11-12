@@ -22,6 +22,7 @@ const SEGMENT_LABEL: Record<string, string> = {
   get portfolios() { return t('Portfolios'); },
   get programs() { return t('Programs'); },
   get roadmap() { return t('Roadmap'); },
+  get backlog() { return t('Backlog'); },
   get 'portfolio-views'() { return t('Portfolio views'); },
   get 'my-work'() { return t('My Work'); },
   get 'my-time'() { return t('My Time'); },
