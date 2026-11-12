@@ -16,6 +16,16 @@ function useProjectWriteInvalidation() {
   };
 }
 
+/** What the reader may do in a project, answered by its roles and modules there. */
+export function useProjectAbilities(id?: ID) {
+  return useQuery({
+    queryKey: settingsKey(id ?? 'unknown', 'abilities'),
+    queryFn: () => projectSettingsService.abilities(id!),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+  });
+}
+
 export function useProjectModules(id?: ID) {
   return useQuery({
     queryKey: settingsKey(id ?? 'unknown', 'modules'),

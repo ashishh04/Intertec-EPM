@@ -14,7 +14,7 @@ const NONE = '__none__';
 /** The program the project is run in, changeable by whoever manages portfolios. */
 export function ProjectProgramCard({ project }: { project: EpmProject }) {
   const { can } = useAuth();
-  const mayManage = can('portfolios:manage');
+  const mayManage = can('programs:manage') || can('portfolios:manage');
   const programs = usePrograms();
   const { setProjectProgram } = useProgramMutations();
 

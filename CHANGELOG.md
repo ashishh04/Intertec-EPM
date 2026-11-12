@@ -94,7 +94,8 @@ Changes since 1.1.0 (21 October 2026).
   portfolio and its projects. Each program adds up its projects (as many as
   the reader can see): their health, how far they have got and their budget. A
   project is in at most one, set on its Overview or the program's page by
-  whoever manages portfolios, and every move is in the project's history.
+  whoever runs programs (managers and administrators), and every move is in
+  the project's history.
 - **A project's own Dashboard and Roadmap.** The Dashboard tab shows any of the
   dashboards for that one project. The Roadmap tab lists its sprints and
   releases, including those shared from another project, with the work planned
@@ -162,6 +163,15 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Roles follow project management practice** (PMI) for the new features.
+  Managers run programs and see every project request, as a PMO and program
+  managers do: the Manager role carries two new EPM permissions, Manage
+  programs and Review project requests, which an administrator can also grant
+  to anyone (Administration → EPM permissions). Deciding a request or a gate
+  stays with the approval chain; portfolios, templates and approval chains
+  stay with administrators. Whoever manages a project (its Project admin role)
+  switches its life-cycle phases on and dates them, and everyone working in
+  the project sees them.
 - Project members can open the documents filed under their project, not only
   the person who uploaded them.
 - The calendar loads a month in one to three seconds instead of seven to ten,
@@ -201,6 +211,8 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- A board's New board button shows only to people the project lets manage
+  boards, not to everyone who can edit its tasks (who were then refused).
 - Saved views no longer lists a board's columns or a dashboard's widgets as
   views of their own ("New", "In progress", "Wish list" and the like).
 - Create task offers what the chosen project's own form allows: its statuses,
@@ -330,8 +342,10 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    The risk register keeps risks as work items of the Risk type, and a sprint's
    impediments are the new Impediment type. **Run the governance types set-up
    on every server**, including one that ran it before (`DEPLOY.md`, "Approvals
-   need the governance types"): it adds the Impediment type, and it is written
-   again for OpenProject 17, on which the earlier version failed. It only adds.
+   need the governance types"): it adds the Impediment type, gives the project
+   roles the life-cycle rights OpenProject 17 brought (managing roles run the
+   phases, working roles see them), and it is written again for OpenProject 17,
+   on which the earlier version failed. It only adds.
 3. **Switch to the service account**, if the server still uses an
    administrator's key. Create it and read its key as `DEPLOY.md` describes
    ("After the very first `up`", step 1). Set `OPENPROJECT_API_KEY` in

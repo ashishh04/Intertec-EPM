@@ -121,6 +121,7 @@ const SUBJECTS: Record<string, string> = {
   health: 'project health',
   evm: 'earned value',
   fields: 'calculated fields',
+  requests: 'project requests',
 };
 
 function describe(permission: Permission): Message {

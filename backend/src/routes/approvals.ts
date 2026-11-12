@@ -70,9 +70,9 @@ async function assertMayRead(request: FastifyRequest, id: string) {
     if (allows(permissions, 'expenses:manage')) return row;
     throw EpmError.notFound('That approval request');
   }
-  // A project request has no project yet: whoever manages portfolios reads it.
+  // A project request has no project yet: whoever reviews the intake reads it.
   if (row.subjectType === 'project_request') {
-    if (allows(permissions, 'portfolios:manage')) return row;
+    if (allows(permissions, 'requests:review') || allows(permissions, 'portfolios:manage')) return row;
     throw EpmError.notFound('That approval request');
   }
   if (row.subjectType === 'scenario') {

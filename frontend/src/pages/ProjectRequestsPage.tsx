@@ -26,7 +26,8 @@ import { useAuth } from '@/providers/AuthProvider';
 export default function ProjectRequestsPage() {
   const navigate = useNavigate();
   const { can } = useAuth();
-  const mayManage = can('portfolios:manage');
+  // The whole intake is for whoever reviews it, as a PMO does.
+  const mayManage = can('requests:review') || can('portfolios:manage');
   const [scope, setScope] = useState<'mine' | 'all'>('mine');
   const requests = useProjectRequests(scope);
   const [creating, setCreating] = useState(false);

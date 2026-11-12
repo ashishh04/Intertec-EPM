@@ -27,8 +27,12 @@ const COPY_PARTS = ['members', 'versions', 'categories', 'work_packages', 'wiki'
 const idParam = z.object({ id: z.string().min(1).max(64) });
 
 async function viewerOf(request: FastifyRequest): Promise<RequestViewer> {
-  const [manage, createProjects] = await Promise.all([guard.holds(request, 'portfolios:manage'), guard.holds(request, 'project:create')]);
-  return { id: request.auth!.userId, manage, createProjects };
+  const [manage, review, createProjects] = await Promise.all([
+    guard.holds(request, 'portfolios:manage'),
+    guard.holds(request, 'requests:review'),
+    guard.holds(request, 'project:create'),
+  ]);
+  return { id: request.auth!.userId, manage, review: review || manage, createProjects };
 }
 
 function rethrow(error: unknown): never {
@@ -41,7 +45,7 @@ function rethrow(error: unknown): never {
 }
 
 export const projectRequestRoutes: FastifyPluginAsync = async (app) => {
-  /** The reader's own requests, or every one for whoever manages portfolios (`scope=all`). */
+  /** The reader's own requests, or every one for whoever reviews them (`scope=all`). */
   app.get<{ Querystring: { scope?: string } }>('/project-requests', async (request) =>
     listRequests(await viewerOf(request), request.query.scope === 'all' ? 'all' : 'mine'),
   );

@@ -199,6 +199,8 @@ export type Permission =
   | 'approvals:configure'
   | 'rules:configure'
   | 'portfolios:manage'
+  | 'programs:manage'
+  | 'requests:review'
   | 'analytics:manage'
   | 'reports:schedule'
   | 'reports:approve'
@@ -4846,6 +4848,21 @@ export interface RunningTimer {
 export interface ProjectModule {
   name: string;
   enabled: boolean;
+}
+
+/**
+ * What the reader may do in a project, as the delivery system answers it from
+ * their roles there and the project’s modules: for a screen that offers an
+ * action before it is tried.
+ */
+export interface ProjectAbilities {
+  manageBoards: boolean;
+  viewPhases: boolean;
+  selectPhases: boolean;
+  editPhases: boolean;
+  selectModules: boolean;
+  selectAttributes: boolean;
+  copyProject: boolean;
 }
 
 export interface ProjectModules {

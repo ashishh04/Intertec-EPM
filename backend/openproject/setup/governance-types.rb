@@ -13,6 +13,10 @@
 #   Impediment      something in the way of a sprint, holding up the tasks it
 #                   blocks until it is resolved
 #
+# It also gives project roles the life-cycle rights OpenProject 17 added: the
+# roles that manage a project run its phases, the roles that work in it see
+# them (stage gates depend on both).
+#
 # It is configuration, not a patch: it writes OpenProject's own records through
 # its own models, the way an administrator would through the admin pages, and
 # is not loaded at boot. Run it on demand:
@@ -165,6 +169,31 @@ ActiveRecord::Base.transaction do
       added += 1
     end
     log.call("#{added} workflow transitions copied to #{for_type.name}") if added.positive?
+  end
+
+  # -------------------------------------------------------- life-cycle rights
+  # OpenProject 17 brought the project life cycle (phases and the gates between
+  # them) with permissions that no existing role was given on the upgrade, so
+  # nobody but an administrator could see or run it. As project management
+  # standards have it: whoever manages a project (edit_project) runs its life
+  # cycle, and everyone working in it (view_work_packages) sees it. Built-in
+  # roles are not project members, and EPM's own accounts' roles are left as
+  # they are.
+  phase_view = %i[view_project_phases]
+  phase_run = %i[view_project_phases edit_project_phases select_project_phases]
+  ProjectRole.where(builtin: Role::NON_BUILTIN).find_each do |role|
+    next if role.name.start_with?("EPM ")
+
+    wanted =
+      if role.has_permission?(:edit_project) then phase_run
+      elsif role.has_permission?(:view_work_packages) then phase_view
+      else []
+      end
+    missing = wanted.reject { |permission| role.has_permission?(permission) }
+    next if missing.empty?
+
+    role.add_permission!(*missing)
+    log.call("#{missing.join(', ')} given to the #{role.name} role")
   end
 
   puts "Done: Change Request ##{change_request.id}, Risk ##{risk.id}, Impediment ##{impediment.id}, " \

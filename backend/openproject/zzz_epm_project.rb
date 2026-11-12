@@ -12,6 +12,7 @@
 #   GET   /epm_project/projects/:id/phases      { phases: [...], canSelect, canEdit, canView }
 #   PATCH /epm_project/projects/:id/phases/:definition_id  { active?, startDate?, finishDate? } -> as GET
 #   POST  /epm_project/projects/:id/copy        { name, identifier?, parentId?, only: [part] } -> 202 { jobId }
+#   GET   /epm_project/projects/:id/abilities   { manageBoards, viewPhases, selectPhases, editPhases, ... }
 #
 # The copy is API v3's own (POST /api/v3/projects/:id/copy: the same contract,
 # service and CopyProjectJob, followed through /api/v3/job_statuses/:jobId)
@@ -153,6 +154,23 @@ Rails.application.config.to_prepare do
       return render_failure(call) unless call.success?
 
       render json: { templated: @project.reload.templated? }
+    end
+
+    # ----------------------------------------------------------- abilities
+
+    # What the caller may do in this project, for a screen that offers an
+    # action before it is tried: each answered by the project's own roles and
+    # modules, as the action itself would be.
+    def abilities
+      render json: {
+        manageBoards: @user.allowed_in_project?(:manage_board_views, @project),
+        viewPhases: @user.allowed_in_project?(:view_project_phases, @project),
+        selectPhases: @user.allowed_in_project?(:select_project_phases, @project),
+        editPhases: @user.allowed_in_project?(:edit_project_phases, @project),
+        selectModules: @user.allowed_in_project?(:select_project_modules, @project),
+        selectAttributes: @user.allowed_in_project?(:select_project_custom_fields, @project),
+        copyProject: @user.allowed_in_project?(:copy_projects, @project)
+      }
     end
 
     # ---------------------------------------------------------------- copy
@@ -298,6 +316,7 @@ Rails.application.routes.prepend do
     patch "projects/:id/attributes", action: :update_attributes, constraints: { id: /\d+/ }
     patch "projects/:id/template", action: :update_template, constraints: { id: /\d+/ }
     post "projects/:id/copy", action: :copy, constraints: { id: /\d+/ }
+    get "projects/:id/abilities", action: :abilities, constraints: { id: /\d+/ }
     get "projects/:id/phases", action: :phases, constraints: { id: /\d+/ }
     patch "projects/:id/phases/:definition_id", action: :update_phase, constraints: { id: /\d+/, definition_id: /\d+/ }
   end

@@ -26,7 +26,7 @@ import { useAuth } from '@/providers/AuthProvider';
  */
 export default function ProgramsPage() {
   const { can } = useAuth();
-  const mayManage = can('portfolios:manage');
+  const mayManage = can('programs:manage') || can('portfolios:manage');
   const [showArchived, setShowArchived] = useState(false);
   const programs = usePrograms(showArchived);
   const [creating, setCreating] = useState(false);

@@ -16,9 +16,9 @@ import { Card } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBoard, useBoardMutations, useProjectBoards } from '@/hooks/useBoards';
+import { useProjectAbilities } from '@/hooks/useProjectSettings';
 import { useUserMap } from '@/hooks/useUsers';
 import { t } from '@/lib/i18n';
-import { useAuth } from '@/providers/AuthProvider';
 import { useUI } from '@/providers/UIProvider';
 import type { EpmBoardColumn, EpmBoardSummary, ID } from '@/types';
 
@@ -35,7 +35,7 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
  */
 export function BoardWorkspace({ projectId }: { projectId: ID }) {
   const [params, setParams] = useSearchParams();
-  const { canInProject } = useAuth();
+  const abilities = useProjectAbilities(projectId);
   const boards = useProjectBoards(projectId);
   const mutations = useBoardMutations(projectId);
   const [creating, setCreating] = useState(false);
@@ -45,7 +45,9 @@ export function BoardWorkspace({ projectId }: { projectId: ID }) {
 
   const wanted = params.get('board') ?? TASK_BOARD;
   const current = boards.data?.find((board) => board.id === wanted);
-  const mayCreate = canInProject(projectId, 'task:edit');
+  // Offered only to whoever the project lets manage boards: being able to
+  // edit its tasks is not enough, and a button that is then refused misleads.
+  const mayCreate = Boolean(abilities.data?.manageBoards);
 
   const select = (id: string) =>
     setParams(

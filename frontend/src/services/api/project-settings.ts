@@ -4,6 +4,7 @@ import type {
   EpmProject,
   ID,
   ProgramInput,
+  ProjectAbilities,
   ProjectAttributes,
   ProjectCopyInput,
   ProjectCopyJob,
@@ -17,6 +18,7 @@ import type {
  * roadmap, copying a project, and programs.
  */
 export const projectSettingsService = {
+  abilities: (id: ID) => apiClient.get<ProjectAbilities>(`/projects/${id}/abilities`),
   modules: (id: ID) => apiClient.get<ProjectModules>(`/projects/${id}/modules`),
   setModules: (id: ID, enabled: string[]) => apiClient.patch<ProjectModules>(`/projects/${id}/modules`, { enabled }),
   attributes: (id: ID) => apiClient.get<ProjectAttributes>(`/projects/${id}/attributes`),

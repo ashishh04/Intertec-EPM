@@ -102,12 +102,27 @@ async function assertNameFree(name: string, exceptId?: string): Promise<void> {
   if (clash) throw EpmError.badRequest('A program with that name already exists.');
 }
 
+/**
+ * Whether the caller runs programs: whoever manages programs (a PMO, a program
+ * manager), or the portfolios they sit in.
+ */
+async function managesPrograms(request: FastifyRequest): Promise<boolean> {
+  const [programs, portfolios] = await Promise.all([guard.holds(request, 'programs:manage'), guard.holds(request, 'portfolios:manage')]);
+  return programs || portfolios;
+}
+
+/** Refused, in the guard's own words, unless the caller runs programs. */
+async function requireProgramManagement(request: FastifyRequest): Promise<void> {
+  if (await guard.holds(request, 'portfolios:manage')) return;
+  await guard.require(request, 'programs:manage');
+}
+
 /** Reads a program the caller may see, answered as not found when not. */
 async function readable(request: FastifyRequest, id: string): Promise<{ row: ProgramRow; projects: EpmProject[] }> {
   const [row, projects, manager] = await Promise.all([
     prisma.program.findUnique({ where: { id }, include: { portfolio: { select: { name: true } } } }),
     loadProjectsFor(request),
-    guard.holds(request, 'portfolios:manage'),
+    managesPrograms(request),
   ]);
   if (!row || (!manager && !projects.some((project) => project.programId === row.id))) throw EpmError.notFound('That program');
   return { row, projects };
@@ -122,7 +137,7 @@ export const programRoutes: FastifyPluginAsync = async (app) => {
         orderBy: { name: 'asc' },
       }),
       loadProjectsFor(request),
-      guard.holds(request, 'portfolios:manage'),
+      managesPrograms(request),
     ]);
     const names = await namesFor(rows.flatMap((row) => (row.managerId ? [row.managerId] : [])));
     const programs = rows.map((row) => rollup(row, projects, names));
@@ -136,7 +151,7 @@ export const programRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post<{ Body: unknown }>('/programs', async (request, reply) => {
-    await guard.require(request, 'portfolios:manage');
+    await requireProgramManagement(request);
     const input = writeBody.parse(request.body ?? {});
     await assertNameFree(input.name);
     if (await prisma.program.findUnique({ where: { code: input.code } })) throw EpmError.badRequest('A program with that code already exists.');
@@ -168,7 +183,7 @@ export const programRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.patch<{ Params: { id: string }; Body: unknown }>('/programs/:id', async (request) => {
-    await guard.require(request, 'portfolios:manage');
+    await requireProgramManagement(request);
     const input = writeBody.partial().parse(request.body ?? {});
     if (Object.keys(input).length === 0) throw EpmError.badRequest('Nothing to change.');
     const existing = await prisma.program.findUnique({ where: { id: request.params.id } });
@@ -209,7 +224,7 @@ export const programRoutes: FastifyPluginAsync = async (app) => {
 
   for (const [path, active] of [['archive', false], ['restore', true]] as const) {
     app.patch<{ Params: { id: string } }>(`/programs/:id/${path}`, async (request) => {
-      await guard.require(request, 'portfolios:manage');
+      await requireProgramManagement(request);
       const existing = await prisma.program.findUnique({ where: { id: request.params.id } });
       if (!existing) throw EpmError.notFound('That program');
       const row = await withAudit(
@@ -230,7 +245,7 @@ export const programRoutes: FastifyPluginAsync = async (app) => {
 
   /** Deletes a program created by mistake; refused while any project is in it. */
   app.delete<{ Params: { id: string } }>('/programs/:id', async (request, reply) => {
-    await guard.require(request, 'portfolios:manage');
+    await requireProgramManagement(request);
     const existing = await prisma.program.findUnique({ where: { id: request.params.id } });
     if (!existing) throw EpmError.notFound('That program');
     const inIt = await prisma.projectProfile.count({ where: { programId: existing.id } });
@@ -252,7 +267,7 @@ export const programRoutes: FastifyPluginAsync = async (app) => {
   /** Puts a project in a program, or takes it out (null). */
   app.patch<{ Params: { id: string }; Body: { programId?: unknown } }>('/projects/:id/program', async (request) => {
     const { id } = z.object({ id: z.string().regex(/^\d+$/) }).parse(request.params);
-    await guard.require(request, 'portfolios:manage');
+    await requireProgramManagement(request);
     // Confirms the project exists and the caller can see it.
     await openProject.request<{ id: number }>(`/projects/${id}`, { signal: requestSignal(request) });
     const requested = request.body?.programId;

@@ -73,8 +73,10 @@ function columns(input: z.infer<typeof requestInput>) {
 
 export interface RequestViewer {
   id: string;
-  /** Sees and tidies every request: whoever manages portfolios. */
+  /** Tidies every request (deletes one that is not theirs): whoever manages portfolios. */
   manage: boolean;
+  /** Sees every request, the intake a PMO reviews: requests:review, or manage. */
+  review: boolean;
   /** May turn an approved request into a project. */
   createProjects: boolean;
 }
@@ -87,7 +89,7 @@ async function load(id: string): Promise<ProjectRequestRow> {
 
 /** A request as its reader sees it, with names, its approval and what they may do. */
 export async function requestView(row: ProjectRequestRow, viewer: RequestViewer): Promise<ProjectRequest> {
-  if (row.requestedBy !== viewer.id && !viewer.manage) {
+  if (row.requestedBy !== viewer.id && !viewer.review) {
     // An approver reads it through the approval, which links here: let them.
     const asked = row.requestId
       ? await prisma.approvalTask.count({
@@ -143,7 +145,7 @@ export async function requestView(row: ProjectRequestRow, viewer: RequestViewer)
 
 export async function listRequests(viewer: RequestViewer, scope: 'mine' | 'all'): Promise<ProjectRequest[]> {
   const rows = await prisma.projectRequest.findMany({
-    where: scope === 'all' && viewer.manage ? {} : { requestedBy: viewer.id },
+    where: scope === 'all' && viewer.review ? {} : { requestedBy: viewer.id },
     orderBy: { createdAt: 'desc' },
     take: 500,
   });

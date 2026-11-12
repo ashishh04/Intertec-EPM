@@ -64,6 +64,8 @@ export const PERMISSIONS = [
   'approvals:configure',
   'rules:configure',
   'portfolios:manage',
+  'programs:manage',
+  'requests:review',
   'analytics:manage',
   'reports:schedule',
   'reports:approve',
@@ -217,6 +219,15 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
     'Portfolio scenarios are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'finance:configure':
     'Exchange rates, rate cards and the finance settings are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Running programs is program management (PMI): a PMO's or program manager's
+  // responsibility, below the portfolio structure itself, which stays with
+  // portfolios:manage.
+  'programs:manage':
+    'Programs are EPM-owned; OpenProject has no programs. Granted from EPM permission grants instead.',
+  // Seeing every request to start a project is the intake pipeline a PMO
+  // reviews. Deciding one is the approval chain's, whoever holds this.
+  'requests:review':
+    'Project requests are EPM-owned; no upstream equivalent. Granted from EPM permission grants instead.',
   'roles:manage': 'No roles action exists in the capabilities vocabulary.',
   'system:manage': 'Instance administration has no API; OpenProject admin UI only.',
 };

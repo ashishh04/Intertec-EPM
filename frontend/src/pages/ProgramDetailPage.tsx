@@ -32,7 +32,7 @@ export default function ProgramDetailPage() {
   const { programId } = useParams();
   const navigate = useNavigate();
   const { can } = useAuth();
-  const mayManage = can('portfolios:manage');
+  const mayManage = can('programs:manage') || can('portfolios:manage');
   const program = useProgram(programId);
   const allProjects = useProjects();
   const mutations = useProgramMutations();

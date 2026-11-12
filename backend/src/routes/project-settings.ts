@@ -11,6 +11,7 @@ import { toEpmTask, type WorkPackageWithPoints } from '../mapping/tasks.js';
 import { idFromHref, linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { OpVersion } from '../openproject/types.js';
 import type {
+  ProjectAbilities,
   ProjectAttributes,
   ProjectAttributeSection,
   ProjectCopyJob,
@@ -136,6 +137,18 @@ function toCopyJob(job: OpJobStatus, fallbackId?: string): ProjectCopyJob {
 }
 
 export const projectSettingRoutes: FastifyPluginAsync = async (app) => {
+  /* ----------------------------------------------------------- abilities */
+
+  /**
+   * What the reader may do in the project, for a screen that offers an action
+   * before it is tried (creating a board, running the life cycle): answered by
+   * the project's own roles and modules, as each action itself would be.
+   */
+  app.get('/projects/:id/abilities', async (request): Promise<ProjectAbilities> => {
+    const { id } = projectId.parse(request.params);
+    return addOn<ProjectAbilities>(request, `/projects/${id}/abilities`);
+  });
+
   /* ------------------------------------------------------------- modules */
 
   app.get('/projects/:id/modules', async (request): Promise<ProjectModules> => {
