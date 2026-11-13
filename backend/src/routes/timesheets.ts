@@ -25,21 +25,24 @@ import { requestLanguage, t } from '../lib/i18n.js';
  *
  * Everyone has their own timesheet. A line manager — team lead or department
  * manager — reads the timesheets of the people they manage; whoever holds
- * `timesheets:manage` reads everyone's and may reopen an approved one; the
- * approvers named on a request read the timesheet it is for. The settings are
- * read by anyone signed in, since the screens show the bounds and policies,
- * and changed with `time:configure`.
+ * `timesheets:view` (managers) reads everyone's; whoever holds
+ * `timesheets:manage` (HR) reads everyone's too and may reopen an approved one;
+ * the approvers named on a request read the timesheet it is for. The settings
+ * are read by anyone signed in, since the screens show the bounds and
+ * policies, and changed with `time:configure`.
  */
 
 const dayQuery = z.object({ day: calendarDay().optional() });
 
 async function viewerOf(request: FastifyRequest): Promise<TimesheetViewer> {
-  return { id: request.auth!.userId, manage: allows(await guard.permissionsFor(request), 'timesheets:manage') };
+  const permissions = await guard.permissionsFor(request);
+  const manage = allows(permissions, 'timesheets:manage');
+  return { id: request.auth!.userId, manage, readAll: manage || allows(permissions, 'timesheets:view') };
 }
 
-/** Self, whoever manages timesheets, or the person's line manager. */
+/** Self, whoever sees or manages everyone's timesheets, or the person's line manager. */
 async function assertMayReadPerson(viewer: TimesheetViewer, personId: string): Promise<void> {
-  if (viewer.id === personId || viewer.manage) return;
+  if (viewer.id === personId || viewer.readAll) return;
   if ((await managedPeople(viewer.id)).has(personId)) return;
   throw EpmError.notFound('That timesheet');
 }
@@ -93,8 +96,8 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * Everyone's timesheets for one period (BR-306): submitted, approved,
-   * rejected and outstanding. All of them for `timesheets:manage`; a line
-   * manager's own people otherwise.
+   * rejected and outstanding. All of them for `timesheets:view` or
+   * `timesheets:manage`; a line manager's own people otherwise.
    */
   app.get('/timesheets/overview', async (request) => {
     const query = z
@@ -108,7 +111,7 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
       })
       .parse(request.query);
     const viewer = await viewerOf(request);
-    const scope = viewer.manage ? ('all' as const) : await managedPeople(viewer.id);
+    const scope = viewer.readAll ? ('all' as const) : await managedPeople(viewer.id);
     if (scope !== 'all' && scope.size === 0) {
       throw EpmError.forbidden('The timesheet overview is for whoever manages timesheets, and for team leads and department managers.');
     }

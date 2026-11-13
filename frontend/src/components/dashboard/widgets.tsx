@@ -850,9 +850,9 @@ export const WIDGETS: DashboardWidget[] = [
     icon: CalendarCheck,
     defaultWidth: 'half',
     resizable: true,
-    // Whoever manages timesheets sees everyone's; a team lead or department
-    // manager, whatever their role, sees their own people's.
-    available: ({ role, can }) => can('timesheets:manage') || role === 'manager' || role === 'hr',
+    // Whoever sees or manages timesheets sees everyone's; a team lead or
+    // department manager, whatever their role, sees their own people's.
+    available: ({ role, can }) => can('timesheets:manage') || can('timesheets:view') || role === 'manager' || role === 'hr',
     Component: TeamTimesheetsWidget,
   },
   {

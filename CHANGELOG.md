@@ -172,6 +172,12 @@ Changes since 1.1.0 (21 October 2026).
   stay with administrators. Whoever manages a project (its Project admin role)
   switches its life-cycle phases on and dates them, and everyone working in
   the project sees them.
+- **Managers see everyone's timesheets**, read only, as a PMO follows people's
+  time: what each person logged, what they submitted and who has not. A new
+  EPM permission, See timesheets, comes with the Manager role and can be
+  granted to anyone (Administration → EPM permissions); reopening an approved
+  timesheet stays with Manage timesheets (HR and administrators). Their
+  Overview's "Last week's timesheets" now fills for them too.
 - Project members can open the documents filed under their project, not only
   the person who uploaded them.
 - The calendar loads a month in one to three seconds instead of seven to ten,
@@ -211,6 +217,10 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- Timesheets → People shows the time logged this week. It opened on last
+  week's outstanding list, so time someone had just logged appeared nowhere
+  until the reader moved forward a period and chose Everyone; it now opens on
+  the current period and everyone in it, with last week a click back.
 - The Gantt page shows a chart again. It opened on the newest project, often
   one with nothing on it yet, and the timeline opened on today while its rows
   began with the oldest work, so even a full plan showed rows with no bars. It

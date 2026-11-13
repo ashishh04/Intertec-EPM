@@ -60,10 +60,11 @@ async function assertMayRead(request: FastifyRequest, id: string) {
   if (involved || (await mayConfigure(request))) return row;
 
   // A timesheet or an expense claim is personal: those involved, and whoever
-  // manages timesheets or claims, read it — not everyone on the project.
+  // sees everyone's timesheets or manages claims, read it — not everyone on the
+  // project.
   const permissions = await guard.permissionsFor(request);
   if (row.subjectType === 'timesheet') {
-    if (allows(permissions, 'timesheets:manage')) return row;
+    if (allows(permissions, 'timesheets:manage') || allows(permissions, 'timesheets:view')) return row;
     throw EpmError.notFound('That approval request');
   }
   if (row.subjectType === 'expense_claim') {

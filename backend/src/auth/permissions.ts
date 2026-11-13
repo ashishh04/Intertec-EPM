@@ -75,6 +75,7 @@ export const PERMISSIONS = [
   'fields:configure',
   'resources:plan',
   'resources:configure',
+  'timesheets:view',
   'timesheets:manage',
   'expenses:manage',
   'time:configure',
@@ -197,6 +198,10 @@ export const UNMAPPED: Partial<Record<Permission, string>> = {
   // utilisation figure, like the health rules.
   'resources:configure':
     'The resource settings are EPM-owned policy; no upstream equivalent. Granted from EPM permission grants instead.',
+  // Everyone's timesheets and the outstanding list, read only: what a PMO or a
+  // resource manager follows. Reopening an approved one is timesheets:manage.
+  'timesheets:view':
+    'Timesheets are EPM-owned; OpenProject has no submission or approval of time. Granted from EPM permission grants instead.',
   // Every timesheet, the outstanding list for everyone, reopening an approved
   // one: an oversight role (payroll, the PMO), not implied by a project role.
   'timesheets:manage':

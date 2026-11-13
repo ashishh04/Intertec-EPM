@@ -34,11 +34,15 @@ export default function TimesheetsPage() {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   const today = toISODateOnly(new Date());
-  const [day, setDay] = useState(() => params.get('day') ?? addDays(today, -7));
-  const [status, setStatus] = useState<StatusFilter>('outstanding');
+  // People opens on the current period and everyone in it, so time logged this
+  // week shows at once. It opened on last week's outstanding list, where
+  // nothing logged this week can appear: last week is one click back, and HR's
+  // Overview lists who still owes it.
+  const [day, setDay] = useState(() => params.get('day') ?? today);
+  const [status, setStatus] = useState<StatusFilter>('all');
   const query: TimesheetOverviewQuery = { day, ...(status === 'all' ? {} : { status }) };
   const overview = useTimesheetOverview(query);
-  const peopleAllowed = can('timesheets:manage') || overview.isSuccess;
+  const peopleAllowed = can('timesheets:manage') || can('timesheets:view') || overview.isSuccess;
   const tab = params.get('tab') === 'people' && peopleAllowed ? 'people' : 'mine';
 
   return (

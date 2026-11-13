@@ -5,9 +5,9 @@ import type { ID, TimeSettings, TimesheetOverview, TimesheetSummary, TimesheetVi
  * Timesheets and the time rules (Module 10: BR-304 to BR-306, BR-317).
  *
  * Everyone reads their own timesheet and submits it; a team lead or department
- * manager reads their people's; `timesheets:manage` reads everyone's and
- * reopens approved ones; `time:configure` changes the rules. The backend says
- * no to anything else.
+ * manager reads their people's; `timesheets:view` reads everyone's;
+ * `timesheets:manage` reads everyone's and reopens approved ones;
+ * `time:configure` changes the rules. The backend says no to anything else.
  */
 
 export interface TimeSettingsView {

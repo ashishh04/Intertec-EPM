@@ -57,14 +57,16 @@ export function isStoredRole(value: unknown): value is StoredRole {
  */
 export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   admin: GRANTABLE_PERMISSIONS,
-  // Runs projects, programs and people's time: plans resources, reads project
-  // health and money, compares scenarios and sends reports. As a PMO and a
-  // program manager do (PMI): runs programs and reviews the project intake,
-  // while the portfolio structure, templates and approval policy stay with the
-  // administrators.
+  // Runs projects, programs and people's time: plans resources, follows
+  // everyone's timesheets, reads project health and money, compares scenarios
+  // and sends reports. As a PMO and a program manager do (PMI): runs programs
+  // and reviews the project intake, while the portfolio structure, templates
+  // and approval policy stay with the administrators, and reopening approved
+  // time stays with HR (timesheets:manage).
   manager: [
     'health:manage',
     'resources:plan',
+    'timesheets:view',
     'scenarios:manage',
     'reports:schedule',
     'finance:view',

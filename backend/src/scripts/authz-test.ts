@@ -9616,6 +9616,7 @@ async function main() {
     try {
       check('an administrator gives someone the Manager role', await status(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: admin, body: { role: 'manager' } }), 200);
       check('which takes effect at once: a manager reads finance', await status('/finance/batches', { cookie: restricted }), 200);
+      check("and everyone's timesheets, read only", await status('/timesheets/overview', { cookie: restricted }), 200);
       await call(`/admin/app-roles/${restrictedId}`, { method: 'PUT', cookie: admin, body: { role: 'employee' } });
       if (restrictedMe.permissions?.finance?.view) {
         console.log('  SKIP  the restricted account holds finance:view as a grant, so an employee check proves nothing');

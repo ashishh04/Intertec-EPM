@@ -38,6 +38,8 @@ export interface TimesheetViewer {
   id: string;
   /** timesheets:manage — every timesheet, the overview of everyone, reopening. */
   manage: boolean;
+  /** timesheets:view or :manage — every timesheet and the overview of everyone, read only. */
+  readAll: boolean;
 }
 
 async function nameOf(id: string | null | undefined): Promise<string | undefined> {
@@ -245,7 +247,7 @@ export async function submitTimesheet(personId: string, day: string, actorId: st
       after: { periodStart: period.start, periodEnd: period.end, hours: numbers.hours, entries: numbers.entries.length, requestId },
     },
   );
-  return timesheetById(row.id, { id: actorId, manage: false });
+  return timesheetById(row.id, { id: actorId, manage: false, readAll: false });
 }
 
 /** Withdraws a submitted timesheet: it returns to draft and its time unlocks. */

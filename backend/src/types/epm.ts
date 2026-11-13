@@ -210,6 +210,7 @@ export type Permission =
   | 'fields:configure'
   | 'resources:plan'
   | 'resources:configure'
+  | 'timesheets:view'
   | 'timesheets:manage'
   | 'expenses:manage'
   | 'time:configure'
