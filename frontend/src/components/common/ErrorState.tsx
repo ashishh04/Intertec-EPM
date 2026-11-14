@@ -52,6 +52,8 @@ function ErrorState({
 interface BoundaryProps {
   children: ReactNode;
   fallbackTitle?: string;
+  /** When this changes (the page's address, say), a caught error is cleared and the children render again. */
+  resetKey?: unknown;
 }
 
 interface BoundaryState {
@@ -69,6 +71,10 @@ class ErrorBoundary extends Component<BoundaryProps, BoundaryState> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     // A real deployment forwards this to the EPM observability pipeline.
     console.error('EPM render error', error, info.componentStack);
+  }
+
+  componentDidUpdate(previous: BoundaryProps) {
+    if (this.state.error && previous.resetKey !== this.props.resetKey) this.setState({ error: null });
   }
 
   render() {

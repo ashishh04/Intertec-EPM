@@ -12,7 +12,15 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { storedPreferences } from './hooks/usePreferences';
 import { direction, intlLocale, loadLanguage, toLanguage } from './lib/i18n';
+import { reloadOnce } from './lib/pages';
 import './index.css';
+
+// After a deploy, a tab still running the previous build asks for chunks the new
+// build replaced. Vite reports it here; one reload picks up the new build. If a
+// reload just happened, the error is left to surface rather than looping.
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadOnce()) event.preventDefault();
+});
 
 /**
  * Query defaults tuned for an operational dashboard: results stay warm for a

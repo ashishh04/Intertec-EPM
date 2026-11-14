@@ -287,6 +287,9 @@ services:
     ports:
       - '80:80'
       - '443:443'
+      # HTTP/3 (QUIC), used by browsers when UDP 443 is open on the host's
+      # firewall or security group; otherwise they stay on HTTP/2 unaffected.
+      - '443:443/udp'
     volumes:
       # Certificates survive a recreate; without this Caddy re-issues on every
       # deploy and will meet Let's Encrypt's rate limit.

@@ -135,6 +135,19 @@ export async function buildApp(): Promise<FastifyInstance> {
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   });
 
+  // Nothing the API returns may be kept by the browser or a proxy: it is the
+  // signed-in person's data, and Back after signing out must not bring it back
+  // from a cache (OWASP session management). A response that is safe to keep
+  // sets its own Cache-Control (avatars, feeds) and is left as it is. The app
+  // stays fast regardless: it caches its data in memory, not through HTTP.
+  app.addHook('onSend', async (_request, reply, payload) => {
+    if (!reply.hasHeader('cache-control')) {
+      reply.header('Cache-Control', 'no-store');
+      reply.header('Pragma', 'no-cache');
+    }
+    return payload;
+  });
+
   await app.register(cors, {
     origin: env.CORS_ORIGIN,
     credentials: true,

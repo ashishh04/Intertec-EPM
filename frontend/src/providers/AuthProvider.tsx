@@ -157,9 +157,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // the next person to open this browser would restore the previous
         // user's projects and tasks before their own session was checked.
         clearPersistedCache();
-        window.location.assign('/login');
+        // Replace, not assign: the page signed out from does not stay behind in
+        // the history, so Back after signing out cannot open it again.
+        window.location.replace('/login');
       });
   }, [queryClient]);
+
+  /*
+   * A page the browser restores from its back/forward cache comes back exactly
+   * as it was left, data on screen, without asking the server anything. So it is
+   * loaded afresh instead: the session is checked again, and a browser that has
+   * signed out shows the sign-in page, never what was open before. (The app's
+   * page is also served `no-store`, which keeps most browsers from caching it
+   * that way at all; this covers the ones that still do.)
+   */
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) window.location.reload();
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   /*
    * Sign-out clears the persisted cache, but a session can also end by expiry

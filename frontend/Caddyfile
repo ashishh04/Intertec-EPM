@@ -67,16 +67,19 @@
 	# this one is not applied to it.
 	#
 	# Cache-Control: index.html is served for `/` and for every deep link, not
-	# only for /index.html, so it is matched by exclusion. `no-cache` lets the
-	# browser keep it but makes it check with the server every time (a cheap
-	# ETag round trip); without it, a browser can hold the previous index.html
-	# after a deploy and ask for asset files the new image no longer has.
+	# only for /index.html, so it is matched by exclusion. `no-store`, strictly:
+	# the browser keeps no copy of the app's page, not on disk and not in its
+	# back/forward cache, so Back after signing out cannot bring a signed-in page
+	# back from memory, and every load after a deploy gets the new build (an old
+	# index.html would ask for asset files the new image no longer has). It costs
+	# one small file per full load; the app itself (/assets) stays cached below,
+	# and moving between pages never reloads the document at all.
 	@document not path /api/* /ready /health /assets/*
 	header @document {
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 		Permissions-Policy "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=(), browsing-topics=()"
 		Cross-Origin-Opener-Policy "same-origin"
-		Cache-Control "no-cache"
+		Cache-Control "no-store"
 	}
 
 	# Hashed asset filenames are immutable.

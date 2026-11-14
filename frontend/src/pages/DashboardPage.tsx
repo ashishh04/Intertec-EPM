@@ -11,7 +11,6 @@ import { AddWidgetDialog, WidgetFrame } from '@/components/dashboard/WidgetFrame
 import { WIDGETS_BY_ID, isAvailable, isUntouchedLayout, roleLayout } from '@/components/dashboard/widgets';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
-import { useUI } from '@/providers/UIProvider';
 import { cn, formatLongDate, greetingForHour } from '@/lib/utils';
 import { t } from '@/lib/i18n';
 import type { DashboardWidgetPlacement, DashboardWidgetWidth } from '@/types';
@@ -42,7 +41,6 @@ const rise = {
  */
 export default function DashboardPage() {
   const { user, role, can } = useAuth();
-  const { openTaskDrawer } = useUI();
   const { preferences, update } = usePreferences();
 
   const [customising, setCustomising] = useState(false);
@@ -133,10 +131,10 @@ export default function DashboardPage() {
                   <Settings2 className="h-3.5 w-3.5" />
                   {t('Customise')}
                 </Button>
-                <Button onClick={() => openTaskDrawer()}>
-                  <Plus className="h-4 w-4" />
-                  {t('Create')}
-                </Button>
+                {/* No Create button of the page's own: the header's Create, on
+                    every page, already starts a task and everything else. A
+                    second one here, creating only a task, read as the same
+                    button doing something different. */}
               </>
             )}
           </>

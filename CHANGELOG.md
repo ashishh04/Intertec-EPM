@@ -163,6 +163,17 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Moving between pages is immediate.** A page no longer waits for the one
+  it leaves to animate out; it renders at once with a short fade. A project's
+  tabs switch without rebuilding the project's header and tab bar. Once someone
+  is signed in, every page is fetched in the background while the browser is
+  idle, so opening one never waits on a download. Back and Forward return to
+  where each page was scrolled, and a new page starts at the top.
+- **HTTP/3** is served to browsers that can use it, when UDP 443 is open on
+  the host's firewall or security group (the compose files now publish it).
+  Others stay on HTTP/2.
+- **The Overview has one Create button**, the header's, on every page. Its own
+  Create button, which only started a task, has gone.
 - **Roles follow project management practice** (PMI) for the new features.
   Managers run programs and see every project request, as a PMO and program
   managers do: the Manager role carries two new EPM permissions, Manage
@@ -301,6 +312,16 @@ Changes since 1.1.0 (21 October 2026).
   in both cases; they failed as server errors.
 - Deleting a selection of no tasks is refused instead of answering as if it had
   deleted them.
+- Back on Delivery → Agile leaves the page. The page put its default sprint
+  into the address as a new history entry, so Back returned to it and it was
+  put there again.
+- A page that fails no longer keeps its error on screen over every page opened
+  after it: the error clears on moving to another page.
+- After a deploy, a tab still open on the previous build reloads once to pick
+  up the new one, instead of showing "This page could not be displayed" for
+  the next page it opens.
+- The create-task panel closes when the page changes, Back included, instead
+  of staying open over a page it was not opened from.
 
 ### Security
 
@@ -327,6 +348,14 @@ Changes since 1.1.0 (21 October 2026).
   they cannot see, or which ones.
 - The administration information, the readiness check, two cost measures and
   a validation message no longer name the system underneath.
+- **Strict browser caching** (OWASP session management). Back after signing
+  out, or after a session ends, no longer shows signed-in pages. The app's page
+  is served `no-store`, so the browser keeps no copy of it in its cache or its
+  back/forward cache. Every API response is `no-store` unless it sets its own
+  (avatars, feeds). Signing out and an ended session replace the current
+  history entry instead of adding to it. A page the browser restores from its
+  back/forward cache anyway is reloaded, so the session is checked again. The
+  app's own files (`/assets`) stay cached, as before.
 
 ### Deploying 1.2.0
 

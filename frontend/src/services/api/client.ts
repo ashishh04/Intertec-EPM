@@ -127,7 +127,9 @@ export class ApiClient {
         // /auth/session is exempt: AuthProvider asks it precisely to find out.
         if (failure.status === 401 && !path.startsWith('/auth/')) {
           const target = `${window.location.origin}/login`;
-          if (window.location.href !== target) window.location.assign(target);
+          // Replace, so the page whose session ended is not left in the history
+          // for Back to return to — it would only fail and come straight back here.
+          if (window.location.href !== target) window.location.replace(target);
         }
         throw failure;
       }

@@ -82,18 +82,20 @@ export default function AgilePage() {
     Boolean(sprint),
   );
 
-  const selectSprint = (id: ID) => {
+  const selectSprint = (id: ID, options?: { replace?: boolean }) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set('sprint', id);
       return next;
-    });
+    }, options);
   };
 
   // Once the list is in, pin the default choice into the address bar so the
-  // selector, the URL and the page agree.
+  // selector, the URL and the page agree. In place of the current history entry,
+  // not as a new one: pushed, it trapped Back — Back returned to /agile, the
+  // default was pinned again, and the person could never leave the page that way.
   useEffect(() => {
-    if (sprint && sprint.id !== selectedId) selectSprint(sprint.id);
+    if (sprint && sprint.id !== selectedId) selectSprint(sprint.id, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sprint?.id]);
 
