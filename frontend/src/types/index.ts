@@ -264,6 +264,8 @@ export interface AppRoleDefinition {
   assignable: boolean;
   /** The EPM permissions the role brings, by label. */
   permissions: string[];
+  /** The same permissions by key, to compare roles against `AppRoles.permissionCatalogue`. */
+  permissionKeys?: string[];
   /** For External: the client and vendor roles a person can hold on a project. */
   kinds?: string[];
 }
@@ -271,6 +273,8 @@ export interface AppRoleDefinition {
 export interface AppRoles {
   catalogue: AppRoleDefinition[];
   people: AppRoleAssignment[];
+  /** Every EPM permission a role can bring, with what it allows. */
+  permissionCatalogue?: { permission: string; label: string; description: string }[];
 }
 
 /** Two-factor authentication, for the person signed in. */

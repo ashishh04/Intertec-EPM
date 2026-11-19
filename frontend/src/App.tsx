@@ -339,7 +339,7 @@ export function App() {
           <Route
             path="/portfolio-views"
             element={
-              <RequireRole roles={ROLE_ACCESS.insights}>
+              <RequireRole roles={ROLE_ACCESS.portfolio}>
                 <PortfolioViewsPage />
               </RequireRole>
             }

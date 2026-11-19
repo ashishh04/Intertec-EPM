@@ -96,13 +96,16 @@ export const isManagementRole = (role: AppRole | undefined): boolean =>
  *
  * - Delivery (agile, boards, sprints, Gantt) is for the people running and
  *   doing project work.
- * - Portfolio insight (dashboards, portfolio views, forecasts) is for the
- *   leadership roles.
+ * - Insight (dashboards, programs, forecasts) is for the leadership roles.
+ * - Portfolio views compare portfolios of projects: the work of whoever chooses
+ *   and balances it (BU Head, Portfolio and Program Managers, Managers), not of
+ *   the Project or Delivery Manager, who run projects and the people on them.
  * - Reporting (reports, time and costs) is for the leadership roles.
  */
 export const ROLE_ACCESS = {
   delivery: [...MANAGEMENT_ROLES, 'employee'],
   insights: MANAGEMENT_ROLES,
+  portfolio: ['admin', 'bu_head', 'portfolio_manager', 'program_manager', 'manager'],
   reporting: MANAGEMENT_ROLES,
 } as const satisfies Record<string, readonly AppRole[]>;
 
@@ -207,7 +210,7 @@ export const NAV_SECTIONS: NavSection[] = [
           { get label() { return t('Resource utilisation'); }, to: '/insights/utilisation', icon: UsersRound },
         ],
       },
-      { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true, roles: ROLE_ACCESS.insights },
+      { get label() { return t('Portfolio views'); }, to: '/portfolio-views', icon: Layers, matchNested: true, roles: ROLE_ACCESS.portfolio },
       // Related projects run together, between a portfolio and its projects.
       { get label() { return t('Programs'); }, to: '/programs', icon: Layers3, matchNested: true, roles: ROLE_ACCESS.insights },
       { get label() { return t('Scenarios'); }, to: '/scenarios', icon: GitCompare, matchNested: true, permission: 'scenarios:manage' },

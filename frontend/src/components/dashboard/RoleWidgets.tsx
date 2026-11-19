@@ -4,9 +4,13 @@ import { addDays } from 'date-fns';
 import {
   AlertTriangle,
   ArrowRight,
+  Briefcase,
   CalendarCheck,
   ClipboardCheck,
+  FilePlus2,
   FolderKanban,
+  Layers3,
+  Milestone,
   Plug,
   Receipt,
   ScrollText,
@@ -26,10 +30,15 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { useAccounts } from '@/hooks/useAccounts';
 import { useApprovalInbox, useApprovalInboxCount } from '@/hooks/useApprovals';
 import { useDashboardMetrics } from '@/hooks/useDashboard';
+import { useDepartments } from '@/hooks/useDepartments';
 import { useEmployees } from '@/hooks/useEmployees';
 import { useJournal } from '@/hooks/useGovernance';
 import { useIntegrationStatus } from '@/hooks/useIntegration';
+import { usePortfolios } from '@/hooks/usePortfolios';
+import { usePrograms } from '@/hooks/useProjectSettings';
+import { useProjectRequests } from '@/hooks/useRequests';
 import { useOverAllocations } from '@/hooks/useResources';
+import { useMilestones } from '@/hooks/useRisks';
 import { useClaims, useTimesheetOverview } from '@/hooks/useTimesheets';
 import { CONNECTION_STATE_META } from '@/lib/domain';
 import { t } from '@/lib/i18n';
@@ -39,7 +48,7 @@ import type { AppRole, ExpenseClaimStatus } from '@/types';
 
 /**
  * The Overview widgets that belong to a role rather than to anyone's own work:
- * what a manager, HR or an administrator starts the day from. Each reads an
+ * what each leadership role or an administrator starts the day from. Each reads an
  * endpoint its page already uses, so it shows what that page would, and the
  * catalogue offers it only to people allowed to read it (widgets.tsx).
  */
@@ -113,14 +122,269 @@ const CLAIM_STATE: Record<ExpenseClaimStatus, { label: () => string; tone: 'neut
 
 /**
  * The four figures a role starts from; an employee's are their own work
- * (widgets.tsx). The Delivery Manager, who took over HR's people and
- * timesheets, starts from those; every other leadership role from projects and
- * the people on them.
+ * (widgets.tsx). Each leadership role starts from what project management
+ * practice puts in its hands: the BU Head from the unit's projects, the
+ * requests to start new ones, and its people; the Portfolio Manager from the
+ * portfolios and the requests to weigh; the Program Manager from the programs
+ * and their milestones; the Project Manager from late work and milestones; the
+ * Delivery Manager from capacity and timesheets. A Manager, who does a little
+ * of each, starts from projects and the people on them.
  */
 export function RoleKpis({ role }: { role: AppRole }) {
-  if (role === 'admin') return <AdminKpis />;
-  if (role === 'delivery_manager') return <HrKpis />;
-  return <ManagerKpis />;
+  switch (role) {
+    case 'admin':
+      return <AdminKpis />;
+    case 'bu_head':
+      return (
+        <KpiGrid>
+          <ActiveProjectsCard />
+          <RequestsCard />
+          <PeopleCard />
+          <OverAllocatedCard />
+        </KpiGrid>
+      );
+    case 'portfolio_manager':
+      return (
+        <KpiGrid>
+          <PortfoliosCard />
+          <RequestsCard />
+          <OverAllocatedCard />
+          <OverdueCard />
+        </KpiGrid>
+      );
+    case 'program_manager':
+      return (
+        <KpiGrid>
+          <ProgramsCard />
+          <MilestonesCard />
+          <ActiveProjectsCard />
+          <ApprovalsCard />
+        </KpiGrid>
+      );
+    case 'project_manager':
+      return (
+        <KpiGrid>
+          <ActiveProjectsCard />
+          <OverdueCard />
+          <MilestonesCard />
+          <ApprovalsCard />
+        </KpiGrid>
+      );
+    case 'delivery_manager':
+      return (
+        <KpiGrid>
+          <OverAllocatedCard />
+          <TimesheetsCard state="outstanding" />
+          <TimesheetsCard state="submitted" />
+          <ApprovalsCard />
+        </KpiGrid>
+      );
+    default:
+      return <ManagerKpis />;
+  }
+}
+
+/*
+ * Each figure reads what its own page reads. While it loads it shows a
+ * placeholder, not a dash: a dash reads as "nothing here". A dash means the
+ * figure could not be read.
+ */
+
+function ActiveProjectsCard() {
+  const navigate = useNavigate();
+  const metrics = useDashboardMetrics();
+  if (metrics.isLoading) return <MetricCardSkeleton />;
+  const m = metrics.data;
+  return (
+    <MetricCard
+      label={t('Active Projects')}
+      value={m ? m.activeProjects : '—'}
+      support={m ? t('{count, plural, one {# project at risk} other {# projects at risk}}', { count: m.projectsAtRisk }) : undefined}
+      icon={FolderKanban}
+      tone="highlight"
+      trend={m?.trends.activeProjects}
+      onClick={() => navigate('/projects')}
+    />
+  );
+}
+
+function OverdueCard() {
+  const navigate = useNavigate();
+  const metrics = useDashboardMetrics();
+  if (metrics.isLoading) return <MetricCardSkeleton />;
+  const m = metrics.data;
+  return (
+    <MetricCard
+      label={t('Overdue')}
+      value={m ? m.overdue : '—'}
+      support={m ? (m.overdueCritical > 0 ? t('{count, number} critical', { count: m.overdueCritical }) : t('No critical items')) : undefined}
+      icon={AlertTriangle}
+      tone="danger"
+      trend={m?.trends.overdue}
+      onClick={() => navigate('/my-work?bucket=overdue')}
+    />
+  );
+}
+
+function ApprovalsCard() {
+  const navigate = useNavigate();
+  const waiting = useApprovalInboxCount();
+  return (
+    <MetricCard
+      label={t('Waiting for your approval')}
+      value={waiting}
+      support={t('Timesheets, expense claims and changes')}
+      icon={ClipboardCheck}
+      tone="primary"
+      onClick={() => navigate('/approvals')}
+    />
+  );
+}
+
+/** People over capacity in the next four weeks; late work for whoever does not plan resources. */
+function OverAllocatedCard() {
+  const navigate = useNavigate();
+  const { can } = useAuth();
+  const planner = can('resources:plan');
+  const over = useOverAllocations({ weeks: 4 }, planner);
+  const people = useMemo(() => new Set((over.data ?? []).map((row) => row.key)).size, [over.data]);
+  if (!planner) return <OverdueCard />;
+  if (over.isLoading) return <MetricCardSkeleton />;
+  return (
+    <MetricCard
+      label={t('Over-allocated')}
+      value={over.data ? people : '—'}
+      support={t('People over capacity in the next four weeks')}
+      icon={UsersRound}
+      tone="warning"
+      onClick={() => navigate('/resources')}
+    />
+  );
+}
+
+/** Requests to start a project that wait for a decision: every one for a reviewer, else their own. */
+function RequestsCard() {
+  const navigate = useNavigate();
+  const { can } = useAuth();
+  const requests = useProjectRequests(can('requests:review') ? 'all' : 'mine');
+  const waiting = (requests.data ?? []).filter((request) => request.status === 'submitted').length;
+  if (requests.isLoading) return <MetricCardSkeleton />;
+  return (
+    <MetricCard
+      label={t('Project requests')}
+      value={requests.data ? waiting : '—'}
+      support={t('Waiting for a decision')}
+      icon={FilePlus2}
+      tone="primary"
+      onClick={() => navigate('/project-requests')}
+    />
+  );
+}
+
+function PortfoliosCard() {
+  const navigate = useNavigate();
+  const portfolios = usePortfolios();
+  const list = portfolios.data ?? [];
+  const atRisk = list.reduce((sum, portfolio) => sum + portfolio.health.critical, 0);
+  if (portfolios.isLoading) return <MetricCardSkeleton />;
+  return (
+    <MetricCard
+      label={t('Portfolios')}
+      value={portfolios.data ? list.length : '—'}
+      support={portfolios.data ? t('{count, plural, one {# project at risk} other {# projects at risk}}', { count: atRisk }) : undefined}
+      icon={Briefcase}
+      tone="highlight"
+      onClick={() => navigate('/portfolios')}
+    />
+  );
+}
+
+function ProgramsCard() {
+  const navigate = useNavigate();
+  const programs = usePrograms();
+  const list = programs.data ?? [];
+  const atRisk = list.reduce((sum, program) => sum + program.health.critical, 0);
+  if (programs.isLoading) return <MetricCardSkeleton />;
+  return (
+    <MetricCard
+      label={t('Programs')}
+      value={programs.data ? list.length : '—'}
+      support={programs.data ? t('{count, plural, one {# project at risk} other {# projects at risk}}', { count: atRisk }) : undefined}
+      icon={Layers3}
+      tone="highlight"
+      onClick={() => navigate('/programs')}
+    />
+  );
+}
+
+/** Open milestones due in the next thirty days, and how many are already late. */
+function MilestonesCard() {
+  const navigate = useNavigate();
+  const milestones = useMilestones({ state: 'open' });
+  const { soon, overdue } = useMemo(() => {
+    const list = milestones.data ?? [];
+    const today = toISODateOnly(new Date());
+    const horizon = toISODateOnly(addDays(new Date(), 30));
+    return {
+      soon: list.filter((milestone) => milestone.date && milestone.date >= today && milestone.date <= horizon).length,
+      overdue: list.filter((milestone) => milestone.overdue).length,
+    };
+  }, [milestones.data]);
+  if (milestones.isLoading) return <MetricCardSkeleton />;
+  return (
+    <MetricCard
+      label={t('Milestones in the next 30 days')}
+      value={milestones.data ? soon : '—'}
+      support={milestones.data ? t('{count, plural, =0 {None overdue} other {# overdue}}', { count: overdue }) : undefined}
+      icon={Milestone}
+      tone={overdue > 0 ? 'warning' : 'accent'}
+      onClick={() => navigate('/milestones')}
+    />
+  );
+}
+
+function PeopleCard() {
+  const navigate = useNavigate();
+  const people = useEmployees();
+  const departments = useDepartments();
+  if (people.isLoading) return <MetricCardSkeleton />;
+  return (
+    <MetricCard
+      label={t('People')}
+      value={people.data ? people.data.length : '—'}
+      support={departments.data ? t('{count, plural, one {# department} other {# departments}}', { count: departments.data.length }) : undefined}
+      icon={Users}
+      tone="accent"
+      onClick={() => navigate('/employees')}
+    />
+  );
+}
+
+/** Last week's timesheets: those not yet in, or those in and waiting for approval. */
+function TimesheetsCard({ state }: { state: 'outstanding' | 'submitted' }) {
+  const navigate = useNavigate();
+  const overview = useTimesheetOverview({ day: lastWeekDay() });
+  if (overview.isLoading) return <MetricCardSkeleton />;
+  const counts = overview.data?.counts;
+  return state === 'outstanding' ? (
+    <MetricCard
+      label={t('Outstanding')}
+      value={counts?.outstanding ?? '—'}
+      support={t("Last week's timesheets not yet submitted")}
+      icon={AlertTriangle}
+      tone="danger"
+      onClick={() => navigate('/timesheets?tab=people')}
+    />
+  ) : (
+    <MetricCard
+      label={t('Submitted')}
+      value={counts?.submitted ?? '—'}
+      support={t("Last week's timesheets waiting for approval")}
+      icon={CalendarCheck}
+      tone="accent"
+      onClick={() => navigate('/timesheets?tab=people')}
+    />
+  );
 }
 
 /** Projects and the people on them: what is at risk, waiting, over capacity and late. */
@@ -182,54 +446,6 @@ function ManagerKpis() {
         tone="danger"
         trend={m.trends.overdue}
         onClick={() => navigate('/my-work?bucket=overdue')}
-      />
-    </KpiGrid>
-  );
-}
-
-/** The organisation and its people: who is here, and last week's timesheets. */
-function HrKpis() {
-  const navigate = useNavigate();
-  const people = useEmployees();
-  const waiting = useApprovalInboxCount();
-  const week = useTimesheetOverview({ day: lastWeekDay() });
-
-  if (people.isLoading || week.isLoading) return <KpiSkeleton />;
-  const counts = week.data?.counts;
-
-  return (
-    <KpiGrid>
-      <MetricCard
-        label={t('People')}
-        value={people.data?.length ?? '—'}
-        support={t('In the directory')}
-        icon={Users}
-        tone="highlight"
-        onClick={() => navigate('/employees')}
-      />
-      <MetricCard
-        label={t('Outstanding')}
-        value={counts?.outstanding ?? '—'}
-        support={t("Last week's timesheets not yet submitted")}
-        icon={AlertTriangle}
-        tone="danger"
-        onClick={() => navigate('/timesheets')}
-      />
-      <MetricCard
-        label={t('Submitted')}
-        value={counts?.submitted ?? '—'}
-        support={t("Last week's timesheets waiting for approval")}
-        icon={CalendarCheck}
-        tone="accent"
-        onClick={() => navigate('/timesheets')}
-      />
-      <MetricCard
-        label={t('Waiting for your approval')}
-        value={waiting}
-        support={t('Timesheets, expense claims and changes')}
-        icon={ClipboardCheck}
-        tone="primary"
-        onClick={() => navigate('/approvals')}
       />
     </KpiGrid>
   );

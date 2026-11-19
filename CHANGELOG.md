@@ -226,6 +226,21 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Access roles is easier to read.** Each role is a card saying who holds it,
+  with a link to them, and one table compares what every role can do,
+  permission by permission, grouped by area: people, portfolios and requests,
+  delivery, time, money, reports, and set-up. Point at a permission to read
+  what it allows.
+- **The Overview's figures follow the role.** The BU Head starts from active
+  projects, project requests waiting for a decision, people and departments,
+  and over-allocation; the Portfolio Manager from the portfolios and their
+  projects at risk, project requests, over-allocation and late work; the
+  Program Manager from programs, milestones due in the next 30 days, active
+  projects and approvals; the Project Manager from active projects, late work,
+  milestones and approvals; the Delivery Manager from over-allocation and last
+  week's timesheets. A figure shows a placeholder while it loads, not a dash.
+  Portfolio views is offered to the roles that work with portfolios: the BU
+  Head, Portfolio and Program Managers, Managers and administrators.
 - **Timesheets show what the hours were.** A timesheet now has the week as a
   grid of tasks against days with the totals, and every entry day by day with
   its activity and description, on the person's own timesheet and on the page

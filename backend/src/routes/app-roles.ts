@@ -75,10 +75,18 @@ export const appRoleRoutes: FastifyPluginAsync = async (app) => {
         description: t(language, ROLE_TEXT[role].description),
         assignable: role !== 'admin',
         permissions: ROLE_PERMISSIONS[role].map((permission) => permissionLabel.get(permission) ?? permission),
+        permissionKeys: [...ROLE_PERMISSIONS[role]],
         // The client and vendor roles an external person can hold on a project.
         ...(role === 'external' ? { kinds: externalRoles.map((row) => row.name) } : {}),
       })),
       people,
+      // Every permission a role can bring, with what it allows: the rows of the
+      // page's comparison of roles.
+      permissionCatalogue: GRANT_CATALOGUE.map((entry) => ({
+        permission: entry.permission,
+        label: t(language, entry.label),
+        description: t(language, entry.description),
+      })),
     };
   });
 

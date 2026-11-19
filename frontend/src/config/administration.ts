@@ -163,7 +163,7 @@ export const ADMIN_AREAS: AdminArea[] = [
         id: 'app-roles',
         get label() { return t('Access roles'); },
         kind: 'live',
-        get description() { return t('Whether each person works as a manager, HR, an employee or an external user (a client or vendor): their screens, their sidebar and the EPM permissions that come with it.'); },
+        get description() { return t('The role each person works in — a leadership role, Employee or External (a client or vendor) — with the screens, sidebar and EPM permissions that come with it.'); },
       },
       {
         id: 'epm-permissions',
