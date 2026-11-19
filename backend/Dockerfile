@@ -58,12 +58,13 @@ RUN npm prune --omit=dev
 # Microsoft Project's own files (.mpp, .mpt, .mpx) are read on Tasks → Import
 # through MPXJ (src/domain/ms-project.ts), a Java library: nothing written for
 # Node reads them. This stage cuts a Java runtime down to the modules MPXJ and
-# its libraries use — about 50 MB rather than a whole JDK — and unpacks MPXJ's
-# jars from its release, checked against the release's checksum. Microsoft
-# Project XML needs neither: the backend reads that itself.
+# its libraries use — about 60 MB rather than a whole JDK — and unpacks MPXJ's
+# jars (about 30 MB) from its release, checked against the release's checksum.
+# Microsoft Project XML needs neither: the backend reads that itself.
 #
 # The module list came from `jdeps` over MPXJ and its libraries, and was tried
-# by converting a real .mpp with the runtime it makes. To move MPXJ on, change
+# by converting a real .mpp with the runtime this stage makes, on the runtime
+# stage's base image and as its `node` user. To move MPXJ on, change
 # both arguments: the new zip's SHA-256 is printed by `sha256sum` on it.
 FROM eclipse-temurin:21.0.13_9-jdk-noble@sha256:a2e61ec9e2e4d5c7aa885412400319f9299abe4d8189f42ec3bec48708c576a6 AS plans
 

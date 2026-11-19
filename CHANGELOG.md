@@ -508,7 +508,7 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    The backend applies two more migrations on start, both additive: anyone who
    held the retired HR role becomes a Delivery Manager, and a table keeps time
    on no project. The backend image now carries a small Java runtime and MPXJ
-   (about 80 MB) to read Microsoft Project files; building it fetches
+   (about 90 MB) to read Microsoft Project files; building it fetches
    `eclipse-temurin` and MPXJ's release from GitHub, checked against its
    SHA-256. Without them (an image built from an older Dockerfile), .mpp
    uploads are refused with how to save the plan as XML, which still imports.
