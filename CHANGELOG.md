@@ -315,6 +315,19 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- **Spent time in an imported sheet reaches the tasks, timesheets and
+  utilisation.** It was logged only on tasks the import created, so a sheet
+  imported onto tasks already here (the same export again, or tasks an earlier
+  import made) logged none of it. It also went in as one entry on each task's
+  finish date, which put a month's hours into one week and fell foul of the
+  rules for logging time as it happens (how far back, a day's maximum, closed
+  tasks). Now each task gets its own hours (an export counts a parent's
+  subtasks into its figure), less what it has logged already, so importing a
+  sheet again adds nothing and a sheet with more hours adds the difference;
+  for its assignee, spread over its working days from its start to its finish
+  and never after today. Only a submitted or approved timesheet keeps time out.
+  Utilisation and the heatmap show it once the analytics model refreshes, a few
+  minutes after the import.
 - **Log time offers every task in the project.** The task list showed the
   hundred open tasks touched most recently, and a parent is touched whenever a
   child is, so a planned project listed its summary tasks and a few subtasks

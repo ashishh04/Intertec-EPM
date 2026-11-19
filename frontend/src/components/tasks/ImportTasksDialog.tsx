@@ -298,15 +298,15 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                 <div className="space-y-0.5 text-muted-foreground">
                   {time.entries > 0 ? (
                     <div>
-                      {t('Spent time: {hours} h will be logged as {count, plural, one {# entry} other {# entries}}, one for each new task, for its assignee on its finish date.', { hours: formatNumber(time.hours), count: time.entries })}
+                      {t('Spent time: {hours} h will be logged on {tasks, plural, one {# task} other {# tasks}}, for its assignee, spread over its working days ({count, plural, one {# entry} other {# entries}}). Time a task already has is not logged again.', { hours: formatNumber(time.hours), tasks: time.tasks ?? time.entries, count: time.entries })}
                     </div>
                   ) : null}
                   {time.withoutPerson.entries > 0 ? (
-                    <div>{t('{hours} h on {count, plural, one {# new task} other {# new tasks}} with no assignee will not be logged.', { hours: formatNumber(time.withoutPerson.hours), count: time.withoutPerson.entries })}</div>
+                    <div>{t('{hours} h on {count, plural, one {# task} other {# tasks}} with no assignee will not be logged.', { hours: formatNumber(time.withoutPerson.hours), count: time.withoutPerson.entries })}</div>
                   ) : null}
                   {time.refused.map((entry) => (
                     <div key={entry.reason}>
-                      {t('{hours} h on {count, plural, one {# new task} other {# new tasks}} will not be logged: {reason}.', { hours: formatNumber(entry.hours), count: entry.entries, reason: refusalText(entry.reason) })}
+                      {t('{hours} h ({count, plural, one {# entry} other {# entries}}) will not be logged: {reason}.', { hours: formatNumber(entry.hours), count: entry.entries, reason: refusalText(entry.reason) })}
                     </div>
                   ))}
                 </div>

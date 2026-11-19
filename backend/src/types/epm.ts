@@ -4512,12 +4512,17 @@ export interface TaskImportPerson {
 /** Why spent time in an import file will not be logged: a locked timesheet, or one of the time policies. */
 export type TaskImportTimeRefusal = 'locked' | 'backdating' | 'activity' | 'closed' | 'daily';
 
-/** The spent time an import logs: one entry per new task, for its assignee, on its finish date. */
+/**
+ * The spent time an import logs: each task's own hours in the file, less what it
+ * has logged already, for its assignee, spread over its working days.
+ */
 export interface TaskImportTime {
   /** Entries to log, and their hours. */
   entries: number;
   hours: number;
-  /** Not logged: new tasks with spent time and no assignee to log it for. */
+  /** The tasks those entries are on. Absent on imports checked before time was spread: one entry each. */
+  tasks?: number;
+  /** Not logged: tasks with spent time and no assignee to log it for. */
   withoutPerson: { entries: number; hours: number };
   /** Not logged: refused by the timesheet rules, by reason. */
   refused: { reason: TaskImportTimeRefusal; entries: number; hours: number }[];

@@ -3,7 +3,7 @@ import type { TaskImport } from '@prisma/client';
 import { runAsSystem, runWithAuth, type AuthContext } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
 import { parseCsv, type CsvRecord } from '../lib/csv-parse.js';
-import { daysBetween, today as todayIso } from '../lib/dates.js';
+import { today as todayIso } from '../lib/dates.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { contextConventions, contextLanguage, message, render, t, type Message } from '../lib/i18n.js';
@@ -18,7 +18,8 @@ import { requestCalculatedRecalc } from './calculated-fields.js';
 import { invalidateProjectCost } from './costs.js';
 import { requestHealthRecalc } from './health.js';
 import { requestScheduleRecalc } from './schedule.js';
-import { assertPolicies, assertUnlocked, entriesOf, getTimeSettings, lockOn, locksIn } from './time-rules.js';
+import { markModelStale } from './analytics-model.js';
+import { assertUnlocked, lockOn, locksIn } from './time-rules.js';
 import { href, IMPORT_COLUMNS, readProjectWork, title } from './task-export.js';
 import { fieldValue, parseYesNo, projectFields, type FieldFormat, type TaskField } from './task-fields.js';
 import { normaliseSource } from './task-import-formats.js';
@@ -234,8 +235,24 @@ export interface PlannedRow {
   leftOut?: { column: string; name: string }[];
   /** A created row with the subject of an earlier row under the same parent: that row's line. */
   repeatOf?: number;
-  /** A created row's spent time: logged as one entry for its assignee (none: not logged), on its finish date. */
-  time?: { hours: number; userId: string | null; on: string; comment?: string; refused?: TimeRefusal };
+  /**
+   * Spent time to log on the row's task, for its assignee (none: not logged):
+   * the file's hours less what its subtasks in the file have (an export adds
+   * them into a parent's figure) and less what the task has logged already, so
+   * a file imported again logs nothing twice. Spread over the task's working
+   * days (`entries`); `on` is the last of them. Imports checked before the
+   * spread have one entry, on `on`.
+   */
+  time?: {
+    hours: number;
+    userId: string | null;
+    on: string;
+    entries?: { on: string; hours: number }[];
+    /** Entries left out, their days being on a submitted or approved timesheet. */
+    locked?: { entries: number; hours: number };
+    comment?: string;
+    refused?: TimeRefusal;
+  };
 }
 
 /** Why spent time in a file will not be logged: a locked timesheet, or one of the time policies (BR-304, BR-317). */
@@ -287,6 +304,8 @@ export interface ExistingWork {
   scheduleManually: boolean;
   /** Its dates may fall on non-working days. */
   ignoreNonWorkingDays: boolean;
+  /** Hours logged on it already: its own, not its subtasks'. */
+  spentHours?: number;
 }
 
 interface StoredProblem {
@@ -353,8 +372,61 @@ interface OpNamed {
   isMilestone?: boolean;
 }
 
+/**
+ * The hours logged on each of a project's work packages, by id: each one's own,
+ * not its subtasks' (an entry belongs to one work package), and never a
+ * meeting's, which OpenProject 17 also keeps time on.
+ */
+async function ownSpentHours(projectId: number): Promise<Map<string, number>> {
+  type Entry = { hours?: string; _links?: Record<string, { href?: string | null } | undefined> };
+  const entries = await openProject
+    .getAll<Entry>('/time_entries', { filters: [{ field: 'project', operator: '=', values: [String(projectId)] }], pageSize: 1000 })
+    .catch(() => ({ items: [] as Entry[] }));
+  const out = new Map<string, number>();
+  for (const entry of entries.items) {
+    const link = entry._links?.workPackage?.href ?? (entry._links?.entity?.href?.includes('/work_packages/') ? entry._links.entity.href : undefined);
+    const id = idFromHref(link ?? undefined);
+    if (id) out.set(id, (out.get(id) ?? 0) + (durationToHours(entry.hours) ?? 0));
+  }
+  return out;
+}
+
+/** The weekdays OpenProject counts as working when nothing says otherwise: Monday to Friday. */
+const DEFAULT_NON_WORKING = { weekdays: new Set([6, 7]), dates: new Set<string>() };
+
+/**
+ * Hours spread over the working days from one day to another, both counted, a
+ * quarter of an hour at a time: an even share each day, the odd quarters on the
+ * last days, and with fewer quarters than days one quarter a day, spaced out.
+ * A range with no working day in it gets it all on its last day. Weekdays are
+ * numbered as OpenProject numbers them, Monday 1 to Sunday 7.
+ */
+export function spreadHours(
+  hours: number,
+  from: string,
+  to: string,
+  nonWorking: { weekdays: Set<number>; dates: Set<string> } = DEFAULT_NON_WORKING,
+): { on: string; hours: number }[] {
+  const quarters = Math.round(hours * 4);
+  if (quarters <= 0) return [];
+  const days: string[] = [];
+  const end = new Date(`${to}T00:00:00Z`);
+  for (let day = new Date(`${from}T00:00:00Z`); day <= end && days.length < 400; day.setUTCDate(day.getUTCDate() + 1)) {
+    const iso = day.toISOString().slice(0, 10);
+    const weekday = day.getUTCDay() === 0 ? 7 : day.getUTCDay();
+    if (!nonWorking.weekdays.has(weekday) && !nonWorking.dates.has(iso)) days.push(iso);
+  }
+  if (days.length === 0) days.push(to);
+  if (quarters < days.length) {
+    return Array.from({ length: quarters }, (_, index) => ({ on: days[Math.floor(((index + 0.5) * days.length) / quarters)]!, hours: 0.25 }));
+  }
+  const each = Math.floor(quarters / days.length);
+  const odd = quarters % days.length;
+  return days.map((on, index) => ({ on, hours: (each + (index >= days.length - odd ? 1 : 0)) / 4 }));
+}
+
 async function projectContext(projectId: number, withWork = true): Promise<ProjectContext> {
-  const [types, catalog, versions, memberships, work] = await Promise.all([
+  const [types, catalog, versions, memberships, work, spent] = await Promise.all([
     openProject.getAll<OpNamed>(`/projects/${projectId}/types`, { pageSize: 200 }),
     getCatalog(),
     openProject.getAll<OpNamed>(`/projects/${projectId}/versions`, { pageSize: 200 }).catch(() => ({ items: [] as OpNamed[] })),
@@ -365,6 +437,8 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
       }),
     ),
     withWork ? readProjectWork(projectId, true) : null,
+    // What each task has logged already, so spent time in a file is logged once.
+    withWork ? ownSpentHours(projectId) : null,
   ]);
   const [week, holidays] = withWork
     ? await Promise.all([
@@ -445,6 +519,7 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
       predecessors: work!.predecessors.get(id) ?? new Map(),
       scheduleManually: Boolean(item.scheduleManually),
       ignoreNonWorkingDays: Boolean(item.ignoreNonWorkingDays),
+      spentHours: spent?.get(id) ?? 0,
     });
   }
   return {
@@ -878,14 +953,38 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext, 
     else if (row.action === 'create') row.repeatOf = first;
   }
 
-  // Spent time on a new task: one entry for its assignee, on its finish date or
-  // else its start, never after today. A task being updated has its time already.
+  // Spent time: each task's own hours in the file, less what it has logged
+  // already, for its assignee, spread over its working days from its start to
+  // its finish and never after today. A task already here is given only what
+  // it lacks, so a file imported again — or one whose tasks an earlier import
+  // made — logs nothing twice.
   const today = options.today ?? todayIso();
+  const fileHours = new Map(rows.map((row) => [row.key, spentByLine.get(row.line) ?? 0]));
+  // Only EPM's own export (its Work package and Spent hours columns) gives a
+  // parent's hours with its subtasks' in. An OpenProject export is turned into
+  // each task's own as it is read (task-import-formats.ts), and a sheet filled
+  // in by hand gives each task's own.
+  const rolledUp = header.includes('work package') && header.includes('spent hours');
+  const subtaskHours = new Map<string, number>();
   for (const row of rows) {
-    const hours = spentByLine.get(row.line);
-    if (!hours || row.action !== 'create') continue;
-    const on = row.due ?? row.start ?? today;
-    row.time = { hours, userId: row.assigneeId, on: on > today ? today : on };
+    if (rolledUp && row.parentKey && fileHours.has(row.parentKey)) {
+      subtaskHours.set(row.parentKey, (subtaskHours.get(row.parentKey) ?? 0) + (fileHours.get(row.key) ?? 0));
+    }
+  }
+  for (const row of rows) {
+    const inFile = fileHours.get(row.key) ?? 0;
+    if (!inFile) continue;
+    const current = row.action === 'create' ? undefined : existingOf(row.key);
+    const own = inFile - (subtaskHours.get(row.key) ?? 0) - (current?.spentHours ?? 0);
+    const hours = Math.round(own * 100) / 100;
+    if (hours < 0.25) continue;
+    const last = row.due ?? current?.due ?? row.start ?? current?.start ?? today;
+    const first = row.start ?? current?.start ?? last;
+    const to = last > today ? today : last;
+    const from = first > to ? to : first;
+    const entries = spreadHours(hours, from, to, current?.ignoreNonWorkingDays ? { weekdays: new Set(), dates: new Set() } : (context.nonWorking ?? DEFAULT_NON_WORKING));
+    if (entries.length === 0) continue;
+    row.time = { hours, userId: row.assigneeId ?? current?.assigneeId ?? null, on: entries.at(-1)!.on, entries };
   }
 
   // Each person the project cannot give work to, once, unless the file is to be imported without them.
@@ -1021,13 +1120,21 @@ export function importView(row: TaskImport): TaskImportView {
   }
   // Spent time: what will be logged, and what will not and why.
   const timed = rows.filter((planned) => planned.time);
-  const hoursOf = (list: PlannedRow[]) => Math.round(list.reduce((sum, planned) => sum + planned.time!.hours, 0) * 100) / 100;
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const hoursOf = (list: PlannedRow[]) => round2(list.reduce((sum, planned) => sum + planned.time!.hours, 0));
   const toLog = timed.filter((planned) => planned.time!.userId && !planned.time!.refused);
+  const toLogEntries = toLog.flatMap(timeEntriesOf);
   const withoutPerson = timed.filter((planned) => !planned.time!.userId);
-  const refused = new Map<TimeRefusal, PlannedRow[]>();
+  // Left out by a timesheet lock, or, on imports checked before the spread, by a policy.
+  const refused = new Map<TimeRefusal, { entries: number; hours: number }>();
+  const refuse = (reason: TimeRefusal, entries: number, hours: number) => {
+    const sum = refused.get(reason) ?? { entries: 0, hours: 0 };
+    refused.set(reason, { entries: sum.entries + entries, hours: round2(sum.hours + hours) });
+  };
   for (const planned of timed) {
-    const reason = planned.time!.userId ? planned.time!.refused : undefined;
-    if (reason) refused.set(reason, [...(refused.get(reason) ?? []), planned]);
+    if (!planned.time!.userId) continue;
+    if (planned.time!.locked) refuse('locked', planned.time!.locked.entries, planned.time!.locked.hours);
+    else if (planned.time!.refused) refuse(planned.time!.refused, 1, planned.time!.hours);
   }
   const repeats = rows.filter((planned) => planned.repeatOf);
   return {
@@ -1049,10 +1156,11 @@ export function importView(row: TaskImport): TaskImportView {
     repeats: repeats.slice(0, CHANGES_SHOWN).map((planned) => ({ row: planned.line, key: planned.key.startsWith('#line') ? '' : planned.key, subject: planned.subject, firstRow: planned.repeatOf! })),
     repeatCount: repeats.length,
     time: {
-      entries: toLog.length,
-      hours: hoursOf(toLog),
+      entries: toLogEntries.length,
+      tasks: toLog.length,
+      hours: round2(toLogEntries.reduce((sum, entry) => sum + entry.hours, 0)),
       withoutPerson: { entries: withoutPerson.length, hours: hoursOf(withoutPerson) },
-      refused: [...refused].map(([reason, list]) => ({ reason, entries: list.length, hours: hoursOf(list) })),
+      refused: [...refused].map(([reason, sum]) => ({ reason, entries: sum.entries, hours: sum.hours })),
       logged: results.filter((key) => key.startsWith(TIMED)).length,
       failed: errors.filter((error) => error.kind === 'time').length,
     },
@@ -1125,12 +1233,17 @@ export async function checkImport(
   return { ...importView(row), source: { ...source, ignoredColumns: ignored } };
 }
 
+/** A row's time entries: spread over days, or one on `on` for an import checked before the spread. */
+const timeEntriesOf = (row: PlannedRow) => row.time?.entries ?? (row.time ? [{ on: row.time.on, hours: row.time.hours }] : []);
+
 /**
- * Spent time to be logged, held to the timesheet rules on the check — so it
- * says what will not be logged, and why — and again as each entry is written:
- * a day on a submitted or approved timesheet is locked (BR-304), and the
- * active policies apply (BR-317). Each entry says where its time came from, in
- * the importer's language.
+ * Spent time to be logged, checked against the timesheets on the check — so it
+ * says what will not be logged, and why — and again as each entry is written.
+ * A day on a submitted or approved timesheet is locked (BR-304): its entries
+ * are left out. The policies for logging time as it happens (BR-317) — how far
+ * back, a day's maximum, closed tasks, an activity — are not applied: this is
+ * time already spent and recorded elsewhere, being brought in as it was. Each
+ * entry says where its time came from, in the importer's language.
  */
 async function planTime(rows: PlannedRow[], fileName: string): Promise<void> {
   const timed = rows.filter((row) => row.time);
@@ -1139,36 +1252,17 @@ async function planTime(rows: PlannedRow[], fileName: string): Promise<void> {
   for (const row of timed) row.time!.comment = comment;
   const planned = timed.filter((row) => row.time!.userId);
   if (planned.length === 0) return;
-  const days = planned.map((row) => row.time!.on).sort();
-  const [from, to] = [days[0]!, days.at(-1)!];
+  const days = planned.flatMap((row) => timeEntriesOf(row).map((entry) => entry.on)).sort();
   const personIds = [...new Set(planned.map((row) => row.time!.userId!))];
-  const [{ policies }, locks, catalog] = await Promise.all([getTimeSettings(), locksIn(personIds, from, to), getCatalog()]);
-  // What each person has logged on those days already, against the daily maximum.
-  const logged = new Map<string, number>();
-  if (policies.maxDailyHours.active) {
-    for (const personId of personIds) {
-      for (const entry of await entriesOf(personId, from, to).catch(() => [])) {
-        logged.set(`${personId} ${entry.spentOn}`, (logged.get(`${personId} ${entry.spentOn}`) ?? 0) + entry.hours);
-      }
-    }
-  }
-  const today = todayIso();
+  const locks = await locksIn(personIds, days[0]!, days.at(-1)!);
   for (const row of planned) {
-    const { userId, on, hours } = row.time!;
-    const day = `${userId} ${on}`;
-    const refused: TimeRefusal | undefined = lockOn(locks, userId!, on)
-      ? 'locked'
-      : policies.backdating.active && on < today && daysBetween(on, today) > policies.backdating.days
-        ? 'backdating'
-        : policies.mandatoryActivity.active
-          ? 'activity'
-          : policies.closedWorkPackages.active && row.statusId && catalog.statusById.get(row.statusId)?.isClosed
-            ? 'closed'
-            : policies.maxDailyHours.active && (logged.get(day) ?? 0) + hours > policies.maxDailyHours.hours + 1e-9
-              ? 'daily'
-              : undefined;
-    if (refused) row.time!.refused = refused;
-    else logged.set(day, (logged.get(day) ?? 0) + hours);
+    const entries = timeEntriesOf(row);
+    const open = entries.filter((entry) => !lockOn(locks, row.time!.userId!, entry.on));
+    if (open.length === entries.length) continue;
+    const left = entries.filter((entry) => !open.includes(entry));
+    row.time!.locked = { entries: left.length, hours: Math.round(left.reduce((sum, entry) => sum + entry.hours, 0) * 100) / 100 };
+    row.time!.entries = open;
+    if (open.length === 0) row.time!.refused = 'locked';
   }
 }
 
@@ -1526,39 +1620,63 @@ async function execute(id: string): Promise<void> {
       },
     );
 
-    // Spent time on the new tasks, once they exist: one entry each, for the
-    // assignee, held to the timesheet rules as they stand now. One person's day
-    // at a time, so the daily maximum sees every entry before it.
+    // Spent time, once the tasks exist: each entry of each task, new or already
+    // here, for its assignee. A day a timesheet has locked since the check is
+    // refused as it is written. Each entry is remembered as it is made, so a
+    // resumed run makes only the rest; a task that has its time from a run
+    // before the spread (one entry, keyed by the task alone) gets nothing more.
+    interface TimeJob {
+      row: PlannedRow;
+      workPackageId: string;
+      on: string;
+      hours: number;
+      key: string;
+    }
+    const timeJobs: TimeJob[] = [];
+    for (const row of rows) {
+      if (!row.time?.userId || row.time.refused || results.has(`${TIMED}${row.key}`)) continue;
+      const workPackageId = actionOf(row) === 'create' ? results.get(row.key) : row.workPackageId;
+      if (!workPackageId) continue;
+      for (const entry of timeEntriesOf(row)) {
+        const key = `${TIMED}${row.key}:${entry.on}`;
+        if (!results.has(key)) timeJobs.push({ row, workPackageId, on: entry.on, hours: entry.hours, key });
+      }
+    }
     let timeLogged = false;
     await inBatches(
-      rows.filter((row) => actionOf(row) === 'create' && row.time?.userId && !row.time.refused && results.has(row.key) && !results.has(`${TIMED}${row.key}`)),
-      (row) => [`${row.time!.userId} ${row.time!.on}`],
-      async (row) => {
-        const { userId, on, hours, comment } = row.time!;
-        const workPackageId = results.get(row.key)!;
+      timeJobs,
+      (job) => [`${job.row.time!.userId} ${job.on}`],
+      async (job) => {
+        const { userId, comment } = job.row.time!;
         try {
-          await assertUnlocked(userId!, [on]);
-          await assertPolicies({ personId: userId!, spentOn: on, hours, workPackageId });
+          await assertUnlocked(userId!, [job.on]);
           const entry = await openProject.request<{ id: number }>('/time_entries', {
             method: 'POST',
             body: {
-              hours: hoursToDuration(hours),
-              spentOn: on,
+              hours: hoursToDuration(job.hours),
+              spentOn: job.on,
               ...(comment ? { comment: { raw: comment } } : {}),
-              _links: { workPackage: { href: `/api/v3/work_packages/${workPackageId}` }, user: { href: `/api/v3/users/${userId}` } },
+              _links: { workPackage: { href: `/api/v3/work_packages/${job.workPackageId}` }, user: { href: `/api/v3/users/${userId}` } },
             },
             once: true,
             timeoutMs: 120_000,
           });
-          results.set(`${TIMED}${row.key}`, String(entry.id));
+          results.set(job.key, String(entry.id));
           timeLogged = true;
         } catch (error) {
-          fail(row, error, 'time');
+          fail(job.row, error, 'time');
         }
         tick();
       },
     );
-    if (timeLogged) invalidateProjectCost(String(start.projectId));
+    if (timeLogged) {
+      // What reads logged time: the project's cost and health, the calculated
+      // fields, and the analytics model behind utilisation and the heatmap.
+      invalidateProjectCost(String(start.projectId));
+      requestHealthRecalc([String(start.projectId)]);
+      requestCalculatedRecalc();
+      markModelStale();
+    }
     await save({ status: 'done', finishedAt: new Date() });
     const finished = await getImport(id);
     const updated = Object.keys(finished.results as Record<string, string>).filter((key) => key.startsWith(UPDATED)).length;

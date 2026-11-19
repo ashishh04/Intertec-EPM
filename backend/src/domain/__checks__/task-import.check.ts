@@ -4,7 +4,7 @@ import { decodeText, parseCsv } from '../../lib/csv-parse.js';
 import { buildWorkbook } from '../../lib/xlsx.js';
 import { readXlsx } from '../../lib/xlsx-read.js';
 import { normaliseSource } from '../task-import-formats.js';
-import { changesOf, checkRows, nextWorkingDay, parseDay, parseDone, parseHours, type ExistingWork } from '../task-import.js';
+import { changesOf, checkRows, nextWorkingDay, parseDay, parseDone, parseHours, spreadHours, type ExistingWork, type PlannedRow } from '../task-import.js';
 
 /**
  * The CSV task import's reading and checking, without OpenProject.
@@ -366,7 +366,7 @@ check('people the project cannot give work to are listed once each, and the file
   assert.deepEqual(without.rows[0]!.leftOut, [{ column: 'Assignee', name: 'Vera Visitor' }, { column: 'Accountable', name: 'Nobody Known' }]);
 });
 
-check('spent time: an export counts subtasks in, so each task logs its own once — one entry per new task, for its assignee, on its finish date', () => {
+check('spent time: each task logs its own hours once, for its assignee, spread over its working days', () => {
   const sheet = [
     'id,Subject,Parent,Assignee,Author,Accountable,Start date,Finish date,Spent time,Created on,Updated on',
     '500,Admin,,,A,,10/15/2026,10/30/2026,11,10/15/2026 10:00 AM,10/15/2026 10:00 AM',
@@ -378,11 +378,43 @@ check('spent time: an export counts subtasks in, so each task logs its own once 
   const { rows, problems, ignored } = checkRows(records, context, { today: '2026-11-10' });
   assert.deepEqual(problems, []);
   assert.ok(!ignored.includes('Spent time'), ignored.join());
-  // Admin's 11 hours are its subtasks' 3 and 8; Go-live has no assignee, and is logged no later than today.
-  assert.deepEqual(rows.map((row) => (row.time ? `${row.time.hours}h ${row.time.userId ?? '-'} ${row.time.on}` : '')), ['', '3h 12 2026-10-19', '8h 12 2026-10-24', '2.5h - 2026-11-10']);
-  // A task being updated has its time already.
-  assert.equal(checkRows(['ID,Subject,Spent time', 'WP101,Design,4'].join('\n'), withWork).rows[0]!.time, undefined);
+  // Admin's 11 hours are its subtasks' 3 and 8. The others are spread over their
+  // working days, none at the weekend; Go-live, with no assignee, no later than today.
+  const spread = (row: PlannedRow) =>
+    row.time ? `${row.time.hours}h ${row.time.userId ?? '-'} ${(row.time.entries ?? []).map((entry) => `${entry.on.slice(5)}=${entry.hours}`).join(' ')}` : '';
+  assert.deepEqual(rows.map(spread), [
+    '',
+    '3h 12 10-15=1 10-16=1 10-19=1',
+    '8h 12 10-21=2.5 10-22=2.75 10-23=2.75',
+    '2.5h - 11-05=0.5 11-06=0.5 11-09=0.75 11-10=0.75',
+  ]);
+  // A task here already is given only what it lacks: nothing when it has it all.
+  const logged = { ...withWork, existing: new Map([...withWork.existing].map(([id, item]) => [id, { ...item, spentHours: id === '101' ? 4 : id === '102' ? 1 : 0 }])) };
+  const again = checkRows(['ID,Subject,Spent time', 'WP101,Design,4', 'WP102,Build,3'].join('\n'), logged, { today: '2026-11-20' }).rows;
+  assert.equal(again[0]!.time, undefined);
+  assert.equal(again[1]!.time?.hours, 2);
+  assert.equal(again[1]!.time?.userId, '12', "the task's assignee, the file naming none");
+  assert.equal(again[1]!.time?.entries?.length, 8, 'eight quarters over ten working days');
+  // EPM's own export gives a parent's Spent hours with its subtasks' in: its own is what is left.
+  const epm = [
+    'ID,Parent ID,Subject,Start date,Due date,Assignee,Work package,Spent hours',
+    'E1,,Phase,2026-11-02,2026-11-13,Dana Dev,#900,11',
+    'T1,E1,Build,2026-11-02,2026-11-06,Dana Dev,#901,3',
+    'T2,E1,Test,2026-11-09,2026-11-13,Dana Dev,#902,8',
+  ];
+  assert.deepEqual(checkRows(epm.join('\n'), context, { today: '2026-11-20' }).rows.map((row) => row.time?.hours ?? 0), [0, 3, 8]);
   assert.deepEqual(checkRows(['ID,Subject,Spent time', 'N1,New,lots'].join('\n'), context).problems.map((problem) => problem.column), ['Spent time']);
+});
+
+check('spent time is spread a quarter of an hour at a time over the working days', () => {
+  const days = (list: { on: string; hours: number }[]) => list.map((entry) => `${entry.on.slice(5)}=${entry.hours}`);
+  assert.deepEqual(days(spreadHours(5, '2026-11-02', '2026-11-03')), ['11-02=2.5', '11-03=2.5']);
+  assert.deepEqual(days(spreadHours(2.25, '2026-11-02', '2026-11-03')), ['11-02=1', '11-03=1.25'], 'the odd quarter on the last day');
+  assert.deepEqual(days(spreadHours(1, '2026-11-02', '2026-11-06')), ['11-02=0.25', '11-03=0.25', '11-05=0.25', '11-06=0.25'], 'fewer quarters than days: spaced out');
+  assert.deepEqual(days(spreadHours(3, '2026-11-07', '2026-11-08')), ['11-08=3'], 'a weekend: all on its last day');
+  assert.deepEqual(spreadHours(0.1, '2026-11-02', '2026-11-02'), [], 'less than a quarter: nothing');
+  const sixDayWeek = { weekdays: new Set([7]), dates: new Set(['2026-11-04']) };
+  assert.deepEqual(days(spreadHours(3, '2026-11-02', '2026-11-08', sixDayWeek)), ['11-02=0.5', '11-03=0.5', '11-05=0.5', '11-06=0.75', '11-07=0.75'], "the instance's working week and its holidays");
 });
 
 check('a new row repeating an earlier one under the same parent is named; the same name elsewhere is not', () => {
