@@ -917,6 +917,16 @@ export interface TaskCategoryOption {
   allowed?: boolean;
 }
 
+/**
+ * What Tasks → Export can write beyond CSV, Excel and Microsoft Project XML:
+ * a Microsoft Project file (.mpp) only where the server has the writer and its
+ * licence, and if not, why not.
+ */
+export interface TaskExportFormats {
+  mpp: boolean;
+  mppUnavailable?: 'not-installed' | 'no-licence' | 'licence-refused';
+}
+
 export interface TaskFilters {
   projectId?: ID;
   assigneeId?: ID;

@@ -214,12 +214,15 @@ Changes since 1.1.0 (21 October 2026).
   person with most work on each task, and the finish-to-start dependencies.
   Every task keeps the plan's dates. It is checked and shown before anything
   is made, like any import, and a plan imported again updates the tasks it
-  made. Export writes the project as a Microsoft Project plan (XML), with the
-  outline, dates, dependencies and their lags, work, progress, notes, assignees
-  and the working calendar; Microsoft Project opens it and saves it as .mpp.
-  Each task links back to its work package, so the plan, edited and saved as
-  .mpp or XML, imports back onto the same tasks. (Nothing outside Microsoft
-  Project writes .mpp itself, so the export is the XML.)
+  made. Export writes the project as a Microsoft Project file (.mpp), or as
+  Microsoft Project XML, which Microsoft Project opens and saves as .mpp: both
+  with the outline, dates, dependencies and their lags, work, progress, notes,
+  assignees and the working calendar. Each task links back to its work
+  package, so the plan, edited and saved as .mpp or XML, imports back onto the
+  same tasks. Writing .mpp needs the Aspose.Tasks licence on the server (see
+  Deploying): .mpp is Microsoft's closed format, and no free library writes it.
+  Until the licence is set, Export shows .mpp as not available, says why, and
+  offers the XML.
 
 ### Improved
 
@@ -507,11 +510,18 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    Nothing to run.
    The backend applies two more migrations on start, both additive: anyone who
    held the retired HR role becomes a Delivery Manager, and a table keeps time
-   on no project. The backend image now carries a small Java runtime and MPXJ
-   (about 90 MB) to read Microsoft Project files; building it fetches
-   `eclipse-temurin` and MPXJ's release from GitHub, checked against its
+   on no project. The backend image now carries a small Java runtime, MPXJ and
+   Aspose.Tasks for Java (about 110 MB) to read and write Microsoft Project
+   files; building it fetches `eclipse-temurin`, MPXJ's release from GitHub and
+   Aspose.Tasks from Aspose's Maven repository, each checked against its
    SHA-256. Without them (an image built from an older Dockerfile), .mpp
    uploads are refused with how to save the plan as XML, which still imports.
+   **To export .mpp, set `EPM_ASPOSE_TASKS_LICENSE`** in `.env.prod` to the
+   Aspose.Tasks for Java licence file, on one line: `base64 -w0
+   Aspose.Tasks.Java.lic`. Aspose sells the licence; its free 30-day temporary
+   licence works for trying it. Without one, Export offers Microsoft Project XML
+   (Aspose.Tasks refuses to write .mpp unlicensed). Importing .mpp needs no
+   licence.
    **Set `EPM_MFA_KEY`** (`openssl rand -hex 32`) and back it up, before anyone
    turns on two-factor authentication: changing it later breaks every
    authenticator (`deploy/runbooks/secret-rotation.md`).

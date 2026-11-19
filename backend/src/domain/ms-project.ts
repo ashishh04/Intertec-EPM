@@ -30,9 +30,12 @@ import { href, title, type ProjectWork } from './task-export.js';
  * made, so a plan imported again updates its tasks rather than repeating them.
  *
  * Out: the project as Microsoft Project XML, which Microsoft Project opens and
- * can save as .mpp. Nothing outside Microsoft Project writes .mpp itself — MPXJ
- * reads it but cannot write it — so the XML is the file to hand over. Each
- * task carries a hyperlink to its work package, so the file can come back.
+ * saves as .mpp; or as .mpp itself, which MPXJ cannot write: Aspose.Tasks, a
+ * commercial Java library the image also carries, turns the same XML into
+ * .mpp (backend/tools/mpp-writer), but only with its licence installed
+ * (EPM_ASPOSE_TASKS_LICENSE) — without one it refuses, and an unlicensed copy
+ * would move every date to the year 2000. Each task carries a hyperlink to its
+ * work package, so either file can come back.
  */
 
 const NAMESPACE = 'http://schemas.microsoft.com/project';
@@ -55,6 +58,19 @@ const CONVERT_TIMEOUT_MS = 120_000;
 const MAX_CONVERSIONS = 2;
 let converting = 0;
 const waiting: (() => void)[] = [];
+
+/**
+ * What a Java process is given of the environment: what a JVM needs to start,
+ * and nothing of the backend's own secrets (database, keys), which a library
+ * reading an uploaded file has no business seeing.
+ */
+function javaEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const kept: NodeJS.ProcessEnv = {};
+  for (const name of ['PATH', 'Path', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'SYSTEMROOT', 'windir']) {
+    if (process.env[name] !== undefined) kept[name] = process.env[name];
+  }
+  return { ...kept, ...extra };
+}
 
 async function slot<T>(work: () => Promise<T>): Promise<T> {
   if (converting >= MAX_CONVERSIONS) await new Promise<void>((resolve) => waiting.push(resolve));
@@ -94,7 +110,7 @@ export async function msProjectFileToXml(bytes: Uint8Array, filename: string): P
         execFile(
           java,
           ['-Xmx768m', '-Djava.awt.headless=true', '-cp', classpath, 'org.mpxj.sample.MpxjConvert', input, output],
-          { timeout: CONVERT_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+          { timeout: CONVERT_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: javaEnv() },
           (error, _stdout, stderr) => {
             if (!error) return resolve();
             const missing = (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -108,6 +124,116 @@ export async function msProjectFileToXml(bytes: Uint8Array, filename: string): P
         throw EpmError.validation(message('The Microsoft Project file could not be read. It may be damaged or protected with a password: open it in Microsoft Project, save it as XML Format (*.xml), and import that file.'));
       }));
       return xml;
+    } finally {
+      await rm(folder, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Writing .mpp                                                               */
+/* -------------------------------------------------------------------------- */
+
+/** Why this server writes no .mpp: no writer in the image, no licence set, or a licence that did not load. */
+export type MppUnavailable = 'not-installed' | 'no-licence' | 'licence-refused';
+
+export interface MppWriting {
+  available: boolean;
+  reason?: MppUnavailable;
+}
+
+/** Runs EPM's .mpp writer with the licence, and says how it ended: its exit code, or `missing` with no Java. */
+function runWriter(args: string[]): Promise<{ code: number | 'missing' | 'killed'; stderr: string }> {
+  const home = env.EPM_ASPOSE_TASKS_HOME ?? '';
+  const classpath = [path.join(home, 'aspose-tasks.jar'), path.join(home, 'epm-mpp-writer.jar')].join(path.delimiter);
+  return new Promise((resolve) => {
+    execFile(
+      env.EPM_JAVA ?? 'java',
+      ['-Xmx768m', '-Djava.awt.headless=true', '-cp', classpath, 'EpmMppWriter', ...args],
+      {
+        timeout: CONVERT_TIMEOUT_MS,
+        maxBuffer: 4 * 1024 * 1024,
+        windowsHide: true,
+        env: javaEnv({ EPM_ASPOSE_TASKS_LICENSE: env.EPM_ASPOSE_TASKS_LICENSE ?? '' }),
+      },
+      (error, _stdout, stderr) => {
+        if (!error) return resolve({ code: 0, stderr: String(stderr) });
+        const failure = error as NodeJS.ErrnoException & { killed?: boolean };
+        const code = failure.code === 'ENOENT' ? 'missing' : typeof failure.code === 'number' ? failure.code : 'killed';
+        resolve({ code, stderr: String(stderr) });
+      },
+    );
+  });
+}
+
+const reasonOf = (code: number | 'missing' | 'killed'): MppUnavailable => (code === 3 ? 'no-licence' : code === 4 ? 'licence-refused' : 'not-installed');
+
+let checked: { at: number; ttl: number; value: Promise<MppWriting> } | undefined;
+
+/**
+ * Whether this server writes .mpp: the writer in the image and a licence that
+ * loads, asked of the writer itself (it loads the licence), so the export
+ * dialog can say so before anyone chooses it. Kept six hours; a failure ten
+ * minutes, so a licence put right shows soon after a restart.
+ */
+export function mppWriting(): Promise<MppWriting> {
+  if (!env.EPM_ASPOSE_TASKS_HOME) return Promise.resolve({ available: false, reason: 'not-installed' });
+  if (!env.EPM_ASPOSE_TASKS_LICENSE) return Promise.resolve({ available: false, reason: 'no-licence' });
+  if (checked && Date.now() - checked.at < checked.ttl) return checked.value;
+  const value = slot(() => runWriter(['--check'])).then(({ code, stderr }): MppWriting => {
+    if (code === 0) return { available: true };
+    appLog.warn({ code, stderr: stderr.slice(-1000) }, 'Microsoft Project files (.mpp) cannot be written');
+    return { available: false, reason: reasonOf(code) };
+  });
+  checked = { at: Date.now(), ttl: 6 * 3_600_000, value };
+  void value.then((result) => {
+    if (!result.available && checked?.value === value) checked = { ...checked, ttl: 10 * 60_000 };
+  });
+  return value;
+}
+
+function unavailable(reason: MppUnavailable): EpmError {
+  switch (reason) {
+    case 'no-licence':
+      return EpmError.unavailable(message('Exporting Microsoft Project files (.mpp) needs its licence installed on this server: ask an administrator. Until then, export Microsoft Project XML, which Microsoft Project opens and saves as .mpp.'));
+    case 'licence-refused':
+      return EpmError.unavailable(message('The licence for Microsoft Project files on this server did not load: it may have expired or been pasted incompletely. Ask an administrator; until then, export Microsoft Project XML, which Microsoft Project opens and saves as .mpp.'));
+    default:
+      return EpmError.unavailable(message('Microsoft Project files (.mpp) cannot be written on this server. Export Microsoft Project XML instead: Microsoft Project opens it and saves it as .mpp.'));
+  }
+}
+
+/** Refuses, saying why, when this server writes no .mpp. */
+export async function assertMppWritable(): Promise<void> {
+  const writing = await mppWriting();
+  if (!writing.available) throw unavailable(writing.reason ?? 'not-installed');
+}
+
+/**
+ * The plan as a Microsoft Project file (.mpp): the XML the XML export gives
+ * (msProjectXml), written as .mpp by Aspose.Tasks, in a folder of its own that
+ * is removed afterwards, under the same time, heap and concurrency limits as
+ * reading.
+ */
+export async function msProjectMpp(xml: string): Promise<Buffer> {
+  await assertMppWritable();
+  return slot(async () => {
+    const folder = await mkdtemp(path.join(tmpdir(), 'epm-plan-'));
+    const input = path.join(folder, 'plan.xml');
+    const output = path.join(folder, 'plan.mpp');
+    try {
+      await writeFile(input, xml, 'utf8');
+      const { code, stderr } = await runWriter([input, output]);
+      if (code !== 0) {
+        appLog.warn({ code, stderr: stderr.slice(-2000) }, 'A plan could not be written as .mpp');
+        if (code === 3 || code === 4 || code === 'missing') {
+          // The licence or the runtime went away since the check: ask again next time.
+          checked = undefined;
+          throw unavailable(reasonOf(code));
+        }
+        throw EpmError.internal(message('The plan could not be written as a Microsoft Project file. Export Microsoft Project XML instead: Microsoft Project opens it and saves it as .mpp.'));
+      }
+      return await readFile(output);
     } finally {
       await rm(folder, { recursive: true, force: true }).catch(() => undefined);
     }

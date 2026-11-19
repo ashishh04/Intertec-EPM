@@ -3,10 +3,20 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { currentAuth } from '../auth/context.js';
 import * as guard from '../auth/guard.js';
 import { asCsv, asWorkbook, exportRows, readProjectWork } from '../domain/task-export.js';
-import { isMsProjectXml, MS_PROJECT_FILE, msProjectFileToXml, msProjectXml, recordsFromMsProject } from '../domain/ms-project.js';
+import {
+  assertMppWritable,
+  isMsProjectXml,
+  MS_PROJECT_FILE,
+  msProjectFileToXml,
+  msProjectMpp,
+  msProjectXml,
+  mppWriting,
+  recordsFromMsProject,
+} from '../domain/ms-project.js';
 import { env } from '../config/env.js';
 import { message } from '../lib/i18n.js';
 import type { CsvRecord } from '../lib/csv-parse.js';
+import type { TaskExportFormats } from '../types/epm.js';
 import { cancelImport, checkImport, getImport, importView, listImports, startImport, templateFor } from '../domain/task-import.js';
 import { openProject } from '../openproject/client.js';
 import { decodeText, parseCsv } from '../lib/csv-parse.js';
@@ -83,10 +93,21 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * The formats a project's tasks can be exported in beyond CSV, Excel and
+   * Microsoft Project XML: .mpp only where its writer and licence are installed,
+   * and if not, why not, so the export dialog says so before anyone chooses it.
+   */
+  app.get('/task-exports/formats', async (): Promise<TaskExportFormats> => {
+    const mpp = await mppWriting();
+    return { mpp: mpp.available, ...(mpp.reason ? { mppUnavailable: mpp.reason } : {}) };
+  });
+
+  /**
    * The project's work packages in the import's columns, as CSV or Excel:
    * exported, edited and imported again, hierarchy and dependencies intact.
    * Or, with `format=msproject`, as a Microsoft Project XML plan
-   * (domain/ms-project.ts), which Microsoft Project opens and saves as .mpp.
+   * (domain/ms-project.ts), which Microsoft Project opens and saves as .mpp;
+   * with `format=mpp`, as the .mpp itself, where this server can write one.
    * Read with the caller's access; needs only `task:view`.
    */
   app.get<{ Params: { projectId: string }; Querystring: { format?: string; closed?: string } }>('/projects/:projectId/task-exports', async (request, reply) => {
@@ -96,12 +117,19 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
     const project = await openProject.request<{ name: string; identifier?: string }>(`/projects/${projectId}`);
     const stem = `${(project.identifier ?? `project-${projectId}`).replace(/[^\w-]+/g, '-')}-tasks-${new Date().toISOString().slice(0, 10)}`;
     reply.header('Cache-Control', 'private, no-store');
-    if (request.query.format === 'msproject') {
+    if (request.query.format === 'msproject' || request.query.format === 'mpp') {
+      const mpp = request.query.format === 'mpp';
+      // Refused before the project is read when this server writes no .mpp.
+      if (mpp) await assertMppWritable();
       const [work, calendar] = await Promise.all([readProjectWork(projectId, request.query.closed !== 'false'), workingCalendar()]);
+      const xml = msProjectXml({ projectName: project.name, fileName: `${stem}.${mpp ? 'mpp' : 'xml'}`, work, ...calendar, appBaseUrl: env.APP_BASE_URL });
+      if (mpp) {
+        const file = await msProjectMpp(xml);
+        reply.header('Content-Type', 'application/vnd.ms-project').header('Content-Disposition', contentDispositionFor(`${stem}.mpp`));
+        return reply.send(file);
+      }
       reply.header('Content-Type', 'application/xml; charset=utf-8').header('Content-Disposition', contentDispositionFor(`${stem}.xml`));
-      return reply.send(
-        msProjectXml({ projectName: project.name, fileName: `${stem}.xml`, work, ...calendar, appBaseUrl: env.APP_BASE_URL }),
-      );
+      return reply.send(xml);
     }
     const data = await exportRows(projectId, request.query.closed !== 'false');
     if (request.query.format === 'xlsx') {

@@ -205,6 +205,14 @@ const schema = z.object({
   // which is read without them.
   EPM_JAVA: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
   EPM_MPXJ_HOME: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  // Writing Microsoft Project files (.mpp) on Tasks → Export: Aspose.Tasks for
+  // Java and EPM's helper, which the image carries (Dockerfile), and the
+  // licence Aspose issues — the .lic file, base64-encoded (or its XML, from
+  // EPM_ASPOSE_TASKS_LICENSE_FILE). Aspose.Tasks writes .mpp only with a
+  // licence, so without one the export offers Microsoft Project XML instead,
+  // which Microsoft Project opens and saves as .mpp.
+  EPM_ASPOSE_TASKS_HOME: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  EPM_ASPOSE_TASKS_LICENSE: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
   /*
    * The default hour a deadline reminder goes out, 0-23.
    *
@@ -536,6 +544,7 @@ const FILE_SECRETS = [
   'EPM_ANALYTICS_DATABASE_URL',
   'EPM_METRICS_TOKEN',
   'EPM_OPS_ALERT_WEBHOOK_URL',
+  'EPM_ASPOSE_TASKS_LICENSE',
 ] as const;
 
 function withSecretFiles(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

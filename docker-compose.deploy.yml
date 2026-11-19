@@ -177,6 +177,9 @@ services:
       OPENPROJECT_OAUTH_CLIENT_SECRET: ${OPENPROJECT_OAUTH_CLIENT_SECRET}
       SESSION_SECRET: ${SESSION_SECRET:?set a 32+ character secret}
       EPM_MFA_KEY: ${EPM_MFA_KEY:-}
+      # Writing .mpp on Tasks → Export: the Aspose.Tasks licence, base64. Empty:
+      # the export offers Microsoft Project XML instead.
+      EPM_ASPOSE_TASKS_LICENSE: ${EPM_ASPOSE_TASKS_LICENSE:-}
       # Same origin as the app, because Caddy proxies /api on the one domain.
       CORS_ORIGIN: https://${EPM_DOMAIN}
       APP_BASE_URL: https://${EPM_DOMAIN}

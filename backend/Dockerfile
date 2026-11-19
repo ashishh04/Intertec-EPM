@@ -66,10 +66,19 @@ RUN npm prune --omit=dev
 # by converting a real .mpp with the runtime this stage makes, on the runtime
 # stage's base image and as its `node` user. To move MPXJ on, change
 # both arguments: the new zip's SHA-256 is printed by `sha256sum` on it.
+#
+# Writing .mpp on Tasks → Export is Aspose.Tasks for Java's (MPXJ only reads
+# it): its jar from Aspose's Maven repository, checked against its SHA-256,
+# and EPM's helper (tools/mpp-writer), compiled here against it. Aspose.Tasks
+# writes .mpp only with its licence, set at run time (EPM_ASPOSE_TASKS_LICENSE);
+# without one the export offers Microsoft Project XML instead. It needs no
+# module the runtime above lacks (jdeps: java.base, java.desktop, java.sql).
 FROM eclipse-temurin:21.0.13_9-jdk-noble@sha256:a2e61ec9e2e4d5c7aa885412400319f9299abe4d8189f42ec3bec48708c576a6 AS plans
 
 ARG MPXJ_VERSION=16.11.0
 ARG MPXJ_SHA256=765f0f5e459f27b7f12511bea682f13937d92ddd37d5422a693d746c6a490273
+ARG ASPOSE_TASKS_VERSION=26.10
+ARG ASPOSE_TASKS_SHA256=be40d5a153c60cb892cc21de81915e7e6c4ded39a56fe15991d8279afaacb7e9
 
 RUN jlink \
       --add-modules java.base,java.desktop,java.logging,java.naming,java.net.http,java.prefs,java.scripting,java.sql,java.xml,jdk.unsupported,jdk.zipfs,jdk.charsets \
@@ -90,6 +99,14 @@ RUN for i in 1 2 3; do \
  && rm -f /opt/mpxj/lib/junit-* /opt/mpxj/lib/opentest4j-* /opt/mpxj/lib/apiguardian-* \
  && test -f /opt/mpxj/mpxj.jar \
  && rm -rf /tmp/mpxj.zip /var/lib/apt/lists/*
+
+COPY tools/mpp-writer/EpmMppWriter.java /tmp/mpp-writer/EpmMppWriter.java
+RUN mkdir -p /opt/aspose /tmp/mpp-writer/classes \
+ && curl -fsSL --retry 3 -o /opt/aspose/aspose-tasks.jar "https://releases.aspose.com/java/repo/com/aspose/aspose-tasks/${ASPOSE_TASKS_VERSION}/aspose-tasks-${ASPOSE_TASKS_VERSION}.jar" \
+ && echo "${ASPOSE_TASKS_SHA256}  /opt/aspose/aspose-tasks.jar" | sha256sum -c - \
+ && javac --release 21 -cp /opt/aspose/aspose-tasks.jar -d /tmp/mpp-writer/classes /tmp/mpp-writer/EpmMppWriter.java \
+ && jar cf /opt/aspose/epm-mpp-writer.jar -C /tmp/mpp-writer/classes . \
+ && rm -rf /tmp/mpp-writer
 
 # ---------------------------------------------------------------- runtime
 FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
@@ -134,12 +151,14 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
 COPY --from=build --chown=node:node /app/package.json ./package.json
 
-# Reading Microsoft Project files (the plans stage above). Root-owned and only
+# Reading and writing Microsoft Project files (the plans stage above). Root-owned and only
 # read and run: the node user needs nothing more.
 COPY --from=plans /opt/jre /opt/jre
 COPY --from=plans /opt/mpxj /opt/mpxj
+COPY --from=plans /opt/aspose /opt/aspose
 ENV EPM_JAVA=/opt/jre/bin/java \
-    EPM_MPXJ_HOME=/opt/mpxj
+    EPM_MPXJ_HOME=/opt/mpxj \
+    EPM_ASPOSE_TASKS_HOME=/opt/aspose
 
 # Unprivileged: the image has no reason to run as root, and `node` already
 # exists in the base image.

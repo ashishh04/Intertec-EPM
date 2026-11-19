@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 
+import { env } from '../../config/env.js';
 import { parseXml, XmlError } from '../../lib/xml-read.js';
-import { isMsProjectXml, MS_PROJECT_FILE, msProjectFileToXml, msProjectXml, recordsFromMsProject } from '../ms-project.js';
+import { isMsProjectXml, MS_PROJECT_FILE, msProjectFileToXml, msProjectMpp, msProjectXml, mppWriting, recordsFromMsProject } from '../ms-project.js';
 import type { OpWork, ProjectWork } from '../task-export.js';
 import { checkRows } from '../task-import.js';
 
@@ -184,6 +185,43 @@ if (sample) {
     console.log(`        ${plan.tasks} tasks, ${plan.linksLeftOut} links left out, ${rows.length} rows, ${problems.length} problems`);
     for (const problem of problems.slice(0, 10)) console.log('       ', JSON.stringify(problem));
     assert.equal(rows.length, plan.tasks);
+  });
+}
+
+// Writing .mpp: Aspose.Tasks with its licence (EPM_ASPOSE_TASKS_HOME and
+// EPM_ASPOSE_TASKS_LICENSE). Without them the reason is checked; with them the
+// fixture plan is written as .mpp and, where MPXJ is installed, read back.
+const writing = await mppWriting();
+check(`.mpp writing on this machine: ${writing.available ? 'available' : `not available (${writing.reason})`}`, () => {
+  if (!env.EPM_ASPOSE_TASKS_HOME) assert.equal(writing.reason, 'not-installed');
+  else if (!env.EPM_ASPOSE_TASKS_LICENSE) assert.equal(writing.reason, 'no-licence');
+});
+if (writing.available) {
+  const plan = msProjectXml({
+    projectName: 'Portal',
+    fileName: 'portal.mpp',
+    work: {
+      items: [work(10, { subject: 'Phase', startDate: '2026-11-02', dueDate: '2026-11-13' }), work(11, { subject: 'Build', startDate: '2026-11-02', dueDate: '2026-11-06', scheduleManually: true }), work(12, { subject: 'Go live', date: '2026-11-13' })],
+      parentOf: new Map([['10', null], ['11', '10'], ['12', '10']]),
+      predecessors: new Map([['12', new Map([['11', '1']])]]),
+      lags: new Map(),
+    },
+    workingDays: new Set([1, 2, 3, 4, 5]),
+    holidays: [],
+    appBaseUrl: 'https://epm.example.test',
+  });
+  const mpp = await msProjectMpp(plan);
+  const back = env.EPM_MPXJ_HOME ? recordsFromMsProject(await msProjectFileToXml(mpp, 'portal.mpp')) : undefined;
+  check('a plan is written as .mpp, and reads back the same', () => {
+    // An .mpp is an OLE compound file.
+    assert.deepEqual([...mpp.subarray(0, 4)], [0xd0, 0xcf, 0x11, 0xe0]);
+    if (back) {
+      assert.deepEqual(back.records.slice(1).map((record) => [record.cells[0], record.cells[3], record.cells[6]]), [
+        ['WP10', 'Phase', '2026-11-13'],
+        ['WP11', 'Build', '2026-11-06'],
+        ['WP12', 'Go live', '2026-11-13'],
+      ]);
+    }
   });
 }
 
