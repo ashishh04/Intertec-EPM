@@ -64,6 +64,7 @@ import { useTimeEntries } from '@/hooks/useTimeEntries';
 import { useUserMap } from '@/hooks/useUsers';
 import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
+import { isManagementRole } from '@/config/navigation';
 import {
   formatHours,
   formatShortDate,
@@ -213,7 +214,7 @@ function TaskListWidget({
  */
 function KpiWidget() {
   const { role } = useAuth();
-  return role === 'manager' || role === 'hr' || role === 'admin' ? <RoleKpis role={role} /> : <PersonalKpis />;
+  return isManagementRole(role) ? <RoleKpis role={role} /> : <PersonalKpis />;
 }
 
 function PersonalKpis() {
@@ -852,7 +853,7 @@ export const WIDGETS: DashboardWidget[] = [
     resizable: true,
     // Whoever sees or manages timesheets sees everyone's; a team lead or
     // department manager, whatever their role, sees their own people's.
-    available: ({ role, can }) => can('timesheets:manage') || can('timesheets:view') || role === 'manager' || role === 'hr',
+    available: ({ role, can }) => can('timesheets:manage') || can('timesheets:view') || isManagementRole(role),
     Component: TeamTimesheetsWidget,
   },
   {
@@ -904,15 +905,21 @@ const layout = (...ids: string[]): DashboardWidgetPlacement[] => ids.map((id) =>
 
 /**
  * Each role's Overview, until the person arranges their own: an administrator
- * runs the workspace, a manager keeps projects and people on track, HR looks
- * after the people and their timesheets, an employee does the work. An
- * external person never sees the Overview (the portal is theirs); they are
- * given an employee's so the record has one.
+ * runs the workspace; the leadership roles keep projects and people on track,
+ * each from where they stand — a BU Head and a portfolio manager across the
+ * portfolio, a program or project manager across their projects, a delivery
+ * manager across teams and timesheets; an employee does the work. An external
+ * person never sees the Overview (the portal is theirs); they are given an
+ * employee's so the record has one.
  */
 export const ROLE_LAYOUTS: Record<AppRole, DashboardWidgetPlacement[]> = {
   admin: layout('kpis', 'workspace', 'recent-changes', 'approvals', 'activity', 'project-health'),
+  bu_head: layout('kpis', 'project-health', 'approvals', 'delivery-trends', 'over-allocated', 'activity'),
+  portfolio_manager: layout('kpis', 'project-health', 'approvals', 'delivery-trends', 'over-allocated', 'upcoming'),
+  program_manager: layout('kpis', 'project-health', 'approvals', 'upcoming', 'over-allocated', 'activity'),
+  project_manager: layout('kpis', 'my-work', 'approvals', 'project-health', 'upcoming', 'team-timesheets'),
+  delivery_manager: layout('kpis', 'team-timesheets', 'over-allocated', 'approvals', 'project-health', 'activity'),
   manager: layout('kpis', 'approvals', 'over-allocated', 'project-health', 'delivery-trends', 'upcoming', 'activity'),
-  hr: layout('kpis', 'team-timesheets', 'approvals', 'notifications', 'activity'),
   employee: layout('kpis', 'my-work', 'time-this-week', 'my-claims', 'upcoming', 'notifications'),
   external: layout('kpis', 'my-work', 'time-this-week', 'my-claims', 'upcoming', 'notifications'),
 };

@@ -2,6 +2,7 @@ import { linkId, linkTitle } from '../openproject/client.js';
 import { versionIdOf, versionTitleOf } from '../openproject/versions.js';
 import { durationToHours } from '../lib/duration.js';
 import { classifyPriority, classifyType, type Catalog } from './catalog.js';
+import { categoryKey } from '../domain/task-categories.js';
 import type { OpWorkPackage } from '../openproject/types.js';
 import type {
   EpmTask,
@@ -105,8 +106,18 @@ export function toEpmTask(
       relate: Object.hasOwn(links ?? {}, 'addRelation'),
       logTime: Object.hasOwn(links ?? {}, 'logTime'),
     },
+    ...categoryOf(links),
     ...withCustomValues(workPackage as unknown as Record<string, unknown>),
   };
+}
+
+/** The task's category (domain/task-categories.ts), once the field is known. */
+function categoryOf(links: WorkPackageWithPoints['_links']): { category?: { id: string; name: string } } {
+  const key = categoryKey();
+  if (!key) return {};
+  const id = linkId(links, key);
+  const name = linkTitle(links, key);
+  return id && name ? { category: { id, name } } : {};
 }
 
 /**

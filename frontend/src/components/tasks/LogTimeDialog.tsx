@@ -174,7 +174,7 @@ export function LogTimeDialog({
           ) : null}
 
           <div className="space-y-1.5">
-            <Label htmlFor="time-comment">{t('Comment')}</Label>
+            <Label htmlFor="time-comment">{t('Work description')}</Label>
             <Textarea
               id="time-comment"
               rows={3}

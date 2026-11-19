@@ -234,7 +234,10 @@ services:
       EPM_SCHEDULE_NEAR_CRITICAL_DAYS: ${EPM_SCHEDULE_NEAR_CRITICAL_DAYS:-2}
       EPM_SCHEDULE_MIRROR_ENABLED: ${EPM_SCHEDULE_MIRROR_ENABLED:-true}
       EPM_SCHEDULE_RUN_RETENTION_DAYS: ${EPM_SCHEDULE_RUN_RETENTION_DAYS:-30}
-      EPM_DUE_REMINDER_ENABLED: ${EPM_DUE_REMINDER_ENABLED}
+      # The deadline reminder emails: on unless set to "false", like the sweeps
+      # above. Left with no default, an unset value meant off, and a server
+      # whose mail worked sent invitations and nothing else.
+      EPM_DUE_REMINDER_ENABLED: ${EPM_DUE_REMINDER_ENABLED:-true}
       EPM_DUE_REMINDER_HOUR_UTC: ${EPM_DUE_REMINDER_HOUR_UTC}
       EPM_DUE_REMINDER_DAYS: ${EPM_DUE_REMINDER_DAYS}
       EPM_EMAIL_DIGEST_HOUR_UTC: ${EPM_EMAIL_DIGEST_HOUR_UTC:-6}

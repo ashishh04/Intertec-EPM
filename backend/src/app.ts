@@ -18,6 +18,7 @@ import { markModelStale } from './domain/analytics-model.js';
 import { createDueReminderScheduler } from './scheduler/due-reminders.js';
 import { createTimesheetReminders } from './scheduler/timesheet-reminders.js';
 import { createIntegrationRetry } from './scheduler/integration-retry.js';
+import { taskCategoryField } from './domain/task-categories.js';
 import { createForecastRefresh } from './scheduler/forecast-refresh.js';
 import { createHealthSweep } from './scheduler/health-sweep.js';
 import { createBurndownSampler } from './scheduler/burndown-sampler.js';
@@ -454,6 +455,13 @@ export async function buildApp(): Promise<FastifyInstance> {
   // time and expense settings switch reminders on — an administrator's choice.
   const timesheetReminders = createTimesheetReminders({ log: app.log });
   timesheetReminders.start();
+
+  // Task categories: the field is found, or made, once at start, so tasks show
+  // their category from the first request rather than after someone asks for
+  // the list. A failure is logged there and tried again when next needed.
+  if (env.NODE_ENV !== 'test') {
+    setTimeout(() => void taskCategoryField(), 5_000).unref();
+  }
 
   // Inbound integration events that failed are retried, then dead-lettered (BR-506).
   const integrationRetry = createIntegrationRetry({ log: app.log });

@@ -50,7 +50,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
     assigned: true,
     mentions: true,
     membership: true,
-    updates: false,
+    updates: true,
     dueReminders: true,
     digest: true,
     // The backend's own default comes from its configuration, so this is only

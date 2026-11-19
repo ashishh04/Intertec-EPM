@@ -10,6 +10,7 @@ import { useDepartment } from '@/hooks/useDepartments';
 import { usePortfolioView } from '@/hooks/usePortfolioViews';
 import { useProgram } from '@/hooks/useProjectSettings';
 import { useProjectRequest, useStageGateReview } from '@/hooks/useRequests';
+import { useUserMap } from '@/hooks/useUsers';
 import { cn } from '@/lib/utils';
 import { findAdminArea, findAdminPage } from '@/config/administration';
 import { t } from '@/lib/i18n';
@@ -98,6 +99,8 @@ export function Breadcrumbs({ className }: { className?: string }) {
   // account list the page has already loaded names them.
   const onUserProfile = params.areaId === 'users' && params.pageId === 'users' && Boolean(params.itemId);
   const { data: accounts } = useAccounts(onUserProfile);
+  // A person's timesheet is addressed by their id; the directory names them.
+  const users = useUserMap();
 
   const segments = location.pathname.split('/').filter(Boolean);
   const crumbs: Crumb[] = [];
@@ -150,6 +153,20 @@ export function Breadcrumbs({ className }: { className?: string }) {
 
     // An approval link's token is a credential, not a place: never shown.
     if (segments[0] === 'approvals' && segments[1] === 'decide' && index === 2) continue;
+
+    // Timesheets › Vasanth, not Timesheets › people › 140; and one timesheet
+    // by its id reads as a timesheet, its title naming whose.
+    if (segments[0] === 'timesheets' && index > 0) {
+      if (index === 1 && segment === 'people') continue;
+      if (index === 2 && segments[1] === 'people') {
+        crumbs.push({ label: users.get(segment)?.name ?? t('Person'), to: `${path}${location.search}` });
+        continue;
+      }
+      if (index === 1) {
+        crumbs.push({ label: t('Timesheet'), to: path });
+        continue;
+      }
+    }
 
     // /dashboard is the Overview; a project's own dashboard is its Dashboard tab.
     if (segment === 'dashboard' && segments[0] === 'projects' && index > 0) {

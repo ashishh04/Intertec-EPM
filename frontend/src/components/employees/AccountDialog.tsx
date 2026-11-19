@@ -82,7 +82,17 @@ function suggestPassword(): string {
 const NONE = '__none__';
 
 /** The roles offered, Administrator first, and what each one means for the person. */
-const ROLES: AppRole[] = ['admin', 'manager', 'hr', 'employee', 'external'];
+const ROLES: AppRole[] = [
+  'admin',
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+  'employee',
+  'external',
+];
 
 function roleHint(role: AppRole): string {
   switch (role) {
@@ -90,8 +100,16 @@ function roleHint(role: AppRole): string {
       return t('Full access to every project and setting.');
     case 'manager':
       return t('Runs projects and people: resources, health, scenarios, finance and reports.');
-    case 'hr':
-      return t('Looks after people: departments, teams, staffing, rates and everyone\'s timesheets.');
+    case 'bu_head':
+      return t('Heads a business unit: its departments, teams and people, portfolios, money and the project intake.');
+    case 'portfolio_manager':
+      return t('Chooses and balances the work: portfolios, programs, project requests, scenarios, health and money.');
+    case 'program_manager':
+      return t("Runs a program's projects together: programs, project requests, health, shared resources and money.");
+    case 'project_manager':
+      return t("Runs projects through their life cycle: resources, the team's timesheets, money and reports.");
+    case 'delivery_manager':
+      return t("Sees delivery across projects and teams: staffing, capacity, teams and everyone's timesheets.");
     case 'external':
       return t('A client or vendor: sees only the portal, and in it only the projects granted to them.');
     default:

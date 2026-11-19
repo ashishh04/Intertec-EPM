@@ -1,4 +1,5 @@
 import { Filter, Search, X } from 'lucide-react';
+import { useTaskCategories } from '@/hooks/useTasks';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge, CountBadge } from '@/components/ui/badge';
@@ -68,6 +69,15 @@ export function FilterBar({
   trailing,
 }: FilterBarProps) {
   const set = (patch: Partial<TaskFilters>) => onChange({ ...filters, ...patch, page: 1 });
+  // The kinds of work: a reviewer filters to Review, a tester to Testing.
+  const { data: categories } = useTaskCategories();
+  const categoryOptions = categories?.available ? categories.options : [];
+
+  const toggleCategory = (id: ID) => {
+    const current = filters.categoryId ?? [];
+    const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+    set({ categoryId: next.length > 0 ? next : undefined });
+  };
 
   const toggleStatus = (status: TaskStatusCategory) => {
     const current = filters.status ?? [];
@@ -92,6 +102,7 @@ export function FilterBar({
   const activeCount =
     (filters.status?.length ?? 0) +
     (filters.priority?.length ?? 0) +
+    (filters.categoryId?.length ?? 0) +
     (!hide.includes('project') && filters.projectId ? 1 : 0) +
     (!hide.includes('assignee') && filters.assigneeId ? 1 : 0) +
     (!hide.includes('sprint') && filters.sprintId ? 1 : 0);
@@ -101,6 +112,7 @@ export function FilterBar({
       ...filters,
       status: undefined,
       priority: undefined,
+      categoryId: undefined,
       projectId: hide.includes('project') ? filters.projectId : undefined,
       assigneeId: hide.includes('assignee') ? filters.assigneeId : undefined,
       sprintId: hide.includes('sprint') ? filters.sprintId : undefined,
@@ -160,6 +172,22 @@ export function FilterBar({
                 {TASK_PRIORITY_META[priority].label}
               </DropdownMenuCheckboxItem>
             ))}
+            {categoryOptions.length > 0 ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{t('Category')}</DropdownMenuLabel>
+                {categoryOptions.map((option) => (
+                  <DropdownMenuCheckboxItem
+                    key={option.id}
+                    checked={filters.categoryId?.includes(option.id) ?? false}
+                    onCheckedChange={() => toggleCategory(option.id)}
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {option.name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -237,6 +265,13 @@ export function FilterBar({
               key={`priority-${priority}`}
               label={TASK_PRIORITY_META[priority].label}
               onRemove={() => togglePriority(priority)}
+            />
+          ))}
+          {filters.categoryId?.map((id) => (
+            <FilterChip
+              key={`category-${id}`}
+              label={categoryOptions.find((option) => option.id === id)?.name ?? t('Category')}
+              onRemove={() => toggleCategory(id)}
             />
           ))}
           {selectedProject && !hide.includes('project') ? (

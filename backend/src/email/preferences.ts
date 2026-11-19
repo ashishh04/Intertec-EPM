@@ -44,7 +44,12 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     assigned: true,
     mentions: true,
     membership: true,
-    updates: false,
+    // On, from November 2026. Off, it also held back every in-app notice's
+    // email copy (a project's health turning red, an approval decided) for
+    // anyone who never opened Settings, so beyond invitations next to nothing
+    // was mailed. Changes to work arrive as one line each in the daily digest,
+    // never one email per edit; anyone can still turn it off.
+    updates: true,
     dueReminders: true,
     digest: true,
     // The deployment's configured hour, which is also what anyone who never

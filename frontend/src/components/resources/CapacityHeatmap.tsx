@@ -171,7 +171,7 @@ export function CapacityHeatmap() {
                 <CardTitle>{t('Load against the hours available')}</CardTitle>
                 <CardDescription>
                   {t(
-                    'Each cell is the work and bookings falling in a week as a share of the hours available that week — from today in this week. Weeks gone show the hours logged instead. Open a cell to see what makes it up.',
+                    'Each cell is the work and bookings falling in a week as a share of the hours available that week. This week adds the hours already logged to the work still to come; weeks gone show the hours logged. Open a cell to see what makes it up.',
                   )}
                 </CardDescription>
               </CardHeader>
@@ -297,16 +297,24 @@ function addDays(day: string, days: number): string {
 
 function HeatCell({ cell, group = false, onOpen }: { cell: CapacityCell; group?: boolean; onOpen: () => void }) {
   const load = cell.committed + cell.planned;
-  const gap = load - cell.available;
+  // This week counts the time already logged as well as the work still to come.
+  const used = cell.basis === 'current' ? cell.logged + load : load;
+  const gap = used - cell.available;
   const title =
     cell.basis === 'actual'
       ? t('{logged} logged of {available} available', { logged: hours(cell.logged), available: hours(cell.available) })
-      : t('{load} asked of {available} available: {committed} of work, {planned} booked', {
-          load: hours(load),
-          available: hours(cell.available),
-          committed: hours(cell.committed),
-          planned: hours(cell.planned),
-        });
+      : cell.basis === 'current'
+        ? t('This week: {logged} logged so far and {load} still to do, of {available} available', {
+            logged: hours(cell.logged),
+            load: hours(load),
+            available: hours(cell.available),
+          })
+        : t('{load} asked of {available} available: {committed} of work, {planned} booked', {
+            load: hours(load),
+            available: hours(cell.available),
+            committed: hours(cell.committed),
+            planned: hours(cell.planned),
+          });
   return (
     <td className="p-0.5">
       <button
@@ -323,7 +331,7 @@ function HeatCell({ cell, group = false, onOpen }: { cell: CapacityCell; group?:
         )}
       >
         <span className={cn('leading-none', group && 'font-semibold')}>{percent(cell.ratio)}</span>
-        {group && cell.basis === 'forecast' && load > 0 ? (
+        {group && cell.basis !== 'actual' && used > 0 ? (
           <span className="mt-0.5 text-[10px] leading-none opacity-80">{gap > 0 ? `+${hours(gap)}` : `−${hours(-gap)}`}</span>
         ) : null}
       </button>

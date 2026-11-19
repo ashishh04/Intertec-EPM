@@ -47,6 +47,10 @@ function TaskRow({ task, project, assignee, className }: TaskRowProps) {
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-2xs text-muted-foreground">
           <span className="truncate">{project?.name ?? t('Unknown project')}</span>
+          {/* What kind of work: who picks it up. */}
+          {task.category ? (
+            <span className="shrink-0 rounded bg-muted px-1.5 py-px font-medium text-foreground/80">{task.category.name}</span>
+          ) : null}
           {task.labels.length > 0 ? (
             <>
               <span aria-hidden>·</span>

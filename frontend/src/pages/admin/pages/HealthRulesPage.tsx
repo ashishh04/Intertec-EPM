@@ -177,7 +177,8 @@ export default function HealthRulesPage() {
                   </div>
                   {HEALTH_CRITERIA_META.map((meta) => {
                     const rule = draft.criteria[meta.key];
-                    const unit = UNIT_LABEL[meta.unit];
+                    // Effort is a percent of the planned work, not of the budget.
+                    const unit = meta.suffix ?? UNIT_LABEL[meta.unit];
                     return (
                       <div
                         key={meta.key}

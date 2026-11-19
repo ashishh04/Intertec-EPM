@@ -35,7 +35,7 @@ import { CONNECTION_STATE_META } from '@/lib/domain';
 import { t } from '@/lib/i18n';
 import { formatCurrency, formatHours, formatRelative, formatShortDate, toISODateOnly } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
-import type { ExpenseClaimStatus } from '@/types';
+import type { AppRole, ExpenseClaimStatus } from '@/types';
 
 /**
  * The Overview widgets that belong to a role rather than to anyone's own work:
@@ -111,11 +111,16 @@ const CLAIM_STATE: Record<ExpenseClaimStatus, { label: () => string; tone: 'neut
 /* Key figures, by role                                                       */
 /* -------------------------------------------------------------------------- */
 
-/** The four figures a role starts from; an employee's are their own work (widgets.tsx). */
-export function RoleKpis({ role }: { role: 'manager' | 'hr' | 'admin' }) {
-  if (role === 'manager') return <ManagerKpis />;
-  if (role === 'hr') return <HrKpis />;
-  return <AdminKpis />;
+/**
+ * The four figures a role starts from; an employee's are their own work
+ * (widgets.tsx). The Delivery Manager, who took over HR's people and
+ * timesheets, starts from those; every other leadership role from projects and
+ * the people on them.
+ */
+export function RoleKpis({ role }: { role: AppRole }) {
+  if (role === 'admin') return <AdminKpis />;
+  if (role === 'delivery_manager') return <HrKpis />;
+  return <ManagerKpis />;
 }
 
 /** Projects and the people on them: what is at risk, waiting, over capacity and late. */

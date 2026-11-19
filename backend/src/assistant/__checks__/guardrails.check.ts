@@ -217,7 +217,7 @@ assert.equal(timeOff.totalHours, 8, 'the hours stay');
 console.log('ok  finance off: each still answers what it can');
 
 // Budget and spend are for the roles that work with money, the switch or not.
-for (const role of ['hr', 'employee'] as const) {
+for (const role of ['employee'] as const) {
   const seen = JSON.stringify(await findTool('get_project')!.execute(context({ role }), { name: 'Falcon' }));
   assert.ok(!/budgetTotal|spentToDate|Spent AED/.test(seen), `${role} is not given a project's money: ${seen}`);
 }

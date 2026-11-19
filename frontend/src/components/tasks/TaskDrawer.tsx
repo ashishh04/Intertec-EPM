@@ -33,7 +33,7 @@ import {
   useWorkPackageCreateForm,
 } from '@/hooks/useCatalog';
 import { useSprints } from '@/hooks/useSprints';
-import { useCreateTask, useTasks } from '@/hooks/useTasks';
+import { useCreateTask, useTaskCategories, useTasks } from '@/hooks/useTasks';
 import { msg, t } from '@/lib/i18n';
 import { allowedValuesOf, idFromHref, schemaField, writableFields } from '@/services/api/forms';
 import type { CreateTaskInput } from '@/types';
@@ -70,6 +70,8 @@ const schema = z
       }),
     storyPoints: z.string().optional(),
     labels: z.string().optional(),
+    // What kind of work it is: development, testing, review…
+    categoryId: z.string().optional(),
   })
   .refine(
     (values) => !values.startDate || !values.dueDate || values.startDate <= values.dueDate,
@@ -93,6 +95,7 @@ const DEFAULTS: FormValues = {
   estimatedHours: '',
   storyPoints: '',
   labels: '',
+  categoryId: NONE,
 };
 
 /**
@@ -105,6 +108,7 @@ export function TaskDrawer() {
   const { data: sprints } = useSprints();
   const { data: statuses } = useStatuses();
   const createTask = useCreateTask();
+  const { data: categories } = useTaskCategories();
   // Declared early: which projects are offered is decided by what this person may do.
   const { canInProject } = useAuth();
 
@@ -318,6 +322,7 @@ export function TaskDrawer() {
       dueDate: values.dueDate || undefined,
       estimatedHours: values.estimatedHours ? Number(values.estimatedHours) : undefined,
       storyPoints: values.storyPoints ? Number(values.storyPoints) : undefined,
+      categoryId: values.categoryId && values.categoryId !== NONE ? values.categoryId : undefined,
       labels: values.labels
         ? values.labels
             .split(',')
@@ -414,6 +419,20 @@ export function TaskDrawer() {
                   label: type.name,
                 }))}
               />
+
+              {categories?.available ? (
+                <FormSelect
+                  id="task-category"
+                  label={t('Category')}
+                  value={watch('categoryId') ?? NONE}
+                  onChange={(value) => setValue('categoryId', value)}
+                  hint={t('The kind of work: who will pick it up.')}
+                  options={[
+                    { value: NONE, label: t('No category') },
+                    ...categories.options.map((option) => ({ value: option.id, label: option.name })),
+                  ]}
+                />
+              ) : null}
 
               <FormSelect
                 id="task-status"

@@ -6,12 +6,13 @@ import { prisma } from '../db/prisma.js';
 import { addDays, daysBetween, startOfIsoWeek, today as todayIso } from '../lib/dates.js';
 import { durationToHours } from '../lib/duration.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
-import { dateOf, message, msg, type Message } from '../lib/i18n.js';
+import { contextLanguage, dateOf, message, msg, t, type Message } from '../lib/i18n.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { linkId, linkTitle, openProject } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
 import type { TimeSettings, TimesheetPeriodKind } from '../types/epm.js';
 import { withAudit } from './audit.js';
+import { activityLabel, internalEntries } from './internal-time.js';
 
 /**
  * The rules logged time is held to (Module 10): the timesheet period and its
@@ -158,6 +159,7 @@ interface OpTimeEntry {
   id: number;
   hours: string;
   spentOn: string;
+  comment?: { raw?: string | null } | null;
   _links?: Record<string, HalLink | HalLink[] | undefined>;
 }
 
@@ -168,7 +170,14 @@ export interface LoggedEntry {
   projectId: string;
   projectName: string;
   workPackageId?: string;
+  /** The work package's subject, as the entry links it. */
+  workPackageSubject?: string;
   activityId?: string;
+  activityName?: string;
+  /** What the person wrote about the time. */
+  comment?: string;
+  /** Time on no project, EPM's own (internal-time.ts): a daily scrum, a follow-up. */
+  internal?: boolean;
 }
 
 /** A person's time between two days, read with the service key. */
@@ -192,15 +201,34 @@ export async function entriesOf(personId: string, from: string, to: string): Pro
     }
     throw error;
   });
-  return collection.items.map((entry) => ({
+  const delivered: LoggedEntry[] = collection.items.map((entry) => ({
     id: String(entry.id),
     hours: durationToHours(entry.hours) ?? 0,
     spentOn: entry.spentOn,
     projectId: linkId(entry._links ?? {}, 'project') ?? '',
     projectName: linkTitle(entry._links ?? {}, 'project') ?? '',
     workPackageId: linkId(entry._links ?? {}, 'workPackage'),
+    workPackageSubject: linkTitle(entry._links ?? {}, 'workPackage'),
     activityId: linkId(entry._links ?? {}, 'activity'),
+    activityName: linkTitle(entry._links ?? {}, 'activity'),
+    comment: entry.comment?.raw?.trim() || undefined,
   }));
+  // Time on no project counts towards the person's day, week and timesheet.
+  const language = contextLanguage();
+  const own = (await internalEntries({ userIds: [personId], from, to })).map(
+    (entry): LoggedEntry => ({
+      id: entry.id,
+      hours: entry.hours,
+      spentOn: entry.spentOn,
+      projectId: '',
+      projectName: t(language, 'No project'),
+      workPackageSubject: activityLabel(entry.activity, language),
+      activityName: activityLabel(entry.activity, language),
+      comment: entry.comment,
+      internal: true,
+    }),
+  );
+  return [...delivered, ...own];
 }
 
 /* -------------------------------------------------------------------------- */

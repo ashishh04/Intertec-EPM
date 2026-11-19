@@ -7,13 +7,12 @@ import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
 import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { eventKeyOf, receiveEvent, registerProcessor } from '../domain/integration-inbox.js';
+import { assignmentPayload } from '../domain/assignment-mail.js';
 import { enqueueEmail } from '../email/outbox.js';
-import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
 import { EpmError } from '../lib/errors.js';
-import { t, toLanguage, type Language } from '../lib/i18n.js';
 import { appLog } from '../lib/log.js';
-import { linkId, linkTitle } from '../openproject/client.js';
+import { linkId } from '../openproject/client.js';
 import type { HalLinks } from '../openproject/types.js';
 import { noteRuleEvent, noteWebhookReceived } from '../domain/rule-events.js';
 
@@ -106,12 +105,6 @@ function verifySignature(request: FastifyRequest): void {
   }
 }
 
-/** The same key the task mapping shows: `IDENT-123`, or `WP-123` without one. */
-function taskKeyOf(workPackage: WebhookWorkPackage): string {
-  const identifier = workPackage._embedded?.project?.identifier;
-  return identifier ? `${identifier.slice(0, 6).toUpperCase()}-${workPackage.id}` : `WP-${workPackage.id}`;
-}
-
 async function handleWorkPackage(action: string, body: WebhookBody, log: { warn(obj: object, msg: string): void }): Promise<void> {
   const workPackage = body.work_package;
   if (!workPackage || typeof workPackage.id !== 'number') {
@@ -130,23 +123,9 @@ async function handleWorkPackage(action: string, body: WebhookBody, log: { warn(
   const recipient = await resolveRecipient(assigneeId);
   if (!recipient) return;
 
-  // What stands in for a name the delivery did not carry is written in the
-  // language the email will be: the assignee's, from their preferences, as
-  // the outbox reads it. Asked only when something is missing.
-  const project = linkTitle(workPackage._links, 'project') ?? workPackage._embedded?.project?.name;
-  const status = linkTitle(workPackage._links, 'status');
-  const language: Language =
-    workPackage.subject !== undefined && project !== undefined && status !== undefined
-      ? 'en'
-      : toLanguage((await getPreferences(assigneeId)).locale.language);
-  const payload = {
-    firstName: recipient.firstName,
-    taskKey: taskKeyOf(workPackage),
-    subject: workPackage.subject ?? t(language, 'Work package {id}', { id }),
-    projectName: project ?? t(language, 'Project'),
-    status: status ?? t(language, 'Unknown'),
-    url: `${env.APP_BASE_URL}/tasks/${id}`,
-  };
+  // The same payload EPM's own writes send (domain/assignment-mail.ts), so an
+  // email reads alike whichever path told the assignee first.
+  const payload = await assignmentPayload(workPackage, assigneeId, recipient);
 
   // The dedupe key is the pair (work package, assignee), so this is a no-op
   // for every update that leaves the assignee alone and for every redelivery.

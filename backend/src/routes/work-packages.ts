@@ -1,11 +1,15 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import * as guard from '../auth/guard.js';
+import { assertMayDoCategory } from '../domain/task-categories.js';
+import { getCatalog } from '../mapping/catalog.js';
 import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
 import { refuseCalculatedWrites, requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { cancelSeriesOfDeleted } from '../domain/task-series.js';
+import { assigneeOf, tellAssignee } from '../domain/assignment-mail.js';
+import { projectIdentifiers } from '../mapping/projects.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { idFromHref, openProject } from '../openproject/client.js';
@@ -30,7 +34,16 @@ interface OpWorkPackageWrite {
   id: number;
   subject: string;
   lockVersion: number;
+  updatedAt?: string;
   _links?: Record<string, { href?: string; title?: string }>;
+}
+
+/**
+ * The project's identifier, for the task key an assignment email shows. Not on
+ * the request's signal: the email is queued after the answer may have gone.
+ */
+async function identifierOf(projectId: string): Promise<string | undefined> {
+  return (await projectIdentifiers().catch(() => new Map<string, string>())).get(projectId);
 }
 
 export const workPackageRoutes: FastifyPluginAsync = async (app) => {
@@ -69,6 +82,9 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         },
       );
 
+      void identifierOf(projectId).then((identifier) =>
+        tellAssignee({ workPackage: created, event: 'created', actorId: request.auth?.userId, identifier }),
+      );
       requestHealthRecalc(projectId);
       requestScheduleRecalc();
       requestCalculatedRecalc();
@@ -124,6 +140,14 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
           currentStatusId: idFromHref(current._links?.status?.href),
           nextStatusId: idFromHref(statusLink.href),
         });
+        // A review is closed by whoever leads the work, not by the team that did it.
+        const nextStatusId = idFromHref(statusLink.href);
+        if (nextStatusId && nextStatusId !== idFromHref(current._links?.status?.href)) {
+          const catalog = await getCatalog(signal);
+          if (catalog.statusById.get(nextStatusId)?.isClosed) {
+            await assertMayDoCategory((await guard.permissionsFor(request)).role, current, 'close');
+          }
+        }
       }
 
       // BR-113: what follows it, as it stood, when its dates change.
@@ -136,6 +160,15 @@ export const workPackageRoutes: FastifyPluginAsync = async (app) => {
         signal,
       });
 
+      void identifierOf(projectId).then((identifier) =>
+        tellAssignee({
+          workPackage: updated,
+          event: 'updated',
+          actorId: request.auth?.userId,
+          previousAssigneeId: assigneeOf(current),
+          identifier,
+        }),
+      );
       requestHealthRecalc(projectId);
       requestScheduleRecalc();
       requestCalculatedRecalc();

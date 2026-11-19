@@ -1133,7 +1133,9 @@ async function announceOutcome(
       },
       channel: 'immediate',
       dedupeKey: `approval-decided:${request.id}`,
-      gate: 'updates',
+      // The answer to the requester's own request, under the same switch as
+      // being asked for one. "Updates to my work" held it back by default.
+      gate: 'assigned',
     });
   } catch (error) {
     appLog.warn({ err: error, requestId: request.id }, 'Could not announce an approval outcome');

@@ -22,7 +22,7 @@ import { withAudit } from './audit.js';
  * product had before the rules were configurable, kept as the starting point.
  */
 
-export const HEALTH_CRITERIA: HealthCriterion[] = ['schedule', 'budget', 'risks', 'overdue'];
+export const HEALTH_CRITERIA: HealthCriterion[] = ['schedule', 'budget', 'effort', 'risks', 'overdue'];
 
 /**
  * A criterion — or the overall — as a sentence names it, in lower case:
@@ -31,10 +31,21 @@ export const HEALTH_CRITERIA: HealthCriterion[] = ['schedule', 'budget', 'risks'
  */
 export function criterionName(criterion: HealthCriterion | 'overall'): Message {
   return message(
-    '{criterion, select, overall {overall} schedule {schedule variance} budget {budget variance} risks {open high risks} other {overdue items}}',
+    '{criterion, select, overall {overall} schedule {schedule variance} budget {budget variance} effort {effort variance} risks {open high risks} other {overdue items}}',
     { criterion },
   );
 }
+
+/**
+ * Effort, as rules saved before it existed carry it: shown, not counted.
+ *
+ * Those rules were somebody's decision about how much each criterion weighs,
+ * and adding a fifth at full weight would quietly change it — one red criterion
+ * would no longer carry the share that turns the overall red. At weight zero
+ * every project still shows its logged hours against its planned work, and an
+ * administrator decides in Health rules whether it moves the overall.
+ */
+const EFFORT_FOR_SAVED_RULES = { enabled: true, weight: 0, amberAt: 10, redAt: 20 };
 
 export const DEFAULT_HEALTH_RULES: HealthRules = {
   version: 0,
@@ -44,13 +55,20 @@ export const DEFAULT_HEALTH_RULES: HealthRules = {
     schedule: { enabled: true, weight: 25, amberAt: 5, redAt: 15 },
     // Percent of the whole budget by which spend is ahead of the plan to date.
     budget: { enabled: true, weight: 25, amberAt: 5, redAt: 10 },
+    // Percent of the planned work by which the hours logged are ahead of the
+    // work planned to date: time logged moves it whether or not anybody has an
+    // hourly rate or the project a budget. Looser than budget, because hours
+    // are logged in bursts and an estimate is softer than a budget.
+    effort: { enabled: true, weight: 25, amberAt: 10, redAt: 20 },
     // Open high-priority risks.
     risks: { enabled: true, weight: 25, amberAt: 1, redAt: 3, typeIds: [], priorityIds: [] },
     // Open work past its due date.
     overdue: { enabled: true, weight: 25, amberAt: 3, redAt: 10 },
   },
-  redShare: 25,
-  amberShare: 25,
+  // One criterion of five equal ones is 20% of the weight, so at 20 any one
+  // crossing its line still moves the overall, as it did with four at 25.
+  redShare: 20,
+  amberShare: 20,
 };
 
 const idList = z
@@ -82,6 +100,7 @@ const rulesSchema = z
     criteria: z.object({
       schedule: criterionSchema('Schedule variance', 'days'),
       budget: criterionSchema('Budget variance', 'percent'),
+      effort: criterionSchema('Effort variance', 'percent').default(EFFORT_FOR_SAVED_RULES),
       risks: criterionSchema('Open high risks', 'count').and(
         z.object({ typeIds: idList.default([]), priorityIds: idList.default([]) }),
       ),

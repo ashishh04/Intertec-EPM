@@ -5,7 +5,7 @@ import { aggregateCache } from '../lib/cache.js';
 import { appLog } from '../lib/log.js';
 import { daysBetween, today as todayIso } from '../lib/dates.js';
 import { dateOf, listOf, message, render, renderStored, type Message } from '../lib/i18n.js';
-import { countsByProject, listProjects, type ProjectHealthView } from '../mapping/projects.js';
+import { countsByProject, listProjects, workByProject, type ProjectHealthView } from '../mapping/projects.js';
 import { openProject, type OpFilter } from '../openproject/client.js';
 import type {
   HealthCriterion,
@@ -28,8 +28,10 @@ import { OVERDUE_DUE_FILTER } from './work-definitions.js';
 /**
  * Project health, as the BRD defines it (BR-204, BR-205, BR-206).
  *
- * Four criteria, each measured, each with administrator-set thresholds and a
- * weight; an overall decided by how much weight is amber or red; the result
+ * Five criteria — schedule, budget, effort (hours logged against the work
+ * planned), risks and overdue work — each measured, each with administrator-set
+ * thresholds and a weight; an overall decided by how much weight is amber or
+ * red; the result
  * stored per project, journalled when it moves, and recalculated when the data
  * behind it changes and on a schedule. An override pins levels over the result
  * without hiding it, and needs a reason.
@@ -65,6 +67,12 @@ export interface HealthInputs {
   budget?: number;
   /** Actual cost to date; absent when it could not be read. */
   cost?: ProjectCost;
+  /**
+   * The work planned on the project, in hours: every work package's own
+   * estimate, open or closed, so nothing is counted twice up a tree. Absent
+   * when it could not be read; zero when nothing is estimated.
+   */
+  plannedWork?: number;
   today: string;
 }
 
@@ -249,6 +257,77 @@ function budgetCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measu
   };
 }
 
+/** Hours logged against the work planned to date, as a share of all the planned work, to one decimal place: positive is over. */
+export function effortVariancePct(logged: number, planned: number, work: number): number {
+  return Math.round(((logged - planned) / work) * 1000) / 10;
+}
+
+/** Hours as the reasons write them: to one decimal place, plain. */
+const hoursText = (value: number) => Math.round(value * 10) / 10;
+
+/**
+ * Hours logged against the work planned to date.
+ *
+ * The budget criterion, in hours rather than money, so that logging time moves
+ * a project's health whether or not anybody on it has an hourly rate or the
+ * project a budget — which is what most projects lack, and why time logged
+ * used to change nothing on the health card. The planned work is the sum of
+ * the work packages' own estimates; "planned to date" phases it evenly across
+ * the project's planned start and finish exactly as the budget is phased, and
+ * without planned dates all of it counts as planned, making this an overrun
+ * check. The variance is a share of all the planned work, so it means the same
+ * on a large project as on a small one. Every hour logged on the project
+ * counts, whoever logged it and whatever it was logged against.
+ */
+function effortCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measured {
+  if (!inputs.cost) {
+    return { level: null, value: null, reason: message('Logged time could not be read, so effort to date is not known.') };
+  }
+  const logged = hoursText(inputs.cost.costedHours + inputs.cost.uncostedHours);
+  if (inputs.plannedWork === undefined) {
+    return {
+      level: null,
+      value: null,
+      reason: message('{logged} h logged. The planned work could not be read, so it is not compared with it.', { logged }),
+    };
+  }
+  if (inputs.plannedWork <= 0) {
+    return {
+      level: null,
+      value: null,
+      reason: message('{logged} h logged. No work is estimated on the tasks, so there is nothing to compare it with.', { logged }),
+    };
+  }
+
+  const work = inputs.plannedWork;
+  const { planned, share } = plannedBudgetToDate(work, inputs.plannedStart, inputs.plannedFinish, inputs.today);
+  const basis =
+    share === null
+      ? message('with no planned dates to phase it over, all of it counts as planned')
+      : message('{planned} h of it was planned by today, {share}% of the way through the schedule', {
+          planned: hoursText(planned),
+          share: Math.round(share * 100),
+        });
+
+  const variance = effortVariancePct(logged, planned, work);
+  return {
+    level: levelFor(variance, rule),
+    value: variance,
+    reason: message(
+      '{logged} h logged against {work} h of planned work; {basis}. That is {direction, select, over {{variance}% of the work over plan} under {{variance}% of the work under plan} other {exactly on plan}} (amber from {amberAt}%, red from {redAt}% of the work).',
+      {
+        logged,
+        work: hoursText(work),
+        basis,
+        direction: variance > 0 ? 'over' : variance < 0 ? 'under' : 'on',
+        variance: Math.abs(variance),
+        amberAt: rule.amberAt,
+        redAt: rule.redAt,
+      },
+    ),
+  };
+}
+
 function risksCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Measured {
   if (!inputs.riskTypesConfigured) {
     return {
@@ -287,7 +366,7 @@ function overdueCriterion(inputs: HealthInputs, rule: HealthCriterionRule): Meas
   };
 }
 
-const UNITS = { schedule: 'days', budget: 'percent', risks: 'count', overdue: 'count' } as const;
+const UNITS = { schedule: 'days', budget: 'percent', effort: 'percent', risks: 'count', overdue: 'count' } as const;
 
 /**
  * The overall level, from criterion levels and their weights.
@@ -366,6 +445,7 @@ export function computeHealth(inputs: HealthInputs, rules: HealthRules): HealthC
   const measured: Record<HealthCriterion, Measured> = {
     schedule: scheduleCriterion(inputs, rules.criteria.schedule),
     budget: budgetCriterion(inputs, rules.criteria.budget),
+    effort: effortCriterion(inputs, rules.criteria.effort),
     risks: risksCriterion(inputs, rules.criteria.risks),
     overdue: overdueCriterion(inputs, rules.criteria.overdue),
   };
@@ -401,6 +481,7 @@ export function computeHealth(inputs: HealthInputs, rules: HealthRules): HealthC
     levels: {
       schedule: levels.schedule ?? null,
       budget: levels.budget ?? null,
+      effort: levels.effort ?? null,
       risks: levels.risks ?? null,
       overdue: levels.overdue ?? null,
       overall,
@@ -429,6 +510,7 @@ export function effectiveHealth(
   const levels = {
     schedule: pinned.schedule ?? calculated.schedule,
     budget: pinned.budget ?? calculated.budget,
+    effort: pinned.effort ?? calculated.effort,
     risks: pinned.risks ?? calculated.risks,
     overdue: pinned.overdue ?? calculated.overdue,
   };
@@ -483,7 +565,7 @@ export interface StoredHealth {
 /** What a project looks like before anything has been calculated for it. */
 export function unassessedHealth(reason: string | Message): StoredHealth {
   return {
-    calculated: { schedule: null, budget: null, risks: null, overdue: null, overall: 'healthy' },
+    calculated: { schedule: null, budget: null, effort: null, risks: null, overdue: null, overall: 'healthy' },
     detail: {
       criteria: [],
       explanation: typeof reason === 'string' ? reason : render('en', reason),
@@ -519,6 +601,7 @@ function levelsFromJson(value: unknown): ProjectHealth {
   return {
     schedule: level('schedule'),
     budget: level('budget'),
+    effort: level('effort'),
     risks: level('risks'),
     overdue: level('overdue'),
     overall: level('overall') ?? 'healthy',
@@ -635,7 +718,7 @@ async function gatherInputs(scope: string[] | 'all', rules: HealthRules, refresh
     const open: OpFilter = { field: 'status', operator: 'o', values: [] };
     const none = Promise.resolve(new Map<string, number>());
 
-    const [total, openCounts, overdue, risks, highRisks, latest, profiles, costs] = await Promise.all([
+    const [total, openCounts, overdue, risks, highRisks, latest, profiles, costs, work] = await Promise.all([
       countsByProject([...narrow], signal),
       countsByProject([...narrow, open], signal),
       countsByProject([...narrow, open, OVERDUE_DUE_FILTER], signal),
@@ -661,6 +744,12 @@ async function gatherInputs(scope: string[] | 'all', rules: HealthRules, refresh
         })
         .catch(() => []),
       projectCosts(ids, { refresh: refreshCost, signal }),
+      // Estimates, open and closed, for effort. A failure leaves effort not
+      // assessed rather than failing the whole calculation.
+      workByProject([...narrow], signal).catch((error: unknown) => {
+        appLog.warn({ err: error }, 'Could not read planned work for project health');
+        return undefined;
+      }),
     ]);
 
     const latestById = new Map(latest);
@@ -682,6 +771,8 @@ async function gatherInputs(scope: string[] | 'all', rules: HealthRules, refresh
         plannedFinish: isoDate(profile?.plannedFinish),
         budget: profile?.budgetTotal ?? undefined,
         cost: costs.get(id),
+        // A project missing from the grouping has no work packages: no work.
+        plannedWork: work ? (work.get(id) ?? 0) : undefined,
         today,
       });
     }
@@ -701,7 +792,7 @@ async function gatherInputs(scope: string[] | 'all', rules: HealthRules, refresh
 function changedCriteriaMessages(before: ProjectHealth, after: ProjectHealth): Message[] {
   return HEALTH_CRITERIA.filter((key) => before[key] !== after[key]).map((key) =>
     message(
-      '{criterion, select, schedule {schedule variance} budget {budget variance} risks {open high risks} other {overdue items}} {from, select, healthy {green} warning {amber} critical {red} other {not assessed}} → {to, select, healthy {green} warning {amber} critical {red} other {not assessed}}',
+      '{criterion, select, schedule {schedule variance} budget {budget variance} effort {effort variance} risks {open high risks} other {overdue items}} {from, select, healthy {green} warning {amber} critical {red} other {not assessed}} → {to, select, healthy {green} warning {amber} critical {red} other {not assessed}}',
       { criterion: key, from: before[key] ?? 'none', to: after[key] ?? 'none' },
     ),
   );
@@ -928,7 +1019,12 @@ export async function healthFor(
   const stale: string[] = [];
   for (const row of rows) {
     result.set(row.projectId, fromRow(row));
-    if (row.ruleVersion !== rules.version) stale.push(row.projectId);
+    // Also stale: calculated before a criterion in use existed (effort, from
+    // November 2026), so the first read after an upgrade fills it in rather
+    // than waiting for the next change or sweep.
+    const levels = (row.levels && typeof row.levels === 'object' ? row.levels : {}) as Record<string, unknown>;
+    const missing = HEALTH_CRITERIA.some((key) => rules.criteria[key].enabled && !(key in levels));
+    if (row.ruleVersion !== rules.version || missing) stale.push(row.projectId);
   }
   if (options.calculate === false) return result;
   if (stale.length > 0) requestHealthRecalc(stale, 'rules');
@@ -1071,6 +1167,9 @@ export function requestHealthRecalc(scope: string | string[] | 'all', trigger: H
   timer.unref();
 }
 
+/** Projects whose recalculation has been flushed and not yet finished, with how many are queued. */
+const inFlight = new Map<string, number>();
+
 function flush(): void {
   timer = undefined;
   const scope: string[] | 'all' = pendingAll ? 'all' : [...pendingIds];
@@ -1080,9 +1179,36 @@ function flush(): void {
   pendingTrigger = 'change';
   if (scope !== 'all' && scope.length === 0) return;
 
-  void serial(() => recalculateHealth(scope, trigger)).catch((error: unknown) =>
-    appLog.warn({ err: error }, 'Health recalculation failed'),
-  );
+  const ids = scope === 'all' ? [] : scope;
+  for (const id of ids) inFlight.set(id, (inFlight.get(id) ?? 0) + 1);
+  void serial(() => recalculateHealth(scope, trigger))
+    .catch((error: unknown) => appLog.warn({ err: error }, 'Health recalculation failed'))
+    .finally(() => {
+      for (const id of ids) {
+        const left = (inFlight.get(id) ?? 1) - 1;
+        if (left > 0) inFlight.set(id, left);
+        else inFlight.delete(id);
+      }
+    });
+}
+
+/**
+ * Waits, briefly, for a recalculation already asked for on any of `ids`.
+ *
+ * For the one read that is made straight after a change to look at its effect:
+ * a project's own page, reopened by somebody who has just logged time on it or
+ * moved a date. Without this it was served the health from before — the
+ * recalculation is debounced and runs in the background — and read as "logging
+ * time does not reach project health". Bounded, so a slow upstream delays the
+ * page by seconds at most and then answers with what is stored. A whole-instance
+ * sweep is not waited for: it is not anybody's own change.
+ */
+export async function healthSettled(ids: string[], maxWaitMs = 8_000): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  const busy = () => ids.some((id) => pendingIds.has(id) || inFlight.has(id));
+  while (busy() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
 }
 
 /**

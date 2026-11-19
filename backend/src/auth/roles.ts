@@ -8,8 +8,8 @@ import type { Permission, PermissionSet } from './permissions.js';
  * to what they may do inside one project (their OpenProject role there).
  *
  * A role does two things. It picks the screens and the sidebar the person
- * works in, and it carries a bundle of EPM's own permissions, so a manager
- * or an HR officer does not need a dozen grants one by one. Individual grants
+ * works in, and it carries a bundle of EPM's own permissions, so a project
+ * or delivery manager does not need a dozen grants one by one. Individual grants
  * still apply on top (`grants.ts`); a role never takes one away.
  *
  * Administrators are not assigned here. They are whoever OpenProject says
@@ -24,12 +24,31 @@ import type { Permission, PermissionSet } from './permissions.js';
  * vendor role there.
  */
 
-export const APP_ROLES = ['admin', 'manager', 'hr', 'employee', 'external'] as const;
+export const APP_ROLES = [
+  'admin',
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+  'employee',
+  'external',
+] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
 
 /** The roles an administrator may give someone. */
-export const ASSIGNABLE_ROLES = ['manager', 'hr', 'employee', 'external'] as const satisfies readonly AppRole[];
+export const ASSIGNABLE_ROLES = [
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+  'employee',
+  'external',
+] as const satisfies readonly AppRole[];
 
 export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
@@ -38,12 +57,38 @@ export function isAssignableRole(value: unknown): value is AssignableRole {
 }
 
 /**
+ * The roles that lead work rather than do it: they plan, review and decide.
+ * Work only such a role may do — a review task, for one (`task-categories.ts`)
+ * — names this list, so a new leadership role is added here once.
+ */
+export const MANAGEMENT_ROLES = [
+  'admin',
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+] as const satisfies readonly AppRole[];
+
+export function isManagementRole(role: AppRole): boolean {
+  return (MANAGEMENT_ROLES as readonly AppRole[]).includes(role);
+}
+
+/**
  * The roles kept in `user_profiles.appRole`: the internal ones other than the
  * default. Employee is the absence of a value, and External is the profile's
  * `external` flag. A stored value is kept while someone is external, so they
  * return to it if they are made internal again.
  */
-const STORED_ROLES = ['manager', 'hr'] as const;
+const STORED_ROLES = [
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+] as const;
 
 export type StoredRole = (typeof STORED_ROLES)[number];
 
@@ -52,17 +97,90 @@ export function isStoredRole(value: unknown): value is StoredRole {
 }
 
 /**
+ * Roles EPM no longer has, and what someone still holding one works as. HR was
+ * retired in November 2026: looking after people and their timesheets is the
+ * Delivery Manager's now, and the departments are the BU Head's. A migration
+ * moves the stored values; this covers a row it has not reached.
+ */
+const RETIRED_ROLES: Record<string, StoredRole> = { hr: 'delivery_manager' };
+
+/**
  * What each role brings with it. Only EPM-owned permissions: anything
  * OpenProject answers stays OpenProject's, whatever the role.
  */
 export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
   admin: GRANTABLE_PERMISSIONS,
-  // Runs projects, programs and people's time: plans resources, follows
+  // Heads a business unit: its departments, teams and people, its portfolios
+  // and the money, the project intake, and reports beyond the organisation.
+  // The executive sponsor's view (PMI): everything that decides what the unit
+  // invests in and how it is staffed; the instance's own settings stay with
+  // the administrators.
+  bu_head: [
+    'departments:manage',
+    'teams:manage',
+    'employees:manage',
+    'rates:view',
+    'timesheets:manage',
+    'portfolios:manage',
+    'programs:manage',
+    'requests:review',
+    'scenarios:manage',
+    'health:manage',
+    'resources:plan',
+    'finance:view',
+    'finance:manage',
+    'reports:schedule',
+    'reports:approve',
+    'audit:view',
+  ],
+  // Chooses and balances the work (PMI portfolio management): the portfolios
+  // and the programs in them, the project intake, scenarios, health across
+  // them, capacity, and the money they are judged on.
+  portfolio_manager: [
+    'portfolios:manage',
+    'programs:manage',
+    'requests:review',
+    'scenarios:manage',
+    'health:manage',
+    'resources:plan',
+    'timesheets:view',
+    'finance:view',
+    'reports:schedule',
+  ],
+  // Runs a program's projects together (PMI program management): programs,
+  // the requests that start their projects, health, shared resources,
+  // scenarios, the program's money and reports.
+  program_manager: [
+    'programs:manage',
+    'requests:review',
+    'health:manage',
+    'resources:plan',
+    'scenarios:manage',
+    'timesheets:view',
+    'finance:view',
+    'reports:schedule',
+  ],
+  // Runs projects through their life cycle (PMI project management): the
+  // project itself is theirs through its project role; EPM adds planning
+  // resources, seeing the team's timesheets, the project's money and reports.
+  // Overriding health stays with program and portfolio governance.
+  project_manager: ['resources:plan', 'timesheets:view', 'finance:view', 'reports:schedule'],
+  // Sees work delivered across projects and teams: staffing and capacity, the
+  // teams, everyone's timesheets (reopening approved ones, which HR did),
+  // rates for cost, health, money and reports.
+  delivery_manager: [
+    'resources:plan',
+    'employees:manage',
+    'teams:manage',
+    'timesheets:manage',
+    'rates:view',
+    'health:manage',
+    'finance:view',
+    'reports:schedule',
+  ],
+  // A line manager running projects and people: plans resources, follows
   // everyone's timesheets, reads project health and money, compares scenarios
-  // and sends reports. As a PMO and a program manager do (PMI): runs programs
-  // and reviews the project intake, while the portfolio structure, templates
-  // and approval policy stay with the administrators, and reopening approved
-  // time stays with HR (timesheets:manage).
+  // and sends reports, runs programs and reviews the project intake.
   manager: [
     'health:manage',
     'resources:plan',
@@ -73,9 +191,6 @@ export const ROLE_PERMISSIONS: Record<AppRole, readonly Permission[]> = {
     'programs:manage',
     'requests:review',
   ],
-  // Looks after the organisation and its people: departments, teams, who sits
-  // where, their rates, and everyone's timesheets.
-  hr: ['departments:manage', 'teams:manage', 'employees:manage', 'rates:view', 'timesheets:manage'],
   employee: [],
   // Nothing of EPM's: every route outside the portal refuses them, and in the
   // portal their client or vendor role on each project decides.
@@ -88,13 +203,29 @@ export const ROLE_TEXT: Record<AppRole, { label: string; description: string }> 
     label: 'Administrator',
     description: 'Runs the instance: users, settings, integrations and every EPM permission.',
   },
+  bu_head: {
+    label: 'BU Head',
+    description: 'Heads a business unit: its departments, teams and people, portfolios, money and the project intake.',
+  },
+  portfolio_manager: {
+    label: 'Portfolio Manager',
+    description: 'Chooses and balances the work: portfolios, programs, project requests, scenarios, health, capacity and money.',
+  },
+  program_manager: {
+    label: 'Program Manager',
+    description: "Runs a program's projects together: programs, project requests, health, shared resources, scenarios and money.",
+  },
+  project_manager: {
+    label: 'Project Manager',
+    description: "Runs projects through their life cycle: resources, the team's timesheets, the project's money and reports.",
+  },
+  delivery_manager: {
+    label: 'Delivery Manager',
+    description: "Sees work delivered across projects and teams: staffing, capacity, teams, everyone's timesheets, health and money.",
+  },
   manager: {
     label: 'Manager',
     description: 'Runs projects, programs and people\'s time: resources, health, scenarios, finance, reports and the project requests.',
-  },
-  hr: {
-    label: 'HR',
-    description: 'Looks after people: departments, teams, staffing, rates and everyone\'s timesheets.',
   },
   employee: {
     label: 'Employee',
@@ -135,7 +266,8 @@ export function roleOfAccount(
 ): AppRole {
   if (external) return 'external';
   if (admin || env.EPM_ADMIN_USER_IDS.includes(userId)) return 'admin';
-  return isStoredRole(stored) ? stored : 'employee';
+  if (isStoredRole(stored)) return stored;
+  return (stored ? RETIRED_ROLES[stored] : undefined) ?? 'employee';
 }
 
 /** Adds a role's bundle to a permission set. */

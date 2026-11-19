@@ -25,7 +25,17 @@ import type { AppRole, MfaPersonRow } from '@/types';
 import { describeError } from './shared-format';
 import { AdminPagination, AdminTable } from './shared-tables';
 
-const ROLES: AppRole[] = ['admin', 'manager', 'hr', 'employee', 'external'];
+const ROLES: AppRole[] = [
+  'admin',
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+  'employee',
+  'external',
+];
 
 type Filter = 'all' | 'on' | 'off' | 'missing';
 

@@ -204,6 +204,7 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
               <li>{t('Upload the same sheet again after editing it: rows whose IDs were imported before update their tasks, so nothing is created twice. Progress (Done %), dates, status and the rest are overwritten.')}</li>
               <li>{t('Tasks not in the file are left as they are: the import never deletes.')}</li>
               <li>{t('A work package export in its own layout (CSV or XLS, with columns such as id, Parent and % Complete) is read too: its IDs are the same tasks, so it updates them in the same way.')}</li>
+              <li>{t('A Microsoft Project plan (.mpp, .mpt, .mpx, or saved as XML) is read too: its outline becomes parents and subtasks, with the dates, work, progress, notes, the person with most work on each task, and finish-to-start dependencies. Every task keeps the plan’s dates.')}</li>
             </ul>
             <div className="mt-2 text-muted-foreground">
               {t('To change many tasks at once: Export, edit the file, import it into the same project. To copy a project’s tasks: import the export into another project. To start a plan: use the template.')}
@@ -217,11 +218,11 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <div className="space-y-1.5">
-              <Label htmlFor="import-file">{t('File (CSV or Excel)')}</Label>
+              <Label htmlFor="import-file">{t('File (CSV, Excel or Microsoft Project)')}</Label>
               <Input
                 id="import-file"
                 type="file"
-                accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                accept=".csv,.xlsx,.xls,.mpp,.mpt,.mpx,.xml,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.ms-project,application/xml,text/xml"
                 className="w-80"
                 disabled={view?.status === 'running'}
                 onChange={(event) => { setFile(event.target.files?.[0] ?? null); setView(null); setWithoutPeople(false); }}

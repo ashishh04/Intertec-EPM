@@ -34,11 +34,36 @@ const SUGGESTIONS: Record<AppRole, string[]> = {
     msg('Who is over-allocated in the coming weeks?'),
     msg('Summarise the active sprint'),
   ],
-  hr: [
-    msg('Who has not submitted their timesheet?'),
+  // The leadership roles, each from where they stand.
+  bu_head: [
+    msg('How healthy is each project?'),
+    msg('Who is over-allocated in the coming weeks?'),
+    msg('What approvals are waiting on me?'),
+    msg('Who has capacity this week?'),
+  ],
+  portfolio_manager: [
+    msg('How healthy is each project?'),
+    msg('Who is over-allocated in the coming weeks?'),
+    msg('What approvals are waiting on me?'),
+    msg('Who has capacity this week?'),
+  ],
+  program_manager: [
+    msg('How healthy is each project?'),
     msg('Who has capacity this week?'),
     msg('What approvals are waiting on me?'),
-    msg('What meetings do I have this week?'),
+    msg('Summarise the active sprint'),
+  ],
+  project_manager: [
+    msg('What is overdue on my work?'),
+    msg('How healthy is each project?'),
+    msg('Summarise the active sprint'),
+    msg('Who has capacity this week?'),
+  ],
+  delivery_manager: [
+    msg('Who has not submitted their timesheet?'),
+    msg('Who has capacity this week?'),
+    msg('Who is over-allocated in the coming weeks?'),
+    msg('What approvals are waiting on me?'),
   ],
   employee: [
     msg('What is overdue on my work?'),

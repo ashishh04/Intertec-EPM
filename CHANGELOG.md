@@ -24,10 +24,18 @@ Changes since 1.1.0 (21 October 2026).
   pass, re-date the work that decides the finish. Each cites its evidence and
   expected effect. Nothing changes until someone allowed to make the change
   approves it; approvals and rejections are journalled.
-- **EPM roles.** An administrator gives each person a role (Manager, HR,
-  Employee or External) on the new Access roles page (Administration → Users
-  and permissions). A role brings a bundle of EPM permissions, its own
-  sidebar and its own Overview. Every change of role is journalled.
+- **EPM roles.** An administrator gives each person a role on the new Access
+  roles page (Administration → Users and permissions): BU Head, Portfolio
+  Manager, Program Manager, Project Manager, Delivery Manager, Manager,
+  Employee or External. Each follows project management practice: the BU Head
+  heads a business unit's departments, portfolios and intake; the Portfolio
+  Manager chooses and balances the work; the Program Manager runs a program's
+  projects together; the Project Manager runs projects through their life
+  cycle; the Delivery Manager sees delivery, staffing and everyone's timesheets
+  across projects and teams. A role brings a bundle of EPM permissions, its own
+  sidebar and its own Overview. Every change of role is journalled. The HR role
+  is gone: whoever held it is now a Delivery Manager, who looks after people's
+  timesheets, and the departments are the BU Head's.
 - **Forgotten passwords.** "Forgot password?" on the sign-in page now emails a
   link to choose a new password. The link works once, within 60 minutes, and
   using it signs the person out everywhere. Administrator accounts are not
@@ -161,8 +169,69 @@ Changes since 1.1.0 (21 October 2026).
   Administration → Authentication → Two-factor authentication. Off until
   someone turns it on or requires it.
 
+- **Effort in project health.** A fifth criterion measures the hours logged on
+  a project against the work planned on it (the tasks' estimates), phased over
+  the planned dates as the budget is. Logging time now shows in a project's
+  health whether or not anybody has an hourly rate or the project a budget,
+  and the project's page shows it as soon as it is reopened. Health rules
+  never saved use it at full weight; rules an administrator saved keep their
+  weights, and show effort as "Not counted" until it is given one
+  (Administration → Health rules).
+
+- **Task categories.** Every task can say what kind of work it is: Analysis,
+  Design, Development, Testing, Review, Documentation, Deployment, Support or
+  Management. Set it when creating a task or on the task's page; filter by it
+  in My Work and on boards (Filter → Category) and on the Tasks page (add the
+  "Work category" filter or column); task rows show it. A reviewer's queue is
+  then the review tasks. It is one list for every project, made by EPM the
+  first time the backend starts; an administrator can add or remove choices in
+  Administration → Custom fields, keeping the field's name.
+- **Log time asks what the time was for:** Project work, Scrums & meetings, or
+  Support. Meetings and support need no task: they go on the project's own
+  "Scrums & meetings" or "Support" task, made the first time anyone logs that
+  kind of time there, and take the instance's Meeting or Support activity where
+  it has one. Somebody who may not add tasks to the project is told to ask
+  whoever runs it, once.
+- **Time on no project.** Under Scrums & meetings, Log time asks which meeting:
+  the Daily scrum, a Follow-up, or a Project meeting. A daily scrum, a
+  follow-up and support need no project: the time is the person's own, and
+  counts in their week, timesheet, utilisation and the capacity heatmap (not
+  billable), and in no project's spend or health. Chosen with a project, it goes
+  on that project's own task as before, marked as the kind of meeting it was.
+  A project meeting still needs its project. Only its owner changes or deletes
+  such time, under the same locks and policies as any other.
+- **Review work is for managers.** Review and Management tasks (any category
+  named with either word) are done by whoever leads the work: the BU Head,
+  Portfolio, Program, Project and Delivery Managers, Managers and
+  administrators. Anyone else sees them in Log time, marked "Managers only",
+  and cannot log time on them, start a timer on them or complete them; the
+  server refuses it too, saying why. Log time lists a project's tasks
+  category by category.
+- **Microsoft Project plans in and out** (Tasks → Import and Export). Import
+  reads a plan from Microsoft Project (.mpp, the .mpt template, the older .mpx,
+  or one saved as XML): the outline becomes parents and subtasks, summary tasks
+  phases and milestones milestones, with the dates, work, progress, notes, the
+  person with most work on each task, and the finish-to-start dependencies.
+  Every task keeps the plan's dates. It is checked and shown before anything
+  is made, like any import, and a plan imported again updates the tasks it
+  made. Export writes the project as a Microsoft Project plan (XML), with the
+  outline, dates, dependencies and their lags, work, progress, notes, assignees
+  and the working calendar; Microsoft Project opens it and saves it as .mpp.
+  Each task links back to its work package, so the plan, edited and saved as
+  .mpp or XML, imports back onto the same tasks. (Nothing outside Microsoft
+  Project writes .mpp itself, so the export is the XML.)
+
 ### Improved
 
+- **Timesheets show what the hours were.** A timesheet now has the week as a
+  grid of tasks against days with the totals, and every entry day by day with
+  its activity and description, on the person's own timesheet and on the page
+  an approver opens. My timesheets moves between periods, so last week's can be
+  filled in and submitted there, with Log time beside it; a timesheet's own
+  page has Submit for its owner and previous and next periods; People has a
+  search; the breadcrumb names the person rather than "people › 140". People,
+  Submitted timesheets and a timesheet's entries are paged (25, 10 and 20 to a
+  page by default, and how many per page can be changed).
 - **Moving between pages is immediate.** A page no longer waits for the one
   it leaves to animate out; it renders at once with a short fade. A project's
   tabs switch without rebuilding the project's header and tab bar. Once someone
@@ -228,6 +297,34 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- **Log time offers every task in the project.** The task list showed the
+  hundred open tasks touched most recently, and a parent is touched whenever a
+  child is, so a planned project listed its summary tasks and a few subtasks
+  and the rest could not be chosen, not even by name. It now lists every task,
+  each under its parent in date order with its dates, closed ones included and
+  marked; a project of more than a thousand is searched as you type. The chosen
+  task's start and end dates, the time already logged on it against its
+  estimate, and its description show under the list.
+- **Lists inside dialogs scroll with the mouse wheel.** The project and task
+  lists in Log time, the task composer and every other picker in a dialog
+  could only be scrolled by dragging their scrollbar.
+- **Logged time reaches the timesheet, utilisation and the heatmap.** A
+  timesheet still read "0h logged" after hours were logged until the page was
+  reloaded; the dashboards are read again once the analytics model has the new
+  time (about half a minute); and the capacity heatmap's current week adds the
+  hours already logged to the work still to come, where it showed only the work
+  from today on. EPM's own accounts (its service and automation accounts) are
+  no longer counted as people: they had owed timesheets and added 40 hours a
+  week each to the capacity utilisation divides by.
+- **Email beyond invitations.** Assignment emails were sent only when
+  OpenProject's webhook called EPM back, and a server without that webhook sent
+  none; EPM now sends them itself whenever it creates, edits or reassigns a task
+  (the webhook still covers changes made elsewhere, and the two never both
+  send). In-app notices (health turning red, approvals, a rule's message) now
+  reach the morning digest under the Daily digest switch; they waited on
+  "Updates to my work", which was off for everyone, as was the reply to an
+  approval request. "Updates to my work" is on for people who never saved their
+  Settings. Deadline reminders are on in a deployment unless set off.
 - Timesheets → People shows the time logged this week. It opened on last
   week's outstanding list, so time someone had just logged appeared nowhere
   until the reader moved forward a period and chose Everyone; it now opens on
@@ -401,7 +498,20 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
 4. **Email.** Invitations and password resets need real delivery: SMTP or
    Resend in `.env.prod` (`DEPLOY.md`, "Email"). Without it, the
    forgot-password page tells people reset by email is not set up on this
-   server.
+   server. **Set `EPM_DUE_REMINDER_ENABLED=true` in `.env.prod`** where it says
+   `false` (the old template's value): unset now means on, but an explicit
+   `false` still turns deadline reminders off.
+   The first start makes the "Work category" custom field for task categories,
+   through the catalogue and calculated-fields add-ons in this release's
+   `epm-openproject` image; the backend log says "Task category field created".
+   Nothing to run.
+   The backend applies two more migrations on start, both additive: anyone who
+   held the retired HR role becomes a Delivery Manager, and a table keeps time
+   on no project. The backend image now carries a small Java runtime and MPXJ
+   (about 80 MB) to read Microsoft Project files; building it fetches
+   `eclipse-temurin` and MPXJ's release from GitHub, checked against its
+   SHA-256. Without them (an image built from an older Dockerfile), .mpp
+   uploads are refused with how to save the plan as XML, which still imports.
    **Set `EPM_MFA_KEY`** (`openssl rand -hex 32`) and back it up, before anyone
    turns on two-factor authentication: changing it later breaks every
    authenticator (`deploy/runbooks/secret-rotation.md`).

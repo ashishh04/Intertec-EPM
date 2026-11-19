@@ -5,6 +5,7 @@ import type {
   ID,
   EpmTask,
   Paginated,
+  TaskCategories,
   TaskFilters,
   TaskHierarchy,
   UpdateTaskInput,
@@ -22,6 +23,7 @@ export class ApiTaskRepository implements TaskRepository {
       priority: filters.priority,
       type: filters.type,
       sprintId: filters.sprintId,
+      categoryId: filters.categoryId,
       search: filters.search,
       bucket: filters.bucket,
       page: filters.page,
@@ -33,6 +35,11 @@ export class ApiTaskRepository implements TaskRepository {
 
   getTask(id: ID): Promise<EpmTask> {
     return apiClient.get<EpmTask>(`/tasks/${id}`);
+  }
+
+  /** The kinds of work a task can be: development, testing, review… */
+  getCategories(): Promise<TaskCategories> {
+    return apiClient.get<TaskCategories>('/task-categories');
   }
 
   /** Ancestors (root first) and direct children. */

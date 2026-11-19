@@ -50,7 +50,9 @@ export function CellDetailSheet({
   const data = detail.data;
   const isGroup = target?.key.startsWith('group:') ?? false;
   const band = data?.cell.band ?? 'none';
-  const asked = data ? data.cell.committed + data.cell.planned : 0;
+  // This week: the time logged so far counts alongside the work still to come.
+  const current = data?.cell.basis === 'current';
+  const asked = data ? data.cell.committed + data.cell.planned + (current ? data.cell.logged : 0) : 0;
   // The meter runs to whichever is larger, so an overload shows past the line.
   const scale = data ? Math.max(asked, data.cell.available, 1) : 1;
   const largest = data ? Math.max(...data.contributions.map((part) => part.hours), 1) : 1;
@@ -80,7 +82,7 @@ export function CellDetailSheet({
                 {percent(data.cell.ratio)}
               </div>
               <div className="mt-1 text-2xs text-muted-foreground">
-                {data.cell.basis === 'actual' ? t('Utilisation') : t('Load')}
+                {data.cell.basis === 'actual' ? t('Utilisation') : current ? t('This week') : t('Load')}
               </div>
             </div>
           ) : null}
@@ -106,6 +108,9 @@ export function CellDetailSheet({
                   </div>
                   <div className="relative h-3 overflow-hidden rounded-full bg-muted">
                     <div className="absolute inset-y-0 start-0 flex w-full">
+                      {current ? (
+                        <div className="h-full bg-foreground/50" style={{ width: `${(data.cell.logged / scale) * 100}%` }} />
+                      ) : null}
                       <div className={cn('h-full', BAND_FILL[band])} style={{ width: `${(data.cell.committed / scale) * 100}%` }} />
                       <div className={cn('h-full opacity-50', BAND_FILL[band])} style={{ width: `${(data.cell.planned / scale) * 100}%` }} />
                     </div>
@@ -120,7 +125,7 @@ export function CellDetailSheet({
                     <Figure label={t('Available')} value={hours(data.cell.available)} />
                     <Figure label={t('Work assigned')} value={hours(data.cell.committed)} swatch={BAND_FILL[band]} />
                     <Figure label={t('Booked')} value={hours(data.cell.planned)} swatch={cn(BAND_FILL[band], 'opacity-50')} />
-                    <Figure label={t('Logged')} value={hours(data.cell.logged)} />
+                    <Figure label={t('Logged')} value={hours(data.cell.logged)} swatch={current ? 'bg-foreground/50' : undefined} />
                   </dl>
                 </section>
 
@@ -184,14 +189,15 @@ export function CellDetailSheet({
                     <h3 className="text-xs font-semibold text-foreground">{t('Time logged in this week')}</h3>
                     <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-xs">
                       {data.logged.map((line) => (
-                        <li key={`${line.projectId}:${line.workPackageId}`} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+                        <li key={`${line.projectId}:${line.workPackageId}:${line.subject ?? ''}`} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
                           <span className="min-w-0 truncate" dir="auto">
                             {line.workPackageId ? (
                               <Link to={`/tasks/${line.workPackageId}`} className="hover:underline">
                                 {line.subject ?? `#${line.workPackageId}`}
                               </Link>
                             ) : (
-                              t('Not on a work package')
+                              // Time on no project (a daily scrum) carries its kind as the subject.
+                              (line.subject ?? t('Not on a work package'))
                             )}
                             <span className="ms-1.5 text-muted-foreground">{line.projectName}</span>
                           </span>

@@ -66,6 +66,8 @@ export interface OpWork {
 interface OpRelation {
   id: number;
   type: string;
+  /** Working days between the predecessor's end and the successor's start. */
+  lag?: number | null;
   _links: { from?: HalLink; to?: HalLink };
 }
 
@@ -90,6 +92,8 @@ export interface ProjectWork {
   parentOf: Map<string, string | null>;
   /** Successor id → predecessor id → the relation's id, both ends in the project. */
   predecessors: Map<string, Map<string, string>>;
+  /** `successor:predecessor` → the relation's lag in working days, where it has one. */
+  lags: Map<string, number>;
 }
 
 /** A project's work packages and the dependencies between them, read with the caller's access. */
@@ -112,6 +116,7 @@ export async function readProjectWork(projectId: number, includeClosed: boolean)
   ]);
   const ids = new Set(work.items.map((item) => String(item.id)));
   const predecessors = new Map<string, Map<string, string>>();
+  const lags = new Map<string, number>();
   for (const relation of relations.items) {
     const from = idFromHref(relation._links.from?.href);
     const to = idFromHref(relation._links.to?.href);
@@ -121,13 +126,14 @@ export async function readProjectWork(projectId: number, includeClosed: boolean)
     if (!ids.has(successor) || !ids.has(predecessor)) continue;
     if (!predecessors.has(successor)) predecessors.set(successor, new Map());
     predecessors.get(successor)!.set(predecessor, String(relation.id));
+    if (relation.lag) lags.set(`${successor}:${predecessor}`, relation.lag);
   }
   const parentOf = new Map<string, string | null>();
   for (const item of work.items) {
     const parent = idFromHref(href(item._links, 'parent'));
     parentOf.set(String(item.id), parent && ids.has(parent) ? parent : null);
   }
-  return { items: work.items, parentOf, predecessors };
+  return { items: work.items, parentOf, predecessors, lags };
 }
 
 /** The project's work packages as rows, parents before their children. */

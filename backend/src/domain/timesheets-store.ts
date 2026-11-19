@@ -13,7 +13,8 @@ import type { HalLink } from '../openproject/types.js';
 import type { TimesheetOverview, TimesheetRow, TimesheetStatus, TimesheetSummary, TimesheetView } from '../types/epm.js';
 import { cancelRequest, registerSubjectAdapter, requestsFor, submitSubject, type LoadedSubject } from './approvals.js';
 import { withAudit } from './audit.js';
-import { automationUserId } from './automation-account.js';
+import { nonPersonIds } from './service-account.js';
+import { internalHoursByUser } from './internal-time.js';
 import { dayOf as dayNumberOf } from './critical-path.js';
 import { loadResourceShared } from './resources-store.js';
 import { entriesOf, getTimeSettings, periodClosed, periodOf, type LoggedEntry } from './time-rules.js';
@@ -76,7 +77,8 @@ interface Figures {
 async function figures(personId: string, start: string, end: string, status: TimesheetStatus): Promise<Figures> {
   const [settings, entries, shared] = await Promise.all([getTimeSettings(), entriesOf(personId, start, end), loadResourceShared()]);
   const hours = round2(entries.reduce((sum, entry) => sum + entry.hours, 0));
-  const unattributedHours = round2(entries.filter((entry) => !entry.workPackageId).reduce((sum, entry) => sum + entry.hours, 0));
+  // Time on no project (a daily scrum) is not unattributed: it has nothing to be on.
+  const unattributedHours = round2(entries.filter((entry) => !entry.workPackageId && !entry.internal).reduce((sum, entry) => sum + entry.hours, 0));
   const available = round2(shared.availability.sum(personId, dayNumberOf(start), dayNumberOf(end)));
   const { minimum: min, maximum: max, requireWorkPackage } = settings.timesheets;
   const minimum = min.basis === 'available' ? available : min.basis === 'fixed' ? min.hours : null;
@@ -150,6 +152,21 @@ async function viewOf(personId: string, start: string, end: string, row: Timeshe
     available: numbers.available,
     bounds: { minimum: numbers.minimum, maximum: numbers.maximum },
     projects: [...byProject.values()].sort((a, b) => b.hours - a.hours),
+    // The entries themselves: totals by project alone left an approver
+    // agreeing to hours without seeing what they were spent on.
+    lines: numbers.entries
+      .map((entry) => ({
+        id: entry.id,
+        spentOn: entry.spentOn,
+        hours: round2(entry.hours),
+        projectId: entry.projectId,
+        projectName: byProject.get(entry.projectId)?.projectName ?? entry.projectName,
+        workPackageId: entry.workPackageId,
+        workPackageSubject: entry.workPackageSubject,
+        activityName: entry.activityName,
+        comment: entry.comment,
+      }))
+      .sort((a, b) => a.spentOn.localeCompare(b.spentOn) || a.projectName.localeCompare(b.projectName)),
     problems: numbers.problems.map(say),
     locked: status !== 'draft',
     submittedAt: row?.submittedAt?.toISOString(),
@@ -412,9 +429,11 @@ export async function timesheetOverview(query: OverviewQuery, scope: Set<string>
   const settings = await getTimeSettings();
   const { start, end } = periodOf(query.day, settings.timesheets.period);
   const closed = periodClosed(end);
-  const [shared, automation, rows, entries] = await Promise.all([
+  const [shared, nonPersons, rows, entries] = await Promise.all([
     loadResourceShared(),
-    automationUserId().catch(() => undefined),
+    // EPM's own accounts owe no timesheet: the automation account and the
+    // service account were listed among the people as "Not submitted".
+    nonPersonIds().catch(() => new Set<string>()),
     prisma.timesheet.findMany({ where: { periodStart: date(start) } }),
     runAsSystem(() =>
       openProject.getAll<OpTimeEntry>('/time_entries', { filters: [{ field: 'spent_on', operator: '<>d', values: [start, end] }], pageSize: 200 }),
@@ -431,11 +450,13 @@ export async function timesheetOverview(query: OverviewQuery, scope: Set<string>
     projects.add(linkId(entry._links ?? {}, 'project') ?? '');
     projectsBy.set(userId, projects);
   }
+  // Time on no project, EPM's own, counts in everyone's hours too.
+  for (const [userId, hours] of await internalHoursByUser(start, end)) hoursBy.set(userId, (hoursBy.get(userId) ?? 0) + hours);
   const rowBy = new Map(rows.map((row) => [row.personId, row]));
 
   const all: TimesheetRow[] = [];
   for (const carrier of shared.carriers.values()) {
-    if (carrier.kind !== 'person' || carrier.id === automation) continue;
+    if (carrier.kind !== 'person' || nonPersons.has(carrier.id)) continue;
     if (scope !== 'all' && !scope.has(carrier.id)) continue;
     const person = shared.facts.people.get(Number(carrier.id));
     const row = rowBy.get(carrier.id);

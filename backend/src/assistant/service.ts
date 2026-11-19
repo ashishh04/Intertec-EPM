@@ -152,11 +152,25 @@ function roleSection(role: AppRole): string[] {
       '  project health, risk, forecasts and recommended actions, resources, scenarios and — where',
       '  finance is switched on — money.',
     ],
-    hr: [
-      '- They look after people: their own work and time, teams, departments, staffing, everyone\'s',
-      '  timesheets and workload, meetings, news and the wiki.',
-      '- Finance, budget and risk exposure, forecasts, earned value, scenarios, over-allocation and',
-      '  sprint delivery are not part of HR\'s role in EPM: say so and that a manager handles them.',
+    bu_head: [
+      '- They head a business unit: its departments, teams and people, portfolios and programs, project',
+      '  health, risk, forecasts, resources, scenarios and — where finance is switched on — money.',
+    ],
+    portfolio_manager: [
+      '- They choose and balance the work: portfolios, programs, project requests, project health, risk,',
+      '  forecasts and recommended actions, capacity, scenarios and — where finance is on — money.',
+    ],
+    program_manager: [
+      '- They run programs of projects: the programs, project requests, health, risk, forecasts, shared',
+      '  resources, scenarios, timesheets and — where finance is switched on — money.',
+    ],
+    project_manager: [
+      '- They run projects through their life cycle: their projects\' work, sprints, health, risk,',
+      '  forecasts, resources, the team\'s workload and timesheets and — where finance is on — money.',
+    ],
+    delivery_manager: [
+      '- They see work delivered across projects and teams: staffing, capacity and workload, teams,',
+      '  everyone\'s timesheets, project health, risk, forecasts and — where finance is on — money.',
     ],
     employee: [
       '- They do the work: their own tasks, projects, sprints, their own time, timesheet and expense',

@@ -27,7 +27,7 @@ import type { HealthLevel } from '../types/epm.js';
  *
  * Each new notification is also offered to the email outbox, on the digest
  * channel: none of these is urgent enough to interrupt someone, and one
- * summary a day is what the `email.updates` switch promises. The outbox
+ * summary a day is what the `email.digest` switch promises. The outbox
  * applies that switch and its own dedupe; this only asks.
  */
 
@@ -172,7 +172,13 @@ async function offerByEmail(
       },
       channel: input.email ?? 'digest',
       dedupeKey: `notification:${input.dedupeKey}`,
-      gate: input.email === 'immediate' ? 'assigned' : 'updates',
+      // On the digest, by the digest's own switch: "a morning summary of what
+      // needs attention" is what these are. They used to wait on "updates to my
+      // work", which is about field changes on tasks, was off by default, and
+      // is stored off for everyone who saved Settings before November 2026 —
+      // so a project turning red, or an approval needing a decision, reached
+      // nobody's inbox.
+      gate: input.email === 'immediate' ? 'assigned' : 'digest',
     });
   } catch {
     // Already logged by the outbox where it could be; the notification stands.

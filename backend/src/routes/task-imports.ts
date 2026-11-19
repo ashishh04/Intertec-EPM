@@ -2,7 +2,11 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import { currentAuth } from '../auth/context.js';
 import * as guard from '../auth/guard.js';
-import { asCsv, asWorkbook, exportRows } from '../domain/task-export.js';
+import { asCsv, asWorkbook, exportRows, readProjectWork } from '../domain/task-export.js';
+import { isMsProjectXml, MS_PROJECT_FILE, msProjectFileToXml, msProjectXml, recordsFromMsProject } from '../domain/ms-project.js';
+import { env } from '../config/env.js';
+import { message } from '../lib/i18n.js';
+import type { CsvRecord } from '../lib/csv-parse.js';
 import { cancelImport, checkImport, getImport, importView, listImports, startImport, templateFor } from '../domain/task-import.js';
 import { openProject } from '../openproject/client.js';
 import { decodeText, parseCsv } from '../lib/csv-parse.js';
@@ -12,7 +16,7 @@ import { isCompoundFile, readXls } from '../lib/xls-read.js';
 import { isZip, readXlsx } from '../lib/xlsx-read.js';
 
 /**
- * Importing tasks from a CSV or Excel file (.xlsx, or .xls as OpenProject exports it) — epics, tasks, subtasks, milestones,
+ * Importing tasks from a CSV or Excel file (.xlsx, or .xls as OpenProject exports it), or a Microsoft Project plan (.mpp, .mpt, .mpx or its XML) — epics, tasks, subtasks, milestones,
  * dates, assignees, dependencies): rows are created, or update the work
  * packages their IDs name. Needs `task:create` in the project, and `task:edit`
  * for a file that changes existing work; every row is written under the
@@ -34,6 +38,39 @@ async function importOf(request: FastifyRequest, id: string) {
   return row;
 }
 
+/**
+ * A Microsoft Project plan as the import's rows, its milestones and summary
+ * tasks given the project's own types for them (a milestone type, and Phase
+ * where the project has it).
+ */
+async function msProjectRecords(projectId: number, xml: string): Promise<CsvRecord[]> {
+  const types = await openProject
+    .getAll<{ name: string; isMilestone?: boolean }>(`/projects/${projectId}/types`, { pageSize: 200 })
+    .catch(() => ({ items: [] as { name: string; isMilestone?: boolean }[] }));
+  const plan = recordsFromMsProject(xml, {
+    milestone: types.items.find((type) => type.isMilestone)?.name,
+    summary: types.items.find((type) => /^(phase|summary task|summary)$/i.test(type.name))?.name,
+  });
+  if (plan.tasks === 0) throw EpmError.validation(message('The plan has no tasks to import.'));
+  return plan.records;
+}
+
+/** The days OpenProject works, and those it does not, for a plan's calendar. */
+async function workingCalendar() {
+  const year = new Date().getUTCFullYear();
+  const [week, holidays] = await Promise.all([
+    openProject.getAll<{ day: number; working: boolean }>('/days/week').catch(() => null),
+    openProject
+      .getAll<{ date: string; name?: string }>('/days/non_working', {
+        filters: [{ field: 'date', operator: '<>d', values: [`${year - 3}-01-01`, `${year + 3}-12-31`] }],
+        pageSize: 1000,
+      })
+      .catch(() => null),
+  ]);
+  const working = week ? new Set(week.items.filter((day) => day.working).map((day) => day.day)) : new Set([1, 2, 3, 4, 5]);
+  return { workingDays: working.size > 0 ? working : new Set([1, 2, 3, 4, 5]), holidays: holidays?.items ?? [] };
+}
+
 export const taskImportRoutes: FastifyPluginAsync = async (app) => {
   /** The import template for the project, as a workbook: a sheet to fill in, an example, and what each column takes. */
   app.get<{ Params: { projectId: string } }>('/projects/:projectId/task-imports/template', async (request, reply) => {
@@ -48,16 +85,25 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
   /**
    * The project's work packages in the import's columns, as CSV or Excel:
    * exported, edited and imported again, hierarchy and dependencies intact.
+   * Or, with `format=msproject`, as a Microsoft Project XML plan
+   * (domain/ms-project.ts), which Microsoft Project opens and saves as .mpp.
    * Read with the caller's access; needs only `task:view`.
    */
   app.get<{ Params: { projectId: string }; Querystring: { format?: string; closed?: string } }>('/projects/:projectId/task-exports', async (request, reply) => {
     const projectId = Number(request.params.projectId);
     if (!Number.isInteger(projectId) || projectId <= 0) throw EpmError.notFound('That project');
     await guard.require(request, 'task:view', String(projectId));
-    const data = await exportRows(projectId, request.query.closed !== 'false');
     const project = await openProject.request<{ name: string; identifier?: string }>(`/projects/${projectId}`);
     const stem = `${(project.identifier ?? `project-${projectId}`).replace(/[^\w-]+/g, '-')}-tasks-${new Date().toISOString().slice(0, 10)}`;
     reply.header('Cache-Control', 'private, no-store');
+    if (request.query.format === 'msproject') {
+      const [work, calendar] = await Promise.all([readProjectWork(projectId, request.query.closed !== 'false'), workingCalendar()]);
+      reply.header('Content-Type', 'application/xml; charset=utf-8').header('Content-Disposition', contentDispositionFor(`${stem}.xml`));
+      return reply.send(
+        msProjectXml({ projectName: project.name, fileName: `${stem}.xml`, work, ...calendar, appBaseUrl: env.APP_BASE_URL }),
+      );
+    }
+    const data = await exportRows(projectId, request.query.closed !== 'false');
     if (request.query.format === 'xlsx') {
       reply
         .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -86,12 +132,21 @@ export const taskImportRoutes: FastifyPluginAsync = async (app) => {
     const content = await uploaded.toBuffer();
     if (uploaded.file.truncated) throw EpmError.validation('The file is larger than 25 MB.');
     let records;
-    if (isCompoundFile(content)) {
+    const filename = uploaded.filename || '';
+    if (MS_PROJECT_FILE.test(filename)) {
+      // Microsoft Project's own file, read through MPXJ.
+      records = await msProjectRecords(projectId, await msProjectFileToXml(content, filename));
+    } else if (isMsProjectXml(content)) {
+      records = await msProjectRecords(projectId, decodeText(content));
+    } else if (isCompoundFile(content)) {
       // An older Excel file (.xls): what OpenProject's own XLS export writes.
       try {
         records = readXls(content);
       } catch {
-        throw EpmError.validation('This older Excel file (.xls) could not be read. Save it as .xlsx or CSV and upload it again.');
+        // Or a Microsoft Project file with another name: the same kind of container.
+        const plan = env.EPM_MPXJ_HOME ? await msProjectFileToXml(content, 'plan.mpp').catch(() => null) : null;
+        if (!plan) throw EpmError.validation('This older Excel file (.xls) could not be read. Save it as .xlsx or CSV and upload it again.');
+        records = await msProjectRecords(projectId, plan);
       }
     } else if (isZip(content)) {
       try {

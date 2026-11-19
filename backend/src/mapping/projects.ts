@@ -1,6 +1,7 @@
 import { openProject, linkId, linkTitle, type OpFilter } from '../openproject/client.js';
 import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
 import { aggregateCache, userScopedKey } from '../lib/cache.js';
+import { durationToHours } from '../lib/duration.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { HalCollection, OpProject } from '../openproject/types.js';
 import type {
@@ -50,6 +51,30 @@ export async function countsByProject(
     if (id) counts.set(id, group.count);
   }
   return counts;
+}
+
+interface GroupedSums extends HalCollection<unknown> {
+  groups?: { sums?: { estimatedTime?: string | null } | null; _links?: { valueLink?: { href: string }[] } }[];
+}
+
+/**
+ * Each project's estimated work, in hours, from one grouped request: the sum
+ * of its work packages' own estimates. A project with work packages but no
+ * estimates reads as zero; one with no work packages at all is absent.
+ */
+export async function workByProject(filters: OpFilter[], signal?: AbortSignal): Promise<Map<string, number>> {
+  const collection = await openProject.getCollection<unknown>(
+    '/work_packages',
+    { filters, groupBy: 'project', pageSize: 1, extra: { showSums: true } },
+    signal,
+  );
+
+  const work = new Map<string, number>();
+  for (const group of (collection as GroupedSums).groups ?? []) {
+    const id = group._links?.valueLink?.[0]?.href?.split('/').pop();
+    if (id) work.set(id, durationToHours(group.sums?.estimatedTime) ?? 0);
+  }
+  return work;
 }
 
 /**

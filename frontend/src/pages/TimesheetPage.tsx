@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Undo2 } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, ChevronLeft, ChevronRight, Send, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { RequestCard } from '@/components/approvals/RequestCard';
 import { PageHeader } from '@/components/common/PageHeader';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TIMESHEET_STATUS } from '@/components/time/TimesheetBar';
+import { TimesheetEntries } from '@/components/time/TimesheetEntries';
+import { TimeEntryDialog } from '@/components/time/TimeEntryDialog';
+import { useAuth } from '@/providers/AuthProvider';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/input';
 import { FieldError, Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { usePersonTimesheet, useReopenTimesheet, useTimesheet, useWithdrawTimesheet } from '@/hooks/useTimesheets';
+import { usePersonTimesheet, useReopenTimesheet, useSubmitTimesheet, useTimesheet, useWithdrawTimesheet } from '@/hooks/useTimesheets';
 import { t } from '@/lib/i18n';
 import { formatDateTime, formatHours, formatShortDate } from '@/lib/utils';
 import type { TimesheetView } from '@/types';
@@ -49,13 +52,29 @@ export default function TimesheetPage() {
   );
 }
 
+const shiftDay = (day: string, days: number) => {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
 function TimesheetDetail({ view }: { view: TimesheetView }) {
   const withdraw = useWithdrawTimesheet();
   const reopen = useReopenTimesheet();
+  const submit = useSubmitTimesheet();
+  const { user, can } = useAuth();
+  const navigate = useNavigate();
   const [reopening, setReopening] = useState(false);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string>();
+  const [logOn, setLogOn] = useState<string | null>(null);
   const { minimum, maximum } = view.bounds;
+  const own = user?.id === view.personId;
+  // The periods either side, for whoever may read this person's timesheets at
+  // any time: the person, and those who read or manage everyone's.
+  const mayBrowse = own || can('timesheets:view') || can('timesheets:manage');
+  const today = new Date().toISOString().slice(0, 10);
+  const goTo = (day: string) => navigate(`/timesheets/people/${view.personId}?day=${day}`);
 
   return (
     <>
@@ -65,6 +84,34 @@ function TimesheetDetail({ view }: { view: TimesheetView }) {
         meta={<Badge tone={TIMESHEET_STATUS[view.status].tone}>{TIMESHEET_STATUS[view.status].label}</Badge>}
         actions={
           <>
+            {mayBrowse ? (
+              <div className="flex items-center gap-1 rounded-lg border border-border bg-surface p-0.5">
+                <Button variant="ghost" size="icon-sm" aria-label={t('Previous period')} onClick={() => goTo(shiftDay(view.periodStart, -1))}>
+                  <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
+                </Button>
+                <Button variant="ghost" size="icon-sm" aria-label={t('Next period')} onClick={() => goTo(shiftDay(view.periodEnd, 1))}>
+                  <ChevronRight className="h-4 w-4 rtl:rotate-180" />
+                </Button>
+              </div>
+            ) : null}
+            {/* The person's own draft is submitted from here too, not only from
+                their week: greyed out while something stops it, listed below. */}
+            {own && view.status === 'draft' ? (
+              <Button
+                loading={submit.isPending}
+                disabled={!view.can.submit}
+                onClick={() =>
+                  submit.mutate(view.periodStart, {
+                    onSuccess: () => toast.success(t('Timesheet submitted for approval')),
+                    onError: (failure) =>
+                      toast.error(t('The timesheet was not submitted'), { description: failure instanceof Error ? failure.message : undefined }),
+                  })
+                }
+              >
+                <Send className="h-4 w-4" />
+                {t('Submit timesheet')}
+              </Button>
+            ) : null}
             {view.can.withdraw && view.id ? (
               <Button
                 variant="secondary"
@@ -159,6 +206,9 @@ function TimesheetDetail({ view }: { view: TimesheetView }) {
         </Card>
         <div>{view.request ? <RequestCard request={view.request} /> : null}</div>
       </div>
+
+      <TimesheetEntries view={view} onAdd={own && view.status === 'draft' && view.periodStart <= today ? setLogOn : undefined} />
+      {logOn ? <TimeEntryDialog open spentOn={logOn} onOpenChange={(open) => !open && setLogOn(null)} /> : null}
 
       <Dialog open={reopening} onOpenChange={(open) => !reopen.isPending && setReopening(open)}>
         <DialogContent className="sm:max-w-md">

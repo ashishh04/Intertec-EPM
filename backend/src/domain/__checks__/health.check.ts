@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { DEFAULT_HEALTH_RULES } from '../health-rules.js';
+import { DEFAULT_HEALTH_RULES, parseHealthRules } from '../health-rules.js';
 import {
   aggregateHealth,
   computeHealth,
@@ -56,7 +56,7 @@ function project(overrides: Partial<HealthInputs> = {}): HealthInputs {
   };
 }
 
-const level = (inputs: HealthInputs, criterion: 'schedule' | 'budget' | 'risks' | 'overdue', with_ = rules) =>
+const level = (inputs: HealthInputs, criterion: 'schedule' | 'budget' | 'effort' | 'risks' | 'overdue', with_ = rules) =>
   computeHealth(inputs, with_).levels[criterion];
 
 console.log('Schedule variance');
@@ -135,6 +135,70 @@ check('BR-205: spend that crosses the red line moves the project to red', () => 
   assert.equal(after.levels.overall, 'critical');
 });
 
+console.log('\nEffort variance');
+// Hours logged against the work planned to date, phased like the budget: of
+// 1,000 planned hours, 640.52 are planned by 6 Oct. The baseline has 500 logged.
+const effortOf = (inputs: HealthInputs, with_ = rules) =>
+  computeHealth(inputs, with_).criteria.find((c) => c.criterion === 'effort');
+const logged = (hours: number) => ({ cost: { cost: 50_000, costedHours: hours, uncostedHours: 0 } });
+check('planned work that could not be read is not assessed', () => assert.equal(effortOf(project())?.level, null));
+check('no estimated work is not assessed, and still says the hours logged', () => {
+  const result = effortOf(project({ plannedWork: 0 }));
+  assert.equal(result?.level, null);
+  assert.match(result?.reason ?? '', /^500 h logged\. No work is estimated/);
+});
+check('unreadable time is not assessed', () => assert.equal(effortOf(project({ plannedWork: 1000, cost: undefined }))?.level, null));
+check('hours behind the plan to date are green, and the reason names both figures', () => {
+  const result = effortOf(project({ plannedWork: 1000 }));
+  // 500 − 640.52 = −140.52, or 14.1% of the planned work under plan.
+  assert.equal(result?.value, -14.1);
+  assert.equal(result?.level, 'healthy');
+  assert.match(result!.reason, /^500 h logged against 1000 h of planned work; 640\.5 h of it was planned by today/);
+});
+check('logging time moves it: 10% of the work over plan is amber, 20% is red', () => {
+  // 745 − 640.52 = 104.48 h, 10.4% of the work; 845 is 20.4%.
+  assert.equal(effortOf(project({ plannedWork: 1000, ...logged(745) }))?.level, 'warning');
+  assert.equal(effortOf(project({ plannedWork: 1000, ...logged(845) }))?.level, 'critical');
+});
+check('hours from people with no hourly rate count like any others', () => {
+  const split = effortOf(project({ plannedWork: 1000, cost: { cost: 0, costedHours: 400, uncostedHours: 400 } }));
+  const costed = effortOf(project({ plannedWork: 1000, ...logged(800) }));
+  assert.equal(split?.value, costed?.value);
+});
+check('without planned dates all the work counts as planned: an overrun check', () => {
+  const noDates = { plannedStart: undefined, plannedFinish: undefined, plannedWork: 1000 };
+  assert.equal(effortOf(project({ ...noDates, ...logged(1050) }))?.level, 'healthy');
+  assert.equal(effortOf(project({ ...noDates, ...logged(1100) }))?.level, 'warning');
+  assert.equal(effortOf(project({ ...noDates, ...logged(1200) }))?.level, 'critical');
+});
+check('under the defaults, effort alone crossing red turns the overall red', () => {
+  const after = computeHealth(project({ plannedWork: 1000, ...logged(900) }), rules);
+  assert.equal(after.levels.effort, 'critical');
+  assert.equal(after.levels.budget, 'healthy');
+  assert.equal(after.levels.overall, 'critical');
+});
+// Rules an administrator saved before effort existed: their weights stand.
+const savedBefore = parseHealthRules({
+  criteria: {
+    schedule: { enabled: true, weight: 25, amberAt: 5, redAt: 15 },
+    budget: { enabled: true, weight: 25, amberAt: 5, redAt: 10 },
+    risks: { enabled: true, weight: 25, amberAt: 1, redAt: 3, typeIds: [], priorityIds: [] },
+    overdue: { enabled: true, weight: 25, amberAt: 3, redAt: 10 },
+  },
+  redShare: 25,
+  amberShare: 25,
+});
+check('rules saved before effort existed carry it shown, at weight zero', () => {
+  assert.equal(savedBefore.criteria.effort.enabled, true);
+  assert.equal(savedBefore.criteria.effort.weight, 0);
+});
+check('so under them effort shows red without moving the overall', () => {
+  const result = computeHealth(project({ plannedWork: 1000, ...logged(900) }), { ...savedBefore, version: 3 });
+  assert.equal(result.levels.effort, 'critical');
+  assert.equal(result.levels.overall, 'healthy');
+  assert.equal(result.criteria.find((c) => c.criterion === 'effort')?.weight, 0);
+});
+
 console.log('\nOpen high risks');
 check('no risk type on the instance is not assessed', () =>
   assert.equal(level(project({ riskTypesConfigured: false }), 'risks'), null));
@@ -169,6 +233,7 @@ check('and the same project under the defaults is not', () =>
 for (const [criterion, breach] of [
   ['schedule', { latestOpenDue: '2026-12-05' }],
   ['budget', { cost: { cost: 70_000, costedHours: 700, uncostedHours: 0 } }],
+  ['effort', { plannedWork: 1000, cost: { cost: 50_000, costedHours: 760, uncostedHours: 0 } }],
   ['risks', { openRisks: 1, openHighRisks: 1 }],
   ['overdue', { overdue: 3 }],
 ] as const) {

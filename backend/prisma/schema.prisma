@@ -1999,6 +1999,27 @@ model ReportArtifact {
 /// Time and expense settings (Module 10: BR-304 to BR-309, BR-317): the
 /// timesheet period and its bounds, the time logging policies, the receipt
 /// threshold. Each save is a version.
+/// Time that belongs to no project: daily scrums and follow-ups, logged
+/// without choosing one (November 2026). OpenProject keeps every hour on a
+/// work package, so this time is EPM's own, and is merged with OpenProject's
+/// wherever time is shown: My Time, timesheets, utilisation and the reports.
+model InternalTimeEntry {
+  id        String   @id @default(cuid())
+  /// OpenProject user id of whoever spent the time.
+  userId    String
+  spentOn   DateTime @db.Date
+  hours     Float
+  /// `daily` or `follow_up`.
+  activity  String
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, spentOn])
+  @@index([spentOn])
+  @@map("internal_time_entries")
+}
+
 model TimeSettingSet {
   id        String   @id @default(cuid())
   version   Int      @unique

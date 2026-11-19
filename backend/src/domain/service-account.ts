@@ -62,8 +62,45 @@ export async function serviceUserId(): Promise<string | undefined> {
   return me?.service ? me.id : undefined;
 }
 
+/** Logins of accounts EPM's set-up makes for itself: the service account, and the old portal account. */
+const OWN_LOGINS = [SERVICE_LOGIN, 'epm-portal'];
+
+let ownByLogin: { at: number; ids: Promise<string[]> } | undefined;
+const OWN_BY_LOGIN_MS = 10 * 60_000;
+
+/**
+ * EPM's own accounts found by their logins, on a server whose system key is
+ * still an administrator's. There the service account is not the one asking,
+ * so `systemIdentity` cannot recognise it, and it was counted as a person: a
+ * timesheet expected of it, 40 hours a week of capacity in utilisation, a row
+ * on the heatmap. Only an administrator may list users by login; any other
+ * key is the service account itself, recognised above, and needs nothing here.
+ */
+async function ownAccountsByLogin(): Promise<string[]> {
+  const me = await systemIdentity();
+  if (!me?.admin) return [];
+  if (ownByLogin && Date.now() - ownByLogin.at < OWN_BY_LOGIN_MS) return ownByLogin.ids;
+  const ids = runAsSystem(() =>
+    openProject.getCollection<{ id: number }>('/users', {
+      filters: [{ field: 'login', operator: '=', values: OWN_LOGINS }],
+      pageSize: 20,
+    }),
+  )
+    .then((page) => (page._embedded?.elements ?? []).map((user) => String(user.id)))
+    .catch(() => {
+      ownByLogin = undefined;
+      return [] as string[];
+    });
+  ownByLogin = { at: Date.now(), ids };
+  return ids;
+}
+
 /** Every account that is not a person — the automation account and the service account — for keeping out of lists of people. */
 export async function nonPersonIds(): Promise<Set<string>> {
-  const [automation, service] = await Promise.all([automationUserId().catch(() => undefined), serviceUserId().catch(() => undefined)]);
-  return new Set([automation, service].filter((id): id is string => Boolean(id)));
+  const [automation, service, byLogin] = await Promise.all([
+    automationUserId().catch(() => undefined),
+    serviceUserId().catch(() => undefined),
+    ownAccountsByLogin().catch(() => [] as string[]),
+  ]);
+  return new Set([automation, service, ...byLogin].filter((id): id is string => Boolean(id)));
 }

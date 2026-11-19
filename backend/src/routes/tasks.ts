@@ -2,11 +2,14 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 
 import * as guard from '../auth/guard.js';
+import type { AppRole } from '../auth/roles.js';
 import { assertStatusChangeAllowed } from '../domain/approvals.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
 import { refuseCalculatedWrites, requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { cancelSeriesOfDeleted } from '../domain/task-series.js';
+import { assigneeOf, tellAssignee } from '../domain/assignment-mail.js';
+import { assertMayDoCategory, isManagersOnly, mayDoCategory, taskCategoryField, type TaskCategoryField } from '../domain/task-categories.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
@@ -47,6 +50,8 @@ const listQuery = z.object({
   /** The instance's own type ids, where EPM's categories are too coarse — the Risk type, say. */
   typeId: z.preprocess(csv, z.array(z.string().regex(/^\d+$/)).optional()),
   sprintId: z.string().optional(),
+  /** Task categories (`/task-categories`): development, testing, review… */
+  categoryId: z.preprocess(csv, z.array(z.string().regex(/^\d+$/)).optional()),
   search: z.string().optional(),
   bucket: z.enum(['open', 'today', 'upcoming', 'overdue', 'completed', 'all']).optional(),
   page: z.coerce.number().int().positive().optional(),
@@ -115,6 +120,27 @@ function bulkIds(value: unknown): string[] {
 }
 
 export const taskRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * The categories a task can have — development, testing, review — with the
+   * attribute they are kept in, so views can filter and show them. The field is
+   * made the first time it is asked for; `available` is false only while the
+   * delivery system cannot be reached or refuses to make it. Each choice says
+   * whether only managers do such work (a review), and whether the caller may.
+   */
+  app.get('/task-categories', async (request) => {
+    const [field, { role }] = await Promise.all([taskCategoryField(), guard.permissionsFor(request)]);
+    if (!field) return { available: false, key: null, options: [] };
+    return {
+      available: true,
+      key: field.key,
+      options: field.options.map((option) => ({
+        ...option,
+        managersOnly: isManagersOnly(option.name),
+        allowed: mayDoCategory(role, option.name),
+      })),
+    };
+  });
+
   app.get('/tasks', async (request) => {
     const query = listQuery.parse(request.query);
     const signal = requestSignal(request);
@@ -153,6 +179,12 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     }
     if (query.search) {
       filters.push({ field: 'subjectOrId', operator: '**', values: [query.search] });
+    }
+    if (query.categoryId?.length) {
+      const category = await taskCategoryField();
+      // Without the field there is nothing such a task could be: none match.
+      if (!category) return paginated([], 0, resolvePage(query.page, query.pageSize));
+      filters.push({ field: category.key, operator: '=', values: query.categoryId });
     }
 
     const statusIds = expandIds(query.status as never, catalog.statusIdsByEpm as never);
@@ -283,16 +315,34 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       projectIdentifiers(signal),
     ]);
 
+    // A custom value, the category included, is kept on create only when the
+    // type is named: left to the default, it is set after the values are read
+    // and they are dropped. So a create that sets a category names the type.
+    if (Object.hasOwn(input, 'categoryId') && input.categoryId && !input.typeId && !input.type) {
+      const types = await openProject
+        .getCollection<{ id: number; isDefault?: boolean }>(`/projects/${projectId}/types`, { pageSize: 100 }, signal)
+        .catch(() => undefined);
+      const elements = types?._embedded?.elements ?? [];
+      const fallback = elements.find((type) => type.isDefault) ?? elements[0];
+      if (fallback) input.typeId = String(fallback.id);
+    }
+
     const created = await openProject.request<WorkPackageWithPoints>(
       `/projects/${projectId}/work_packages`,
       {
         method: 'POST',
         query: { notify: 'false' },
-        body: buildWorkPackageBody(input, catalog),
+        body: buildWorkPackageBody(input, catalog, await categoryFor(input)),
         signal,
       },
     );
 
+    void tellAssignee({
+      workPackage: created,
+      event: 'created',
+      actorId: request.auth?.userId,
+      identifier: identifiers.get(projectId),
+    });
     // New work moves the project's counts, and perhaps its forecast finish.
     requestHealthRecalc(projectId);
     requestScheduleRecalc();
@@ -326,7 +376,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       // BR-113: what follows it, as it stood, when its dates change.
       const followers = movesDates(request.body) ? await followerDates(request.params.id, signal) : [];
 
-      const updated = await patchWorkPackage(request.params.id, request.body ?? {}, catalog, signal);
+      const { role } = await guard.permissionsFor(request);
+      const { updated, previousAssigneeId } = await patchWorkPackage(request.params.id, request.body ?? {}, catalog, signal, role);
+      void tellAssignee({
+        workPackage: updated,
+        event: 'updated',
+        actorId: request.auth?.userId,
+        previousAssigneeId,
+        identifier: identifiers.get(projectId),
+      });
       // A date, status, type or priority edit can move any criterion; the
       // recalculation decides whether one did.
       requestHealthRecalc(projectId);
@@ -370,11 +428,20 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         projects.add(projectId);
       }
 
+      const { role } = await guard.permissionsFor(request);
       const updated: EpmTask[] = [];
       try {
         for (const id of ids) {
-          const result = await patchWorkPackage(id, patch, catalog, signal);
+          const { updated: result, previousAssigneeId } = await patchWorkPackage(id, patch, catalog, signal, role);
           updated.push(toEpmTask(result, catalog, identifiers));
+          const resultProject = linkId(result._links, 'project');
+          void tellAssignee({
+            workPackage: result,
+            event: 'updated',
+            actorId: request.auth?.userId,
+            previousAssigneeId,
+            identifier: resultProject ? identifiers.get(resultProject) : undefined,
+          });
           await noteRuleEvent({
             source: 'epm',
             kind: 'work_package.updated',
@@ -442,8 +509,9 @@ async function patchWorkPackage(
   patch: Record<string, unknown>,
   catalog: Awaited<ReturnType<typeof getCatalog>>,
   signal: AbortSignal,
-): Promise<WorkPackageWithPoints> {
-  const body = buildWorkPackageBody(patch, catalog);
+  role: AppRole,
+): Promise<{ updated: WorkPackageWithPoints; previousAssigneeId?: string }> {
+  const body = buildWorkPackageBody(patch, catalog, await categoryFor(patch));
   // Nothing the API knows, such as a misspelt field or a status category no
   // status on this instance stands for, was sent upstream as an empty change
   // and answered 200 with the task as it was, which read as success.
@@ -463,21 +531,47 @@ async function patchWorkPackage(
     currentStatusId: linkId(current._links, 'status'),
     nextStatusId: idFromHref(links?.status?.href),
   });
+  // A review is closed by whoever leads the work, not by the team that did it.
+  const nextStatusId = idFromHref(links?.status?.href);
+  if (nextStatusId && nextStatusId !== linkId(current._links, 'status') && catalog.statusById.get(nextStatusId)?.isClosed) {
+    await assertMayDoCategory(role, current, 'close');
+  }
 
-  return openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, {
+  const updated = await openProject.request<WorkPackageWithPoints>(`/work_packages/${id}`, {
     method: 'PATCH',
     query: { notify: 'false' },
     body: { lockVersion: current.lockVersion, ...body },
     signal,
   });
+  // As it was, so the caller can tell an assignment from any other edit.
+  return { updated, previousAssigneeId: assigneeOf(current) };
+}
+
+/** The category field, read only when a write sets a category. */
+async function categoryFor(input: Record<string, unknown>): Promise<TaskCategoryField | null | undefined> {
+  return Object.hasOwn(input, 'categoryId') ? taskCategoryField() : undefined;
 }
 
 function buildWorkPackageBody(
   input: Record<string, unknown>,
   catalog: Awaited<ReturnType<typeof getCatalog>>,
+  category?: TaskCategoryField | null,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   const links: HalLinks = {};
+
+  // A category is one of the field's choices, or null to clear it.
+  if (Object.hasOwn(input, 'categoryId')) {
+    if (!category) throw EpmError.unavailable('Task categories are not available just now.');
+    const id = input.categoryId;
+    if (id === null || id === '') {
+      links[category.key] = { href: null };
+    } else if (typeof id === 'string' && category.options.some((option) => option.id === id)) {
+      links[category.key] = { href: `/api/v3/custom_options/${id}` };
+    } else {
+      throw EpmError.badRequest('That is not one of the task categories.');
+    }
+  }
 
   if (typeof input.subject === 'string') body.subject = input.subject;
   if (typeof input.description === 'string') {

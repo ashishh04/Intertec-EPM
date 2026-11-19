@@ -7,6 +7,19 @@ import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { assertPolicies, assertUnlocked, lockOn, locksIn } from '../domain/time-rules.js';
+import { standingTaskFor } from '../domain/standing-tasks.js';
+import { assertMayDoCategory } from '../domain/task-categories.js';
+import { isManagementRole } from '../auth/roles.js';
+import {
+  activityLabel,
+  createInternal,
+  deleteInternal,
+  internalEntries,
+  internalEntry,
+  isInternalId,
+  updateInternal,
+  type InternalEntry,
+} from '../domain/internal-time.js';
 import { addDays, calendarDay, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
@@ -17,8 +30,8 @@ import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/cl
 import type { HalLink } from '../openproject/types.js';
 import type { EpmTimeEntry, RunningTimer, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
 import { nonPersonIds } from '../domain/service-account.js';
-import { mayViewRates } from '../auth/guard.js';
-import { message } from '../lib/i18n.js';
+import { mayViewRates, permissionsFor } from '../auth/guard.js';
+import { message, requestLanguage, t, type Language } from '../lib/i18n.js';
 
 /**
  * The report with every figure that prices one person's time taken out
@@ -82,9 +95,61 @@ const writeBody = z.object({
   spentOn: calendarDay('spentOn must be a date, e.g. 2026-09-25.'),
   comment: z.string().max(4000).optional(),
   activityId: z.string().optional(),
+  /**
+   * What the time was: work on a task, or scrums and meetings, or support. The
+   * last two need no task: they go on the project's own task for that kind of
+   * time (domain/standing-tasks.ts), unless one is named.
+   */
+  kind: z.enum(['project', 'meeting', 'support']).optional(),
+  /**
+   * For scrums and meetings: a daily scrum, a follow-up, or a project's meeting.
+   * A daily scrum or a follow-up needs no project: without one it is time on no
+   * project, EPM's own (domain/internal-time.ts).
+   */
+  meetingType: z.enum(['daily', 'follow_up', 'project']).optional(),
 });
 
-const patchBody = writeBody.partial();
+const patchBody = writeBody.omit({ kind: true, meetingType: true }).partial();
+
+/** Time on no project, as the contract shows an entry. */
+function fromInternal(entry: InternalEntry, viewerId: string | undefined, language: Language): EpmTimeEntry {
+  const own = viewerId === entry.userId;
+  return {
+    id: entry.id,
+    hours: entry.hours,
+    spentOn: entry.spentOn,
+    comment: entry.comment,
+    projectId: '',
+    projectName: t(language, 'No project'),
+    workPackageSubject: activityLabel(entry.activity, language),
+    userId: entry.userId,
+    activityName: activityLabel(entry.activity, language),
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    can: { update: own, delete: own },
+  };
+}
+
+/**
+ * Refuses time on a review or management task to someone who does not lead
+ * work (task-categories.ts). A task the caller cannot read is left to
+ * OpenProject, which refuses the entry with its own reason.
+ */
+async function assertMayLogOn(request: FastifyRequest, workPackageId: string): Promise<void> {
+  const { role } = await permissionsFor(request);
+  if (isManagementRole(role)) return;
+  const work = await openProject
+    .request<{ _links?: unknown }>(`/work_packages/${workPackageId}`, { signal: requestSignal(request) })
+    .catch(() => null);
+  if (work) await assertMayDoCategory(role, work, 'log');
+}
+
+/** Whether the caller may read another person's time on no project: theirs, or everyone's timesheets. */
+async function mayReadInternalOf(request: FastifyRequest, userId: string): Promise<boolean> {
+  if (userId === request.auth?.userId) return true;
+  const permissions = await permissionsFor(request);
+  return permissions.global['timesheets:view'] === true || permissions.global['timesheets:manage'] === true;
+}
 
 /**
  * A `user` filter value: a numeric id, or the literal `me`.
@@ -289,8 +354,13 @@ function groupOf(
     case 'activity':
       // An instance may allow an entry with no activity, and those hours are
       // still hours — they group together rather than disappearing.
+      // Time on no project carries its own kind (a daily scrum) and no activity id.
+      if (!entry.activityId && entry.activityName) return { key: `none:${entry.activityName}`, label: entry.activityName };
       return { key: entry.activityId ?? 'none', label: entry.activityName ?? 'No activity' };
     case 'workPackage':
+      if (!entry.workPackageId && entry.workPackageSubject) {
+        return { key: `none:${entry.workPackageSubject}`, label: entry.workPackageSubject };
+      }
       return entry.workPackageId
         ? {
             key: entry.workPackageId,
@@ -419,6 +489,8 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     const spentOn = new Date().toISOString().slice(0, 10);
     // A timer on a locked day could never be stopped.
     await assertUnlocked(request.auth!.userId, [spentOn]);
+    // Nor one on a review task, for someone who may not log time on it.
+    await assertMayLogOn(request, workPackageId);
     const created = await openProject
       .request<OpTimeEntry>('/time_entries', {
         method: 'POST',
@@ -517,8 +589,24 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       )
       .catch(rethrow('Time entries'));
 
-    const items = await withLocks((collection._embedded?.elements ?? []).map(toEpmTimeEntry));
-    return paginated(items, collection.total ?? items.length, page);
+    let items = (collection._embedded?.elements ?? []).map(toEpmTimeEntry);
+    let total = collection.total ?? items.length;
+
+    // A person's own week includes their time on no project, which no project
+    // or task filter can match. On the first page only, so paging stays whole.
+    if (userId && !projectId && !workPackageId && page.page === 1) {
+      const subject = userId === 'me' ? request.auth!.userId : userId;
+      if (await mayReadInternalOf(request, subject)) {
+        const own = await internalEntries({ userIds: [subject], from: query.from, to: query.to });
+        const language = requestLanguage(request);
+        items = [...items, ...own.map((entry) => fromInternal(entry, request.auth?.userId, language))].sort(
+          (a, b) => b.spentOn.localeCompare(a.spentOn),
+        );
+        total += own.length;
+      }
+    }
+
+    return paginated(await withLocks(items), total, page);
   });
 
   /**
@@ -600,6 +688,23 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
 
     const entries = collection.items.map(toEpmTimeEntry);
 
+    /*
+     * Time on no project, where no project is asked for: the caller's own, and
+     * everyone's for whoever reads everyone's timesheets. It is people's time,
+     * so a report by person, activity, week or day counts it; by project it is
+     * its own row, "No project".
+     */
+    if (!projectId) {
+      const subject = userId === 'me' ? request.auth!.userId : userId;
+      const permissions = await permissionsFor(request);
+      const readsAll = permissions.global['timesheets:view'] === true || permissions.global['timesheets:manage'] === true;
+      const people = subject ? ((await mayReadInternalOf(request, subject)) ? [subject] : []) : readsAll ? undefined : [request.auth!.userId];
+      const language = requestLanguage(request);
+      for (const entry of await internalEntries({ userIds: people, from: query.from, to: query.to })) {
+        entries.push({ ...fromInternal(entry, request.auth?.userId, language), projectId: 'none' });
+      }
+    }
+
     // Counted here whatever the caller may see; `withoutCosts` takes out what
     // they may not before the report leaves.
     const rows = new Map<string, TimeReportRow & { hoursWithoutRate: number }>();
@@ -666,6 +771,11 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/time-entries/:id', async (request) => {
+    if (isInternalId(request.params.id)) {
+      const entry = await internalEntry(request.params.id);
+      if (!(await mayReadInternalOf(request, entry.userId))) throw EpmError.notFound('That time entry');
+      return fromInternal(entry, request.auth?.userId, requestLanguage(request));
+    }
     return (await withLocks([toEpmTimeEntry(await entryById(request, request.params.id))]))[0]!;
   });
 
@@ -677,7 +787,60 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
    * than upstream, where it reads as a schema error.
    */
   app.post<{ Body: unknown }>('/time-entries', async (request, reply) => {
-    const input = writeBody.parse(request.body ?? {});
+    const { kind, meetingType, ...input } = writeBody.parse(request.body ?? {});
+    const personId = request.auth!.userId;
+
+    if (kind === 'meeting' && !input.workPackageId) {
+      const type = meetingType ?? 'project';
+      if (!input.projectId) {
+        // A project's meeting is that project's time; a daily scrum or a
+        // follow-up with no project is time on no project, EPM's own.
+        if (type === 'project') throw EpmError.validation('Choose the project the meeting was for.');
+        await assertUnlocked(personId, [input.spentOn]);
+        await assertPolicies({ personId, spentOn: input.spentOn, hours: input.hours });
+        const created = await createInternal({
+          userId: personId,
+          spentOn: input.spentOn,
+          hours: input.hours,
+          activity: type,
+          comment: input.comment,
+        });
+        reply.code(201);
+        return fromInternal(created, personId, requestLanguage(request));
+      }
+      // On the project's own task, saying which kind of meeting it was.
+      if (type !== 'project') {
+        const label = activityLabel(type);
+        input.comment = input.comment?.trim() ? `${label}: ${input.comment.trim()}` : label;
+      }
+    }
+
+    // Support with no project — helping a colleague, the office's IT — is time
+    // on no project too.
+    if (kind === 'support' && !input.workPackageId && !input.projectId) {
+      await assertUnlocked(personId, [input.spentOn]);
+      await assertPolicies({ personId, spentOn: input.spentOn, hours: input.hours });
+      const created = await createInternal({
+        userId: personId,
+        spentOn: input.spentOn,
+        hours: input.hours,
+        activity: 'support',
+        comment: input.comment,
+      });
+      reply.code(201);
+      return fromInternal(created, personId, requestLanguage(request));
+    }
+
+    // A task the person chose, as opposed to the project's own one for meetings
+    // or support, which is anyone's to log on.
+    const chosenTask = input.workPackageId;
+
+    // Scrums and meetings, and support, go on the project's own task for that
+    // kind of time when no task is named.
+    if (!input.workPackageId && (kind === 'meeting' || kind === 'support')) {
+      if (!input.projectId) throw EpmError.validation('Choose the project the time was spent on.');
+      input.workPackageId = await standingTaskFor(input.projectId, kind, requestSignal(request));
+    }
 
     // From OpenProject 17 time belongs to a work package (or a meeting): a
     // project alone is refused upstream as "Logged for can't be blank".
@@ -687,7 +850,6 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
 
     // EPM's rules before OpenProject's (BR-304, BR-317): a day on a submitted
     // or approved timesheet is locked, and an active policy names itself.
-    const personId = request.auth!.userId;
     await assertUnlocked(personId, [input.spentOn]);
     await assertPolicies({
       personId,
@@ -696,6 +858,9 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
       activityId: input.activityId,
       workPackageId: input.workPackageId,
     });
+
+    // A review or management task is a manager's to log time on (task-categories.ts).
+    if (chosenTask) await assertMayLogOn(request, chosenTask);
 
     const created = await openProject
       .request<OpTimeEntry>('/time_entries', {
@@ -714,6 +879,17 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
   app.patch<{ Params: { id: string }; Body: unknown }>('/time-entries/:id', async (request) => {
     const input = patchBody.parse(request.body ?? {});
     if (Object.keys(input).length === 0) throw EpmError.badRequest('Nothing to change.');
+
+    // Time on no project: its owner changes it, under the same locks and rules.
+    if (isInternalId(request.params.id)) {
+      const previous = await internalEntry(request.params.id);
+      if (previous.userId !== request.auth?.userId) throw EpmError.forbidden('Only the person whose time it is can change it.');
+      const spentOn = input.spentOn ?? previous.spentOn;
+      await assertUnlocked(previous.userId, [previous.spentOn, spentOn]);
+      await assertPolicies({ personId: previous.userId, spentOn, hours: input.hours ?? previous.hours, replacingId: previous.id });
+      const updated = await updateInternal(previous.id, { spentOn: input.spentOn, hours: input.hours, comment: input.comment });
+      return fromInternal(updated, request.auth?.userId, requestLanguage(request));
+    }
 
     // Read first so a caller who may not touch this entry is refused before
     // anything is written, and with OpenProject's own reason.
@@ -749,6 +925,15 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete<{ Params: { id: string } }>('/time-entries/:id', async (request, reply) => {
     const { id } = request.params;
+    // Time on no project: its owner removes it, while its day is not locked.
+    if (isInternalId(id)) {
+      const previous = await internalEntry(id);
+      if (previous.userId !== request.auth?.userId) throw EpmError.forbidden('Only the person whose time it is can delete it.');
+      await assertUnlocked(previous.userId, [previous.spentOn]);
+      await deleteInternal(id);
+      reply.code(204);
+      return;
+    }
     if (!/^\d+$/.test(id)) throw EpmError.notFound('That time entry');
 
     // Read first: once it is gone, so is the project it was spent on.

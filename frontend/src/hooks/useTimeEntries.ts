@@ -13,9 +13,12 @@ import type {
  * Logged time.
  *
  * A write changes a work package's spent hours and every rollup built on them,
- * so it clears the same caches a task write does alongside its own.
+ * so it clears the same caches a task write does alongside its own — and the
+ * project's, whose spend to date and health are worked out from logged time,
+ * and the timesheets', whose hours and entries are that time: without them a
+ * timesheet still read "0h logged" after the hours had been logged.
  */
-const TIME_WRITE = [['time-entries'], ['tasks'], ['queries'], ['dashboard'], ['reports'], ['teams']];
+const TIME_WRITE = [['time-entries'], ['tasks'], ['queries'], ['dashboard'], ['reports'], ['teams'], ['projects'], ['timesheets']];
 
 export function useTimeEntries(filters: TimeEntryFilters = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
@@ -58,9 +61,24 @@ export function useTimeReport(filters: TimeReportFilters, options: { enabled?: b
   });
 }
 
+/**
+ * How long after a time write the dashboards are read again. Utilisation, the
+ * capacity heatmap and the other figures come from the analytics model, which
+ * picks a change up within about thirty seconds of it; read at once they still
+ * show the time from before, and the person who just logged an hour reads that
+ * as "it did not count".
+ */
+const MODEL_CATCH_UP_MS = 40_000;
+
 function useTimeInvalidation() {
   const client = useQueryClient();
-  return () => TIME_WRITE.forEach((key) => client.invalidateQueries({ queryKey: key }));
+  return () => {
+    TIME_WRITE.forEach((key) => client.invalidateQueries({ queryKey: key }));
+    setTimeout(() => {
+      void client.invalidateQueries({ queryKey: ['insights'] });
+      void client.invalidateQueries({ queryKey: ['resources'] });
+    }, MODEL_CATCH_UP_MS);
+  };
 }
 
 export function useLogTime() {

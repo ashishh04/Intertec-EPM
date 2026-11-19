@@ -54,6 +54,42 @@ RUN npx prisma generate && npm run build:image
 # selectively below, so the layer that ships is the one that was tested.
 RUN npm prune --omit=dev
 
+# ---------------------------------------------------------------- plans
+# Microsoft Project's own files (.mpp, .mpt, .mpx) are read on Tasks → Import
+# through MPXJ (src/domain/ms-project.ts), a Java library: nothing written for
+# Node reads them. This stage cuts a Java runtime down to the modules MPXJ and
+# its libraries use — about 50 MB rather than a whole JDK — and unpacks MPXJ's
+# jars from its release, checked against the release's checksum. Microsoft
+# Project XML needs neither: the backend reads that itself.
+#
+# The module list came from `jdeps` over MPXJ and its libraries, and was tried
+# by converting a real .mpp with the runtime it makes. To move MPXJ on, change
+# both arguments: the new zip's SHA-256 is printed by `sha256sum` on it.
+FROM eclipse-temurin:21.0.13_9-jdk-noble@sha256:a2e61ec9e2e4d5c7aa885412400319f9299abe4d8189f42ec3bec48708c576a6 AS plans
+
+ARG MPXJ_VERSION=16.11.0
+ARG MPXJ_SHA256=765f0f5e459f27b7f12511bea682f13937d92ddd37d5422a693d746c6a490273
+
+RUN jlink \
+      --add-modules java.base,java.desktop,java.logging,java.naming,java.net.http,java.prefs,java.scripting,java.sql,java.xml,jdk.unsupported,jdk.zipfs,jdk.charsets \
+      --strip-debug --no-man-pages --no-header-files --compress=zip-6 \
+      --output /opt/jre
+
+RUN for i in 1 2 3; do \
+      apt-get update \
+   && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+   && break; \
+      echo "apt attempt $i failed"; [ "$i" = 3 ] && exit 1; sleep 5; \
+    done \
+ && curl -fsSL --retry 3 -o /tmp/mpxj.zip "https://github.com/joniles/mpxj/releases/download/v${MPXJ_VERSION}/mpxj-${MPXJ_VERSION}.zip" \
+ && echo "${MPXJ_SHA256}  /tmp/mpxj.zip" | sha256sum -c - \
+ && mkdir -p /opt/mpxj/lib \
+ && unzip -q -j /tmp/mpxj.zip 'mpxj/mpxj.jar' -d /opt/mpxj \
+ && unzip -q -j /tmp/mpxj.zip 'mpxj/lib/*' -d /opt/mpxj/lib \
+ && rm -f /opt/mpxj/lib/junit-* /opt/mpxj/lib/opentest4j-* /opt/mpxj/lib/apiguardian-* \
+ && test -f /opt/mpxj/mpxj.jar \
+ && rm -rf /tmp/mpxj.zip /var/lib/apt/lists/*
+
 # ---------------------------------------------------------------- runtime
 FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
 
@@ -96,6 +132,13 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/prisma ./prisma
 COPY --from=build --chown=node:node /app/package.json ./package.json
+
+# Reading Microsoft Project files (the plans stage above). Root-owned and only
+# read and run: the node user needs nothing more.
+COPY --from=plans /opt/jre /opt/jre
+COPY --from=plans /opt/mpxj /opt/mpxj
+ENV EPM_JAVA=/opt/jre/bin/java \
+    EPM_MPXJ_HOME=/opt/mpxj
 
 # Unprivileged: the image has no reason to run as root, and `node` already
 # exists in the base image.

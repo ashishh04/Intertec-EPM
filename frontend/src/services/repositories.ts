@@ -11,6 +11,7 @@ import type {
   ActivityEntry,
   CalendarEvent,
   CreateTaskInput,
+  TaskCategories,
   TaskHierarchy,
   DashboardMetrics,
   DeliveryTrendPoint,
@@ -64,6 +65,7 @@ export interface TaskRepository {
   getTasks(filters?: TaskFilters): Promise<Paginated<EpmTask>>;
   getTask(id: ID): Promise<EpmTask>;
   getHierarchy(id: ID): Promise<TaskHierarchy>;
+  getCategories(): Promise<TaskCategories>;
   createTask(input: CreateTaskInput): Promise<EpmTask>;
   updateTask(input: UpdateTaskInput): Promise<EpmTask>;
   bulkUpdate(ids: ID[], patch: Partial<UpdateTaskInput>): Promise<EpmTask[]>;

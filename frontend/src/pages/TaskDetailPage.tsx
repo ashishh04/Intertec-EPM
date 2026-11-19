@@ -34,7 +34,10 @@ import {
 import NotFoundPage from '@/pages/NotFoundPage';
 import { ApiError } from '@/services/api/client';
 import { useComments, useInternalComments } from '@/hooks/useComments';
-import { useTask, useUpdateTask } from '@/hooks/useTasks';
+import { useTask, useTaskCategories, useUpdateTask } from '@/hooks/useTasks';
+
+/** A select cannot hold an empty value: this stands for "no category". */
+const NO_CATEGORY = '__none__';
 import { useProject } from '@/hooks/useProjects';
 import { useActivity } from '@/hooks/useDashboard';
 import { useUserMap } from '@/hooks/useUsers';
@@ -77,6 +80,7 @@ export default function TaskDetailPage() {
   const users = useUserMap();
   const sprintsQuery = useSprints();
   const updateTask = useUpdateTask();
+  const { data: categories } = useTaskCategories();
   // Declared with the other hooks: the guards below return early, and a hook
   // after them runs on some renders and not others.
   const { canInProject } = useAuth();
@@ -504,6 +508,31 @@ export default function TaskDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* What kind of work it is, so the people who do that kind find it:
+                a reviewer's queue is the review tasks. */}
+            {categories?.available ? (
+              <div className="space-y-1.5">
+                <p className="epm-eyebrow">{t('Category')}</p>
+                <Select
+                  value={task.category?.id ?? NO_CATEGORY}
+                  disabled={!canEdit}
+                  onValueChange={(value) => patch({ id: task.id, categoryId: value === NO_CATEGORY ? null : value })}
+                >
+                  <SelectTrigger className="h-8 text-xs" aria-label={t('Task category')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_CATEGORY}>{t('No category')}</SelectItem>
+                    {categories.options.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
 
             <Separator />
 

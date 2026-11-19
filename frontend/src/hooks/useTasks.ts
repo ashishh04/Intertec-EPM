@@ -16,6 +16,19 @@ export function useTasks(filters: TaskFilters = {}, options: { enabled?: boolean
   });
 }
 
+/**
+ * The kinds of work a task can be — development, testing, review — and the
+ * attribute they are kept in. Changed in Administration, so read rarely.
+ */
+export function useTaskCategories() {
+  return useQuery({
+    // Not under ['tasks']: every task write clears that, and these do not change with one.
+    queryKey: ['task-categories'] as const,
+    queryFn: () => taskService.getCategories(),
+    staleTime: 10 * 60_000,
+  });
+}
+
 /** The most a timeline draws: five pages of the largest the API serves. */
 export const TIMELINE_LIMIT = 1_000;
 const TIMELINE_PAGE = 200;

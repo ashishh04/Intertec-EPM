@@ -30,6 +30,7 @@ import type {
   WorkScheduleRow,
 } from '../types/epm.js';
 import { withAudit } from './audit.js';
+import { activityLabel } from './internal-time.js';
 import { dayOf, isoOf } from './critical-path.js';
 import { DEFAULT_WEEKLY_CAPACITY, modelFacts, type ModelFacts, type TimeFact } from './measure-facts.js';
 import {
@@ -1035,6 +1036,8 @@ async function buildShared(facts: ModelFacts): Promise<ResourceShared> {
   const projectBillable = new Map(projectProfiles.map((row) => [Number(row.openProjectId), row.billable === true]));
   const nonBillable = new Set(settings.nonBillableActivityIds);
   const billable = (entry: TimeFact) => {
+    // A daily scrum or a follow-up is on no project: no client is billed for it.
+    if (entry.internal) return false;
     const project = entry.projectId === null ? settings.billableByDefault : (projectBillable.get(entry.projectId) ?? settings.billableByDefault);
     return project && !(entry.activityId !== null && nonBillable.has(String(entry.activityId)));
   };
@@ -1150,21 +1153,54 @@ function loggedByWeek(data: ResourceShared, carriers: ReadonlySet<string>, fromW
   return out;
 }
 
-function cellOf(week: CarrierWeek, logged: number, today: number, data: ResourceShared): CapacityCell {
+/**
+ * A cell: a week gone is the time logged in it; a week to come is the work
+ * falling in it; and this week is both — the time logged so far plus the work
+ * still to come from tomorrow, against the whole week's hours. It used to be
+ * the work from today alone, so time somebody logged this week showed nowhere
+ * on the heatmap until the week was over. `remaining` is this week's hours from
+ * tomorrow, which over-allocation is judged against.
+ */
+function cellOf(week: CarrierWeek, logged: number, today: number, data: ResourceShared, remaining?: number): CapacityCell {
   const actual = week.week + 6 < today;
+  const current = !actual && week.week <= today;
   const load = loadOf(week);
-  const ratio = actual ? ratioOf(logged, week.available) : ratioOf(load, week.available);
+  const ratio = ratioOf(actual ? logged : current ? logged + load : load, week.available);
   return {
     week: isoOf(week.week),
-    basis: actual ? 'actual' : 'forecast',
+    basis: actual ? 'actual' : current ? 'current' : 'forecast',
     available: round2(week.available),
     committed: round2(week.committed),
     planned: round2(week.planned),
     logged: round2(logged),
     ratio: ratio === null ? null : Number.isFinite(ratio) ? Math.round(ratio * 10) / 10 : null,
     band: bandForRatio(ratio, data),
-    over: !actual && isOverAllocated(week),
+    over: !actual && isOverAllocated(current && remaining !== undefined ? { ...week, available: remaining } : week),
   };
+}
+
+/**
+ * This week for each carrier, as the heatmap counts it: the work still to come
+ * from tomorrow — today's share is what the time logged today stands for, and
+ * counting both would count today twice — against the whole week's hours, with
+ * the hours from tomorrow kept for judging over-allocation.
+ */
+function thisWeekLoads(
+  items: readonly DemandItem[],
+  availability: AvailabilityModel,
+  carriers: Iterable<string>,
+  week: number,
+  today: number,
+): Map<string, { week: CarrierWeek; remaining: number }> {
+  const keys = [...carriers];
+  const ahead = weeklyLoads(items, availability, keys, week, week, today + 1);
+  const out = new Map<string, { week: CarrierWeek; remaining: number }>();
+  for (const key of keys) {
+    const cell = ahead.get(key)!.get(week)!;
+    const remaining = today + 1 <= week + 6 ? availability.sum(key, today + 1, week + 6) : 0;
+    out.set(key, { week: { ...cell, available: availability.sum(key, week, week + 6) }, remaining });
+  }
+  return out;
 }
 
 const bandForRatio = (ratio: number | null, data: ResourceShared): CapacityBand =>
@@ -1200,6 +1236,17 @@ export async function capacityGrid(query: GridQuery): Promise<CapacityGrid> {
   const keys = new Set(carriers.map((carrier) => carrier.key));
   const loads = weeklyLoads(data.demand, data.availability, keys, fromWeek, toWeek, today);
   const logged = loggedByWeek(data, keys, fromWeek, toWeek);
+  const currentWeek = weekOf(today);
+  const thisWeek = weeks.includes(currentWeek)
+    ? thisWeekLoads(data.demand, data.availability, keys, currentWeek, today)
+    : undefined;
+  const cellFor = (key: string, week: number) => {
+    const hours = logged.get(key)?.get(week)?.logged ?? 0;
+    const current = week === currentWeek ? thisWeek?.get(key) : undefined;
+    return current
+      ? cellOf(current.week, hours, today, data, current.remaining)
+      : cellOf(loads.get(key)!.get(week)!, hours, today, data);
+  };
   const rows: CapacityRow[] = carriers.map((carrier) => ({
     key: carrier.key,
     kind: carrier.kind,
@@ -1208,7 +1255,7 @@ export async function capacityGrid(query: GridQuery): Promise<CapacityGrid> {
     roleId: carrier.roleId,
     teamId: carrier.teamId,
     departmentId: carrier.departmentId,
-    cells: weeks.map((week) => cellOf(loads.get(carrier.key)!.get(week)!, logged.get(carrier.key)?.get(week)?.logged ?? 0, today, data)),
+    cells: weeks.map((week) => cellFor(carrier.key, week)),
   }));
 
   // Roles booked with nobody named: demand with no hours against it.
@@ -1372,6 +1419,9 @@ export async function cellDetail(key: string, weekIso: string, query: GridQuery)
   const total: CarrierWeek = { carrier: key, week, available: 0, committed: 0, planned: 0, contributions: [] };
   const contributions: DemandContribution[] = [];
   let loggedHours = 0;
+  let remaining = 0;
+  // This week is counted as the heatmap counts it (`thisWeekLoads`).
+  const isCurrent = week <= today && today <= week + 6;
   const logged = new Map<string, LoggedTime>();
   for (const member of members) {
     const isRole = member.key.startsWith('role:');
@@ -1380,7 +1430,9 @@ export async function cellDetail(key: string, weekIso: string, query: GridQuery)
           .filter((item) => item.kind === 'allocation' && item.carrier === null && item.roleId === member.key.slice(5))
           .map((item) => ({ ...item, carrier: member.key }))
       : data.demand.filter((item) => item.carrier === member.key);
-    const cell = weeklyLoads(items, data.availability, [member.key], week, week, today).get(member.key)!.get(week)!;
+    const current = isCurrent ? thisWeekLoads(items, data.availability, [member.key], week, today).get(member.key) : undefined;
+    const cell = current?.week ?? weeklyLoads(items, data.availability, [member.key], week, week, today).get(member.key)!.get(week)!;
+    remaining += current?.remaining ?? cell.available;
     total.available += cell.available;
     total.committed += cell.committed;
     total.planned += cell.planned;
@@ -1392,12 +1444,17 @@ export async function cellDetail(key: string, weekIso: string, query: GridQuery)
       if (day < week || day > week + 6) continue;
       loggedHours += entry.hours;
       const work = entry.workPackageId !== null ? data.facts.workPackages.find((item) => item.id === entry.workPackageId) : undefined;
-      const lineKey = `${entry.projectId ?? ''}:${entry.workPackageId ?? ''}`;
+      // Time on no project is named by its kind: a daily scrum, a follow-up.
+      const lineKey = entry.internal ? `internal:${entry.internalActivity ?? ''}` : `${entry.projectId ?? ''}:${entry.workPackageId ?? ''}`;
       const line = logged.get(lineKey) ?? {
         workPackageId: entry.workPackageId === null ? null : String(entry.workPackageId),
-        subject: work?.subject ?? null,
+        subject: entry.internal ? activityLabel(entry.internalActivity ?? 'daily', contextLanguage()) : (work?.subject ?? null),
         projectId: entry.projectId === null ? null : String(entry.projectId),
-        projectName: entry.projectId === null ? null : (data.facts.projects.get(entry.projectId)?.name ?? null),
+        projectName: entry.internal
+          ? t(contextLanguage(), 'No project')
+          : entry.projectId === null
+            ? null
+            : (data.facts.projects.get(entry.projectId)?.name ?? null),
         hours: 0,
       };
       line.hours += entry.hours;
@@ -1408,7 +1465,7 @@ export async function cellDetail(key: string, weekIso: string, query: GridQuery)
     key,
     name,
     week: isoOf(week),
-    cell: cellOf(total, loggedHours, today, data),
+    cell: cellOf(total, loggedHours, today, data, isCurrent ? remaining : undefined),
     contributions: contributions.sort((a, b) => b.hours - a.hours),
     logged: [...logged.values()].map((line) => ({ ...line, hours: round2(line.hours) })).sort((a, b) => b.hours - a.hours),
   };

@@ -29,6 +29,7 @@ import type {
   RuleSubjectType,
 } from '../types/epm.js';
 import { assertStatusChangeAllowed } from './approvals.js';
+import { tellAssignee } from './assignment-mail.js';
 import { recordAuditQuietly, withAudit } from './audit.js';
 import { automationConfigured, automationIdentity, ensureAutomationMembership } from './automation-account.js';
 import { healthViews } from './health.js';
@@ -558,14 +559,14 @@ function recordOutcome(
  * Writes to a work package as the automation account. The change it is about
  * to make is marked as the rule's own first, so its echo is not an event.
  */
-async function writeWorkPackage(context: ActionContext, body: Record<string, unknown>): Promise<void> {
+async function writeWorkPackage(context: ActionContext, body: Record<string, unknown>): Promise<WorkPackageHal> {
   if (!context.automationId) throw new NotConfigured();
   await ensureAutomationMembership(context.subject.projectId);
-  await runAsAutomation(async () => {
+  return runAsAutomation(async () => {
     const current = await openProject.request<WorkPackageHal>(`/work_packages/${context.subject.id}`);
     const marker = await markSelfCaused(context.subject.id, current.lockVersion + 1, context.automationId);
     try {
-      await openProject.request(`/work_packages/${context.subject.id}`, {
+      return await openProject.request<WorkPackageHal>(`/work_packages/${context.subject.id}`, {
         method: 'PATCH',
         query: { notify: 'false' },
         body: { lockVersion: current.lockVersion, ...body },
@@ -634,7 +635,11 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Re
       if ((subject.people.assigneeId ?? null) === (target ?? null)) {
         return skipped(target ? message('Already assigned to {name}', { name: names.user(target) }) : message('Already unassigned'));
       }
-      await writeWorkPackage(context, { _links: { assignee: { href: target ? `/api/v3/users/${target}` : null } } });
+      const previousAssigneeId = subject.people.assigneeId;
+      const written = await writeWorkPackage(context, { _links: { assignee: { href: target ? `/api/v3/users/${target}` : null } } });
+      // The assignment email itself, as any assignment sends: the in-app notice
+      // below is the rule's, and its email copy only waits for the digest.
+      if (target) void tellAssignee({ workPackage: written, event: 'updated', previousAssigneeId });
       // The actions after this one see the item as this one left it: "assign,
       // then notify the assignee" tells the new assignee.
       subject.people.assigneeId = target ?? undefined;
@@ -768,6 +773,7 @@ async function runAction(action: RuleAction, context: ActionContext): Promise<Re
       );
       // Its creation is the rule's own change, not an event for the others.
       await markSelfCaused(String(created.id), created.lockVersion, context.automationId);
+      if (assignee) void tellAssignee({ workPackage: created, event: 'created' });
 
       const related = subject.type === 'work_package' && !['none', 'child'].includes(action.relation);
       if (related) {

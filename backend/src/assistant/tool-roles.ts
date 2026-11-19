@@ -1,4 +1,4 @@
-import type { AppRole } from '../auth/roles.js';
+import { MANAGEMENT_ROLES as LEADERSHIP_ROLES, type AppRole } from '../auth/roles.js';
 
 /**
  * Which EPM roles each group of Pragnya's tools is for, matching the screens
@@ -12,15 +12,15 @@ import type { AppRole } from '../auth/roles.js';
  * tool besides: Pragnya is not offered in the portal.
  */
 
-/** Team-wide reads about people: workload and everyone's timesheets. */
-export const PEOPLE_ROLES: readonly AppRole[] = ['admin', 'manager', 'hr'];
+/** Team-wide reads about people: workload and everyone's timesheets. Every leadership role. */
+export const PEOPLE_ROLES: readonly AppRole[] = LEADERSHIP_ROLES;
 
 /**
  * Money, portfolio planning and delivery insight: finance, earned value,
  * over-allocation, scenarios, risk and budget exposure, forecasts and the
- * actions recommended from them.
+ * actions recommended from them. Every leadership role.
  */
-export const MANAGEMENT_ROLES: readonly AppRole[] = ['admin', 'manager'];
+export const MANAGEMENT_ROLES: readonly AppRole[] = LEADERSHIP_ROLES;
 
-/** Sprint delivery, which HR does not work in. */
-export const DELIVERY_ROLES: readonly AppRole[] = ['admin', 'manager', 'employee'];
+/** Sprint delivery: the people who run projects and the people who do the work. */
+export const DELIVERY_ROLES: readonly AppRole[] = [...LEADERSHIP_ROLES, 'employee'];

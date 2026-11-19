@@ -1575,7 +1575,10 @@ export function contextFor(
   const work = facts.workPackages.filter(inScope);
   const peopleTime = facts.time.filter(
     (entry) =>
-      entry.userId !== null && personIds.has(entry.userId) && entry.projectId !== null && visibleIds.has(entry.projectId),
+      entry.userId !== null &&
+      personIds.has(entry.userId) &&
+      // Time on no project is still the person's: it counts towards their utilisation.
+      (entry.internal === true || (entry.projectId !== null && visibleIds.has(entry.projectId))),
   );
   const time = byPeople
     ? peopleTime

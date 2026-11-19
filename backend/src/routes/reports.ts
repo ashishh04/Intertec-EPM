@@ -217,6 +217,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
           identifier: project.identifier ?? '',
           schedule: view.effective.schedule,
           budget: view.effective.budget,
+          effort: view.effective.effort,
           risks: view.effective.risks,
           overdue: view.effective.overdue,
           overall: view.effective.overall,

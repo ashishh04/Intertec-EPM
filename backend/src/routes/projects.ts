@@ -14,6 +14,7 @@ import { getUsers } from '../mapping/users.js';
 import { notifyHealthChange } from '../domain/notifications.js';
 import { listAudit, listAuditPage, recordAudit, withAudit } from '../domain/audit.js';
 import {
+  healthSettled,
   healthViews,
   parseOverrideLevels,
   recalculateNow,
@@ -310,6 +311,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/projects/:id', async (request) => {
+    // Time just logged, or a date just moved, shows in this project's health
+    // and spend: a recalculation already asked for is given a moment to land
+    // (it clears the cached list when it does) before the list is read.
+    await healthSettled([request.params.id]);
     const projects = await loadProjects(requestSignal(request));
     const project = projects.find((candidate) => candidate.id === request.params.id);
     if (!project) throw EpmError.notFound('That project');

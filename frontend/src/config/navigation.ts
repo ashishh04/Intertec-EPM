@@ -73,18 +73,37 @@ export interface NavSection {
 }
 
 /**
+ * The roles that lead work rather than do it: BU Head, Portfolio, Program,
+ * Project and Delivery Manager, and Manager, with the administrators. As the
+ * backend's MANAGEMENT_ROLES (auth/roles.ts): review tasks are theirs.
+ */
+export const MANAGEMENT_ROLES = [
+  'admin',
+  'bu_head',
+  'portfolio_manager',
+  'program_manager',
+  'project_manager',
+  'delivery_manager',
+  'manager',
+] as const satisfies readonly AppRole[];
+
+export const isManagementRole = (role: AppRole | undefined): boolean =>
+  role !== undefined && (MANAGEMENT_ROLES as readonly AppRole[]).includes(role);
+
+/**
  * Which roles work in which areas. Shared by the sidebar and the router
  * (App.tsx), so a link that is hidden is also an address that is refused.
  *
  * - Delivery (agile, boards, sprints, Gantt) is for the people running and
- *   doing project work; HR does not plan sprints.
- * - Portfolio insight (dashboards, portfolio views, forecasts) is for managers.
- * - Reporting (reports, time and costs) is for managers and HR.
+ *   doing project work.
+ * - Portfolio insight (dashboards, portfolio views, forecasts) is for the
+ *   leadership roles.
+ * - Reporting (reports, time and costs) is for the leadership roles.
  */
 export const ROLE_ACCESS = {
-  delivery: ['admin', 'manager', 'employee'],
-  insights: ['admin', 'manager'],
-  reporting: ['admin', 'manager', 'hr'],
+  delivery: [...MANAGEMENT_ROLES, 'employee'],
+  insights: MANAGEMENT_ROLES,
+  reporting: MANAGEMENT_ROLES,
 } as const satisfies Record<string, readonly AppRole[]>;
 
 /**
@@ -110,8 +129,16 @@ export function roleLabel(role: AppRole): string {
       return t('Administrator');
     case 'manager':
       return t('Manager');
-    case 'hr':
-      return t('HR');
+    case 'bu_head':
+      return t('BU Head');
+    case 'portfolio_manager':
+      return t('Portfolio Manager');
+    case 'program_manager':
+      return t('Program Manager');
+    case 'project_manager':
+      return t('Project Manager');
+    case 'delivery_manager':
+      return t('Delivery Manager');
     case 'external':
       return t('External');
     default:
@@ -192,16 +219,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // HR's home: the organisation and the people in it. Gated on permissions
-    // rather than a role, so an administrator, or anyone granted them, sees it too.
+    // The organisation and the people in it: the BU Head's and the Delivery
+    // Manager's. Gated on permissions rather than a role, so an administrator,
+    // or anyone granted them, sees it too. Resources is in Delivery, which
+    // every leadership role has.
     get title() { return t('People'); },
     items: [
       { get label() { return t('Employees'); }, to: '/employees', icon: UserRound, permission: 'employees:manage' },
       { get label() { return t('Departments'); }, to: '/departments', icon: Building2, permission: 'departments:manage' },
-      // HR has no Delivery section, where everyone else finds Resources, but
-      // records people's time off on its Availability tab, so HR's link is
-      // here. The role keeps it to one link each.
-      { get label() { return t('Resources'); }, to: '/resources', icon: UsersRound, permission: RESOURCES_PERMISSIONS, roles: ['hr'] },
     ],
   },
   {

@@ -134,6 +134,8 @@ export const HEALTH_CRITERIA_META: {
   short: string;
   unit: HealthUnit;
   hint: string;
+  /** What a threshold is measured in, where the unit alone would mislead. */
+  suffix?: string;
 }[] = [
   {
     key: 'schedule',
@@ -148,6 +150,14 @@ export const HEALTH_CRITERIA_META: {
     get short() { return t('Budget'); },
     unit: 'percent',
     get hint() { return t('Spend ahead of the budget planned to date, as a share of the budget.'); },
+  },
+  {
+    key: 'effort',
+    get label() { return t('Effort variance'); },
+    get short() { return t('Effort'); },
+    unit: 'percent',
+    get hint() { return t('Hours logged ahead of the work planned to date, as a share of the planned work.'); },
+    get suffix() { return t('% of work'); },
   },
   {
     key: 'risks',

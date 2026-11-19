@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma.js';
 import type { WorkState } from './work-definitions.js';
+import { internalTimeVersion } from './internal-time.js';
 
 /**
  * The facts the semantic layer measures (BR-404), read from the analytics
@@ -56,6 +57,10 @@ export interface TimeFact {
   cost: number | null;
   /** The time entry activity: with the project, what decides whether it is billable. */
   activityId: number | null;
+  /** Time on no project, EPM's own (internal-time.ts): a person's time, no project's. */
+  internal?: boolean;
+  /** For time on no project, its kind: `daily` or `follow_up`. */
+  internalActivity?: string;
 }
 
 /**
@@ -468,8 +473,36 @@ async function readModel(runId: string | null, asOf: string | null): Promise<Mod
 }
 
 let cached: { runId: string | null; facts: Promise<ModelFacts> } | undefined;
+let merged: { base: Promise<ModelFacts>; version: number; facts: Promise<ModelFacts> } | undefined;
 
-/** The whole model as of its latest refresh, read once per refresh. */
+/**
+ * Time on no project (internal-time.ts) as facts: a person's time for
+ * utilisation and the heatmap, though no project's. Ids below zero, as it has
+ * no OpenProject time entry id. Read apart from the model: no refresh of the
+ * model follows such a change, so it is read again whenever it changes.
+ */
+async function internalFacts(): Promise<TimeFact[]> {
+  const rows = await prisma.internalTimeEntry
+    .findMany({ select: { userId: true, spentOn: true, hours: true, activity: true }, orderBy: [{ spentOn: 'asc' }, { createdAt: 'asc' }] })
+    // Until this release's migration has run there is no such time.
+    .catch(() => [] as { userId: string; spentOn: Date; hours: number; activity: string }[]);
+  return rows
+    .filter((row) => /^\d+$/.test(row.userId))
+    .map((row, index) => ({
+      id: -(index + 1),
+      spentOn: row.spentOn.toISOString().slice(0, 10),
+      userId: Number(row.userId),
+      projectId: null,
+      workPackageId: null,
+      hours: row.hours,
+      cost: null,
+      activityId: null,
+      internal: true,
+      internalActivity: row.activity,
+    }));
+}
+
+/** The whole model as of its latest refresh, read once per refresh, with today's time on no project. */
 export async function modelFacts(): Promise<ModelFacts> {
   const run = await latestRun();
   const runId = run?.runId ?? null;
@@ -481,7 +514,18 @@ export async function modelFacts(): Promise<ModelFacts> {
       if (cached?.facts === facts) cached = undefined;
     });
   }
-  return cached.facts;
+  const base = cached.facts;
+  const version = internalTimeVersion();
+  if (!merged || merged.base !== base || merged.version !== version) {
+    const facts = Promise.all([base, internalFacts()]).then(([model, internal]) =>
+      internal.length === 0 ? model : { ...model, time: model.time.concat(internal) },
+    );
+    merged = { base, version, facts };
+    facts.catch(() => {
+      if (merged?.facts === facts) merged = undefined;
+    });
+  }
+  return merged.facts;
 }
 
 /**

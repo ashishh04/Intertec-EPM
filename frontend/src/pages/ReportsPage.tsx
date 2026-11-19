@@ -198,6 +198,7 @@ export default function ReportsPage() {
             t('Overridden on'),
             t('Schedule'),
             t('Budget'),
+            t('Effort'),
             t('Risks'),
             t('Overdue'),
             t('Progress %'),
@@ -217,7 +218,7 @@ export default function ReportsPage() {
               ? users?.find((user) => user.id === project.healthOverride!.setBy)?.name ?? project.healthOverride.setBy
               : null,
             project.healthOverride?.setAt.slice(0, 10) ?? null,
-            ...(['schedule', 'budget', 'risks', 'overdue'] as const).map((criterion) => {
+            ...(['schedule', 'budget', 'effort', 'risks', 'overdue'] as const).map((criterion) => {
               const level = project.health[criterion];
               return level ? HEALTH_META[level].label : t('Not assessed');
             }),

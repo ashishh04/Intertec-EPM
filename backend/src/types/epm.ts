@@ -230,9 +230,20 @@ export type PermissionMap = Record<string, Record<string, boolean>>;
  * EPM permissions. `admin` is the instance's administrator accounts and is
  * never assigned; the others are set under Administration. `external` is a
  * client or vendor: the portal only, and in it a client or vendor role on each
- * project granted to them.
+ * project granted to them. The leadership roles — BU Head, Portfolio, Program,
+ * Project and Delivery Manager, and Manager — are `MANAGEMENT_ROLES`; HR was
+ * retired in November 2026 and reads as Delivery Manager.
  */
-export type AppRole = 'admin' | 'manager' | 'hr' | 'employee' | 'external';
+export type AppRole =
+  | 'admin'
+  | 'bu_head'
+  | 'portfolio_manager'
+  | 'program_manager'
+  | 'project_manager'
+  | 'delivery_manager'
+  | 'manager'
+  | 'employee'
+  | 'external';
 
 /** One person's role, as the Access roles page lists it. */
 export interface AppRoleAssignment {
@@ -326,10 +337,11 @@ export type HealthLevel = 'healthy' | 'warning' | 'critical';
 
 /**
  * What project health is computed from (BR-204): how far the forecast finish
- * is past the planned one, spend against the budget planned to date, open
- * high-priority risks, and overdue work.
+ * is past the planned one, spend against the budget planned to date, hours
+ * logged against the work planned to date, open high-priority risks, and
+ * overdue work.
  */
-export type HealthCriterion = 'schedule' | 'budget' | 'risks' | 'overdue';
+export type HealthCriterion = 'schedule' | 'budget' | 'effort' | 'risks' | 'overdue';
 
 /** The criteria, plus the overall derived from them. */
 export type HealthDimension = HealthCriterion | 'overall';
@@ -347,6 +359,8 @@ export type HealthOverride = Partial<Record<HealthDimension, HealthLevel>>;
 export interface ProjectHealth {
   schedule: HealthLevel | null;
   budget: HealthLevel | null;
+  /** Hours logged against the work planned to date. Null with no estimated work. */
+  effort: HealthLevel | null;
   risks: HealthLevel | null;
   overdue: HealthLevel | null;
   overall: HealthLevel;
@@ -405,8 +419,8 @@ export interface HealthCriterionRule {
  *
  * Overall is decided by weight: it is red when the red criteria carry at least
  * `redShare` percent of the weight of everything assessed, and amber when the
- * amber-or-red ones carry at least `amberShare`. With four criteria weighted
- * equally and both shares at 25, any one breach moves the overall.
+ * amber-or-red ones carry at least `amberShare`. With five criteria weighted
+ * equally and both shares at 20, any one breach moves the overall.
  */
 export interface HealthRules {
   /** Zero means the built-in defaults; every save makes a new version. */
@@ -416,6 +430,12 @@ export interface HealthRules {
     schedule: HealthCriterionRule;
     /** Percent of the budget by which spend is ahead of the plan to date. */
     budget: HealthCriterionRule;
+    /**
+     * Percent of the planned work by which hours logged are ahead of the work
+     * planned to date. Rules saved before it existed carry it at weight zero:
+     * shown on every project, counted once an administrator gives it a weight.
+     */
+    effort: HealthCriterionRule;
     /** Open risks at a high priority. */
     risks: HealthCriterionRule & {
       /** Work package types that are risks. Empty means types named "Risk". */
@@ -808,6 +828,8 @@ export interface EpmTask {
    * it to them. Editing fields is `task:edit`, per project, like everywhere else.
    */
   can?: { comment: boolean; relate: boolean; logTime: boolean };
+  /** What kind of work it is — development, testing, review… (`TaskCategories`). */
+  category?: { id: ID; name: string };
 }
 
 /**
@@ -860,6 +882,8 @@ export interface CreateTaskInput {
   estimatedHours?: number;
   storyPoints?: number;
   labels?: string[];
+  /** One of `TaskCategories.options`; null clears it on an update. */
+  categoryId?: ID | null;
 }
 
 /**
@@ -872,6 +896,27 @@ export type UpdateTaskInput = Partial<CreateTaskInput> & {
   id: ID;
 };
 
+/**
+ * The kinds of work a task can be — development, testing, review — kept in one
+ * custom field for every project, so work can be found by who does it.
+ */
+export interface TaskCategories {
+  /** False while the field cannot be read or made. */
+  available: boolean;
+  /** The work package attribute the category is kept in, e.g. `customField12`. */
+  key: string | null;
+  options: TaskCategoryOption[];
+}
+
+export interface TaskCategoryOption {
+  id: ID;
+  name: string;
+  /** Work only managers do: reviewing, managing. */
+  managersOnly?: boolean;
+  /** Whether the caller may log time on, or complete, a task of this category. */
+  allowed?: boolean;
+}
+
 export interface TaskFilters {
   projectId?: ID;
   assigneeId?: ID;
@@ -883,6 +928,8 @@ export interface TaskFilters {
   priority?: TaskPriority[];
   type?: TaskType[];
   sprintId?: ID;
+  /** Task categories, by `TaskCategories.options` id. */
+  categoryId?: ID[];
   search?: string;
   /** Personal work-queue buckets used by My Work and the dashboard. */
   bucket?: 'open' | 'today' | 'upcoming' | 'overdue' | 'completed' | 'all';
@@ -1096,9 +1143,26 @@ export interface CreateTimeEntryInput {
   comment?: string;
   /** From the time entry form's allowed activities. */
   activityId?: ID;
+  /**
+   * What the time was. Scrums and meetings, and support, need no task: they go
+   * on the project's own task for that kind of time unless one is named.
+   */
+  kind?: TimeKind;
+  /**
+   * For scrums and meetings: a daily scrum, a follow-up, or a project's meeting.
+   * A daily scrum or a follow-up needs no project; nor does support. Without
+   * one, the time is the person's own, on no project.
+   */
+  meetingType?: MeetingType;
 }
 
-export type UpdateTimeEntryInput = Partial<CreateTimeEntryInput>;
+/** Work on a task, scrums and meetings, or support. */
+export type TimeKind = 'project' | 'meeting' | 'support';
+
+/** Which meeting: the daily scrum, a follow-up, or one of a project's. */
+export type MeetingType = 'daily' | 'follow_up' | 'project';
+
+export type UpdateTimeEntryInput = Partial<Omit<CreateTimeEntryInput, 'kind' | 'meetingType'>>;
 
 /** How a time report groups its rows. */
 export type TimeReportGrouping = 'user' | 'project' | 'activity' | 'workPackage' | 'week' | 'day';
@@ -1264,6 +1328,7 @@ export interface PortfolioRow {
   identifier: string;
   schedule: HealthLevel | null;
   budget: HealthLevel | null;
+  effort: HealthLevel | null;
   risks: HealthLevel | null;
   overdue: HealthLevel | null;
   overall: HealthLevel;
@@ -3617,8 +3682,13 @@ export type CapacityBand = 'none' | 'under' | 'healthy' | 'full' | 'over';
 export interface CapacityCell {
   /** The Monday. */
   week: string;
-  basis: 'actual' | 'forecast';
-  /** Hours available; from today in the current week. */
+  /**
+   * A week gone (`actual`: the time logged), a week to come (`forecast`: the
+   * work falling in it), or this week (`current`: the time logged so far plus
+   * the work still to come from tomorrow).
+   */
+  basis: 'actual' | 'current' | 'forecast';
+  /** Hours available: the whole week for this week, as for any other. */
   available: number;
   /** Assigned work falling in the week. */
   committed: number;
@@ -3904,6 +3974,11 @@ export interface TimesheetView {
   bounds: { minimum: number | null; maximum: number | null };
   /** Time in each project. */
   projects: { projectId: ID; projectName: string; hours: number }[];
+  /**
+   * Every entry in the period, oldest first — the day, the work and what was
+   * written about it — so whoever approves it can see what the hours were.
+   */
+  lines: TimesheetLine[];
   /** What stops it being submitted now, if anything. */
   problems: string[];
   locked: boolean;
@@ -3914,6 +3989,19 @@ export interface TimesheetView {
   reopened?: { at: ISODate; by: ID; byName?: string; reason: string };
   request?: ApprovalRequestView;
   can: { submit: boolean; withdraw: boolean; reopen: boolean };
+}
+
+/** One time entry on a timesheet. */
+export interface TimesheetLine {
+  id: ID;
+  spentOn: ISODate;
+  hours: number;
+  projectId: ID;
+  projectName: string;
+  workPackageId?: ID;
+  workPackageSubject?: string;
+  activityName?: string;
+  comment?: string;
 }
 
 /** One of a person's own timesheets, in their history. */

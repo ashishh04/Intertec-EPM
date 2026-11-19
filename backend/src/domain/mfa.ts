@@ -100,7 +100,9 @@ export async function getMfaPolicy(): Promise<MfaPolicyView> {
   if (policyCache && Date.now() - policyCache.at < CACHE_MS) return policyCache.value;
   const row = await prisma.mfaPolicy.findUnique({ where: { id: 1 } });
   const value: MfaPolicyView = {
-    requiredRoles: (row?.requiredRoles ?? []).filter(isAppRole),
+    // HR was retired: a requirement set for it holds for the Delivery Manager,
+    // who took its duties over (auth/roles.ts).
+    requiredRoles: [...new Set((row?.requiredRoles ?? []).map((role) => (role === 'hr' ? 'delivery_manager' : role)))].filter(isAppRole),
     updatedBy: row?.updatedBy ?? null,
     updatedAt: row?.updatedAt.toISOString() ?? null,
   };

@@ -199,6 +199,12 @@ const schema = z.object({
     .string()
     .optional()
     .transform((value) => value === 'true'),
+  // Reading Microsoft Project's own files (.mpp, .mpt, .mpx) on Tasks → Import:
+  // the Java runtime and the MPXJ library the image carries (Dockerfile). With
+  // either missing, such a file is refused with how to save it as XML instead,
+  // which is read without them.
+  EPM_JAVA: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
+  EPM_MPXJ_HOME: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
   /*
    * The default hour a deadline reminder goes out, 0-23.
    *

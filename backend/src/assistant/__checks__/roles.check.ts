@@ -30,15 +30,17 @@ const PEOPLE = ['team_workload', 'team_timesheets'];
 
 const admin = offered('admin');
 const manager = offered('manager');
-const hr = offered('hr');
+const leaders = (['bu_head', 'portfolio_manager', 'program_manager', 'project_manager', 'delivery_manager'] as const).map((role) => [role, offered(role)] as const);
 const employee = offered('employee');
 const external = offered('external');
 
 assert.equal(admin.size, TOOLS.length, 'an administrator is offered every tool');
 assert.equal(external.size, 0, 'an external user is offered no tool');
 for (const name of [...MANAGEMENT, ...PEOPLE, 'get_sprint']) assert.ok(manager.has(name), `manager has ${name}`);
-for (const name of PEOPLE) assert.ok(hr.has(name), `HR has ${name}`);
-for (const name of [...MANAGEMENT, 'get_sprint']) assert.ok(!hr.has(name), `HR lacks ${name}`);
+// Every leadership role works as a manager does with Pragnya.
+for (const [role, set] of leaders) {
+  for (const name of [...MANAGEMENT, ...PEOPLE, 'get_sprint']) assert.ok(set.has(name), `${role} has ${name}`);
+}
 for (const name of [...MANAGEMENT, ...PEOPLE]) assert.ok(!employee.has(name), `employee lacks ${name}`);
 for (const name of ['list_tasks', 'my_timesheet', 'expense_claims', 'approvals_waiting', 'time_summary', 'get_sprint']) {
   assert.ok(employee.has(name), `employee has ${name}`);
@@ -56,7 +58,7 @@ assert.ok(!toolSchemas(noFinance).some((tool) => tool.name === 'finance_figures'
 
 console.log(
   'roles check passed:',
-  Object.entries({ admin, manager, hr, employee, external })
+  Object.entries({ admin, manager, ...Object.fromEntries(leaders), employee, external })
     .map(([role, set]) => `${role} ${set.size}`)
     .join(', '),
   `of ${TOOLS.length} tools`,

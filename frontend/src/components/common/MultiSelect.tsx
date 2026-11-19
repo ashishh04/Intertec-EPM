@@ -71,7 +71,8 @@ export function MultiSelect({
   const overflow = selected.length - visible.length;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // Modal so its list scrolls with the wheel inside a dialog, as ComboSelect.
+    <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <Button
           variant="secondary"
