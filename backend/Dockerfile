@@ -27,7 +27,7 @@
 # rebuilt, which is how Debian and Node security fixes arrive (BR-610).
 
 # ---------------------------------------------------------------- build
-FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
+FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS build
 
 # openssl in the build stage too, and not for TLS: `prisma generate` chooses its
 # query engine by detecting the OpenSSL version present, and with no libssl
@@ -109,7 +109,7 @@ RUN mkdir -p /opt/aspose /tmp/mpp-writer/classes \
  && rm -rf /tmp/mpp-writer
 
 # ---------------------------------------------------------------- runtime
-FROM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS runtime
+FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS runtime
 
 # libssl3 and the CA bundle, neither of which is in the slim base - checked,
 # not assumed: node:22-slim ships no libssl* and no
