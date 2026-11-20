@@ -17,6 +17,9 @@ import { message as messageOf, render, type Language, type Message } from './i18
 export type ErrorCode =
   | 'BAD_REQUEST'
   | 'UNAUTHORIZED'
+  /** Signed out by the server: too long without activity, or past the longest a session may last. */
+  | 'SESSION_IDLE'
+  | 'SESSION_EXPIRED'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
   | 'CONFLICT'

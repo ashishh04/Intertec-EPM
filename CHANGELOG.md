@@ -226,6 +226,11 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Users shows each person's two-factor authentication.** A new MFA column
+  says Enabled (with the date on hover, and whether codes are locked), Not
+  enabled, or Required, not set up where the person's role must use it. Each
+  person's profile shows the same. With sessions now ending after inactivity,
+  Last login follows use: people sign in at least once a day.
 - **Faster pages that stay current without a reload.**
   - Whole collections are read from the delivery system four pages at a time
     instead of one after another: sprints, a team's logged time, members,
@@ -585,6 +590,37 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Security
 
+- **Sessions end after 30 minutes without activity, and 12 hours after signing
+  in.** A session used to last thirty days. Any request kept it going, an open
+  tab's own refreshes included, so a browser left signed in stayed signed in
+  for a month, and the person never came back through the sign-in page that
+  their "Last login" counts.
+  - **What counts as activity:** a click, a key, scrolling or moving the mouse
+    in any of the app's tabs, and any save. The page refreshing itself does
+    not count.
+  - **The reminder:** after 15 minutes without activity, "Are you still
+    there?" counts down to the sign-out, with Stay signed in and Sign out.
+  - **Shortly before the 12-hour limit:** a notice asks people to save their
+    work.
+  - **The sign-in page:** it says why the person was signed out, and signing in
+    again returns them to the page they were on.
+  - **Other tabs:** activity in one tab keeps the others signed in, and
+    signing out in one signs out the rest.
+  - **The server enforces both limits** whatever the page does. Its refusal
+    says which limit ended the session.
+  - **The session cookie** now ends when the browser closes.
+  - **Settings:** `EPM_SESSION_IDLE_MINUTES`, `EPM_SESSION_WARN_MINUTES` and
+    `EPM_SESSION_MAX_HOURS` (30, 15 and 12 when left empty).
+- **Nothing of a person's work is kept in the browser.**
+  - The app kept a day of its answers in the browser's storage (projects,
+    tasks, people) and restored them on the next visit. They now stay in the
+    open tab's memory only, and an earlier build's copy is deleted on the
+    first visit.
+  - Signing out also tells the browser to clear its cache for the app.
+  - Only display choices stay in the browser: language, appearance, sidebar
+    and list toggles.
+  - A page opened afresh now waits for its data, and the server's kept copies
+    keep that wait short.
 - Pages refused by role are refused by the server too. They hid the data on
   screen while the API still answered. Forecasts and recommendations are for
   Administrators and Managers. The employee directory is for those who look after
@@ -702,3 +738,11 @@ A server still older than 1.1.0 needs 1.1.0's changes first: OpenProject
    "Clearing test data").
    The expense-approval cases also need a second account set as the tester's
    line manager.
+8. **Sessions.** One migration adds each session's last activity
+   (`20261122090000_session_last_active`, additive, applied on start).
+   - Everyone signed in more than 12 hours before the deploy signs in again.
+   - Anyone else is signed out after 30 minutes without activity, counted from
+     the deploy.
+   - The limits need nothing set. To change them, set `EPM_SESSION_IDLE_MINUTES`,
+     `EPM_SESSION_WARN_MINUTES` and `EPM_SESSION_MAX_HOURS` in `.env.prod`; both
+     compose files pass them through.

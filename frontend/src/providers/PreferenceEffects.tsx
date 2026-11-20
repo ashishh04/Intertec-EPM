@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import { usePreferences } from '@/hooks/usePreferences';
 import { useAuth } from '@/providers/AuthProvider';
-import { forgetResponses } from '@/lib/queryPersister';
+import { forgetResponses } from '@/lib/response-cache';
 import { setDateConventions } from '@/lib/utils';
 import {
   direction,

@@ -32,7 +32,27 @@ import { decryptToken, encryptToken } from './crypto.js';
  * `unsupported_grant_type`.
  */
 
-const SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
+/**
+ * How long a session lasts, from the configuration (EPM_SESSION_*).
+ *
+ * It used to last thirty days, refreshed by any request at all — an open tab's
+ * own background reads included — so a browser left signed in stayed signed in
+ * for a month, and the person never came through the sign-in page (which is
+ * what their "last login" counts). Now it ends after `idleMs` with no activity
+ * from the person, and in any case `maxMs` after signing in.
+ */
+export function sessionPolicy() {
+  const idleMinutes = env.EPM_SESSION_IDLE_MINUTES;
+  return {
+    idleMinutes,
+    // The reminder comes before the end, whatever is configured.
+    warnAfterMinutes: Math.min(env.EPM_SESSION_WARN_MINUTES, Math.max(1, idleMinutes - 1)),
+    idleMs: idleMinutes * 60_000,
+    maxHours: env.EPM_SESSION_MAX_HOURS,
+    maxMs: env.EPM_SESSION_MAX_HOURS * 60 * 60_000,
+  };
+}
+
 /** Refresh a little early; a token that expires mid-flight reads as a 401. */
 const REFRESH_SKEW_MS = 60_000;
 
@@ -167,12 +187,14 @@ export async function openSession(
   userAgent?: string,
 ): Promise<EstablishedSession> {
   const sessionId = randomUUID();
+  const now = Date.now();
   await prisma.session.create({
     data: {
       id: sessionId,
       openProjectId: userId,
       userAgent,
-      expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+      expiresAt: new Date(now + sessionPolicy().maxMs),
+      lastActiveAt: new Date(now),
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       tokenExpiresAt: tokens.tokenExpiresAt,
@@ -223,6 +245,9 @@ export interface ResolvedSession {
   userId: string;
   accessToken: string;
 }
+
+/** Why a session presented with a request is no longer one. */
+export type SessionEnd = 'idle' | 'expired';
 
 /**
  * Refreshes in flight, keyed on session.
@@ -315,16 +340,35 @@ function refreshOnce(
 
 /**
  * Returns a usable token for a session id, refreshing first if it is about to
- * expire. Any failure resolves to undefined, which callers treat as signed out.
+ * expire. Any failure resolves to undefined, which callers treat as signed out;
+ * `onEnd` hears why when this is what ended the session.
+ *
+ * `active`: the request is the person doing something — a save, the page's
+ * activity signal — which moves the idle clock on. A background read by an open
+ * page does not, or a tab left open would never be signed out.
  */
-export async function resolveSession(sessionId?: string): Promise<ResolvedSession | undefined> {
+export async function resolveSession(
+  sessionId?: string,
+  options: { active?: boolean; onEnd?: (reason: SessionEnd) => void } = {},
+): Promise<ResolvedSession | undefined> {
   if (!sessionId) return undefined;
 
   const session = await prisma.session.findUnique({ where: { id: sessionId } }).catch(() => null);
   if (!session) return undefined;
 
-  if (session.expiresAt.getTime() < Date.now()) {
+  const policy = sessionPolicy();
+  const now = Date.now();
+  // The longest a session may last counts from signing in, not from the end
+  // stored then, so a stricter policy ends the sessions already open too.
+  const ended: SessionEnd | undefined =
+    session.createdAt.getTime() + policy.maxMs < now || session.expiresAt.getTime() < now
+      ? 'expired'
+      : session.lastActiveAt.getTime() + policy.idleMs < now
+        ? 'idle'
+        : undefined;
+  if (ended) {
     await prisma.session.delete({ where: { id: sessionId } }).catch(() => undefined);
+    options.onEnd?.(ended);
     return undefined;
   }
 
@@ -344,12 +388,55 @@ export async function resolveSession(sessionId?: string): Promise<ResolvedSessio
 
   if (!accessToken) return undefined;
 
-  // Best-effort liveness marker; never block a request on it.
+  // Best-effort liveness marker, and the idle clock when the person acted;
+  // never block a request on it.
+  const seen = new Date();
   void prisma.session
-    .update({ where: { id: sessionId }, data: { lastSeenAt: new Date() } })
+    .update({ where: { id: sessionId }, data: options.active ? { lastSeenAt: seen, lastActiveAt: seen } : { lastSeenAt: seen } })
     .catch(() => undefined);
 
   return { sessionId, userId: session.openProjectId, accessToken };
+}
+
+/** Where a session stands against the policy: what the page counts down from. */
+export interface SessionClock {
+  idleMinutes: number;
+  warnAfterMinutes: number;
+  maxHours: number;
+  lastActiveAt: string;
+  /** Signed out at this moment if nothing is done before it. */
+  idleEndsAt: string;
+  /** Signed out at this moment whatever is done. */
+  endsAt: string;
+  /** The server's time as it answered, so a page on a computer whose clock is off still counts right. */
+  serverNow: string;
+}
+
+/**
+ * The person's activity, heard: the idle clock starts again now. Awaited, unlike
+ * the marker above, because the page shows the time it answers with.
+ */
+export async function noteActivity(sessionId: string): Promise<SessionClock | undefined> {
+  await prisma.session.update({ where: { id: sessionId }, data: { lastActiveAt: new Date() } }).catch(() => undefined);
+  return sessionClock(sessionId);
+}
+
+export async function sessionClock(sessionId: string): Promise<SessionClock | undefined> {
+  const row = await prisma.session
+    .findUnique({ where: { id: sessionId }, select: { createdAt: true, expiresAt: true, lastActiveAt: true } })
+    .catch(() => null);
+  if (!row) return undefined;
+  const policy = sessionPolicy();
+  const endsAt = Math.min(row.createdAt.getTime() + policy.maxMs, row.expiresAt.getTime());
+  return {
+    idleMinutes: policy.idleMinutes,
+    warnAfterMinutes: policy.warnAfterMinutes,
+    maxHours: policy.maxHours,
+    lastActiveAt: row.lastActiveAt.toISOString(),
+    idleEndsAt: new Date(Math.min(row.lastActiveAt.getTime() + policy.idleMs, endsAt)).toISOString(),
+    endsAt: new Date(endsAt).toISOString(),
+    serverNow: new Date().toISOString(),
+  };
 }
 
 export async function destroySession(sessionId?: string): Promise<void> {

@@ -300,7 +300,11 @@ model Session {
   openProjectId String
   createdAt     DateTime @default(now())
   expiresAt     DateTime
+  /// Any request on it, the page's own background reads included.
   lastSeenAt    DateTime @default(now())
+  /// The person's last activity — signing in, a save, a click or key the page
+  /// reported. The session ends EPM_SESSION_IDLE_MINUTES after it.
+  lastActiveAt  DateTime @default(now())
   userAgent     String?
 
   /// OAuth2 tokens for this user, encrypted at rest with SESSION_SECRET.

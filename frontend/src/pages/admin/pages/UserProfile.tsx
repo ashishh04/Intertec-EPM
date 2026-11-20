@@ -16,6 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAccounts } from '@/hooks/useAccounts';
 import { useAdminInvitations, useAdminUserLogins, useAdminUserProjects } from '@/hooks/useAdmin';
 import { useEmployee } from '@/hooks/useEmployees';
+import { useMfaAdmin } from '@/hooks/useMfa';
 import { useProjects } from '@/hooks/useProjects';
 import { useTasks } from '@/hooks/useTasks';
 import { useUserMap } from '@/hooks/useUsers';
@@ -165,9 +166,22 @@ function CopyableEmail({ email }: { email: string }) {
 function AccountCard({ id, createdAt, language }: { id: ID; createdAt: string; language?: string }) {
   const logins = useAdminUserLogins();
   const invitations = useAdminInvitations();
+  const mfa = useMfaAdmin();
 
   const lastLogin = logins.data?.find((login) => login.id === id)?.lastLoginAt;
   const invitation = invitations.data?.find((candidate) => candidate.id === id);
+  const secondFactor = mfa.data?.people.find((row) => row.userId === id);
+  const mfaValue = mfa.isError
+    ? t('Not available')
+    : !mfa.data
+      ? '…'
+      : secondFactor?.enabled
+        ? secondFactor.enabledAt
+          ? t('Enabled since {date}', { date: formatLongDate(secondFactor.enabledAt) })
+          : t('Enabled')
+        : secondFactor?.required
+          ? t('Required, not set up')
+          : t('Not enabled');
 
   return (
     <Card>
@@ -184,6 +198,7 @@ function AccountCard({ id, createdAt, language }: { id: ID; createdAt: string; l
               value: logins.isError ? t('Not available') : lastLogin ? formatDateTime(lastLogin) : logins.data ? t('Never') : '…',
               mono: false,
             },
+            { label: t('MFA'), value: mfaValue, mono: false },
             { label: t('Language'), value: language ? language.toUpperCase() : t('Not set'), mono: false },
             {
               label: t('Invitation'),

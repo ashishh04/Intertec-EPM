@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ArrowRight, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { ArrowRight, Clock, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { SecondFactorStep } from '@/components/common/SecondFactorStep';
 import { Button } from '@/components/ui/button';
@@ -36,7 +36,11 @@ export default function LoginPage() {
   // The password was right and a code is still owed. Nobody is signed in yet.
   const [awaitingCode, setAwaitingCode] = useState(false);
 
-  const destination = () => safeDestination((location.state as { from?: unknown } | null)?.from);
+  // Signed out by the clock, the address says why and where they were
+  // (AuthProvider `leave`); the router's state says where a deep link was going.
+  const params = new URLSearchParams(location.search);
+  const ended = params.get('reason');
+  const destination = () => safeDestination((location.state as { from?: unknown } | null)?.from ?? params.get('from'));
 
   const rise = (delay = 0) =>
     reduceMotion
@@ -136,6 +140,19 @@ export default function LoginPage() {
                 >
                   <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
                   <p className="text-2xs text-foreground">{failure}</p>
+                </div>
+              ) : ended === 'idle' || ended === 'expired' ? (
+                <div
+                  role="status"
+                  data-testid="session-ended"
+                  className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft p-3"
+                >
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+                  <p className="text-2xs text-foreground">
+                    {ended === 'idle'
+                      ? t('For your security you were signed out after a period without activity. Sign in again to continue where you were.')
+                      : t('Your session reached the longest it may last. Sign in again to continue where you were.')}
+                  </p>
                 </div>
               ) : null}
 

@@ -1,9 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryCache, QueryClient } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
-import { persistOptionsFor, PERSIST_MAX_AGE } from './lib/queryPersister';
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { purgeStoredResponses } from './lib/response-cache';
 import { isStaleAnswer } from './services/api/client';
 import { App } from './App';
 import { AuthProvider } from './providers/AuthProvider';
@@ -12,7 +11,7 @@ import { PreferenceEffects } from './providers/PreferenceEffects';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Toaster } from './components/ui/toaster';
 import { storedPreferences } from './hooks/usePreferences';
-import { direction, intlLocale, loadLanguage, toLanguage } from './lib/i18n';
+import { direction, loadLanguage, toLanguage } from './lib/i18n';
 import { reloadOnce } from './lib/pages';
 import './index.css';
 
@@ -51,17 +50,17 @@ const queryCache = new QueryCache({
  * Query defaults tuned for an operational dashboard: results stay warm for a
  * short window, refetch on focus is off so the UI does not flicker while the
  * user reads, and failed reads retry once before surfacing an error state.
+ *
+ * Answers are kept in this tab's memory only (lib/response-cache.ts) — for ten
+ * minutes after the last screen that used them, so going back to a page is
+ * instant — and never written to the browser's storage.
  */
 const queryClient = new QueryClient({
   queryCache,
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      // Must exceed the persister's maxAge. A restored query is garbage
-      // collected the moment nothing observes it, so a shorter gcTime would
-      // discard the persisted cache before the page that needs it mounts —
-      // the restore would silently do nothing.
-      gcTime: PERSIST_MAX_AGE,
+      gcTime: 10 * 60_000,
       retry: 1,
       refetchOnWindowFocus: false,
     },
@@ -69,14 +68,13 @@ const queryClient = new QueryClient({
   },
 });
 
+// What an earlier build kept of the answers in this browser's storage goes now.
+purgeStoredResponses();
+
 function render() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      {/*
-        Restores the last known data before the first request goes out, then
-        revalidates. The skeletons only appear on a genuinely first visit.
-      */}
-      <PersistQueryClientProvider client={queryClient} persistOptions={persistOptionsFor(reader)}>
+      <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <UIProvider>
             <TooltipProvider delayDuration={300} skipDelayDuration={200}>
@@ -93,7 +91,7 @@ function render() {
             </TooltipProvider>
           </UIProvider>
         </AuthProvider>
-      </PersistQueryClientProvider>
+      </QueryClientProvider>
     </StrictMode>,
   );
 }
@@ -104,7 +102,6 @@ function render() {
 // failed load renders in English rather than not at all.
 const stored = storedPreferences().locale;
 const storedLanguage = toLanguage(stored.language);
-const reader = intlLocale({ language: storedLanguage, calendar: stored.calendar, numerals: stored.numerals });
 document.documentElement.lang = storedLanguage;
 document.documentElement.dir = direction(storedLanguage);
 void loadLanguage(storedLanguage).catch(() => undefined).finally(render);

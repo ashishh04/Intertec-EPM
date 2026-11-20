@@ -1,9 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/services/api/client';
 import type { AppRole, EpmUser, ID, Permission, PermissionMap } from '@/types';
 import { useCurrentUser } from '@/hooks/useUsers';
-import { clearPersistedCache, reconcilePersistedCacheOwner } from '@/lib/queryPersister';
+import { purgeStoredResponses } from '@/lib/response-cache';
+import { hearTabs, tellTabs, type SessionEndReason } from '@/lib/session-channel';
 
 /**
  * Session and authorisation state.
@@ -19,9 +20,27 @@ import { clearPersistedCache, reconcilePersistedCacheOwner } from '@/lib/queryPe
  * a client that lies about them gains nothing.
  */
 
+/**
+ * Where the session stands (auth/oauth.ts `sessionClock`): it ends after
+ * `idleMinutes` without activity, with a reminder `warnAfterMinutes` into the
+ * quiet, and at `endsAt` whatever happens. Times are the server's; `serverNow`
+ * lets the page correct for its own clock.
+ */
+export interface SessionClock {
+  idleMinutes: number;
+  warnAfterMinutes: number;
+  maxHours: number;
+  lastActiveAt: string;
+  idleEndsAt: string;
+  endsAt: string;
+  serverNow: string;
+}
+
 interface SessionResponse {
   userId: string;
   authenticated: boolean;
+  /** Absent from an older server, which has no idle limit. */
+  session?: SessionClock;
 }
 
 interface MeResponse extends EpmUser {
@@ -81,13 +100,28 @@ interface AuthContextValue {
   verifySecondFactor: (code: string) => Promise<SecondFactorResult>;
   /** Gives up a sign-in that is waiting for its code. */
   cancelSecondFactor: () => Promise<void>;
-  signOut: () => void;
+  /**
+   * Signs out here and in the app's other tabs. With a reason when the session
+   * ended on its own — no activity, or the longest it may last — which the
+   * sign-in page then explains.
+   */
+  signOut: (reason?: SessionEndReason) => void;
+  /** The session's clock, for the reminder before it ends for want of activity. */
+  session: SessionClock | undefined;
+  /** The server has just ended the session this browser held, and why. */
+  ended: SessionEndReason | undefined;
   /** Sets the caller's own password and clears the gate. */
   /** The current password as well as the new one: a session alone does not change a password. */
   changePassword: (currentPassword: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+/** Why the server refused the session, when it ended it: no activity, or the longest a session lasts. */
+function endedBy(error: unknown): SessionEndReason | undefined {
+  const code = (error as { code?: string } | null)?.code;
+  return code === 'SESSION_IDLE' ? 'idle' : code === 'SESSION_EXPIRED' ? 'expired' : undefined;
+}
 
 function lookup(map: PermissionMap | undefined, permission: Permission): boolean {
   const [group, action] = permission.split(':');
@@ -147,21 +181,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [queryClient],
   );
 
-  const signOut = useCallback(() => {
-    void apiClient
-      .post('/auth/logout')
-      .catch(() => undefined)
-      .finally(() => {
-        queryClient.clear();
-        // `clear()` empties memory; this empties the copy on disk. Without it
-        // the next person to open this browser would restore the previous
-        // user's projects and tasks before their own session was checked.
-        clearPersistedCache();
-        // Replace, not assign: the page signed out from does not stay behind in
-        // the history, so Back after signing out cannot open it again.
-        window.location.replace('/login');
-      });
-  }, [queryClient]);
+  /**
+   * Leaves the signed-in app: everything it held goes — its answers in memory,
+   * anything an earlier build stored, this tab's session storage — and the page
+   * is replaced, not navigated, so Back after signing out cannot open it again.
+   */
+  const leave = useCallback(
+    (reason?: SessionEndReason) => {
+      queryClient.clear();
+      purgeStoredResponses();
+      try {
+        window.sessionStorage.clear();
+      } catch {
+        /* storage unavailable: nothing kept there */
+      }
+      // Signed out by the clock rather than by choice: the sign-in page says
+      // why, and signing in again returns to the page that was open.
+      const here = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(reason ? `/login?reason=${reason}&from=${encodeURIComponent(here)}` : '/login');
+    },
+    [queryClient],
+  );
+
+  const signOut = useCallback(
+    (reason?: SessionEndReason) => {
+      // A button may hand its click event in: only the two reasons are reasons.
+      const why = reason === 'idle' || reason === 'expired' ? reason : undefined;
+      tellTabs({ type: 'signed-out', reason: why });
+      // The server drops the session and tells the browser to clear its cache.
+      void apiClient
+        .post('/auth/logout')
+        .catch(() => undefined)
+        .finally(() => leave(why));
+    },
+    [leave],
+  );
+
+  // Signed out in another tab of the app: this one leaves too, without asking
+  // the server again. Only while signed in here — a tab on the sign-in page
+  // keeps what is being typed into it.
+  const signedIn = useRef(false);
+  signedIn.current = hasSession;
+  useEffect(
+    () =>
+      hearTabs((message) => {
+        if (message.type === 'signed-out' && signedIn.current) leave(message.reason);
+      }),
+    [leave],
+  );
 
   /*
    * A page the browser restores from its back/forward cache comes back exactly
@@ -178,19 +245,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('pageshow', onPageShow);
     return () => window.removeEventListener('pageshow', onPageShow);
   }, []);
-
-  /*
-   * Sign-out clears the persisted cache, but a session can also end by expiry
-   * or by the tab being closed — neither of which runs that path. So the cache
-   * records who it belongs to, and the moment the signed-in user is known a
-   * mismatch discards it and refetches.
-   */
-  useEffect(() => {
-    if (!me?.id) return;
-    if (reconcilePersistedCacheOwner(String(me.id))) {
-      queryClient.clear();
-    }
-  }, [me?.id, queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {
     const global = me?.permissions;
@@ -220,6 +274,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       verifySecondFactor,
       cancelSecondFactor,
       signOut,
+      session: sessionQuery.data?.session,
+      ended: endedBy(sessionQuery.error),
       changePassword,
     };
   }, [
@@ -227,6 +283,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     me,
     hasSession,
     sessionQuery.isLoading,
+    sessionQuery.data?.session,
+    sessionQuery.error,
     isUserLoading,
     signIn,
     verifySecondFactor,

@@ -5,7 +5,8 @@ import { runWithAuth, type AuthContext } from './context.js';
 import { isExternal } from '../domain/external-access.js';
 import { mfaGateApplies, mfaSetupRequired } from '../domain/mfa.js';
 import { permissionsFor } from './guard.js';
-import { SESSION_COOKIE, isSignInConfigured, resolveSession } from './oauth.js';
+import { SESSION_COOKIE, isSignInConfigured, resolveSession, sessionPolicy, type SessionEnd } from './oauth.js';
+import { message } from '../lib/i18n.js';
 
 /**
  * Resolves the session on every request and enforces it on data routes.
@@ -20,7 +21,49 @@ import { SESSION_COOKIE, isSignInConfigured, resolveSession } from './oauth.js';
 declare module 'fastify' {
   interface FastifyRequest {
     auth?: AuthContext;
+    /** The session this request came with was ended by it, and why. */
+    sessionEnded?: SessionEnd;
   }
+}
+
+/**
+ * Whether a request is the person doing something, which keeps their session
+ * from ending for want of activity.
+ *
+ * Any write is. A read is not when a browser makes it behind an open page —
+ * its fetches and images say so (`Sec-Fetch-Dest`), and the app marks its own
+ * (`X-EPM-Activity: passive`) — or a tab left open would never be signed out:
+ * it refreshes what it shows on its own. Opening an address is. A caller that
+ * is no browser (a script, a test) sends neither header, and everything it does
+ * is its activity.
+ */
+function isActivity(request: FastifyRequest): boolean {
+  if (request.method === 'OPTIONS') return false;
+  if (request.headers['x-epm-activity'] === 'passive') return false;
+  if (request.method !== 'GET' && request.method !== 'HEAD') return true;
+  const destination = request.headers['sec-fetch-dest'];
+  if (typeof destination === 'string') return destination === 'document';
+  return true;
+}
+
+/** The refusal for a request whose session this server has just ended. */
+function sessionEndedError(reason: SessionEnd): EpmError {
+  const policy = sessionPolicy();
+  return reason === 'idle'
+    ? new EpmError(
+        401,
+        'SESSION_IDLE',
+        message('You were signed out after {minutes, plural, one {# minute} other {# minutes}} without activity. Sign in again to continue.', {
+          minutes: policy.idleMinutes,
+        }),
+      )
+    : new EpmError(
+        401,
+        'SESSION_EXPIRED',
+        message('Your session ended {hours, plural, one {# hour} other {# hours}} after you signed in. Sign in again to continue.', {
+          hours: policy.maxHours,
+        }),
+      );
 }
 
 /**
@@ -79,7 +122,12 @@ export function registerAuth(app: FastifyInstance, apiPrefix: string): void {
     const unsigned = request.unsignCookie(cookie);
     if (!unsigned.valid || !unsigned.value) return;
 
-    const session = await resolveSession(unsigned.value);
+    const session = await resolveSession(unsigned.value, {
+      active: isActivity(request),
+      onEnd: (reason) => {
+        request.sessionEnded = reason;
+      },
+    });
     if (!session) return;
 
     request.auth = {
@@ -105,6 +153,8 @@ export function registerAuth(app: FastifyInstance, apiPrefix: string): void {
     if (isPublic(request, apiPrefix)) return done();
 
     if (!request.auth) {
+      // Ended just now by this request: say why, so the sign-in page can.
+      if (request.sessionEnded) throw sessionEndedError(request.sessionEnded);
       // Without a registered OAuth application there is no way to sign in, so
       // say that rather than looping the user through a broken login.
       throw isSignInConfigured()

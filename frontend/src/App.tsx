@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { SessionTimeout } from '@/components/layout/SessionTimeout';
 import { useAuth } from '@/providers/AuthProvider';
 import type { AppRole, Permission } from '@/types';
 import { safeDestination } from '@/lib/navigation';
@@ -124,7 +125,7 @@ function SignedInRedirect() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, mustChangePassword, mfaSetupRequired, external } = useAuth();
+  const { isAuthenticated, isLoading, mustChangePassword, mfaSetupRequired, external, ended } = useAuth();
   const location = useLocation();
 
   // The session is confirmed with the backend, so it is not known on first
@@ -136,24 +137,42 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!isAuthenticated) {
     // The query string travels too: an approval link's chosen decision is in
     // it, and losing it on the way through sign-in would lose the person's choice.
-    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
+    // A session the server has just ended says why on the sign-in page.
+    return (
+      <Navigate
+        to={ended ? `/login?reason=${ended}` : '/login'}
+        replace
+        state={{ from: `${location.pathname}${location.search}` }}
+      />
+    );
   }
 
   // Held at the door. Rendered in place of the route rather than redirected to
   // one, so there is no address to skip past and no destination to lose — the
   // requested URL is still there once the password is set.
-  if (mustChangePassword) return <SetPasswordPage />;
-
   // Likewise, where their role requires two-factor authentication and they have
   // not set it up. After the password, so the app they register is set up by
   // someone holding a password of their own.
-  if (mfaSetupRequired) return <MfaSetupPage />;
-
   // An external user (BR-611) sees the portal in place of EPM, whatever the address;
   // the server refuses them everything else anyway.
-  if (external) return <PortalApp />;
+  const content = mustChangePassword ? (
+    <SetPasswordPage />
+  ) : mfaSetupRequired ? (
+    <MfaSetupPage />
+  ) : external ? (
+    <PortalApp />
+  ) : (
+    children
+  );
 
-  return <>{children}</>;
+  // Signed out after a stretch without activity, with a reminder first —
+  // wherever a signed-in person is, the doors above included.
+  return (
+    <>
+      <SessionTimeout />
+      {content}
+    </>
+  );
 }
 
 /**

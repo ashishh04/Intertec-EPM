@@ -65,6 +65,15 @@ const schema = z.object({
     z.string().min(32, 'EPM_MFA_KEY must be at least 32 characters.').optional(),
   ),
 
+  // How long a session lasts (auth/oauth.ts). Signed out after
+  // EPM_SESSION_IDLE_MINUTES without activity — a click, a key, a save — with a
+  // reminder EPM_SESSION_WARN_MINUTES into the quiet to stay signed in or sign
+  // out; and never longer than EPM_SESSION_MAX_HOURS from signing in, however
+  // active. Background reads by an open page are not activity.
+  EPM_SESSION_IDLE_MINUTES: numberWithDefault(30),
+  EPM_SESSION_WARN_MINUTES: numberWithDefault(15),
+  EPM_SESSION_MAX_HOURS: numberWithDefault(12),
+
   // Credentials for the OAuth client EPM uses to exchange a user's username and
   // password for their own token. Optional so an instance that has not been
   // configured yet still boots — sign-in reports it rather than the whole

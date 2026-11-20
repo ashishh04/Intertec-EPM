@@ -3,15 +3,6 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 /**
- * Identifies this build. The browser's persisted query cache is discarded when
- * it changes (src/lib/queryPersister.ts), so a response whose shape changed in
- * this build is never restored into components written for the new one. CI may
- * set EPM_BUILD_ID to the release; otherwise the moment of building, which in
- * development means each start of the dev server.
- */
-const BUILD_ID = process.env.EPM_BUILD_ID || new Date().toISOString();
-
-/**
  * Third-party code in chunks of its own, which load with the pages that need
  * them — matched by module path, not given as package names. Given names,
  * Rollup moves each package's whole dependency tree into its chunk: `clsx`,
@@ -33,7 +24,6 @@ const VENDOR_CHUNKS: [string, RegExp][] = [
 ];
 
 export default defineConfig({
-  define: { __EPM_BUILD_ID__: JSON.stringify(BUILD_ID) },
   plugins: [react()],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },

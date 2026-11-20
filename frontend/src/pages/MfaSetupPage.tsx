@@ -44,7 +44,7 @@ export default function MfaSetupPage() {
             <Skeleton className="h-24 w-full" />
           )}
           <div className="border-t border-border pt-3">
-            <Button variant="ghost" size="sm" onClick={signOut}>
+            <Button variant="ghost" size="sm" onClick={() => signOut()}>
               <LogOut className="h-3.5 w-3.5" />
               {t('Sign out')}
             </Button>

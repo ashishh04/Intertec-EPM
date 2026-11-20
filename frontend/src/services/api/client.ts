@@ -118,6 +118,7 @@ export class ApiClient {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      const method = (rest.method ?? 'GET').toUpperCase();
       const response = await fetch(`${this.baseUrl}${path}${buildQuery(query)}`, {
         ...rest,
         signal: controller.signal,
@@ -126,6 +127,9 @@ export class ApiClient {
           Accept: 'application/json',
           // The backend answers in the language this page is showing, with its calendar and digits (BR-605, BR-607).
           'Accept-Language': intlLocale(),
+          // A read is the page keeping itself current, not the person doing
+          // anything: it must not keep an idle session alive (auth/hook.ts).
+          ...(method === 'GET' || method === 'HEAD' ? { 'X-EPM-Activity': 'passive' } : {}),
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...headers,
         },
@@ -137,8 +141,13 @@ export class ApiClient {
         // An expired or revoked session is not an error the UI can act on —
         // send the user to sign in again rather than rendering a broken page.
         // /auth/session is exempt: AuthProvider asks it precisely to find out.
+        // Ended for want of activity, or after the longest a session lasts: the
+        // sign-in page says which.
         if (failure.status === 401 && !path.startsWith('/auth/')) {
-          const target = `${window.location.origin}/login`;
+          const reason = failure.code === 'SESSION_IDLE' ? 'idle' : failure.code === 'SESSION_EXPIRED' ? 'expired' : undefined;
+          // And the page that was open, to return to after signing in again.
+          const here = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+          const target = `${window.location.origin}/login${reason ? `?reason=${reason}&from=${here}` : ''}`;
           // Replace, so the page whose session ended is not left in the history
           // for Back to return to — it would only fail and come straight back here.
           if (window.location.href !== target) window.location.replace(target);

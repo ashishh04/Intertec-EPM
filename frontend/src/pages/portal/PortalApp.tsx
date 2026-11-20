@@ -65,7 +65,7 @@ function PortalLayout({ children }: { children: React.ReactNode }) {
                 {t('Security')}
               </Link>
             </Button>
-            <Button variant="ghost" size="sm" onClick={signOut}>
+            <Button variant="ghost" size="sm" onClick={() => signOut()}>
               <LogOut className="h-4 w-4" />
               {t('Sign out')}
             </Button>

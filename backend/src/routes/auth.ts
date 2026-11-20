@@ -5,7 +5,9 @@ import {
   SESSION_COOKIE,
   destroySession,
   isSignInConfigured,
+  noteActivity,
   openSession,
+  sessionClock,
   verifyPassword,
 } from '../auth/oauth.js';
 import { isProduction } from '../config/env.js';
@@ -21,13 +23,18 @@ import { EpmError } from '../lib/errors.js';
  * indication that OpenProject exists.
  */
 
+/**
+ * A session cookie, with no lifetime of its own: the browser drops it when it
+ * closes. It used to be kept for thirty days, so a browser left signed in
+ * stayed signed in for a month. How long a session lasts is the server's to
+ * decide (auth/oauth.ts `sessionPolicy`), not the cookie's.
+ */
 export const SESSION_COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: 'lax' as const,
   secure: isProduction,
   path: '/',
   signed: true,
-  maxAge: 30 * 24 * 60 * 60,
 };
 
 /**
@@ -95,13 +102,30 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     await destroySession(unsigned?.valid ? unsigned.value : undefined);
 
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    // And the browser's cache for the app: nothing of the session is left behind.
+    reply.header('Clear-Site-Data', '"cache"');
     reply.code(204);
   });
 
-  /** Whether this browser currently has a usable session. */
+  /**
+   * Whether this browser currently has a usable session, and its clock: when it
+   * ends for want of activity, when it ends regardless, and the policy behind
+   * both — what the page counts down from and reminds the person at.
+   */
   app.get('/auth/session', async (request) => {
     const auth = request.auth;
     if (!auth) throw EpmError.unauthorized('You are not signed in.');
-    return { userId: auth.userId, authenticated: true };
+    return { userId: auth.userId, authenticated: true, session: await sessionClock(auth.sessionId) };
+  });
+
+  /**
+   * The person is here: the page reports their activity (a click, a key) at most
+   * once a minute, and "Stay signed in" on the reminder. Being a write, the auth
+   * hook has already counted it; this answers with the clock as it now stands.
+   */
+  app.post('/auth/activity', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (request) => {
+    const auth = request.auth;
+    if (!auth) throw EpmError.unauthorized('You are not signed in.');
+    return { session: await noteActivity(auth.sessionId) };
   });
 };

@@ -19,6 +19,7 @@ import {
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useAccounts } from '@/hooks/useAccounts';
 import { useAdminEmailStatus, useAdminInvitations, useAdminUserLogins } from '@/hooks/useAdmin';
+import { useMfaAdmin } from '@/hooks/useMfa';
 import { usePagination } from '@/hooks/usePagination';
 import { t } from '@/lib/i18n';
 import { formatDateTime, formatLongDate } from '@/lib/utils';
@@ -59,6 +60,7 @@ export default function UsersPage() {
 function UsersList() {
   const accounts = useAccounts(true);
   const logins = useAdminUserLogins();
+  const mfa = useMfaAdmin();
   const invitations = useAdminInvitations();
   const email = useAdminEmailStatus();
   const actions = useAccountActions();
@@ -84,6 +86,43 @@ function UsersList() {
     if (!logins.data) return '';
     const at = lastLogin.get(account.id);
     return at ? formatDateTime(at) : t('Never');
+  };
+
+  // Two-factor authentication, the same way: read apart, blank until it comes.
+  const mfaByUser = useMemo(() => new Map((mfa.data?.people ?? []).map((row) => [row.userId, row])), [mfa.data]);
+  const mfaOf = (account: EpmAccount) => {
+    if (mfa.isError) return <span className="text-2xs text-muted-foreground">{t('Not available')}</span>;
+    if (!mfa.data) return null;
+    const row = mfaByUser.get(account.id);
+    if (row?.enabled) {
+      return (
+        <div className="space-y-0.5">
+          <Badge
+            tone="success"
+            size="sm"
+            title={row.enabledAt ? t('Since {date}', { date: formatLongDate(row.enabledAt) }) : undefined}
+          >
+            {t('Enabled')}
+          </Badge>
+          {row.lockedUntil ? (
+            <p className="text-2xs text-warning-strong">{t('Codes locked until {time}', { time: formatDateTime(row.lockedUntil) })}</p>
+          ) : null}
+        </div>
+      );
+    }
+    // Their role must use it and they have not set it up: held at the set-up screen when they sign in.
+    if (row?.required) {
+      return (
+        <Badge tone="warning" size="sm">
+          {t('Required, not set up')}
+        </Badge>
+      );
+    }
+    return (
+      <Badge tone="neutral" size="sm">
+        {t('Not enabled')}
+      </Badge>
+    );
   };
 
   const counts = useMemo(() => {
@@ -156,7 +195,7 @@ function UsersList() {
         error={accounts.error}
         onRetry={() => accounts.refetch()}
         errorTitle={t('Unable to load users')}
-        skeleton={<TableSkeleton columns={9} />}
+        skeleton={<TableSkeleton columns={10} />}
         isEmpty={items.length === 0}
         empty={
           <EmptyState
@@ -180,6 +219,7 @@ function UsersList() {
               <TableHead>{t('Email')}</TableHead>
               <TableHead>{t('Administrator')}</TableHead>
               <TableHead>{t('Status')}</TableHead>
+              <TableHead>{t('MFA')}</TableHead>
               <TableHead>{t('Created on')}</TableHead>
               <TableHead>{t('Last login')}</TableHead>
               <TableHead className="w-12">
@@ -221,6 +261,7 @@ function UsersList() {
                   </Badge>
                   <InvitationNote invitation={invitationOf.get(account.id)} className="mt-1" />
                 </TableCell>
+                <TableCell className="whitespace-nowrap">{mfaOf(account)}</TableCell>
                 <TableCell className="whitespace-nowrap text-2xs text-muted-foreground">
                   {formatLongDate(account.createdAt)}
                 </TableCell>
