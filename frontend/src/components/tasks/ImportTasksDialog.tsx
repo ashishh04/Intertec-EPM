@@ -15,7 +15,7 @@ import { useAddProjectMember, useProjectRoles } from '@/hooks/useMembers';
 import { useProjects } from '@/hooks/useProjects';
 import { saveBlob } from '@/lib/download';
 import { intlLocale, t } from '@/lib/i18n';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, formatShortDate } from '@/lib/utils';
 import { useAuth } from '@/providers/AuthProvider';
 import { apiClient } from '@/services/api/client';
 import type { TaskImportPerson, TaskImportTimeRefusal, TaskImportView } from '@/types';
@@ -165,6 +165,28 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
     }
   };
 
+  // Everyone the file names who has an account, added with the chosen role, then one check.
+  const addEveryone = async () => {
+    const candidates = (view?.people ?? []).filter((person) => person.state === 'account' && person.userId);
+    if (!roleId || candidates.length === 0) return;
+    setAdding('all');
+    let added = 0;
+    try {
+      for (const person of candidates) {
+        try {
+          await addMember.mutateAsync({ userId: person.userId!, roleIds: [roleId] });
+          added += 1;
+        } catch (error) {
+          toast.error(t('{name} could not be added', { name: person.name }), { description: error instanceof Error ? error.message : undefined });
+        }
+      }
+      if (added > 0) toast.success(t('{count, plural, one {# person was added to the project} other {# people were added to the project}}', { count: added }));
+      await check();
+    } finally {
+      setAdding(null);
+    }
+  };
+
   const importWithoutPeople = () => {
     setWithoutPeople(true);
     void check(true);
@@ -203,6 +225,7 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
               <li>{t('Any other row is created as a new task. Give new rows your own IDs (E1, T1…) to set their Parent ID and Predecessors.')}</li>
               <li>{t('Upload the same sheet again after editing it: rows whose IDs were imported before update their tasks, so nothing is created twice. Progress (Done %), dates, status and the rest are overwritten.')}</li>
               <li>{t('Tasks not in the file are left as they are: the import never deletes.')}</li>
+              <li>{t('Sprints in the Version (or Sprint) column that the project does not have are created, dated from their tasks; types such as Epic are turned on for the project when the instance has them, or read as the nearest type it has. Epics, parent tasks and subtasks come from Parent ID, milestones from the Milestone type, so the roadmap, Gantt and backlog follow.')}</li>
               <li>{t('A work package export in its own layout (CSV or XLS, with columns such as id, Parent and % Complete) is read too: its IDs are the same tasks, so it updates them in the same way.')}</li>
               <li>{t('A Microsoft Project plan (.mpp, .mpt, .mpx, or saved as XML) is read too: its outline becomes parents and subtasks, with the dates, work, progress, notes, the person with most work on each task, and finish-to-start dependencies. Every task keeps the plan’s dates.')}</li>
             </ul>
@@ -263,6 +286,45 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                         .join(' · ')} · ${t('{levels} levels', { levels: view.levels })} · `
                     : ''}
                   {t('{added} dependencies to add, {removed} to remove', { added: formatNumber(view.relations), removed: formatNumber(view.relationsRemoved) })}
+                </div>
+              ) : null}
+              {clean && !started && ((view.sprintsToCreate?.length ?? 0) > 0 || (view.typesToEnable?.length ?? 0) > 0 || (view.typesRead?.length ?? 0) > 0) ? (
+                <div className="space-y-1.5 rounded border border-border bg-muted/30 p-2" data-testid="import-prepares">
+                  <div className="font-medium">{t('Made for this project as the import starts')}</div>
+                  {(view.typesToEnable?.length ?? 0) > 0 ? (
+                    <div dir="auto">
+                      {t('Types turned on for the project: {types}', {
+                        types: view.typesToEnable!.map((type) => t('{name} ({count, plural, one {# row} other {# rows}})', { name: type.name, count: type.rows })).join(', '),
+                      })}
+                    </div>
+                  ) : null}
+                  {(view.sprintsToCreate?.length ?? 0) > 0 ? (
+                    <div>
+                      <div>{t('{count, plural, one {# sprint to create} other {# sprints to create}}, on the roadmap and the backlog with their tasks:', { count: view.sprintsToCreate!.length })}</div>
+                      <ul className="mt-0.5 max-h-28 list-disc overflow-y-auto ps-4" dir="auto">
+                        {view.sprintsToCreate!.map((sprint) => (
+                          <li key={sprint.name}>
+                            {sprint.name}
+                            <span className="text-muted-foreground">
+                              {' · '}
+                              {sprint.start && sprint.end
+                                ? `${formatShortDate(sprint.start)} – ${formatShortDate(sprint.end)}`
+                                : t('undated: a backlog')}
+                              {' · '}
+                              {t('{count, plural, one {# task} other {# tasks}}', { count: sprint.rows })}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {(view.typesRead?.length ?? 0) > 0 ? (
+                    <div className="text-muted-foreground" dir="auto">
+                      {t('Read as the nearest type this project has: {pairs}', {
+                        pairs: view.typesRead!.map((pair) => t('{from} as {to} ({count, plural, one {# row} other {# rows}})', { from: pair.from, to: pair.to, count: pair.rows })).join(', '),
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {clean && view.copies > 0 ? (
@@ -402,6 +464,12 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                         </SelectContent>
                       </Select>
                       <span className="text-muted-foreground">{t('Choose one that can be given tasks.')}</span>
+                      {people.filter((person) => person.state === 'account' && person.userId).length > 1 ? (
+                        <Button size="sm" disabled={!roleId || checking || adding !== null} loading={adding === 'all'} onClick={() => void addEveryone()}>
+                          <UserPlus className="h-4 w-4" />
+                          {t('Add all {count} to the project', { count: people.filter((person) => person.state === 'account' && person.userId).length })}
+                        </Button>
+                      ) : null}
                     </div>
                   ) : null}
                   <table className="mt-2 w-full">
@@ -470,6 +538,8 @@ export function ImportTasksDialog({ open, onOpenChange }: { open: boolean; onOpe
                     })}
                     {' · '}
                     {t('{linked} dependencies added, {unlinked} removed', { linked: formatNumber(view.linked), unlinked: formatNumber(view.unlinked) })}
+                    {(view.sprintsToCreate?.length ?? 0) > 0 ? ` · ${t('{made} of {count} sprints made', { made: formatNumber(view.sprintsCreated ?? 0), count: formatNumber(view.sprintsToCreate!.length) })}` : ''}
+                    {(view.typesToEnable?.length ?? 0) > 0 ? ` · ${t('{done} of {count} types turned on', { done: formatNumber(view.typesEnabled ?? 0), count: formatNumber(view.typesToEnable!.length) })}` : ''}
                     {time && time.entries > 0 ? ` · ${t('{logged} of {count} time entries logged', { logged: formatNumber(time.logged), count: formatNumber(time.entries) })}` : ''}
                     {view.status === 'cancelled' ? ` · ${t('Cancelled: resume to carry on.')}` : ''}
                     {view.status === 'failed' ? ` · ${t('Stopped: resume to carry on.')}` : ''}

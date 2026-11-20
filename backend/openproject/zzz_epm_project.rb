@@ -13,6 +13,12 @@
 #   PATCH /epm_project/projects/:id/phases/:definition_id  { active?, startDate?, finishDate? } -> as GET
 #   POST  /epm_project/projects/:id/copy        { name, identifier?, parentId?, only: [part] } -> 202 { jobId }
 #   GET   /epm_project/projects/:id/abilities   { manageBoards, viewPhases, selectPhases, editPhases, ... }
+#   GET   /epm_project/projects/:id/types       { types: [{ id, name, isMilestone, enabled }], canManage }
+#   POST  /epm_project/projects/:id/types       { typeId }            -> as GET
+#
+# The types: a type the instance has, turned on for the project as Project
+# settings > Work package types does (manage_types), so an import can use an
+# Epic the project was not given. Never creates a type: that is the instance's.
 #
 # The copy is API v3's own (POST /api/v3/projects/:id/copy: the same contract,
 # service and CopyProjectJob, followed through /api/v3/job_statuses/:jobId)
@@ -169,8 +175,39 @@ Rails.application.config.to_prepare do
         editPhases: @user.allowed_in_project?(:edit_project_phases, @project),
         selectModules: @user.allowed_in_project?(:select_project_modules, @project),
         selectAttributes: @user.allowed_in_project?(:select_project_custom_fields, @project),
-        copyProject: @user.allowed_in_project?(:copy_projects, @project)
+        copyProject: @user.allowed_in_project?(:copy_projects, @project),
+        manageTypes: @user.allowed_in_project?(:manage_types, @project),
+        manageVersions: @user.allowed_in_project?(:manage_versions, @project)
       }
+    end
+
+    # --------------------------------------------------------------- types
+
+    def types
+      render json: types_json
+    end
+
+    # Its base variant through Projects::Types::AddService (17.9 on), whose
+    # contract asks manage_types; before type variants, the project's own list.
+    # A type the project uses already is left as it is.
+    def add_type
+      type = ::Type.find(json_body["typeId"])
+      return render(json: types_json) if enabled_type_ids.include?(type.id)
+
+      if type.respond_to?(:default_variant) && defined?(::Projects::Types::AddService)
+        variant = type.default_variant
+        return render(json: { message: "That type cannot be turned on." }, status: :unprocessable_entity) unless variant
+
+        call = ::Projects::Types::AddService.new(user: @user, model: @project).call(variant:)
+        return render_failure(call) unless call.success?
+      else
+        return forbidden unless @user.allowed_in_project?(:manage_types, @project)
+
+        @project.types << type
+      end
+
+      @project.reload
+      render json: types_json
     end
 
     # ---------------------------------------------------------------- copy
@@ -257,6 +294,20 @@ Rails.application.config.to_prepare do
       }
     end
 
+    def enabled_type_ids
+      (@project.respond_to?(:enabled_types) ? @project.enabled_types : @project.types).pluck(:id)
+    end
+
+    def types_json
+      enabled = enabled_type_ids
+      {
+        types: ::Type.order(:position).map do |type|
+          { id: type.id, name: type.name, isMilestone: type.is_milestone?, enabled: enabled.include?(type.id) }
+        end,
+        canManage: @user.allowed_in_project?(:manage_types, @project)
+      }
+    end
+
     def find_project
       @project = Project.visible(@user).find(params[:id])
     end
@@ -317,6 +368,8 @@ Rails.application.routes.prepend do
     patch "projects/:id/template", action: :update_template, constraints: { id: /\d+/ }
     post "projects/:id/copy", action: :copy, constraints: { id: /\d+/ }
     get "projects/:id/abilities", action: :abilities, constraints: { id: /\d+/ }
+    get "projects/:id/types", action: :types, constraints: { id: /\d+/ }
+    post "projects/:id/types", action: :add_type, constraints: { id: /\d+/ }
     get "projects/:id/phases", action: :phases, constraints: { id: /\d+/ }
     patch "projects/:id/phases/:definition_id", action: :update_phase, constraints: { id: /\d+/, definition_id: /\d+/ }
   end

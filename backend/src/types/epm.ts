@@ -4578,6 +4578,19 @@ export interface TaskImportView {
   toUpdate: number;
   /** Rows with an ID of this project that match it already. */
   unchanged: number;
+  /**
+   * Sprints (versions) the file names and the project lacks, made when the
+   * import runs: dated from the first start to the last due date of their
+   * tasks, undated (a backlog) when called Backlog or none has a date.
+   */
+  sprintsToCreate?: { name: string; start: string | null; end: string | null; rows: number }[];
+  /** Types the instance has and the project does not use yet, turned on for it when the import runs. */
+  typesToEnable?: { name: string; rows: number }[];
+  /** Type names the project has no type for, read as the nearest it has: Epic as Summary task. */
+  typesRead?: { from: string; to: string; rows: number }[];
+  /** Sprints made and types turned on so far. */
+  sprintsCreated?: number;
+  typesEnabled?: number;
   /** Created rows whose ID names a work package of another project: copies. */
   copies: number;
   /** Rows matched by an ID an earlier import made a task from (E1, T1…), not WP and a number. */

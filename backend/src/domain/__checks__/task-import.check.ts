@@ -4,7 +4,7 @@ import { decodeText, parseCsv } from '../../lib/csv-parse.js';
 import { buildWorkbook } from '../../lib/xlsx.js';
 import { readXlsx } from '../../lib/xlsx-read.js';
 import { normaliseSource } from '../task-import-formats.js';
-import { changesOf, checkRows, nextWorkingDay, parseDay, parseDone, parseHours, spreadHours, type ExistingWork, type PlannedRow } from '../task-import.js';
+import { changesOf, checkRows, newSprintsOf, nextWorkingDay, parseDay, parseDone, parseHours, spreadHours, type ExistingWork, type PlannedRow } from '../task-import.js';
 
 /**
  * The CSV task import's reading and checking, without OpenProject.
@@ -72,7 +72,7 @@ check('an epic, a task, a subtask and a milestone, with a dependency: clean, thr
 check('every problem is found and named by line, and nothing is resolved by guess', () => {
   const csv = [
     'ID,Parent,Type,Subject,Start,Due,Hours,Assignee,Predecessors',
-    'A,,Epic,No such type,,,,,',
+    'A,,Gadget,No such type,,,,,',
     'B,ZZ,Task,Missing parent,,,,,',
     'C,,Task,,,,,,',
     'D,,Task,Backwards,2026-12-01,2026-11-01,,,',
@@ -420,6 +420,66 @@ check('spent time is spread a quarter of an hour at a time over the working days
 check('a new row repeating an earlier one under the same parent is named; the same name elsewhere is not', () => {
   const { rows } = checkRows(['ID,Parent ID,Subject', 'E1,,Changes', 'T1,E1,List and filters', 'T2,E1,List and filters', 'E2,,Problems', 'T3,E2,List and filters', 'E3,,Changes'].join('\n'), context);
   assert.deepEqual(rows.map((row) => row.repeatOf ?? null), [null, null, 3, null, null, 2]);
+});
+
+check('a plan’s levels by their usual names: an Epic, a Parent task, a Subtask and a Deliverable take the nearest types, and say so', () => {
+  const csv = [
+    'ID,Parent ID,Type,Subject,Start date,Due date',
+    'E1,,Epic,Portal,2026-11-02,2026-12-18',
+    'T1,E1,Parent task,Design,2026-11-02,2026-11-13',
+    'S1,T1,Sub-task,Login screen,2026-11-02,2026-11-04',
+    'M1,E1,Deliverable,Live,,2026-12-18',
+  ].join('\n');
+  const { rows, problems } = checkRows(csv, context);
+  assert.deepEqual(problems, []);
+  assert.deepEqual(rows.map((row) => `${row.typeId}:${row.typeName}:${row.typeFrom ?? ''}:${row.typeEnable ?? false}`), [
+    '3:Summary task:Epic:false',
+    '1:Task:Parent task:false',
+    '1:Task:Sub-task:false',
+    '2:Milestone:Deliverable:false',
+  ]);
+});
+
+check('a type the instance has is turned on for the project by someone who may; otherwise read as the nearest, or refused', () => {
+  const instanceTypes = new Map([
+    ['epic', { id: '9', name: 'Epic', milestone: false }],
+    ['bug', { id: '10', name: 'Bug', milestone: false }],
+  ]);
+  const csv = ['ID,Type,Subject', 'E1,Epic,Portal', 'B1,Bug,Broken login'].join('\n');
+  const allowed = checkRows(csv, { ...context, instanceTypes, mayManageTypes: true });
+  assert.deepEqual(allowed.problems, []);
+  assert.deepEqual(allowed.rows.map((row) => `${row.typeId}:${row.typeName}:${row.typeEnable ?? false}:${row.typeFrom ?? ''}`), ['9:Epic:true:', '10:Bug:true:']);
+  const refused = checkRows(csv, { ...context, instanceTypes, mayManageTypes: false });
+  assert.equal(refused.rows[0]!.typeName, 'Summary task', 'Epic is still read as the summary type');
+  assert.deepEqual(refused.problems.map((problem) => `${problem.row}:${problem.column}`), ['3:Type']);
+  assert.match(refused.problems[0]!.message.template, /manages the project’s types can turn it on/);
+});
+
+check('sprints the project lacks are planned, dated from their tasks, a backlog undated; without the right to make versions, refused', () => {
+  const csv = [
+    'ID,Subject,Start date,Due date,Sprint',
+    'T1,Known sprint,2026-11-02,2026-11-06,Sprint 1',
+    'T2,First of two,2026-11-16,2026-11-20,Sprint 2',
+    'T3,Second of two,2026-11-23,2026-11-27,sprint 2',
+    'T4,Someday,,,Product backlog',
+    'T5,Dated but in the backlog,2026-12-01,2026-12-02,Product backlog',
+  ].join('\n');
+  const { rows, problems } = checkRows(csv, { ...context, mayCreateVersions: true });
+  assert.deepEqual(problems, []);
+  assert.deepEqual(rows.map((row) => `${row.versionId ?? ''}/${row.versionNew ?? ''}`), ['4/', '/Sprint 2', '/sprint 2', '/Product backlog', '/Product backlog']);
+  assert.deepEqual(newSprintsOf(rows), [
+    { key: 'sprint 2', name: 'Sprint 2', start: '2026-11-16', end: '2026-11-27', rows: 2 },
+    { key: 'product backlog', name: 'Product backlog', start: null, end: null, rows: 2 },
+  ]);
+  const refused = checkRows(csv, { ...context, mayCreateVersions: false });
+  assert.deepEqual(refused.problems.map((problem) => problem.row), [3, 4, 5, 6]);
+});
+
+check('an existing task moved into a new sprint is a change, and its new sprint is made', () => {
+  const existing = new Map([work('501', { subject: 'Planned work', parentId: null, versionId: '4', version: 'Sprint 1' })]);
+  const { rows, problems } = checkRows(['ID,Subject,Version', 'WP501,Planned work,Sprint 3'].join('\n'), { ...withWork, existing, mayCreateVersions: true });
+  assert.deepEqual(problems, []);
+  assert.equal(`${rows[0]!.action}/${rows[0]!.versionNew}/${rows[0]!.set?.join()}`, 'update/Sprint 3/version');
 });
 
 check("another project's export uploaded again updates the copies the first upload made", () => {

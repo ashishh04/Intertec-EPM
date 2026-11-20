@@ -235,6 +235,30 @@ Changes since 1.1.0 (21 October 2026).
   come as well, as the heatmap did before, with the placeholders and roles
   booked with nobody named. A cell opens on the time logged in it. The browser
   remembers which view was chosen last.
+- **An import brings the whole plan.** Tasks → Import makes what the file
+  names and the project lacks as the import starts, so a plan comes in without
+  setting the project up by hand first.
+  - Sprints named in the Version (or Sprint) column are created, dated from the
+    first start to the last due date of their tasks, so they show on the
+    roadmap, the sprints and the backlog with their work. A sprint called
+    Backlog is left undated.
+  - A type the instance has but the project does not use, such as Epic, is
+    turned on for the project, by someone who may manage its types. Otherwise
+    Epic, Parent task, Subtask, Story and Deliverable are read as the nearest
+    type the project has, and the check says so.
+  - Epics, parent tasks and subtasks come from Parent ID and milestones from
+    the Milestone type, with their dates, so the Gantt chart follows.
+  - Everyone the file names who has an account can be added to the project in
+    one go, with one role, so their tasks keep their assignee and accountable.
+  - The template has a Spent time column, and its example puts tasks into
+    sprints.
+
+  This needs the OpenProject image rebuilt: its project add-on can now turn a
+  type on for a project.
+- **Utilisation tables page the same way.** On Insights, the Departments,
+  Teams, Roles and People tables always show their pager (10 a page, more on
+  request), and Resources → Capacity pages through people, 25 a page, with a
+  team's header repeated on each page its people are on.
 - **Dashboard trends by day, week or month.** Insights dashboards have a
   Trends choice beside the period: by day, by week, by month, or by the length
   of the period as before. Resource utilisation reads by the day over a month

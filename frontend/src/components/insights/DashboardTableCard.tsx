@@ -50,8 +50,9 @@ export function DashboardTableCard({
           {table.description ? <CardDescription className="text-2xs">{table.description}</CardDescription> : null}
         </CardHeader>
       }
+      // Every table pages the same way — departments, teams, people — however few rows it has today.
       footer={
-        table.rows.length > 10 ? (
+        table.rows.length > 0 ? (
           <Pagination
             page={paged.page}
             pageSize={paged.pageSize}

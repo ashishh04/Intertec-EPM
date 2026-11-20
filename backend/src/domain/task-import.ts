@@ -2,6 +2,7 @@ import type { TaskImport } from '@prisma/client';
 
 import { runAsSystem, runWithAuth, type AuthContext } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
+import { aggregateCache } from '../lib/cache.js';
 import { parseCsv, type CsvRecord } from '../lib/csv-parse.js';
 import { today as todayIso } from '../lib/dates.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
@@ -53,9 +54,16 @@ import { normaliseSource } from './task-import-formats.js';
  * file names is listed once, with whether they have an account (and can be
  * added to the project) or not, and holds the file back until it is checked
  * again to import without them: then their cells are left blank on new rows
- * and as they are on tasks being updated. A Spent time column is logged on a
- * new task as one entry, for its assignee on its finish date, under the
- * timesheet rules; updated tasks have theirs already.
+ * and as they are on tasks being updated. A Spent time column is logged for
+ * each task's assignee, spread over its working days, less what it has logged
+ * already, so the same file never logs twice.
+ *
+ * What the file needs and the project lacks is made as the import starts, so a
+ * plan comes in whole: sprints (versions) it names, dated from their tasks; and
+ * types the instance has but the project does not use, turned on for it — each
+ * only by someone OpenProject lets do it (manage_versions, manage_types). The
+ * usual names of a plan's levels the project has no type for — Epic, Subtask —
+ * are read as the nearest type it has, and the check says so.
  */
 
 export const MAX_ROWS = 20_000;
@@ -222,6 +230,12 @@ export interface PlannedRow {
   statusId: string | null;
   priorityId: string | null;
   versionId: string | null;
+  /** A sprint (version) the project does not have, by the name the file gives it: made when the import runs. */
+  versionNew?: string;
+  /** Its type is one the instance has and the project does not use yet: turned on for the project when the import runs. */
+  typeEnable?: boolean;
+  /** The type the file names where the project has none by that name, the row taking the nearest it has (Epic as Summary task). */
+  typeFrom?: string;
   /** Absent on imports checked before these columns existed. */
   accountableId?: string | null;
   categoryId?: string | null;
@@ -319,6 +333,12 @@ interface StoredProblem {
 export interface ProjectContext {
   types: Map<string, { id: string; name: string; milestone: boolean }>;
   defaultType: { id: string; name: string; milestone: boolean };
+  /** Every type the instance has, by name (lower case): one the project does not use can be turned on for it. */
+  instanceTypes?: Map<string, { id: string; name: string; milestone: boolean }>;
+  /** Whether the importer may turn types on for the project (manage_types). */
+  mayManageTypes?: boolean;
+  /** Whether the importer may create versions in the project: sprints the file names and the project lacks. */
+  mayCreateVersions?: boolean;
   statuses: Map<string, string>;
   priorities: Map<string, string>;
   versions: Map<string, string>;
@@ -440,7 +460,7 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
     // What each task has logged already, so spent time in a file is logged once.
     withWork ? ownSpentHours(projectId) : null,
   ]);
-  const [week, holidays] = withWork
+  const [week, holidays, instanceTypes, abilities, mayCreateVersions] = withWork
     ? await Promise.all([
         openProject.getAll<{ day: number; working: boolean }>('/days/week').catch(() => null),
         openProject
@@ -449,8 +469,16 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
             pageSize: 1000,
           })
           .catch(() => null),
+        // What the file may name that the project lacks, and whether the importer may add it.
+        openProject.getAll<OpNamed>('/types', { pageSize: 200 }).catch(() => null),
+        openProject.request<{ manageTypes?: boolean }>(`/epm_project/projects/${projectId}/abilities`, { root: true }).catch(() => null),
+        // The version form answers "may this caller define a version here", as the sprints route asks it.
+        openProject
+          .request<unknown>('/versions/form', { method: 'POST', body: { _links: { definingProject: { href: `/api/v3/projects/${projectId}` } } } })
+          .then(() => true)
+          .catch(() => false),
       ])
-    : [null, null];
+    : [null, null, null, null, false];
   const offered = await projectFields(projectId, types.items.map((type) => String(type.id)));
   const memberIds = new Set(memberships.items.map((row) => idFromHref(row._links.principal?.href)).filter((id): id is string => Boolean(id)));
   const [people, assignable] = await Promise.all([
@@ -525,6 +553,11 @@ async function projectContext(projectId: number, withWork = true): Promise<Proje
   return {
     types: typeMap,
     defaultType,
+    ...(instanceTypes
+      ? { instanceTypes: new Map(instanceTypes.items.map((type) => [type.name.toLowerCase(), { id: String(type.id), name: type.name, milestone: Boolean(type.isMilestone) }])) }
+      : {}),
+    mayManageTypes: abilities?.manageTypes === true,
+    mayCreateVersions,
     statuses: new Map([...catalog.statusById.values()].map((status) => [status.name.toLowerCase(), status.id])),
     priorities: new Map([...catalog.priorityById.values()].map((priority) => [priority.name.toLowerCase(), priority.id])),
     versions: new Map(versions.items.map((version) => [version.name.toLowerCase(), String(version.id)])),
@@ -556,6 +589,74 @@ async function rememberedIds(projectId: number): Promise<Map<string, string>> {
     }
   }
   return remembered;
+}
+
+type ProjectType = ProjectContext['defaultType'];
+
+/**
+ * The usual names for the levels of a plan, and the kind of type each stands
+ * for where the project has no type by that name: an Epic is a summary, a
+ * Subtask a task, a Deliverable a milestone.
+ */
+const TYPE_WORDS: { words: RegExp; level: 'summary' | 'task' | 'milestone' }[] = [
+  { words: /^(epics?|summar(?:y|ies)|summary tasks?|phases?|work ?streams?|initiatives?|themes?)$/, level: 'summary' },
+  { words: /^(parents?|parent tasks?|tasks?|sub ?tasks?|child(?: tasks?)?|stor(?:y|ies)|user stor(?:y|ies)|features?|activit(?:y|ies)|work items?)$/, level: 'task' },
+  { words: /^(milestones?|deliverables?|gates?|checkpoints?)$/, level: 'milestone' },
+];
+
+/**
+ * The type a row names. The project's own; else one the instance has, turned
+ * on for the project when the import runs — where the importer may manage its
+ * types; else, for the usual name of a level of a plan, the nearest type the
+ * project has, said so on the check (`from`). Undefined: none fits.
+ */
+export function typeFor(name: string, context: ProjectContext): { type: ProjectType; enable?: true; from?: string } | undefined {
+  const own = context.types.get(name.toLowerCase());
+  if (own) return { type: own };
+  const instance = context.instanceTypes?.get(name.toLowerCase());
+  if (instance && context.mayManageTypes) return { type: instance, enable: true };
+  const level = TYPE_WORDS.find((entry) => entry.words.test(normalise(name)))?.level;
+  const types = [...context.types.values()];
+  const nearest =
+    level === 'summary'
+      ? (['summary task', 'epic', 'phase', 'feature'].map((type) => context.types.get(type)).find(Boolean) ?? context.defaultType)
+      : level === 'task'
+        ? context.defaultType
+        : level === 'milestone'
+          ? types.find((type) => type.milestone)
+          : undefined;
+  return nearest ? { type: nearest, from: name } : undefined;
+}
+
+/** A sprint the file creates: by the name its first row gives it, dated from its tasks. */
+export interface NewSprint {
+  key: string;
+  name: string;
+  start: string | null;
+  end: string | null;
+  rows: number;
+}
+
+/**
+ * The sprints a checked file creates, each dated from the earliest start to
+ * the latest finish of the tasks planned into it — or undated, a backlog, when
+ * its name says it is one or none of its tasks has a date (a version with no
+ * dates is a backlog in EPM's sprints).
+ */
+export function newSprintsOf(rows: PlannedRow[]): NewSprint[] {
+  const sprints = new Map<string, NewSprint>();
+  for (const row of rows) {
+    if (!row.versionNew) continue;
+    const key = row.versionNew.toLowerCase();
+    const sprint = sprints.get(key) ?? { key, name: row.versionNew, start: null, end: null, rows: 0 };
+    sprint.rows += 1;
+    const first = row.start ?? row.due;
+    const last = row.due ?? row.start;
+    if (first && (!sprint.start || first < sprint.start)) sprint.start = first;
+    if (last && (!sprint.end || last > sprint.end)) sprint.end = last;
+    sprints.set(key, sprint);
+  }
+  return [...sprints.values()].map((sprint) => (/\bbacklog\b/i.test(sprint.name) ? { ...sprint, start: null, end: null } : sprint));
 }
 
 const sameText = (a: string, b: string) => a.replace(/\r\n?/g, '\n').trim() === b.replace(/\r\n?/g, '\n').trim();
@@ -628,13 +729,20 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext, 
 
     // An update keeps what a blank Type, Status or Priority leaves out; a new row takes the defaults.
     const typeName = cell(cells, 'type');
+    const named = typeName ? typeFor(typeName, context) : undefined;
     const type = typeName
-      ? context.types.get(typeName.toLowerCase())
+      ? named?.type
       : current
         ? { id: current.typeId, name: current.type, milestone: current.milestone }
         : context.defaultType;
     if (!type) {
-      problem('Type', message('{type} is not a type in this project: use one of {types}.', { type: typeName, types: [...context.types.values()].map((entry) => entry.name).join(', ') }));
+      const types = [...context.types.values()].map((entry) => entry.name).join(', ');
+      problem(
+        'Type',
+        context.instanceTypes?.has(typeName.toLowerCase())
+          ? message('{type} is not a type in this project: someone who manages the project’s types can turn it on, or use one of {types}.', { type: typeName, types })
+          : message('{type} is not a type in this project: use one of {types}.', { type: typeName, types }),
+      );
     }
     const start = parseDay(cell(cells, 'start'));
     const due = parseDay(cell(cells, 'due'));
@@ -701,7 +809,22 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext, 
     const assigneeId = person('assignee', 'Assignee', current && { id: current.assigneeId, name: current.assignee });
     const statusId = lookup('status', 'Status', context.statuses, message('a status'), current && { id: current.statusId, name: current.status });
     const priorityId = lookup('priority', 'Priority', context.priorities, message('a priority'), current && { id: current.priorityId, name: current.priority });
-    const versionId = lookup('version', 'Version', context.versions, message('a version in this project'), current && { id: current.versionId, name: current.version });
+    // A sprint the project does not have is made when the import runs, by someone who may make versions here.
+    const versionName = cell(cells, 'version');
+    const keepsVersion = Boolean(current?.versionId && versionName.toLowerCase() === current.version.toLowerCase());
+    let versionNew: string | undefined;
+    let versionId: string | null = null;
+    if (versionName && !keepsVersion && !context.versions.has(versionName.toLowerCase())) {
+      if (context.mayCreateVersions) versionNew = versionName;
+      else {
+        problem(
+          'Version',
+          message('{value} is not a version in this project, and you may not create versions in it: create it first, or ask someone who manages the project’s versions.', { value: versionName }),
+        );
+      }
+    } else {
+      versionId = lookup('version', 'Version', context.versions, message('a version in this project'), current && { id: current.versionId, name: current.version });
+    }
     const accountableId = person('accountable', 'Accountable', current && { id: current.accountableId, name: current.accountable });
     const categoryId = lookup('category', 'Category', context.categories ?? new Map(), message('a category in this project'), current && { id: current.categoryId, name: current.category });
     const pointsText = cell(cells, 'points');
@@ -739,6 +862,8 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext, 
       depth: 0,
       typeId: type?.id ?? '',
       typeName: type?.name ?? typeName,
+      ...(named?.enable ? { typeEnable: true } : {}),
+      ...(named?.from ? { typeFrom: named.from } : {}),
       milestone: Boolean(type?.milestone),
       subject,
       description: description || null,
@@ -751,6 +876,7 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext, 
       statusId,
       priorityId,
       versionId,
+      ...(versionNew ? { versionNew } : {}),
       accountableId,
       categoryId,
       points: points ?? null,
@@ -853,7 +979,7 @@ export function checkRows(input: string | CsvRecord[], context: ProjectContext, 
     if (present('assignee') && row.assigneeId !== current.assigneeId) differ('assignee', 'Assignee', current.assignee, cell(cells, 'assignee'));
     if (row.statusId && row.statusId !== current.statusId) differ('status', 'Status', current.status, cell(cells, 'status'));
     if (row.priorityId && row.priorityId !== current.priorityId) differ('priority', 'Priority', current.priority, cell(cells, 'priority'));
-    if (present('version') && row.versionId !== current.versionId) differ('version', 'Version', current.version, cell(cells, 'version'));
+    if (present('version') && (row.versionNew || row.versionId !== current.versionId)) differ('version', 'Version', current.version, cell(cells, 'version'));
     if (present('accountable') && row.accountableId !== current.accountableId) differ('accountable', 'Accountable', current.accountable, cell(cells, 'accountable'));
     if (present('category') && row.categoryId !== current.categoryId) differ('category', 'Category', current.category, cell(cells, 'category'));
     if (present('points') && (row.points ?? null) !== current.points) differ('points', 'Story points', current.points === null ? '' : String(current.points), row.points == null ? '' : String(row.points));
@@ -1076,7 +1202,23 @@ const UNLINKED = 'unlink:';
 const MOVED = 'move:';
 /** Spent time logged on a new task: `time:` and its row key → the time entry id. */
 const TIMED = 'time:';
-const isCreatedKey = (key: string) => ![UPDATED, LINKED, UNLINKED, MOVED, TIMED].some((marker) => key.startsWith(marker));
+/** A type turned on for the project: `type:` and its id. */
+const TYPED = 'type:';
+/** A sprint made for the file: `sprint:` and its name in lower case → the version id. */
+const SPRINTED = 'sprint:';
+const isCreatedKey = (key: string) => ![UPDATED, LINKED, UNLINKED, MOVED, TIMED, TYPED, SPRINTED].some((marker) => key.startsWith(marker));
+
+/** The types a checked file turns on for the project, by id, with their names and rows. */
+function typesToEnableOf(rows: PlannedRow[]): Map<string, { name: string; rows: number }> {
+  const out = new Map<string, { name: string; rows: number }>();
+  for (const row of rows) {
+    if (!row.typeEnable) continue;
+    const entry = out.get(row.typeId) ?? { name: row.typeName, rows: 0 };
+    entry.rows += 1;
+    out.set(row.typeId, entry);
+  }
+  return out;
+}
 
 /** A row that could not be done, or whose spent time could not be logged. */
 interface RunError {
@@ -1137,6 +1279,15 @@ export function importView(row: TaskImport): TaskImportView {
     else if (planned.time!.refused) refuse(planned.time!.refused, 1, planned.time!.hours);
   }
   const repeats = rows.filter((planned) => planned.repeatOf);
+  // What the project lacks and the file needs: types turned on, sprints made, and names read as the nearest type.
+  const read = new Map<string, { from: string; to: string; rows: number }>();
+  for (const planned of rows) {
+    if (!planned.typeFrom) continue;
+    const key = `${planned.typeFrom.toLowerCase()}\n${planned.typeName}`;
+    const entry = read.get(key) ?? { from: planned.typeFrom, to: planned.typeName, rows: 0 };
+    entry.rows += 1;
+    read.set(key, entry);
+  }
   return {
     id: row.id,
     projectId: String(row.projectId),
@@ -1146,6 +1297,11 @@ export function importView(row: TaskImport): TaskImportView {
     toCreate,
     toUpdate,
     unchanged: rows.length - toCreate - toUpdate,
+    sprintsToCreate: newSprintsOf(rows).map(({ name, start, end, rows: count }) => ({ name, start, end, rows: count })),
+    typesToEnable: [...typesToEnableOf(rows).values()],
+    typesRead: [...read.values()],
+    sprintsCreated: results.filter((key) => key.startsWith(SPRINTED)).length,
+    typesEnabled: results.filter((key) => key.startsWith(TYPED)).length,
     copies: rows.filter((planned) => planned.copy).length,
     matchedEarlier: rows.filter((planned) => planned.matchedEarlier).length,
     sameSubject: rows.filter((planned) => planned.sameSubjectAs).slice(0, CHANGES_SHOWN).map((planned) => ({ row: planned.line, key: planned.key.startsWith('#line') ? '' : planned.key, subject: planned.subject, existing: `WP${planned.sameSubjectAs}` })),
@@ -1181,7 +1337,7 @@ export function importView(row: TaskImport): TaskImportView {
     problems: problems.slice(0, 500).map(renderProblem),
     problemCount: problems.length,
     errors: errors.slice(0, 500).map((error) => {
-      if (error.kind !== 'time') return { row: error.row, message: error.message };
+      if (error.kind !== 'time') return { row: error.row, message: error.source ? render(contextLanguage(), error.source, contextConventions()) : error.message };
       const reason = error.source ? render(contextLanguage(), error.source, contextConventions()) : error.message;
       return { row: error.row, message: render(contextLanguage(), message('Its spent time was not logged: {reason}', { reason }), contextConventions()) };
     }),
@@ -1293,13 +1449,17 @@ export async function templateFor(projectId: number): Promise<Uint8Array> {
   const summary = types.find((type) => /^(epic|summary task|phase|feature)$/i.test(type.name)) ?? context.defaultType;
   const task = context.defaultType;
   const milestone = types.find((type) => type.milestone);
-  const header = [...IMPORT_COLUMNS, ...(context.fields ?? []).map((field) => field.name)];
-  const example = (values: Partial<Record<(typeof IMPORT_COLUMNS)[number], string | number>>) => header.map((column) => values[column as (typeof IMPORT_COLUMNS)[number]] ?? '');
+  // Spent time after the estimate: hours already worked, logged as the import runs.
+  type TemplateColumn = (typeof IMPORT_COLUMNS)[number] | 'Spent time';
+  const columns: TemplateColumn[] = IMPORT_COLUMNS.flatMap((column): TemplateColumn[] => (column === 'Estimated hours' ? [column, 'Spent time'] : [column]));
+  const header = [...columns, ...(context.fields ?? []).map((field) => field.name)];
+  const example = (values: Partial<Record<TemplateColumn, string | number>>) => header.map((column) => values[column as TemplateColumn] ?? '');
+  // Sprints the project lacks are made by the import: the example names two.
   const examples = [
     example({ ID: 'E1', Type: summary.name, Subject: 'Customer portal', Description: 'Everything for the portal launch', 'Start date': '2026-11-02', 'Due date': '2026-12-18' }),
-    example({ ID: 'T1', 'Parent ID': 'E1', Type: task.name, Subject: 'Design the screens', 'Start date': '2026-11-02', 'Due date': '2026-11-13', 'Estimated hours': 40 }),
-    example({ ID: 'S1', 'Parent ID': 'T1', Type: task.name, Subject: 'Login screen', 'Start date': '2026-11-02', 'Due date': '2026-11-04', 'Estimated hours': 8, 'Done %': 0, 'Story points': 3 }),
-    example({ ID: 'T2', 'Parent ID': 'E1', Type: task.name, Subject: 'Build the API', 'Start date': '2026-11-16', 'Due date': '2026-12-04', 'Estimated hours': 80, Predecessors: 'T1' }),
+    example({ ID: 'T1', 'Parent ID': 'E1', Type: task.name, Subject: 'Design the screens', 'Start date': '2026-11-02', 'Due date': '2026-11-13', 'Estimated hours': 40, Version: 'Sprint 1' }),
+    example({ ID: 'S1', 'Parent ID': 'T1', Type: task.name, Subject: 'Login screen', 'Start date': '2026-11-02', 'Due date': '2026-11-04', 'Estimated hours': 8, 'Spent time': 6, 'Done %': 0, 'Story points': 3, Version: 'Sprint 1' }),
+    example({ ID: 'T2', 'Parent ID': 'E1', Type: task.name, Subject: 'Build the API', 'Start date': '2026-11-16', 'Due date': '2026-12-04', 'Estimated hours': 80, Version: 'Sprint 2', Predecessors: 'T1' }),
     ...(milestone ? [example({ ID: 'M1', 'Parent ID': 'E1', Type: milestone.name, Subject: 'Portal live', 'Due date': '2026-12-18', Predecessors: 'T2' })] : []),
   ];
   const list = (values: string[]) => values.join(', ');
@@ -1307,18 +1467,27 @@ export async function templateFor(projectId: number): Promise<Uint8Array> {
   const guide: [string, string, string][] = [
     ['ID', t(language, 'Your own label for the row, such as E1 or T1. Needed when another row names it as its parent or predecessor. Uploading the sheet again updates the tasks its IDs made.'), ''],
     ['Parent ID', t(language, 'The ID of the row this one sits under. Blank: the top level.'), ''],
-    ['Type', t(language, 'The kind of task. Blank: {type}.', { type: task.name }), list(types.map((type) => type.name))],
+    [
+      'Type',
+      t(language, 'The kind of task. Blank: {type}. A type the instance has but this project does not use is turned on for it when the import runs, if you may manage its types; Epic, Subtask and the like are read as the nearest type the project has.', { type: task.name }),
+      list(types.map((type) => type.name)),
+    ],
     ['Subject', t(language, 'Required.'), ''],
     ['Description', t(language, 'Text.'), ''],
     ['Start date', t(language, 'A date. A milestone takes its due date only.'), ''],
     ['Due date', t(language, 'A date.'), ''],
     ['Estimated hours', t(language, 'Hours, such as 8 or 7.5.'), ''],
+    ['Spent time', t(language, 'Hours already worked on the task: logged for its assignee, spread over its working days up to today. Imported again, only hours it does not have yet are logged.'), ''],
     ['Done %', t(language, 'From 0 to 100. Blank: unchanged.'), ''],
     ['Assignee', member, list(context.memberNames ?? [])],
     ['Accountable', member, list(context.memberNames ?? [])],
     ['Status', t(language, 'Blank: the first status.'), list(context.statusNames ?? [])],
     ['Priority', t(language, 'Blank: the default priority.'), list(context.priorityNames ?? [])],
-    ['Version', t(language, 'A version of the project.'), list(context.versionNames ?? [])],
+    [
+      'Version',
+      t(language, 'The sprint or release. One the project does not have yet is created when the import runs, dated from the first start to the last due date of its tasks; one called Backlog is left undated.'),
+      list(context.versionNames ?? []),
+    ],
     ['Category', t(language, 'A category of the project.'), list(context.categoryNames ?? [])],
     ['Story points', t(language, 'A whole number.'), ''],
     ['Manual scheduling', t(language, 'Yes or No. Blank: as the schedule decides. No only for a task with predecessors or subtasks.'), 'Yes, No'],
@@ -1384,10 +1553,18 @@ export async function startImport(id: string, auth: AuthContext): Promise<TaskIm
 /* -------------------------------------------------------------------------- */
 
 class Stop extends Error {
-  constructor(readonly status: 'cancelled' | 'failed', reason: string) {
+  constructor(
+    readonly status: 'cancelled' | 'failed',
+    reason: string,
+    /** EPM's own words for it, shown in the reader's language. */
+    readonly source?: Message,
+  ) {
     super(reason);
   }
 }
+
+/** Why OpenProject refused something, as it said it. */
+const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 async function execute(id: string): Promise<void> {
   const start = await getImport(id);
@@ -1476,6 +1653,57 @@ async function execute(id: string): Promise<void> {
         }
       }
     };
+
+    // First what the file needs and the project lacks, as the check planned it:
+    // its types turned on for the project, and its sprints made — each
+    // remembered as it is done, so a resumed run does it once.
+    for (const [typeId, type] of typesToEnableOf(rows)) {
+      const done = `${TYPED}${typeId}`;
+      if (results.has(done)) continue;
+      try {
+        await openProject.request(`/epm_project/projects/${start.projectId}/types`, { root: true, method: 'POST', body: { typeId: Number(typeId) }, timeoutMs: 120_000 });
+        results.set(done, '1');
+      } catch (error) {
+        const source = message('The type {type} could not be turned on for this project: {reason}', { type: type.name, reason: reasonOf(error) });
+        throw new Stop('failed', render('en', source), source);
+      }
+    }
+    const sprints = newSprintsOf(rows);
+    if (sprints.some((sprint) => !results.has(`${SPRINTED}${sprint.key}`))) {
+      // One made meanwhile — by hand, or by a run stopped before it saved — is used, not made again.
+      const versions = await openProject.getAll<OpNamed>(`/projects/${start.projectId}/versions`, { pageSize: 200 }).catch(() => ({ items: [] as OpNamed[] }));
+      const byName = new Map(versions.items.map((version) => [version.name.toLowerCase(), String(version.id)]));
+      for (const sprint of sprints) {
+        const done = `${SPRINTED}${sprint.key}`;
+        if (results.has(done)) continue;
+        const found = byName.get(sprint.key);
+        if (found) {
+          results.set(done, found);
+          continue;
+        }
+        try {
+          const created = await openProject.request<{ id: number }>('/versions', {
+            method: 'POST',
+            body: {
+              name: sprint.name,
+              ...(sprint.start ? { startDate: sprint.start } : {}),
+              ...(sprint.end ? { endDate: sprint.end } : {}),
+              _links: { definingProject: { href: `/api/v3/projects/${start.projectId}` } },
+            },
+            once: true,
+            timeoutMs: 120_000,
+          });
+          results.set(done, String(created.id));
+        } catch (error) {
+          await save();
+          const source = message('The sprint {name} could not be created: {reason}', { name: sprint.name, reason: reasonOf(error) });
+          throw new Stop('failed', render('en', source), source);
+        }
+      }
+      await save();
+      aggregateCache.invalidatePrefix('sprints');
+    }
+    for (const row of rows) if (row.versionNew) row.versionId = results.get(`${SPRINTED}${row.versionNew.toLowerCase()}`) ?? null;
 
     // New rows.
     await byLevels(
@@ -1703,7 +1931,7 @@ async function execute(id: string): Promise<void> {
     });
   } catch (error) {
     if (error instanceof Stop) {
-      if (error.status === 'failed') errors.push({ row: 0, message: error.message });
+      if (error.status === 'failed') errors.push({ row: 0, message: error.message, ...(error.source ? { source: error.source } : {}) });
       await save({ status: error.status });
     } else {
       throw error;
@@ -1712,6 +1940,8 @@ async function execute(id: string): Promise<void> {
     requestHealthRecalc(String(start.projectId));
     requestScheduleRecalc();
     requestCalculatedRecalc();
+    // The sprints read their work back: what this run planned into them shows at once.
+    aggregateCache.invalidatePrefix('sprints');
   }
 }
 

@@ -1,8 +1,9 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 
 import { ComboSelect } from '@/components/common/ComboSelect';
 import { EmptyState } from '@/components/common/EmptyState';
+import { Pagination } from '@/components/common/Pagination';
 import { QueryBoundary } from '@/components/common/QueryBoundary';
 import { TableSkeleton } from '@/components/common/DataTable';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +20,7 @@ import { useDepartments } from '@/hooks/useDepartments';
 import { t } from '@/lib/i18n';
 import { cn, formatRelative, formatShortDate } from '@/lib/utils';
 import type { CapacityQuery } from '@/services/api/resources';
-import type { CapacityBand, CapacityCell, CapacityGrouping, CapacityMeasure, CapacityPeriod, CapacityScale } from '@/types';
+import type { CapacityBand, CapacityCell, CapacityGroup, CapacityGrouping, CapacityMeasure, CapacityPeriod, CapacityScale } from '@/types';
 import { BAND_CELL, BAND_LABEL, bandRange, hours, percent } from './bands';
 import { CellDetailSheet } from './CellDetailSheet';
 import { currentName, firstDay, LENGTHS, monthOf, spanOf, weekdayOf } from './periods';
@@ -52,6 +53,10 @@ export function CapacityHeatmap() {
   const [placeholders, setPlaceholders] = useState(true);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [cell, setCell] = useState<{ key: string; week: string } | null>(null);
+  // A page of people at a time; a group's header heads every page its people are on.
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  useEffect(() => setPage(1), [group, teamId, roleId, departmentId, placeholders, measure]);
 
   const query: CapacityQuery = useMemo(
     () => ({
@@ -95,6 +100,31 @@ export function CapacityHeatmap() {
   const periods: CapacityPeriod[] = data ? (data.periods ?? data.weeks.map((start) => ({ start, end: start }))) : [];
   const shown = data?.scale ?? scale;
   const logged = (data?.measure ?? measure) === 'logged';
+  // Where each group's people start in the list of everyone shown, a collapsed group taking no room.
+  const layout = useMemo(() => {
+    const starts = new Map<string, number>();
+    let total = 0;
+    for (const entry of data?.groups ?? []) {
+      starts.set(entry.key, total);
+      if (!collapsed.has(entry.key)) total += entry.rows.length;
+    }
+    return { starts, total };
+  }, [data, collapsed]);
+  const pages = Math.max(1, Math.ceil(layout.total / pageSize));
+  const current = Math.min(page, pages);
+  const first = (current - 1) * pageSize;
+  const last = first + pageSize;
+  const rowsOn = (entry: CapacityGroup) => {
+    if (collapsed.has(entry.key)) return [];
+    const start = layout.starts.get(entry.key) ?? 0;
+    return entry.rows.slice(Math.max(0, first - start), Math.max(0, last - start));
+  };
+  const onPage = (entry: CapacityGroup) => {
+    const start = layout.starts.get(entry.key) ?? 0;
+    // Collapsed: where its people would begin, the last page taking any at the very end.
+    if (collapsed.has(entry.key)) return (start >= first && start < last) || (start >= layout.total && current === pages);
+    return rowsOn(entry).length > 0;
+  };
   return (
     <div className="space-y-4">
       <Card>
@@ -260,7 +290,7 @@ export function CapacityHeatmap() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.groups.map((entry) => {
+                      {data.groups.filter(onPage).map((entry) => {
                         const open = !collapsed.has(entry.key);
                         return (
                           <Fragment key={entry.key}>
@@ -289,7 +319,7 @@ export function CapacityHeatmap() {
                               ))}
                             </tr>
                             {open
-                              ? entry.rows.map((row) => (
+                              ? rowsOn(entry).map((row) => (
                                   <tr key={row.key} className="border-b border-border last:border-0">
                                     <th scope="row" className={cn(stickyCell, 'px-3 py-1.5 ps-8 text-start font-normal text-foreground')}>
                                       <span className="flex items-center gap-1.5">
@@ -325,6 +355,21 @@ export function CapacityHeatmap() {
                     </tbody>
                   </table>
                 </div>
+                {layout.total > 0 ? (
+                  <Pagination
+                    page={current}
+                    pageSize={pageSize}
+                    total={layout.total}
+                    onPageChange={setPage}
+                    onPageSizeChange={(size) => {
+                      setPageSize(size);
+                      setPage(1);
+                    }}
+                    pageSizeOptions={[10, 25, 50, 100]}
+                    itemLabel={t('row')}
+                    itemLabelPlural={t('rows')}
+                  />
+                ) : null}
                 <p className="text-2xs text-muted-foreground">
                   {!logged && data.undated.items > 0
                     ? t('{count, plural, one {# work package} other {# work packages}} assigned with {hours} still to do but no dates fall in no week.', {
