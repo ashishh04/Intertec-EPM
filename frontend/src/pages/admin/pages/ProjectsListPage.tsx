@@ -148,8 +148,12 @@ export default function ProjectsListPage() {
     }[action];
 
     try {
-      await run();
-      toast.success(ACTION_COPY[action].done, { description: project.name });
+      const result = await run();
+      // A large project is still being cleared out when the deletion answers.
+      const clearing = action === 'delete' && result && 'deleting' in result && result.deleting;
+      toast.success(clearing ? t('Project deleted. A large project takes a few minutes to clear out completely.') : ACTION_COPY[action].done, {
+        description: project.name,
+      });
       await queryClient.invalidateQueries({ queryKey: adminKeys.projects });
       for (const key of invalidationGroups.projectWrite) {
         void queryClient.invalidateQueries({ queryKey: key });

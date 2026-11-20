@@ -259,9 +259,12 @@ export class ApiProjectWriteRepository {
     return apiClient.patch<{ id: ID; name: string; active: boolean }>(`/projects/${id}/restore`);
   }
 
-  /** Permanent, and takes every work package in the project with it. */
+  /**
+   * Permanent, and takes every work package in the project with it. A large
+   * project is still being taken apart when this answers: `deleting`.
+   */
   remove(id: ID) {
-    return apiClient.delete<void>(`/projects/${id}`);
+    return apiClient.delete<{ id: ID; deleting?: boolean } | undefined>(`/projects/${id}`);
   }
 
   /** Stars or unstars the project for the reader alone. */

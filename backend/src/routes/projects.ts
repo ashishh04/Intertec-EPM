@@ -105,6 +105,23 @@ export function invalidateProjects() {
   aggregateCache.invalidatePrefix('project-aggregates');
 }
 
+/**
+ * Projects deleted here that the delivery system is still taking apart, by id,
+ * with when. Deleting a large project runs in its background for minutes, and
+ * all that time it is still listed: someone who had just deleted it saw it come
+ * back, and tried again. Kept off every list until it is gone, or for an hour.
+ */
+const deleting = new Map<string, number>();
+const DELETING_MS = 60 * 60_000;
+
+export const beingDeleted = (id: string): boolean => {
+  const since = deleting.get(id);
+  if (since === undefined) return false;
+  if (Date.now() - since < DELETING_MS) return true;
+  deleting.delete(id);
+  return false;
+};
+
 async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
   const [projects, aggregates, members, overlays, templates] = await Promise.all([
     openProject.getAll<OpProject>('/projects', { pageSize: MAX_PAGE_SIZE }, { signal }),
@@ -118,11 +135,16 @@ async function buildProjects(signal: AbortSignal): Promise<EpmProject[]> {
       .catch(() => new Set<string>()),
   ]);
 
+  // A deletion that has finished upstream is no longer pending.
+  const listed = new Set(projects.items.map((project) => String(project.id)));
+  for (const id of deleting.keys()) if (!listed.has(id)) deleting.delete(id);
+  const items = projects.items.filter((project) => !beingDeleted(String(project.id)));
+
   // Stored health, one authoritative value per project, for exactly the
   // projects this caller can see.
-  const health = await healthViews(projects.items);
+  const health = await healthViews(items);
 
-  return projects.items.map((project) =>
+  return items.map((project) =>
     toEpmProject(project, aggregates, {
       memberIds: members.get(String(project.id)) ?? [],
       overlay: overlays.get(String(project.id)),
@@ -1059,10 +1081,15 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       gone = still === null;
     }
 
+    // Still being taken apart upstream: off the lists meanwhile.
+    if (!gone) deleting.set(id, Date.now());
     invalidateProjects();
 
-    // 202 while it is still running, rather than a 204 that claims otherwise.
-    reply.code(gone ? 204 : 202);
+    // 202 while it is still running, rather than a 204 that claims otherwise —
+    // with a body that says so: an empty 202 read as a broken reply, and the
+    // person was told the deletion failed while it went on.
+    if (gone) return reply.code(204).send();
+    return reply.code(202).send({ id, deleting: true });
   });
 
 };

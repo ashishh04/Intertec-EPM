@@ -353,6 +353,19 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- **Archiving a project works on the server.** Archive (and every other
+  action sent with no body: restoring, starring, archiving a team, department
+  or portfolio) failed there with "Unsupported Media Type". Over HTTP/3 the browser can send
+  such a request with no length, the proxy then forwards it chunked, and the
+  backend refused an empty body with no type before the action ran. An empty
+  body is now no body however it arrives; a real body of an unknown type is
+  still refused.
+- **Deleting a large project no longer reports an error.** The project was
+  deleted, but a large one is still being cleared out when EPM stops waiting
+  (8 seconds), and the answer for that had no body, which the page read as
+  "unable to reach the backend". It now says the project is deleted and that a
+  large one takes a few minutes to clear, and the project leaves every list at
+  once instead of reappearing until the clear-out finishes.
 - **Choosing a status on Projects keeps the other counts.** Clicking On track,
   or any status in the strip above the list, set every other status to 0; each
   now keeps its count while the list shows the projects of the one chosen.

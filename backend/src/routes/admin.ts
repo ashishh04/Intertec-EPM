@@ -15,6 +15,7 @@ import { openProject, idFromHref, linkTitle } from '../openproject/client.js';
 import { translateDescriptors } from '../lib/i18n.js';
 import type { HalCollection, HalLink, HalLinks } from '../openproject/types.js';
 import type { FormResult } from './forms.js';
+import { beingDeleted } from './projects.js';
 // Shared with the frontend rather than restated here: a section's shape is
 // what the browser renders from, so both sides read it from one declaration.
 import type {
@@ -1376,7 +1377,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     const byId = new Map<string, AdminProject>();
     for (const project of [...visible.items, ...archived.items]) {
       const mapped = toProject(project);
-      if (!byId.has(mapped.id)) byId.set(mapped.id, mapped);
+      // Deleted here and still being taken apart upstream: not listed again.
+      if (!byId.has(mapped.id) && !beingDeleted(mapped.id)) byId.set(mapped.id, mapped);
     }
 
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));

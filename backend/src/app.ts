@@ -201,6 +201,25 @@ export async function buildApp(): Promise<FastifyInstance> {
     parseJson(request, body, done);
   });
 
+  /*
+   * And an empty body with no Content-Type is no body either.
+   *
+   * A browser sends a PATCH or DELETE with nothing in it — Archive, Restore —
+   * with no Content-Type. Over HTTP/3 it may send no Content-Length either, and
+   * the proxy in front (Caddy) then forwards it chunked: a body, of nothing,
+   * with no type. Fastify refused that with 415 "Unsupported Media Type" before
+   * any route ran, so archiving a project failed on the server and never here.
+   * A body that is really there, in a type nothing here reads, is refused as
+   * before.
+   */
+  app.addContentTypeParser('*', { parseAs: 'buffer' }, (_request, body: Buffer, done) => {
+    if (body.length === 0) {
+      done(null, undefined);
+      return;
+    }
+    done(Object.assign(new Error('Unsupported Media Type'), { statusCode: 415, code: 'FST_ERR_CTP_INVALID_MEDIA_TYPE' }), undefined);
+  });
+
   await app.register(rateLimit, {
     max: env.RATE_LIMIT_MAX,
     timeWindow: env.RATE_LIMIT_WINDOW_MS,

@@ -3113,6 +3113,7 @@
   "Project created from the request": "أُنشئ المشروع من الطلب",
   "Project created from the template": "أُنشئ المشروع من القالب",
   "Project deleted": "تم حذف المشروع",
+  "Project deleted. A large project takes a few minutes to clear out completely.": "حُذف المشروع. يستغرق إفراغ المشروع الكبير كليًا بضع دقائق.",
   "Project health": "الحالة العامة للمشروع",
   "Project hierarchy": "التسلسل الهرمي للمشروع",
   "Project identifiers": "معرّفات المشاريع",

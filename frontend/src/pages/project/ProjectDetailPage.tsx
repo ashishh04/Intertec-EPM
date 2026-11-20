@@ -81,8 +81,13 @@ export default function ProjectDetailPage() {
     } as const;
 
     try {
-      await verbs[pendingAction].run();
-      toast.success(verbs[pendingAction].done);
+      const result = await verbs[pendingAction].run();
+      // A large project is still being cleared out when the deletion answers.
+      toast.success(
+        pendingAction === 'delete' && result && 'deleting' in result && result.deleting
+          ? t('Project deleted. A large project takes a few minutes to clear out completely.')
+          : verbs[pendingAction].done,
+      );
       setPendingAction(undefined);
 
       // A deleted project has no page left to be on. `replace`, so the back

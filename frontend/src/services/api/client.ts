@@ -135,7 +135,10 @@ export class ApiClient {
       }
       if (response.status === 204) return undefined as T;
 
-      return (await response.json()) as T;
+      // A success with nothing in it (an older server's 202, say) is no value,
+      // not a broken reply: it was read as "unable to reach the backend".
+      const text = await response.text();
+      return (text ? JSON.parse(text) : undefined) as T;
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof DOMException && error.name === 'AbortError') {
