@@ -33,10 +33,16 @@
 	# Everything else is the single-page app. `try_files` sends unknown paths to
 	# index.html so a deep link like /projects/42/board is resolved by the
 	# router rather than answered with a 404 by the file server.
+	#
+	# `precompressed`: the build writes a Brotli and a gzip copy beside each file
+	# (scripts/compress-dist.mjs), sent as they are to a browser that takes them —
+	# smaller than compressing on the way out, and no work per request.
 	handle {
 		root * /srv
 		try_files {path} /index.html
-		file_server
+		file_server {
+			precompressed br gzip
+		}
 	}
 
 	header {

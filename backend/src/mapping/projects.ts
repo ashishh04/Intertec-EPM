@@ -1,6 +1,6 @@
 import { openProject, linkId, linkTitle, type OpFilter } from '../openproject/client.js';
 import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
-import { aggregateCache, userScopedKey } from '../lib/cache.js';
+import { aggregateCache, DISPLAY_STALE_MS, userScopedKey } from '../lib/cache.js';
 import { durationToHours } from '../lib/duration.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { HalCollection, OpProject } from '../openproject/types.js';
@@ -94,7 +94,15 @@ export async function workByProject(filters: OpFilter[], signal?: AbortSignal): 
  */
 export async function listProjects(signal?: AbortSignal): Promise<OpProject[]> {
   const key = userScopedKey('projects:all');
-  const read = () => aggregateCache.get(key, async () => (await openProject.getAll<OpProject>('/projects', { pageSize: 200 }, { signal })).items);
+  // Shown, not decided on (OpenProject checks every read on the caller's own
+  // token), so a list past its time is answered at once while it refreshes.
+  const read = () =>
+    aggregateCache.get(
+      key,
+      async (own) => (await openProject.getAll<OpProject>('/projects', { pageSize: 200 }, { signal: own ?? signal })).items,
+      undefined,
+      { staleMs: DISPLAY_STALE_MS },
+    );
   // A failed read is not cached: an empty list stored for everyone would show
   // "no projects" on every page until it expired. Concurrent callers share the
   // first caller's read, so one cancelled request fails the others too — those
@@ -133,7 +141,9 @@ async function loadAggregates(signal?: AbortSignal): Promise<ProjectAggregates> 
 export function getProjectAggregates(signal?: AbortSignal): Promise<ProjectAggregates> {
   // Counted from work packages fetched on the caller's token, so the totals
   // already reflect their permissions — the key has to say whose they are.
-  return aggregateCache.get(userScopedKey('project-aggregates'), () => loadAggregates(signal));
+  return aggregateCache.get(userScopedKey('project-aggregates'), (own) => loadAggregates(own ?? signal), undefined, {
+    staleMs: DISPLAY_STALE_MS,
+  });
 }
 
 /* -------------------------------------------------------------------------- */

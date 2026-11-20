@@ -38,7 +38,7 @@ import { forgetPermissions } from './auth/capabilities.js';
 import { registerAuth } from './auth/hook.js';
 import { SESSION_COOKIE } from './auth/oauth.js';
 import { registerRequestSignal } from './lib/request-signal.js';
-import { aggregateCache } from './lib/cache.js';
+import { aggregateCache, wasServedStale } from './lib/cache.js';
 import { openProjectReady } from './openproject/client.js';
 import { registerRoutes } from './routes/index.js';
 
@@ -141,11 +141,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   // from a cache (OWASP session management). A response that is safe to keep
   // sets its own Cache-Control (avatars, feeds) and is left as it is. The app
   // stays fast regardless: it caches its data in memory, not through HTTP.
-  app.addHook('onSend', async (_request, reply, payload) => {
+  app.addHook('onSend', async (request, reply, payload) => {
     if (!reply.hasHeader('cache-control')) {
       reply.header('Cache-Control', 'no-store');
       reply.header('Pragma', 'no-cache');
     }
+    // Answered at once from a kept value past its fresh period, with a fresh one
+    // loading behind (lib/cache.ts): the browser asks again a moment later.
+    if (wasServedStale(request.auth)) reply.header('X-EPM-Stale', '1');
     return payload;
   });
 
@@ -153,6 +156,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     origin: env.CORS_ORIGIN,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    exposedHeaders: ['X-EPM-Stale'],
     maxAge: 86_400,
   });
 
@@ -396,7 +400,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.addHook('onResponse', async (request, reply) => {
     if (request.method === 'GET' || request.method === 'HEAD') return;
     if (reply.statusCode >= 400) return;
-    aggregateCache.clear();
+    // The writer's own are dropped, so their next read has the change; everyone
+    // else's expire now (display figures answered once more while they refresh).
+    aggregateCache.written(request.auth ? `u${request.auth.userId}` : 'system');
 
     // The caller's permissions go with them. Creating a project grants the
     // creator rights on it, and those are cached for a minute — long enough

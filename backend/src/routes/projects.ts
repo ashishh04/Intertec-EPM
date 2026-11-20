@@ -96,7 +96,8 @@ export async function loadProjects(_signal: AbortSignal): Promise<EpmProject[]> 
 // Work changing shows in the project list on the next look (progress, counts),
 // without making that look wait.
 onOpenProjectWrite((_method, path) => {
-  if (/\/(work_packages|versions|time_entries)(\/|$)/.test(path)) projectLists.expire();
+  // The writer's list is rebuilt for their next look; everyone else's refreshed behind.
+  if (/\/(work_packages|versions|time_entries)(\/|$)/.test(path)) projectLists.written();
   // A project archived, restored or deleted: the analytics model reads the
   // projects again on its next refresh, so utilisation leaves an archived one out.
   if (/\/projects\/\d+$/.test(path)) markModelStale();

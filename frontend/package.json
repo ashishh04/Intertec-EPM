@@ -6,7 +6,7 @@
   "description": "EPM — Intertec Systems Unified Project & Delivery Platform",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/compress-dist.mjs",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
     "audit:bundle": "node scripts/audit-bundle.mjs"

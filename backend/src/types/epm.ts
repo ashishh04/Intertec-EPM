@@ -972,7 +972,13 @@ export interface EpmSprint {
   id: ID;
   name: string;
   goal: string;
+  /** The project that defines it. */
   projectIds: ID[];
+  /**
+   * The projects with work in it: its own, and others planning into it where
+   * it is shared. Absent from an older server.
+   */
+  workProjectIds?: ID[];
   state: SprintState;
   startDate: ISODate;
   endDate: ISODate;

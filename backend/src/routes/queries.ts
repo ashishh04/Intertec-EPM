@@ -28,12 +28,14 @@ import { widgetQueryIds } from './boards.js';
  * served for ten while a fresh one loads behind. A thousand-task tree took
  * longer to read than the browser waits, so the Tasks page timed out; now it
  * is read once and kept, and the read finishes even when the browser has given
- * up. Any write to work, time, sprints, memberships or views drops them all,
- * so what someone just changed is never shown as it was.
+ * up. Any write to work, time, sprints, memberships or views drops the
+ * writer's, so what they just changed is never shown to them as it was, and
+ * makes everyone else's stale: answered at once, refreshed behind, and the
+ * browser told so asks again a moment later.
  */
 const CHANGES_WORK = /\/(work_packages|relations|time_entries|versions|memberships|queries)(\/|$)/;
 onOpenProjectWrite((_method, path) => {
-  if (CHANGES_WORK.test(path)) taskViews.clear();
+  if (CHANGES_WORK.test(path)) taskViews.written();
 });
 
 /** A request's parameters as a key: the same view asked the same way is one entry. */

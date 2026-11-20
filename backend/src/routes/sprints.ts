@@ -97,6 +97,15 @@ function buildSprint(version: OpVersion, context: SprintContext): EpmSprint {
     projectIds: [linkId(version._links, 'definingProject')].filter((value): value is string =>
       Boolean(value),
     ),
+    // Which projects have work in it: a sprint shared from another project
+    // belongs on a project's Sprint tab once that project's work is in it.
+    workProjectIds: [
+      ...new Set(
+        context.workPackages
+          .map((workPackage) => linkId(workPackage._links, 'project'))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ],
     state: stateOf(version, today),
     startDate: start,
     endDate: end,
@@ -143,10 +152,13 @@ async function contextFor(version: OpVersion, signal: AbortSignal): Promise<Spri
   return { catalog, workPackages, overlay, samples };
 }
 
-// A change to work or a version shows in the sprints on the next look, without
-// making that look wait: the list is refreshed behind it.
+// A change to work or a version: whoever made it sees it on their next look
+// (their list is dropped, so that look waits for one with it), and everyone
+// else on the one after (theirs is answered once more and refreshed behind).
+// A new sprint, a sprint started or completed, a task moved into one — all
+// arrive here as writes to versions or work packages.
 onOpenProjectWrite((_method, path) => {
-  if (/\/(versions|work_packages)(\/|$)/.test(path)) sprintLists.expire();
+  if (/\/(versions|work_packages)(\/|$)/.test(path)) sprintLists.written();
 });
 
 /** Every sprint the caller can see. Exported for the backlog, which plans into them. */
@@ -228,9 +240,21 @@ export async function loadSprints(_signal: AbortSignal): Promise<EpmSprint[]> {
 export const sprintRoutes: FastifyPluginAsync = async (app) => {
   app.get('/sprints', async (request) => loadSprints(requestSignal(request)));
 
-  app.get('/sprints/active', async (request) => {
+  /**
+   * The sprint running now: of several, the one that started last, which is
+   * the current one where sprints overlap. With `projectId`, among that
+   * project's sprints only — its own, and any holding its work.
+   */
+  app.get<{ Querystring: { projectId?: unknown } }>('/sprints/active', async (request) => {
     const sprints = await loadSprints(requestSignal(request));
-    const active = sprints.find((sprint) => sprint.state === 'active');
+    const projectId = typeof request.query.projectId === 'string' && request.query.projectId ? request.query.projectId : undefined;
+    const active = sprints
+      .filter(
+        (sprint) =>
+          sprint.state === 'active' &&
+          (!projectId || sprint.projectIds.includes(projectId) || (sprint.workProjectIds ?? []).includes(projectId)),
+      )
+      .sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
     if (!active) throw EpmError.notFound('An active sprint');
     return active;
   });

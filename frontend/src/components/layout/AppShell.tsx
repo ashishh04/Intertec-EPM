@@ -13,6 +13,9 @@ import { PageSkeleton } from '@/components/common/PageSkeleton';
 import { useUI } from '@/providers/UIProvider';
 import { prefetchPages } from '@/lib/pages';
 import { t } from '@/lib/i18n';
+import { useQueryClient } from '@tanstack/react-query';
+import { projectsQuery } from '@/hooks/useProjects';
+import { sprintsQuery } from '@/hooks/useSprints';
 
 /**
  * What the page content is keyed by. A project's tabs share one key, so moving
@@ -127,11 +130,19 @@ export function AppShell() {
   }, [location.pathname, closeTaskDrawer]);
 
   // Once the person is in and the first page has had its turn, fetch the other
-  // pages in the background, so opening any of them never waits on a download.
+  // pages in the background, so opening any of them never waits on a download —
+  // and the two lists most pages open on (projects, sprints), so Projects, the
+  // Agile page or a project's Sprint tab opens on them rather than on a skeleton.
+  // Fetched only when not already held fresh; the server keeps them warm too.
+  const queryClient = useQueryClient();
   useEffect(() => {
-    const timer = window.setTimeout(prefetchPages, 2_500);
+    const timer = window.setTimeout(() => {
+      prefetchPages();
+      void queryClient.prefetchQuery(projectsQuery());
+      void queryClient.prefetchQuery(sprintsQuery());
+    }, 2_500);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [queryClient]);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">

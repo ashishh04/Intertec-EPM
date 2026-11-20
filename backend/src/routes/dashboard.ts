@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { contextLanguage, contextReader, t } from '../lib/i18n.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { aggregateCache, userScopedKey } from '../lib/cache.js';
+import { aggregateCache, DISPLAY_STALE_MS, userScopedKey } from '../lib/cache.js';
 import { MAX_PAGE_SIZE, openProject, linkId, type OpFilter } from '../openproject/client.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
@@ -151,7 +151,7 @@ const ACTIVITY_PAGE = 100;
 
 export const dashboardRoutes: FastifyPluginAsync = async (app) => {
   app.get('/dashboard/metrics', async (request) => {
-    const signal = requestSignal(request);
+    const requestAbort = requestSignal(request);
     const today = new Date().toISOString().slice(0, 10);
 
     /*
@@ -164,7 +164,9 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
      * Keyed per user — these are *your* counts, filtered by your permissions.
      */
     // Per language too: the comparison label inside is written for the reader.
-    return aggregateCache.get(userScopedKey(`dashboard-metrics:${contextReader()}`), async () => {
+    return aggregateCache.get(userScopedKey(`dashboard-metrics:${contextReader()}`), async (own) => {
+      // Its own signal when it refreshes behind a reply already sent.
+      const signal = own ?? requestAbort;
 
     const [me, catalog, projects] = await Promise.all([
       getCurrentUser(signal),
@@ -242,7 +244,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
     };
 
       return metrics;
-    });
+    }, undefined, { staleMs: DISPLAY_STALE_MS });
   });
 
   /**
@@ -255,10 +257,11 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       .object({ projectId: z.string().optional(), limit: z.coerce.number().int().positive().optional() })
       .parse(request.query);
 
-    const signal = requestSignal(request);
+    const requestAbort = requestSignal(request);
     const max = Math.min(limit ?? 20, 50);
 
-    return aggregateCache.get(userScopedKey(`activity:${projectId ?? 'all'}:${max}`), async () => {
+    return aggregateCache.get(userScopedKey(`activity:${projectId ?? 'all'}:${max}`), async (own) => {
+      const signal = own ?? requestAbort;
       const filters: OpFilter[] = projectId
         ? [{ field: 'project', operator: '=', values: [projectId] }]
         : [];
@@ -298,7 +301,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
       );
 
       return entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-    });
+    }, undefined, { staleMs: DISPLAY_STALE_MS });
   });
 
   app.get('/calendar/events', async (request) => {

@@ -96,6 +96,18 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(message, response.status, code, details);
 }
 
+/**
+ * Answers the server gave from a kept value past its fresh period, while it
+ * loaded a fresh one (`X-EPM-Stale`). Shown at once — that is the point — and
+ * asked for again a few seconds later, when the fresh one is there.
+ */
+const staleAnswers = new WeakSet<object>();
+
+/** Whether this answer was a kept one the server is refreshing. */
+export function isStaleAnswer(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && staleAnswers.has(value);
+}
+
 export class ApiClient {
   constructor(private readonly baseUrl: string = env.apiBaseUrl) {}
 
@@ -138,7 +150,13 @@ export class ApiClient {
       // A success with nothing in it (an older server's 202, say) is no value,
       // not a broken reply: it was read as "unable to reach the backend".
       const text = await response.text();
-      return (text ? JSON.parse(text) : undefined) as T;
+      const value = (text ? JSON.parse(text) : undefined) as T;
+      // Answered at once from what the server kept, with a fresher one loading
+      // there: noted, so the query asks again shortly (main.tsx).
+      if (response.headers.get('X-EPM-Stale') === '1' && value !== null && typeof value === 'object') {
+        staleAnswers.add(value as object);
+      }
+      return value;
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error instanceof DOMException && error.name === 'AbortError') {

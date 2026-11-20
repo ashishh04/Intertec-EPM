@@ -226,6 +226,25 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Faster pages that stay current without a reload.**
+  - Whole collections are read from the delivery system four pages at a time
+    instead of one after another: sprints, a team's logged time, members,
+    people. 473 work packages took 5 seconds instead of 23 from a cold start.
+  - After a change, whoever made it sees it on their next look. Everyone else
+    is answered at once from what the server kept, and their page fetches the
+    current version a few seconds later by itself. The server marks such an
+    answer and the browser asks again.
+  - Dashboard figures, the activity feed, project counts, the people directory
+    and the list of statuses and types no longer make a page wait each time
+    they expire (every 20 seconds to 10 minutes). The kept copy is answered at
+    once and refreshed behind. A change by one person no longer empties
+    everyone's copies.
+  - The project and sprint lists are fetched in the background after signing
+    in, so the first visit to Projects, Agile or a Sprint tab opens on them.
+  - The first visit downloads a third less: 292 kB instead of 460 kB.
+    - The charts load only with the pages that draw them. A shared helper had
+      made every page load them, the sign-in page included.
+    - The app's files are served compressed in advance with Brotli.
 - **Up and down through a list's tasks.** A task opened from a task list (a
   project's Tasks tab, the Tasks page) has up and down arrows in its header,
   shows where it stands ("3 of 15") and has a button back to the list. K and J
@@ -384,6 +403,27 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- **A project's Sprint tab shows the project's own sprints.**
+  - **The problem:** it showed the first running sprint in the whole instance,
+    whichever project it belonged to. A project with new sprints of its own
+    kept showing another project's, with "This project has no work in the
+    active sprint" beside it, and its new sprints never appeared there.
+  - **Which sprint it opens on:** the project's running sprint, or the one
+    started last where several overlap. If none is running, the next to start;
+    if none is planned, the last to finish.
+  - **The picker:** it lists all of the project's sprints by state with their
+    dates, and keeps the choice in the address.
+  - **New sprint** makes one in this project and shows it at once.
+  - **Shared sprints:** one shared from another project appears once this
+    project's work is in it.
+- **Sprint figures follow the work.** Moving a card to Done, or planning a
+  task into a sprint, used to leave committed, completed and remaining
+  unchanged for up to two minutes. A sprint just created could also stay
+  missing from the lists. There were two causes: the browser did not refresh
+  sprints after a task changed, and the server answered the next look from
+  its kept list. Both now refresh at once for whoever made the change.
+- **The work list under a sprint names each task's project.** It said
+  "Unknown project".
 - **An archived project no longer counts in utilisation.** Time logged on it,
   and bookings on it, still counted in Resources → Capacity (the heatmap and
   a cell's detail), in the hours logged and utilisation on Insights for

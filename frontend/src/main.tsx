@@ -1,9 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryClient } from '@tanstack/react-query';
+import { QueryCache, QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { persistOptionsFor, PERSIST_MAX_AGE } from './lib/queryPersister';
+import { isStaleAnswer } from './services/api/client';
 import { App } from './App';
 import { AuthProvider } from './providers/AuthProvider';
 import { UIProvider } from './providers/UIProvider';
@@ -23,11 +24,36 @@ window.addEventListener('vite:preloadError', (event) => {
 });
 
 /**
+ * A query the server answered from a value it kept and is refreshing
+ * (`X-EPM-Stale`) is asked again a little later — a few times at most, further
+ * apart each time — so a page shows what was kept at once and what is current a
+ * moment after, without anyone reloading. One more look is usually enough: the
+ * refresh behind takes a second or two.
+ */
+const LOOK_AGAIN_MS = [2_500, 6_000, 15_000, 30_000];
+const looksAgain = new Map<string, number>();
+const queryCache = new QueryCache({
+  onSuccess: (data, query) => {
+    if (!isStaleAnswer(data)) {
+      looksAgain.delete(query.queryHash);
+      return;
+    }
+    const attempt = looksAgain.get(query.queryHash) ?? 0;
+    if (attempt >= LOOK_AGAIN_MS.length) return;
+    looksAgain.set(query.queryHash, attempt + 1);
+    window.setTimeout(() => {
+      void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true });
+    }, LOOK_AGAIN_MS[attempt]);
+  },
+});
+
+/**
  * Query defaults tuned for an operational dashboard: results stay warm for a
  * short window, refetch on focus is off so the UI does not flicker while the
  * user reads, and failed reads retry once before surfacing an error state.
  */
 const queryClient = new QueryClient({
+  queryCache,
   defaultOptions: {
     queries: {
       staleTime: 30_000,

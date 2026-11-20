@@ -166,6 +166,9 @@ export const invalidationGroups = {
     ['boards'],
     ['backlog'],
     ['impediments'],
+    // A sprint's committed, completed and remaining are its tasks: a card moved
+    // to Done, a task planned into a sprint or estimated, changes them.
+    ['sprints'],
   ],
   // `current-user` carries the per-project permission map, and it is fetched
   // once per session with `staleTime: Infinity`. Creating a project grants the

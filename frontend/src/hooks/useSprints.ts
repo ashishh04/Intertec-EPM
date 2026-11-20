@@ -4,12 +4,15 @@ import type { CreateSprintInput } from '@/services/repositories';
 import { queryKeys } from '@/lib/queryKeys';
 import type { ID, SprintSharing } from '@/types';
 
+/** The sprint list's query, for the hook and for fetching it ahead (AppShell). */
+export const sprintsQuery = () => ({
+  queryKey: queryKeys.sprints,
+  queryFn: () => sprintService.getSprints(),
+  staleTime: 120_000,
+});
+
 export function useSprints() {
-  return useQuery({
-    queryKey: queryKeys.sprints,
-    queryFn: () => sprintService.getSprints(),
-    staleTime: 120_000,
-  });
+  return useQuery(sprintsQuery());
 }
 
 export function useActiveSprint() {

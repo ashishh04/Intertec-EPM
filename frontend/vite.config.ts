@@ -11,6 +11,27 @@ import path from 'node:path';
  */
 const BUILD_ID = process.env.EPM_BUILD_ID || new Date().toISOString();
 
+/**
+ * Third-party code in chunks of its own, which load with the pages that need
+ * them — matched by module path, not given as package names. Given names,
+ * Rollup moves each package's whole dependency tree into its chunk: `clsx`,
+ * which every component uses, went into the charts chunk with Recharts, so the
+ * first visit to any page, the sign-in page included, downloaded all of the
+ * charts (430 kB) for it; and React's JSX runtime went into the animation one.
+ * Listed here are only the packages nothing but their chunk's library uses.
+ */
+const VENDOR_CHUNKS: [string, RegExp][] = [
+  // With React, which loads first anyway: the two tiny helpers the app and the
+  // charts share, so Rollup cannot leave them in the charts chunk on its own.
+  ['vendor-react', /[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|@remix-run[\\/]router|clsx|tiny-invariant)[\\/]/],
+  [
+    'vendor-charts',
+    /[\\/]node_modules[\\/](recharts|recharts-scale|react-smooth|victory-vendor|d3-[^\\/]+|internmap|decimal\.js-light|fast-equals|lodash|eventemitter3|react-is|prop-types|react-transition-group|dom-helpers)[\\/]/,
+  ],
+  ['vendor-motion', /[\\/]node_modules[\\/](framer-motion|motion-dom|motion-utils)[\\/]/],
+  ['vendor-dnd', /[\\/]node_modules[\\/]@dnd-kit[\\/]/],
+];
+
 export default defineConfig({
   define: { __EPM_BUILD_ID__: JSON.stringify(BUILD_ID) },
   plugins: [react()],
@@ -29,11 +50,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-charts': ['recharts'],
-          'vendor-motion': ['framer-motion'],
-          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+        manualChunks(id) {
+          for (const [name, pattern] of VENDOR_CHUNKS) if (pattern.test(id)) return name;
+          return undefined;
         },
       },
     },

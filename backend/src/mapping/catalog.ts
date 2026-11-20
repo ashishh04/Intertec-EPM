@@ -1,5 +1,5 @@
 import { openProject, linkId } from '../openproject/client.js';
-import { referenceCache, userScopedKey } from '../lib/cache.js';
+import { DISPLAY_STALE_MS, referenceCache, userScopedKey } from '../lib/cache.js';
 import type { OpPriority, OpStatus, OpType } from '../openproject/types.js';
 import type { TaskPriority, TaskStatusCategory, TaskType } from '../types/epm.js';
 
@@ -164,5 +164,10 @@ async function loadCatalog(signal?: AbortSignal): Promise<Catalog> {
 }
 
 export function getCatalog(signal?: AbortSignal): Promise<Catalog> {
-  return referenceCache.get(userScopedKey('catalog'), () => loadCatalog(signal));
+  // Statuses, types and priorities as named: past its ten minutes the catalog is
+  // still answered at once while it reloads behind (an admin's change to it
+  // drops it outright, admin.ts).
+  return referenceCache.get(userScopedKey('catalog'), (own) => loadCatalog(own ?? signal), undefined, {
+    staleMs: DISPLAY_STALE_MS,
+  });
 }

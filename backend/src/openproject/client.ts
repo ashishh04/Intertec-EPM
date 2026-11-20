@@ -47,6 +47,13 @@ export const MAX_PAGE_SIZE = 200;
  */
 const DEFAULT_MAX_PAGES = 100;
 
+/**
+ * How many pages of one collection are read at once. Enough to cut a long walk
+ * to a fraction of its time, few enough to leave OpenProject's workers for
+ * everyone else's requests.
+ */
+const PAGE_CONCURRENCY = 4;
+
 export type FilterOperator =
   | '='
   | '!'
@@ -463,8 +470,52 @@ export class OpenProjectClient {
     const items: T[] = [];
     let page = query.offset ?? 1;
     let total = 0;
+    let visited = 0;
 
-    for (let visited = 0; visited < maxPages; visited += 1) {
+    const first = await this.getCollection<T>(path, { ...query, offset: page, pageSize }, options.signal);
+    visited += 1;
+    total = first.total ?? 0;
+    const firstElements = first._embedded?.elements ?? [];
+    items.push(...firstElements);
+    if (items.length >= total || firstElements.length === 0) {
+      return { items, total: Math.max(total, items.length), truncated: false };
+    }
+    page += 1;
+
+    /*
+     * The rest of the pages side by side, a few at a time, kept in page order.
+     *
+     * One after another, a collection of 3,000 work packages at 200 a page was
+     * fifteen round trips end to end — the sprint list, a team's logged time, a
+     * project's members, everything that reads a whole collection, took as long
+     * as all of them added up. The first page says how many there are, so the
+     * others can be asked for at once.
+     */
+    const remaining = Math.min(Math.ceil((total - items.length) / pageSize), maxPages - visited);
+    if (remaining > 0) {
+      const pages: T[][] = new Array(remaining);
+      const totals: number[] = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < remaining) {
+          const index = next;
+          next += 1;
+          const collection = await this.getCollection<T>(path, { ...query, offset: page + index, pageSize }, options.signal);
+          pages[index] = collection._embedded?.elements ?? [];
+          if (typeof collection.total === 'number') totals.push(collection.total);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PAGE_CONCURRENCY, remaining) }, worker));
+      for (const elements of pages) items.push(...(elements ?? []));
+      visited += remaining;
+      page += remaining;
+      total = Math.max(total, ...totals);
+      const lastFull = (pages[remaining - 1]?.length ?? 0) === pageSize;
+      if (items.length >= total || !lastFull) return { items, total: Math.max(total, items.length), truncated: false };
+    }
+
+    // More arrived while it was read: the rest one page at a time, as before.
+    for (; visited < maxPages; visited += 1) {
       const collection = await this.getCollection<T>(
         path,
         { ...query, offset: page, pageSize },

@@ -38,9 +38,11 @@ interface SprintDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Called once the sprint exists, so the opener can show it straight away. */
   onCreated?: (sprint: { id: ID; name: string }) => void;
+  /** The project to make it in, chosen already — opened from a project's Sprint tab. */
+  projectId?: ID;
 }
 
-export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProps) {
+export function SprintDialog({ open, onOpenChange, onCreated, projectId: presetProjectId }: SprintDialogProps) {
   const projects = useProjects();
 
   const [name, setName] = useState('');
@@ -53,12 +55,12 @@ export function SprintDialog({ open, onOpenChange, onCreated }: SprintDialogProp
   useEffect(() => {
     if (!open) return;
     setName('');
-    setProjectId('');
+    setProjectId(presetProjectId ?? '');
     setStartDate('');
     setEndDate('');
     setSharing('none');
     setProblem(undefined);
-  }, [open]);
+  }, [open, presetProjectId]);
 
   const create = useCreateSprint();
 

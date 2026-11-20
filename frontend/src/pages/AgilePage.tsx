@@ -27,12 +27,14 @@ import {
 } from '@/components/ui/select';
 import { ProgressBar } from '@/components/ui/progress';
 import { useSetSprintState, useSprints } from '@/hooks/useSprints';
+import { useProjects } from '@/hooks/useProjects';
 import { useMeasureValues } from '@/hooks/useInsights';
 import { useTasks, useUpdateTask } from '@/hooks/useTasks';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
 import { SPRINT_STATE_META } from '@/lib/domain';
+import { defaultSprint, orderSprints } from '@/lib/sprint-choice';
 import { t } from '@/lib/i18n';
 import { burndownDescription, committedSupport, unitOf, unitSuffix } from '@/lib/sprint-unit';
 import { daysFromToday, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
@@ -53,6 +55,12 @@ export default function AgilePage() {
   const sprintsQuery = useSprints();
   const trendsQuery = useDeliveryTrends();
   const users = useUserMap();
+  const projectsQuery = useProjects();
+  // Each task's project by name in the work list, not "Unknown project".
+  const projectMap = useMemo(
+    () => new Map((projectsQuery.data ?? []).map((project) => [project.id, project])),
+    [projectsQuery.data],
+  );
   const updateTask = useUpdateTask();
   const setSprintState = useSetSprintState();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -60,19 +68,13 @@ export default function AgilePage() {
   const [confirming, setConfirming] = useState<SprintState | null>(null);
 
   // Active sprints first, then what is planned, then history, newest first.
-  const sprints = useMemo(() => {
-    const rank: Record<SprintState, number> = { active: 0, planned: 1, completed: 2 };
-    return [...(sprintsQuery.data ?? [])].sort(
-      (a, b) => rank[a.state] - rank[b.state] || b.startDate.localeCompare(a.startDate),
-    );
-  }, [sprintsQuery.data]);
+  const sprints = useMemo(() => orderSprints(sprintsQuery.data ?? []), [sprintsQuery.data]);
 
   // The selection lives in the URL, so a sprint opened from the Sprints page,
-  // or one just created, is the one shown — and a refresh keeps it.
+  // or one just created, is the one shown — and a refresh keeps it. Otherwise
+  // the one running that started last, else the next to start (lib/sprint-choice).
   const selectedId = searchParams.get('sprint');
-  const activeSprint = sprints.find((item) => item.state === 'active');
-  const sprint: EpmSprint | undefined =
-    sprints.find((item) => item.id === selectedId) ?? activeSprint ?? sprints[0];
+  const sprint: EpmSprint | undefined = sprints.find((item) => item.id === selectedId) ?? defaultSprint(sprints);
 
   const velocityQuery = useMeasureValues(
     ['sprint.velocity'],
@@ -95,10 +97,12 @@ export default function AgilePage() {
   // selector, the URL and the page agree. In place of the current history entry,
   // not as a new one: pushed, it trapped Back — Back returned to /agile, the
   // default was pinned again, and the person could never leave the page that way.
+  // Not while the list is still loading: a sprint just created is asked for a
+  // moment before the list that has it, and was replaced by the default.
   useEffect(() => {
-    if (sprint && sprint.id !== selectedId) selectSprint(sprint.id, { replace: true });
+    if (sprint && sprint.id !== selectedId && !sprintsQuery.isFetching) selectSprint(sprint.id, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sprint?.id]);
+  }, [sprint?.id, sprintsQuery.isFetching]);
 
   const changeState = (state: SprintState) => {
     if (!sprint || state === 'planned') return;
@@ -437,7 +441,7 @@ export default function AgilePage() {
       {/* Sprint work as a paged list, for scanning and for keyboard users the
           board cannot serve. */}
       {tasks.length > 0 ? (
-        <SprintWorkList tasks={tasks} users={users} resetKey={sprint.id} />
+        <SprintWorkList tasks={tasks} users={users} projects={projectMap} resetKey={sprint.id} />
       ) : null}
     </div>
   );

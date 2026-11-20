@@ -4,12 +4,15 @@ import { apiClient, retryUnlessNotFound } from '@/services/api/client';
 import { invalidationGroups, queryKeys } from '@/lib/queryKeys';
 import type { EpmProject, HealthOverride, ID, ProjectPlanInput } from '@/types';
 
+/** The project list's query, for the hook and for fetching it ahead (AppShell). */
+export const projectsQuery = (params?: { search?: string; status?: string[] }) => ({
+  queryKey: queryKeys.projects(params),
+  queryFn: () => projectService.getProjects(params),
+  staleTime: 60_000,
+});
+
 export function useProjects(params?: { search?: string; status?: string[] }) {
-  return useQuery({
-    queryKey: queryKeys.projects(params),
-    queryFn: () => projectService.getProjects(params),
-    staleTime: 60_000,
-  });
+  return useQuery(projectsQuery(params));
 }
 
 export function useProject(id?: ID) {

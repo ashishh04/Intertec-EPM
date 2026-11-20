@@ -1,5 +1,5 @@
 import { openProject, linkId, linkTitle, MAX_PAGE_SIZE } from '../openproject/client.js';
-import { referenceCache, userScopedKey } from '../lib/cache.js';
+import { DISPLAY_STALE_MS, referenceCache, userScopedKey } from '../lib/cache.js';
 import { optional, prisma } from '../db/prisma.js';
 import type { OpMembership, OpPrincipal } from '../openproject/types.js';
 import type { AvatarAccent, ID, EpmUser } from '../types/epm.js';
@@ -99,7 +99,9 @@ export function toEpmUser(
  * clears it along with everything else derived from the directory.
  */
 function loadRoles(signal?: AbortSignal): Promise<Map<string, string>> {
-  return referenceCache.get(userScopedKey('users:roles'), () => readRoles(signal), 5 * 60_000);
+  return referenceCache.get(userScopedKey('users:roles'), (own) => readRoles(own ?? signal), 5 * 60_000, {
+    staleMs: DISPLAY_STALE_MS,
+  });
 }
 
 async function readRoles(signal?: AbortSignal): Promise<Map<string, string>> {
@@ -156,7 +158,11 @@ async function loadUsers(signal?: AbortSignal): Promise<EpmUser[]> {
 }
 
 export function getUsers(signal?: AbortSignal): Promise<EpmUser[]> {
-  return referenceCache.get(userScopedKey('users'), () => loadUsers(signal), 5 * 60_000);
+  // The directory, as shown: past its five minutes still answered at once while
+  // it reloads behind. Adding or changing someone drops it outright.
+  return referenceCache.get(userScopedKey('users'), (own) => loadUsers(own ?? signal), 5 * 60_000, {
+    staleMs: DISPLAY_STALE_MS,
+  });
 }
 
 /** The signed-in user, where OpenProject does return the full record. */
