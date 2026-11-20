@@ -55,6 +55,7 @@ const DASHBOARDS: { id: DashboardId; label: string }[] = [
 ];
 
 const PRESETS = [
+  { id: '1w', get label() { return t('Last 7 days'); }, days: 7 },
   { id: '4w', get label() { return t('Last 4 weeks'); }, days: 28 },
   { id: '12w', get label() { return t('Last 12 weeks'); }, days: 84 },
   { id: '26w', get label() { return t('Last 6 months'); }, days: 182 },
@@ -77,7 +78,12 @@ export default function InsightsPage() {
   const today = isoDay(new Date());
   const to = search.get('to') ?? today;
   const from = search.get('from') ?? isoDay(new Date(Date.parse(to) - 83 * DAY_MS));
-  const query = useMemo(() => ({ scope, from, to }), [scope, from, to]);
+  // The trends by day — on Utilisation, for a period under three months — by
+  // week or by month; unless chosen, by the period's length.
+  const byDay = dashboardId === 'utilisation' && Date.parse(to) - Date.parse(from) < 92 * DAY_MS;
+  const asked = search.get('by');
+  const by: InsightQuery['bucket'] = asked === 'day' ? (byDay ? 'day' : undefined) : asked === 'week' || asked === 'month' ? asked : undefined;
+  const query = useMemo(() => ({ scope, from, to, ...(by ? { bucket: by } : {}) }), [scope, from, to, by]);
 
   // The header reads the same query the body does, so it is fetched once.
   const dashboard = useDashboard(dashboardId, query);
@@ -157,7 +163,7 @@ export default function InsightsPage() {
         </TabsList>
       </Tabs>
 
-      <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Card className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
         <ScopePicker
           id="insights-scope"
           scope={scope}
@@ -210,6 +216,20 @@ export default function InsightsPage() {
             max={today}
             onChange={(event) => event.target.value && update({ to: event.target.value === today ? undefined : event.target.value })}
           />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="insights-trend">{t('Trends')}</Label>
+          <Select value={by ?? 'auto'} onValueChange={(value) => update({ by: value === 'auto' ? undefined : value })}>
+            <SelectTrigger id="insights-trend" className="h-8 text-xs" data-testid="insights-trend">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t('By the length of the period')}</SelectItem>
+              {byDay ? <SelectItem value="day">{t('By day')}</SelectItem> : null}
+              <SelectItem value="week">{t('By week')}</SelectItem>
+              <SelectItem value="month">{t('By month')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </Card>
 

@@ -2705,7 +2705,7 @@ export interface DashboardSeries {
   id: string;
   title: string;
   measureId: string;
-  bucket: 'week' | 'month';
+  bucket: 'day' | 'week' | 'month';
   points: MeasureTrendPoint[];
   /** With `lines`: what `points` are, for the legend. */
   label?: string;
@@ -3692,9 +3692,19 @@ export interface ResourceAllocation {
 
 export type CapacityBand = 'none' | 'under' | 'healthy' | 'full' | 'over';
 
-/** One week of someone's capacity: actual for weeks gone, forecast from this one on. */
+/** How long a heatmap column is: a day, a week (Monday to Sunday) or a calendar month. */
+export type CapacityScale = 'day' | 'week' | 'month';
+
+/**
+ * What a heatmap cell counts. `logged`: the time logged alone, against the
+ * hours available. `assigned`: that for periods gone, and the work assigned and
+ * booked for periods to come.
+ */
+export type CapacityMeasure = 'logged' | 'assigned';
+
+/** One period of someone's capacity — a day, a week or a month: actual for periods gone, forecast from this one on. */
 export interface CapacityCell {
-  /** The Monday. */
+  /** The period's first day: the Monday of a week, the 1st of a month. */
   week: string;
   /**
    * A week gone (`actual`: the time logged), a week to come (`forecast`: the
@@ -3702,8 +3712,14 @@ export interface CapacityCell {
    * the work still to come from tomorrow).
    */
   basis: 'actual' | 'current' | 'forecast';
-  /** Hours available: the whole week for this week, as for any other. */
+  /** Hours available: the whole period for the current one, as for any other. */
   available: number;
+  /**
+   * The current period's hours available from its start to today, today
+   * included: what the time logged so far is set against when only logged
+   * time counts.
+   */
+  availableSoFar?: number;
   /** Assigned work falling in the week. */
   committed: number;
   /** Planned allocations falling in the week. */
@@ -3741,8 +3757,19 @@ export interface CapacityGroup {
 
 export type CapacityGrouping = 'team' | 'role' | 'department' | 'none';
 
+/** A heatmap column: its first and last day, and for a day whether the instance works it. */
+export interface CapacityPeriod {
+  start: string;
+  end: string;
+  working?: boolean;
+}
+
 export interface CapacityGrid {
+  /** Each period's first day. */
   weeks: string[];
+  periods: CapacityPeriod[];
+  scale: CapacityScale;
+  measure: CapacityMeasure;
   today: string;
   group: CapacityGrouping;
   thresholds: ResourceThresholds;

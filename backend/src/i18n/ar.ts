@@ -289,6 +289,7 @@ export const ar: Readonly<Record<string, string>> = {
   "Budget used is calculated from logged time and cannot be set. Set the budget itself instead.": "تُحتسب الميزانية المستخدمة من الوقت المسجَّل ولا يمكن تعيينها. عيّن الميزانية نفسها بدلًا من ذلك.",
   "Budget variance": "انحراف الميزانية",
   "Budgets": "الميزانيات",
+  "By day": "حسب اليوم",
   "By month": "حسب الشهر",
   "By project": "حسب المشروع",
   "By severity": "حسب الشدة",

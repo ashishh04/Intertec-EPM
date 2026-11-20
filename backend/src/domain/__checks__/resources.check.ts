@@ -6,13 +6,18 @@ import {
   AvailabilityModel,
   bandOf,
   DEFAULT_THRESHOLDS,
+  isWorkday,
   overAllocated,
+  periodLoads,
+  periodOf,
+  periodsFrom,
   placeholderKey,
   spread,
   weekOf,
   weeklyLoads,
   type CarrierInput,
   type DemandItem,
+  type Period,
 } from '../resource-model.js';
 
 /**
@@ -133,6 +138,41 @@ await check('a week asked for more than is available is over-allocated, with wha
   assert.deepEqual(over[0]!.contributions.map((part) => part.itemId), ['wp:2', 'wp:1']);
   close(loads.get('1')!.get(d('2026-10-19'))!.committed, (18 * 5) / 13, 'second week, within 16');
   close(loads.get(placeholderKey('ph1'))!.get(d('2026-10-12'))!.planned, 10, 'the placeholder’s booking');
+});
+
+console.log('\nDays, weeks and months (the heatmap’s scales)');
+
+await check('a period is the day, the Monday-to-Sunday week or the calendar month a day falls in', () => {
+  const iso = (period: Period) => `${isoOf(period.start)}..${isoOf(period.end)}`;
+  assert.equal(iso(periodOf('day', d('2026-10-14'))), '2026-10-14..2026-10-14');
+  assert.equal(iso(periodOf('week', d('2026-10-14'))), '2026-10-12..2026-10-18');
+  assert.equal(iso(periodOf('month', d('2026-10-14'))), '2026-10-01..2026-10-31');
+  assert.equal(iso(periodOf('month', d('2028-02-10'))), '2028-02-01..2028-02-29', 'a leap February');
+  assert.deepEqual(periodsFrom('month', d('2026-11-20'), 3).map(iso), [
+    '2026-11-01..2026-11-30',
+    '2026-12-01..2026-12-31',
+    '2027-01-01..2027-01-31',
+  ]);
+  assert.deepEqual(periodsFrom('day', d('2026-12-31'), 2).map(iso), ['2026-12-31..2026-12-31', '2027-01-01..2027-01-01']);
+  assert.deepEqual(['2026-10-12', '2026-10-14', '2026-10-17'].map((day) => isWorkday(calendar, d(day))), [true, false, false], 'a Monday, the holiday, a Saturday');
+});
+
+await check('by day, the work is what falls on each day; the days of a week add up to the week, and a month to its days', () => {
+  const byDay = periodLoads([w1, w2], availability, ['1'], periodsFrom('day', d('2026-10-12'), 20), today).get('1')!;
+  // W2: 16 hours over Monday 12 and Tuesday 13, 8 each. W1: Friday 16 takes 18 × 8 / 13.
+  close(byDay.get(d('2026-10-12'))!.committed, 8, 'Monday 12');
+  close(byDay.get(d('2026-10-16'))!.committed, (18 * 8) / 13, 'Friday 16');
+  close(byDay.get(d('2026-10-14'))!.available, 0, 'nothing available on the holiday');
+  const weeks = weeklyLoads([w1, w2], availability, ['1'], d('2026-10-12'), d('2026-10-19'), today).get('1')!;
+  for (const week of weeks.values()) {
+    let committed = 0;
+    for (let day = week.week; day <= week.week + 6; day += 1) committed += byDay.get(day)?.committed ?? 0;
+    close(committed, week.committed, `the days of the week of ${isoOf(week.week)}`);
+  }
+  const october = periodLoads([w1, w2], availability, ['1'], [periodOf('month', today)], today).get('1')!.get(d('2026-10-01'))!;
+  close(october.committed, 34, 'all of both in October');
+  // From today to the end of the month: 24 + 16 + 20 hours, Saturday the 31st none.
+  close(october.available, 60, 'available from today');
 });
 
 console.log('\nHeatmap bands (BR-314)');

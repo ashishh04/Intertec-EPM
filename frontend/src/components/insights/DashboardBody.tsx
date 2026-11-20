@@ -92,7 +92,7 @@ export function DashboardBody({
                         key={series.id}
                         title={series.title}
                         description={t(
-                          '{bucket, select, week {By week} other {By month}} · as it stood at the end of each; ahead of today, the plan alone',
+                          '{bucket, select, day {By day} week {By week} other {By month}} · as it stood at the end of each; ahead of today, the plan alone',
                           { bucket: series.bucket },
                         )}
                       >
@@ -111,8 +111,8 @@ export function DashboardBody({
                       title={series.title}
                       description={
                         asAt
-                          ? t('{bucket, select, week {By week} other {By month}} · as it stood at the end of each', { bucket: series.bucket })
-                          : t('{bucket, select, week {By week} other {By month}} · within each', { bucket: series.bucket })
+                          ? t('{bucket, select, day {By day} week {By week} other {By month}} · as it stood at the end of each', { bucket: series.bucket })
+                          : t('{bucket, select, day {By day} week {By week} other {By month}} · within each', { bucket: series.bucket })
                       }
                     >
                       <MeasureSeriesChart

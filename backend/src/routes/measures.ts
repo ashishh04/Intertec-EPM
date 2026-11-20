@@ -184,7 +184,7 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
 
   /** One dashboard, timed against the response target; the time is in Server-Timing too. */
   app.get<{ Params: { id: string } }>('/dashboards/:id', async (request, reply) => {
-    const query = scopeQuery.parse(request.query);
+    const query = scopeQuery.extend({ bucket: z.enum(['day', 'week', 'month']).optional() }).parse(request.query);
     if (!DASHBOARD_IDS.includes(request.params.id as DashboardId)) throw EpmError.notFound('That dashboard');
     const viewer = await viewerOf(request);
     const scope = await scopeOf(query.scope, viewer);
@@ -194,6 +194,8 @@ export const measureRoutes: FastifyPluginAsync = async (app) => {
       periodOf(query),
       await narrowedViewer(viewer, query.within),
       todayIso(),
+      undefined,
+      query.bucket,
     );
     reply.header('Server-Timing', `dashboard;dur=${dashboard.timing.serverMs}`);
     return dashboard;

@@ -13,7 +13,9 @@ import type {
   CapacityGrid,
   CapacityGroup,
   CapacityGrouping,
+  CapacityMeasure,
   CapacityRow,
+  CapacityScale,
   CarrierKind,
   DemandContribution,
   HrImportPerson,
@@ -37,19 +39,27 @@ import {
   AvailabilityModel,
   bandOf,
   DEFAULT_THRESHOLDS,
+  EPSILON,
   instanceCalendarOf,
   isOverAllocated,
+  isWorkday,
   loadOf,
+  periodLoads,
+  periodLookup,
+  periodOf,
+  periodsFrom,
   placeholderKey,
   ratioOf,
   round2,
   standardPattern,
   weekOf,
   weeklyLoads,
+  weeksBetween,
   type CarrierInput,
   type CarrierWeek,
   type DemandItem,
   type InstanceCalendar,
+  type Period,
   type ScheduleRow,
 } from './resource-model.js';
 
@@ -1104,7 +1114,19 @@ async function buildShared(facts: ModelFacts): Promise<ResourceShared> {
 
 export interface GridQuery {
   from?: string;
+  /** How many weeks, as older callers ask: `count` when the scale is weeks. */
   weeks?: number;
+  /** How many periods. */
+  count?: number;
+  /** Days, weeks (unless asked) or months. */
+  scale?: CapacityScale;
+  /**
+   * What a cell counts. `assigned` (unless asked): the time logged in periods
+   * gone and the work assigned and booked in periods to come. `logged`: the
+   * time logged alone — someone is as busy as the time they log says, not as
+   * the work assigned to them.
+   */
+  measure?: CapacityMeasure;
   group?: CapacityGrouping;
   teamId?: string;
   roleId?: string;
@@ -1112,12 +1134,28 @@ export interface GridQuery {
   placeholders?: boolean;
 }
 
+/** How many periods a grid may run to, and how many it shows unless asked. */
+const PERIODS: Record<CapacityScale, { most: number; usual: number }> = {
+  day: { most: 62, usual: 14 },
+  week: { most: 52, usual: 12 },
+  month: { most: 24, usual: 6 },
+};
+
+function periodsFor(query: GridQuery, today: number): { scale: CapacityScale; periods: Period[] } {
+  const scale = query.scale ?? 'week';
+  const asked = query.count ?? (scale === 'week' ? query.weeks : undefined) ?? PERIODS[scale].usual;
+  const count = Math.min(Math.max(asked, 1), PERIODS[scale].most);
+  return { scale, periods: periodsFrom(scale, query.from ? dayOf(query.from) : today, count) };
+}
+
 const roleKey = (roleId: string) => `role:${roleId}`;
 
 function carriersFor(data: ResourceShared, query: GridQuery): CarrierInfo[] {
+  // Only people log time: a placeholder has nothing to show when logged time alone counts.
+  const peopleOnly = query.placeholders === false || query.measure === 'logged';
   return [...data.carriers.values()].filter(
     (carrier) =>
-      (query.placeholders !== false || carrier.kind === 'person') &&
+      (!peopleOnly || carrier.kind === 'person') &&
       (!query.teamId || carrier.teamId === query.teamId) &&
       (!query.roleId || carrier.roleId === query.roleId) &&
       (!query.departmentId || carrier.departmentId === query.departmentId),
@@ -1126,7 +1164,8 @@ function carriersFor(data: ResourceShared, query: GridQuery): CarrierInfo[] {
 
 /** Roles booked with nobody named, as rows of their own: demand with nobody to meet it. */
 function unstaffedRoles(data: ResourceShared, query: GridQuery): string[] {
-  if (query.teamId || query.departmentId) return [];
+  // A booking is not logged time.
+  if (query.teamId || query.departmentId || query.measure === 'logged') return [];
   const roles = new Set<string>();
   for (const item of data.demand) {
     if (item.kind === 'allocation' && item.carrier === null && item.roleId && (!query.roleId || item.roleId === query.roleId)) roles.add(item.roleId);
@@ -1134,71 +1173,109 @@ function unstaffedRoles(data: ResourceShared, query: GridQuery): string[] {
   return [...roles];
 }
 
-/** Hours each carrier logged in each week, and how many of them billable. */
-function loggedByWeek(data: ResourceShared, carriers: ReadonlySet<string>, fromWeek: number, toWeek: number) {
+/** Hours each carrier logged in each period, and how many of them billable. */
+function loggedByPeriod(data: ResourceShared, carriers: ReadonlySet<string>, periods: readonly Period[]) {
+  const periodStart = periodLookup(periods);
   const out = new Map<string, Map<number, { logged: number; billable: number }>>();
   for (const entry of data.facts.time) {
     if (entry.userId === null) continue;
     const key = String(entry.userId);
     if (!carriers.has(key)) continue;
-    const week = weekOf(dayOf(entry.spentOn));
-    if (week < fromWeek || week > toWeek) continue;
-    const weeks = out.get(key) ?? new Map<number, { logged: number; billable: number }>();
-    const cell = weeks.get(week) ?? { logged: 0, billable: 0 };
+    const start = periodStart(dayOf(entry.spentOn));
+    if (start === undefined) continue;
+    const cells = out.get(key) ?? new Map<number, { logged: number; billable: number }>();
+    const cell = cells.get(start) ?? { logged: 0, billable: 0 };
     cell.logged += entry.hours;
     if (data.billable(entry)) cell.billable += entry.hours;
-    weeks.set(week, cell);
-    out.set(key, weeks);
+    cells.set(start, cell);
+    out.set(key, cells);
   }
   return out;
 }
 
+const rounded = (ratio: number | null): number | null =>
+  ratio === null ? null : Number.isFinite(ratio) ? Math.round(ratio * 10) / 10 : null;
+
 /**
- * A cell: a week gone is the time logged in it; a week to come is the work
- * falling in it; and this week is both — the time logged so far plus the work
- * still to come from tomorrow, against the whole week's hours. It used to be
- * the work from today alone, so time somebody logged this week showed nowhere
- * on the heatmap until the week was over. `remaining` is this week's hours from
- * tomorrow, which over-allocation is judged against.
+ * A cell — a day, a week or a month — as `measure` counts it.
+ *
+ * `assigned`: a period gone is the time logged in it; a period to come is the
+ * work falling in it; and the current one is both — the time logged so far
+ * plus the work still to come from tomorrow, against the whole period's hours.
+ * It used to be the work from today alone, so time somebody logged this week
+ * showed nowhere on the heatmap until the week was over. `remaining` is the
+ * current period's hours from tomorrow, which over-allocation is judged against.
+ *
+ * `logged`: the time logged in the period against the hours available in it —
+ * for the current one, the hours available so far (`soFar`, today included),
+ * so a week logged in full reads as full on its Wednesday. Nothing is logged in
+ * a period to come, so it has no figure; and with no work counted, nothing is
+ * over-allocated: logging more than the hours shows as over capacity.
  */
-function cellOf(week: CarrierWeek, logged: number, today: number, data: ResourceShared, remaining?: number): CapacityCell {
-  const actual = week.week + 6 < today;
-  const current = !actual && week.week <= today;
-  const load = loadOf(week);
-  const ratio = ratioOf(actual ? logged : current ? logged + load : load, week.available);
+function cellOf(
+  period: Period,
+  load: CarrierWeek,
+  logged: number,
+  today: number,
+  data: ResourceShared,
+  measure: CapacityMeasure,
+  current?: { remaining?: number; soFar?: number },
+): CapacityCell {
+  const actual = period.end < today;
+  const isCurrent = !actual && period.start <= today;
+  const basis = actual ? 'actual' : isCurrent ? 'current' : 'forecast';
+  if (measure === 'logged') {
+    const against = isCurrent ? (current?.soFar ?? load.available) : load.available;
+    const ratio = basis === 'forecast' && logged <= EPSILON ? null : ratioOf(logged, against);
+    return {
+      week: isoOf(period.start),
+      basis,
+      available: round2(load.available),
+      ...(isCurrent ? { availableSoFar: round2(against) } : {}),
+      committed: 0,
+      planned: 0,
+      logged: round2(logged),
+      ratio: rounded(ratio),
+      band: bandForRatio(ratio, data),
+      over: false,
+    };
+  }
+  const asked = loadOf(load);
+  const ratio = ratioOf(actual ? logged : isCurrent ? logged + asked : asked, load.available);
   return {
-    week: isoOf(week.week),
-    basis: actual ? 'actual' : current ? 'current' : 'forecast',
-    available: round2(week.available),
-    committed: round2(week.committed),
-    planned: round2(week.planned),
+    week: isoOf(period.start),
+    basis,
+    available: round2(load.available),
+    committed: round2(load.committed),
+    planned: round2(load.planned),
     logged: round2(logged),
-    ratio: ratio === null ? null : Number.isFinite(ratio) ? Math.round(ratio * 10) / 10 : null,
+    ratio: rounded(ratio),
     band: bandForRatio(ratio, data),
-    over: !actual && isOverAllocated(current && remaining !== undefined ? { ...week, available: remaining } : week),
+    over: !actual && isOverAllocated(isCurrent && current?.remaining !== undefined ? { ...load, available: current.remaining } : load),
   };
 }
 
 /**
- * This week for each carrier, as the heatmap counts it: the work still to come
- * from tomorrow — today's share is what the time logged today stands for, and
- * counting both would count today twice — against the whole week's hours, with
- * the hours from tomorrow kept for judging over-allocation.
+ * The current period for each carrier, as the heatmap counts it with the work
+ * assigned: the work still to come from tomorrow — today's share is what the
+ * time logged today stands for, and counting both would count today twice —
+ * against the whole period's hours, with the hours from tomorrow kept for
+ * judging over-allocation.
  */
-function thisWeekLoads(
+function currentLoads(
   items: readonly DemandItem[],
   availability: AvailabilityModel,
   carriers: Iterable<string>,
-  week: number,
+  period: Period,
   today: number,
-): Map<string, { week: CarrierWeek; remaining: number }> {
+): Map<string, { load: CarrierWeek; remaining: number }> {
   const keys = [...carriers];
-  const ahead = weeklyLoads(items, availability, keys, week, week, today + 1);
-  const out = new Map<string, { week: CarrierWeek; remaining: number }>();
+  const ahead = periodLoads(items, availability, keys, [period], today + 1);
+  const out = new Map<string, { load: CarrierWeek; remaining: number }>();
   for (const key of keys) {
-    const cell = ahead.get(key)!.get(week)!;
-    const remaining = today + 1 <= week + 6 ? availability.sum(key, today + 1, week + 6) : 0;
-    out.set(key, { week: { ...cell, available: availability.sum(key, week, week + 6) }, remaining });
+    const cell = ahead.get(key)!.get(period.start)!;
+    const remaining = today + 1 <= period.end ? availability.sum(key, today + 1, period.end) : 0;
+    out.set(key, { load: { ...cell, available: availability.sum(key, period.start, period.end) }, remaining });
   }
   return out;
 }
@@ -1206,18 +1283,28 @@ function thisWeekLoads(
 const bandForRatio = (ratio: number | null, data: ResourceShared): CapacityBand =>
   ratio === null ? 'none' : bandOf(Number.isFinite(ratio) ? ratio : Number.POSITIVE_INFINITY, data.settings.thresholds);
 
-const sumCells = (cells: CapacityCell[][], weeks: number[], today: number, data: ResourceShared): CapacityCell[] =>
-  weeks.map((week, index) => {
+const sumCells = (
+  cells: CapacityCell[][],
+  periods: readonly Period[],
+  today: number,
+  data: ResourceShared,
+  measure: CapacityMeasure,
+): CapacityCell[] =>
+  periods.map((period, index) => {
     const parts = cells.map((row) => row[index]!);
     const total: CarrierWeek = {
       carrier: '',
-      week,
+      week: period.start,
       available: parts.reduce((sum, cell) => sum + cell.available, 0),
       committed: parts.reduce((sum, cell) => sum + cell.committed, 0),
       planned: parts.reduce((sum, cell) => sum + cell.planned, 0),
       contributions: [],
     };
-    const cell = cellOf(total, parts.reduce((sum, part) => sum + part.logged, 0), today, data);
+    const soFar = parts.some((part) => part.availableSoFar !== undefined)
+      ? parts.reduce((sum, part) => sum + (part.availableSoFar ?? part.available), 0)
+      : undefined;
+    const logged = parts.reduce((sum, part) => sum + part.logged, 0);
+    const cell = cellOf(period, total, logged, today, data, measure, soFar === undefined ? undefined : { soFar });
     // A group is over when anyone in it is: a team's spare hours do not do
     // another member's work.
     return { ...cell, over: cell.over || parts.some((part) => part.over) };
@@ -1226,27 +1313,42 @@ const sumCells = (cells: CapacityCell[][], weeks: number[], today: number, data:
 export async function capacityGrid(query: GridQuery): Promise<CapacityGrid> {
   const data = await loadResourceShared();
   const today = dayOf(todayIso());
-  const fromWeek = weekOf(query.from ? dayOf(query.from) : today);
-  const count = Math.min(Math.max(query.weeks ?? 12, 1), 52);
-  const weeks = Array.from({ length: count }, (_, index) => fromWeek + index * 7);
-  const toWeek = weeks.at(-1)!;
+  const { scale, periods } = periodsFor(query, today);
+  const measure = query.measure ?? 'assigned';
   const group = query.group ?? 'team';
 
   const carriers = carriersFor(data, query);
   const keys = new Set(carriers.map((carrier) => carrier.key));
-  const loads = weeklyLoads(data.demand, data.availability, keys, fromWeek, toWeek, today);
-  const logged = loggedByWeek(data, keys, fromWeek, toWeek);
-  const currentWeek = weekOf(today);
-  const thisWeek = weeks.includes(currentWeek)
-    ? thisWeekLoads(data.demand, data.availability, keys, currentWeek, today)
-    : undefined;
-  const cellFor = (key: string, week: number) => {
-    const hours = logged.get(key)?.get(week)?.logged ?? 0;
-    const current = week === currentWeek ? thisWeek?.get(key) : undefined;
-    return current
-      ? cellOf(current.week, hours, today, data, current.remaining)
-      : cellOf(loads.get(key)!.get(week)!, hours, today, data);
-  };
+  const logged = loggedByPeriod(data, keys, periods);
+  const current = periods.find((period) => period.start <= today && today <= period.end);
+  let cellFor: (key: string, period: Period) => CapacityCell;
+  if (measure === 'logged') {
+    // The time logged alone: no work or booking is spread at all.
+    cellFor = (key, period) => {
+      const load: CarrierWeek = {
+        carrier: key,
+        week: period.start,
+        available: data.availability.sum(key, period.start, period.end),
+        committed: 0,
+        planned: 0,
+        contributions: [],
+      };
+      const hours = logged.get(key)?.get(period.start)?.logged ?? 0;
+      return period === current
+        ? cellOf(period, load, hours, today, data, measure, { soFar: data.availability.sum(key, period.start, today) })
+        : cellOf(period, load, hours, today, data, measure);
+    };
+  } else {
+    const loads = periodLoads(data.demand, data.availability, keys, periods, today);
+    const now = current ? currentLoads(data.demand, data.availability, keys, current, today) : undefined;
+    cellFor = (key, period) => {
+      const hours = logged.get(key)?.get(period.start)?.logged ?? 0;
+      const here = period === current ? now?.get(key) : undefined;
+      return here
+        ? cellOf(period, here.load, hours, today, data, measure, { remaining: here.remaining })
+        : cellOf(period, loads.get(key)!.get(period.start)!, hours, today, data, measure);
+    };
+  }
   const rows: CapacityRow[] = carriers.map((carrier) => ({
     key: carrier.key,
     kind: carrier.kind,
@@ -1255,14 +1357,14 @@ export async function capacityGrid(query: GridQuery): Promise<CapacityGrid> {
     roleId: carrier.roleId,
     teamId: carrier.teamId,
     departmentId: carrier.departmentId,
-    cells: weeks.map((week) => cellFor(carrier.key, week)),
+    cells: periods.map((period) => cellFor(carrier.key, period)),
   }));
 
   // Roles booked with nobody named: demand with no hours against it.
   for (const roleId of unstaffedRoles(data, query)) {
     const items = data.demand.filter((item) => item.kind === 'allocation' && item.carrier === null && item.roleId === roleId);
     const asCarrier = items.map((item) => ({ ...item, carrier: roleKey(roleId) }));
-    const roleLoads = weeklyLoads(asCarrier, data.availability, [roleKey(roleId)], fromWeek, toWeek, today).get(roleKey(roleId))!;
+    const roleLoads = periodLoads(asCarrier, data.availability, [roleKey(roleId)], periods, today).get(roleKey(roleId))!;
     rows.push({
       key: roleKey(roleId),
       kind: 'role',
@@ -1271,7 +1373,7 @@ export async function capacityGrid(query: GridQuery): Promise<CapacityGrid> {
       roleId,
       teamId: null,
       departmentId: null,
-      cells: weeks.map((week) => cellOf(roleLoads.get(week)!, 0, today, data)),
+      cells: periods.map((period) => cellOf(period, roleLoads.get(period.start)!, 0, today, data, measure)),
     });
   }
 
@@ -1296,11 +1398,18 @@ export async function capacityGrid(query: GridQuery): Promise<CapacityGrid> {
     entry.rows.push(row);
     groups.set(key, entry);
   }
-  for (const entry of groups.values()) entry.cells = sumCells(entry.rows.map((row) => row.cells), weeks, today, data);
+  for (const entry of groups.values()) entry.cells = sumCells(entry.rows.map((row) => row.cells), periods, today, data, measure);
   const ordered = [...groups.values()].sort((a, b) => Number(a.key === 'none') - Number(b.key === 'none') || a.name.localeCompare(b.name));
 
   return {
-    weeks: weeks.map(isoOf),
+    weeks: periods.map((period) => isoOf(period.start)),
+    periods: periods.map((period) => ({
+      start: isoOf(period.start),
+      end: isoOf(period.end),
+      ...(scale === 'day' ? { working: isWorkday(data.calendar, period.start) } : {}),
+    })),
+    scale,
+    measure,
     today: isoOf(today),
     group,
     thresholds: data.settings.thresholds,
@@ -1386,20 +1495,22 @@ export async function overAllocations(query: GridQuery): Promise<OverAllocation[
 
 /**
  * What is behind one cell of the heatmap: a person's, placeholder's or
- * unstaffed role's week — or a group's, when `key` is `group:<grouping>:<id>`
- * — with the demand that falls in it and the time logged in it.
+ * unstaffed role's day, week or month — or a group's, when `key` is
+ * `group:<grouping>:<id>` — with the demand that falls in it (unless logged
+ * time alone counts) and the time logged in it.
  */
-export async function cellDetail(key: string, weekIso: string, query: GridQuery): Promise<CapacityCellDetail> {
+export async function cellDetail(key: string, dayIso: string, query: GridQuery): Promise<CapacityCellDetail> {
   const data = await loadResourceShared();
   const today = dayOf(todayIso());
-  const week = weekOf(dayOf(weekIso));
+  const measure = query.measure ?? 'assigned';
+  const period = periodOf(query.scale ?? 'week', dayOf(dayIso));
 
   let members: { key: string; name: string }[];
   let name: string;
   if (key.startsWith('group:')) {
     const [, grouping, ...rest] = key.split(':');
     const groupId = rest.join(':');
-    const grid = await capacityGrid({ ...query, from: isoOf(week), weeks: 1, group: grouping as CapacityGrouping });
+    const grid = await capacityGrid({ ...query, from: isoOf(period.start), count: 1, weeks: undefined, group: grouping as CapacityGrouping });
     const group = grid.groups.find((entry) => entry.key === groupId);
     if (!group) throw EpmError.notFound('That group');
     members = group.rows.map((row) => ({ key: row.key, name: row.name }));
@@ -1416,32 +1527,40 @@ export async function cellDetail(key: string, weekIso: string, query: GridQuery)
     name = carrier.name;
   }
 
-  const total: CarrierWeek = { carrier: key, week, available: 0, committed: 0, planned: 0, contributions: [] };
+  const total: CarrierWeek = { carrier: key, week: period.start, available: 0, committed: 0, planned: 0, contributions: [] };
   const contributions: DemandContribution[] = [];
   let loggedHours = 0;
   let remaining = 0;
-  // This week is counted as the heatmap counts it (`thisWeekLoads`).
-  const isCurrent = week <= today && today <= week + 6;
+  let soFar = 0;
+  // The current period is counted as the heatmap counts it (`currentLoads`).
+  const isCurrent = period.start <= today && today <= period.end;
   const logged = new Map<string, LoggedTime>();
   for (const member of members) {
     const isRole = member.key.startsWith('role:');
-    const items = isRole
-      ? data.demand
-          .filter((item) => item.kind === 'allocation' && item.carrier === null && item.roleId === member.key.slice(5))
-          .map((item) => ({ ...item, carrier: member.key }))
-      : data.demand.filter((item) => item.carrier === member.key);
-    const current = isCurrent ? thisWeekLoads(items, data.availability, [member.key], week, today).get(member.key) : undefined;
-    const cell = current?.week ?? weeklyLoads(items, data.availability, [member.key], week, week, today).get(member.key)!.get(week)!;
-    remaining += current?.remaining ?? cell.available;
-    total.available += cell.available;
-    total.committed += cell.committed;
-    total.planned += cell.planned;
-    for (const part of cell.contributions) contributions.push(describe(data, member.key, part));
-    if (isRole) continue;
+    if (measure === 'logged') {
+      // The time logged alone: the hours there were, and none of the work.
+      if (isRole) continue;
+      total.available += data.availability.sum(member.key, period.start, period.end);
+      if (isCurrent) soFar += data.availability.sum(member.key, period.start, today);
+    } else {
+      const items = isRole
+        ? data.demand
+            .filter((item) => item.kind === 'allocation' && item.carrier === null && item.roleId === member.key.slice(5))
+            .map((item) => ({ ...item, carrier: member.key }))
+        : data.demand.filter((item) => item.carrier === member.key);
+      const current = isCurrent ? currentLoads(items, data.availability, [member.key], period, today).get(member.key) : undefined;
+      const cell = current?.load ?? periodLoads(items, data.availability, [member.key], [period], today).get(member.key)!.get(period.start)!;
+      remaining += current?.remaining ?? cell.available;
+      total.available += cell.available;
+      total.committed += cell.committed;
+      total.planned += cell.planned;
+      for (const part of cell.contributions) contributions.push(describe(data, member.key, part));
+      if (isRole) continue;
+    }
     for (const entry of data.facts.time) {
       if (entry.userId === null || String(entry.userId) !== member.key) continue;
       const day = dayOf(entry.spentOn);
-      if (day < week || day > week + 6) continue;
+      if (day < period.start || day > period.end) continue;
       loggedHours += entry.hours;
       const work = entry.workPackageId !== null ? data.facts.workPackages.find((item) => item.id === entry.workPackageId) : undefined;
       // Time on no project is named by its kind: a daily scrum, a follow-up.
@@ -1464,8 +1583,8 @@ export async function cellDetail(key: string, weekIso: string, query: GridQuery)
   return {
     key,
     name,
-    week: isoOf(week),
-    cell: cellOf(total, loggedHours, today, data, isCurrent ? remaining : undefined),
+    week: isoOf(period.start),
+    cell: cellOf(period, total, loggedHours, today, data, measure, isCurrent ? { remaining, soFar } : undefined),
     contributions: contributions.sort((a, b) => b.hours - a.hours),
     logged: [...logged.values()].map((line) => ({ ...line, hours: round2(line.hours) })).sort((a, b) => b.hours - a.hours),
   };
@@ -1489,7 +1608,7 @@ export async function materialiseCapacity(day = todayIso()): Promise<number> {
   const people = [...data.carriers.values()].filter((carrier) => carrier.kind === 'person');
   const keys = new Set(people.map((person) => person.key));
   const loads = weeklyLoads(data.demand, data.availability, keys, fromWeek, toWeek, today);
-  const logged = loggedByWeek(data, keys, fromWeek, toWeek);
+  const logged = loggedByPeriod(data, keys, weeksBetween(fromWeek, toWeek));
   const now = new Date().toISOString();
   const rows: Record<string, string | number | boolean | null>[] = [];
   for (const person of people) {

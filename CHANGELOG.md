@@ -226,6 +226,20 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Utilisation by day, week or month, from the time logged.** Resources →
+  Capacity shows everyone by day, week or calendar month, with previous and
+  next to move through them, and counts the time each person logged against
+  the hours they had; the current day, week or month is set against the hours
+  so far. Work assigned to someone but not logged no longer makes them look
+  busy. "Logged time and assigned work" counts the work and bookings still to
+  come as well, as the heatmap did before, with the placeholders and roles
+  booked with nobody named. A cell opens on the time logged in it. The browser
+  remembers which view was chosen last.
+- **Dashboard trends by day, week or month.** Insights dashboards have a
+  Trends choice beside the period: by day, by week, by month, or by the length
+  of the period as before. Resource utilisation reads by the day over a month
+  or less, and can be read by day over up to three months. A "Last 7 days"
+  period has been added. Exports follow the choice.
 - **Access roles is easier to read.** Each role is a card saying who holds it,
   with a link to them, and one table compares what every role can do,
   permission by permission, grouped by area: people, portfolios and requests,
@@ -315,6 +329,9 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- **Choosing a status on Projects keeps the other counts.** Clicking On track,
+  or any status in the strip above the list, set every other status to 0; each
+  now keeps its count while the list shows the projects of the one chosen.
 - **Spent time in an imported sheet reaches the tasks, timesheets and
   utilisation.** It was logged only on tasks the import created, so a sheet
   imported onto tasks already here (the same export again, or tasks an earlier

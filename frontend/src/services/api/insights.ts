@@ -30,6 +30,8 @@ export interface InsightQuery {
   scope?: string;
   from?: string;
   to?: string;
+  /** A dashboard's trends by day, week or month; unless asked, by the period's length. */
+  bucket?: 'day' | 'week' | 'month';
 }
 
 const params = (query: InsightQuery = {}) => ({
@@ -63,12 +65,12 @@ export class ApiInsightsRepository {
   }
 
   getDashboard(id: DashboardId, query?: InsightQuery): Promise<Dashboard> {
-    return apiClient.get<Dashboard>(`/dashboards/${id}`, params(query));
+    return apiClient.get<Dashboard>(`/dashboards/${id}`, { ...params(query), ...(query?.bucket ? { bucket: query.bucket } : {}) });
   }
 
   /** The dashboard as a PDF or an Excel workbook: the same figures, for the same person. */
   exportDashboard(id: DashboardId, format: 'pdf' | 'xlsx', query?: InsightQuery): Promise<Blob> {
-    return apiClient.download(`/dashboards/${id}/export`, { format, ...params(query) });
+    return apiClient.download(`/dashboards/${id}/export`, { format, ...params(query), ...(query?.bucket ? { bucket: query.bucket } : {}) });
   }
 
   getStateAsAt(at: string, scope?: string): Promise<StateAsAt> {

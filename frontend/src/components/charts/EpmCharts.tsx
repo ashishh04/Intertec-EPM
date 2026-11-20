@@ -409,13 +409,13 @@ export function TrendChart({
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
- * "6 Oct" for a week, "Oct 26" for a month: the bucket's first day. English
+ * "6 Oct" for a day or a week, "Oct 26" for a month: the bucket's first day. English
  * keeps that wording exactly; another language gets its own month names and
  * digits from `Intl`. Always Gregorian, whatever calendar the reader chose:
  * the buckets are Gregorian weeks and months, and a Hijri label would name a
  * month the bucket does not match.
  */
-function bucketLabel(from: string, bucket: 'week' | 'month'): string {
+function bucketLabel(from: string, bucket: 'day' | 'week' | 'month'): string {
   const [year, month, day] = from.split('-').map(Number) as [number, number, number];
   if (currentLanguage() === 'en') {
     return bucket === 'month' ? `${SHORT_MONTHS[month - 1]} ${String(year).slice(2)}` : `${day} ${SHORT_MONTHS[month - 1]}`;
@@ -443,7 +443,7 @@ export function MeasureSeriesChart({
   tone = 'primary',
 }: {
   points: { from: string; to: string; value: number | null }[];
-  bucket: 'week' | 'month';
+  bucket: 'day' | 'week' | 'month';
   kind: 'bars' | 'line';
   label: string;
   format: (value: number) => string;
@@ -520,7 +520,7 @@ export function MeasureLinesChart({
   index = false,
 }: {
   lines: { label: string; points: { from: string; to: string; value: number | null }[] }[];
-  bucket: 'week' | 'month';
+  bucket: 'day' | 'week' | 'month';
   format: (value: number) => string;
   /** Values are an index read against 1. */
   index?: boolean;

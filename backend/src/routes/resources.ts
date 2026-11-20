@@ -61,6 +61,10 @@ import { EpmError } from '../lib/errors.js';
 const gridQuery = z.object({
   from: calendarDay().optional(),
   weeks: z.coerce.number().int().min(1).max(52).optional(),
+  // Periods: up to 62 days, 52 weeks or 24 months (`capacityGrid` holds each scale to its own).
+  count: z.coerce.number().int().min(1).max(62).optional(),
+  scale: z.enum(['day', 'week', 'month']).optional(),
+  measure: z.enum(['logged', 'assigned']).optional(),
   group: z.enum(['team', 'role', 'department', 'none']).optional(),
   teamId: z.string().optional(),
   roleId: z.string().optional(),

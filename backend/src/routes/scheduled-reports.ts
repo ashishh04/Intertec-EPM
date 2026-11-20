@@ -137,7 +137,9 @@ export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {
    * person, in the language their screen is in (BR-604).
    */
   app.get<{ Params: { id: string } }>('/dashboards/:id/export', async (request, reply) => {
-    const query = scopeQuery.extend({ format: z.enum(['pdf', 'xlsx']).default('pdf') }).parse(request.query);
+    const query = scopeQuery
+      .extend({ format: z.enum(['pdf', 'xlsx']).default('pdf'), bucket: z.enum(['day', 'week', 'month']).optional() })
+      .parse(request.query);
     if (!DASHBOARD_IDS.includes(request.params.id as DashboardId)) throw EpmError.notFound('That dashboard');
     const language = requestLanguage(request);
     const conventions = contextConventions();
@@ -145,7 +147,15 @@ export const scheduledReportRoutes: FastifyPluginAsync = async (app) => {
     const scope = await scopeOf(query.scope, viewer);
     const period = periodOf(query);
     // Built in the request's language, like the screen's.
-    const dashboard = await buildDashboard(request.params.id as DashboardId, scope, period, await narrowedViewer(viewer, query.within), todayIso());
+    const dashboard = await buildDashboard(
+      request.params.id as DashboardId,
+      scope,
+      period,
+      await narrowedViewer(viewer, query.within),
+      todayIso(),
+      undefined,
+      query.bucket,
+    );
     const facts = await modelFacts();
     const name = facts.users.get(Number(request.auth!.userId))?.name;
     const asOf = dashboard.asOf ? dashboard.asOf.slice(0, 16).replace('T', ' ') : null;

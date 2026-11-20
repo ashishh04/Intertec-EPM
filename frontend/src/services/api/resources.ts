@@ -3,6 +3,8 @@ import type {
   CapacityCellDetail,
   CapacityGrid,
   CapacityGrouping,
+  CapacityMeasure,
+  CapacityScale,
   HrImportPerson,
   HrImportResult,
   HrReconcileResult,
@@ -32,6 +34,10 @@ import type {
 export interface CapacityQuery {
   from?: string;
   weeks?: number;
+  /** How many periods: days, weeks or months as `scale` says. */
+  count?: number;
+  scale?: CapacityScale;
+  measure?: CapacityMeasure;
   group?: CapacityGrouping;
   teamId?: ID;
   roleId?: ID;
@@ -81,6 +87,9 @@ export interface HrReconcileInput {
 const query = (input: CapacityQuery = {}) => ({
   ...(input.from ? { from: input.from } : {}),
   ...(input.weeks ? { weeks: input.weeks } : {}),
+  ...(input.count ? { count: input.count } : {}),
+  ...(input.scale ? { scale: input.scale } : {}),
+  ...(input.measure ? { measure: input.measure } : {}),
   ...(input.group ? { group: input.group } : {}),
   ...(input.teamId ? { teamId: input.teamId } : {}),
   ...(input.roleId ? { roleId: input.roleId } : {}),

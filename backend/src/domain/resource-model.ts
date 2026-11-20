@@ -262,6 +262,63 @@ export function spread(item: DemandItem, availability: AvailabilityModel, today:
 const workday = (calendar: InstanceCalendar, day: number) =>
   isInstanceWorkday(calendar, weekdayIndex(day)) && !calendar.holidays.has(day);
 
+/** Whether the instance works a day: a working weekday that is no public holiday. */
+export const isWorkday = workday;
+
+/* -------------------------------------------------------------------------- */
+/* Periods: days, weeks and months                                            */
+/* -------------------------------------------------------------------------- */
+
+/** How long a period is: a day, a week (Monday to Sunday) or a calendar month. */
+export type Scale = 'day' | 'week' | 'month';
+
+/** A stretch of days, both ends included. */
+export interface Period {
+  start: number;
+  end: number;
+}
+
+const DAY_MS = 86_400_000;
+
+/** The day, week or calendar month a day falls in. */
+export function periodOf(scale: Scale, day: number): Period {
+  if (scale === 'day') return { start: day, end: day };
+  if (scale === 'week') return { start: weekOf(day), end: weekOf(day) + 6 };
+  const date = new Date(day * DAY_MS);
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  return { start: Date.UTC(year, month, 1) / DAY_MS, end: Date.UTC(year, month + 1, 1) / DAY_MS - 1 };
+}
+
+/** `count` periods one after the other, the first the one `from` falls in. */
+export function periodsFrom(scale: Scale, from: number, count: number): Period[] {
+  const out: Period[] = [];
+  let day = from;
+  for (let index = 0; index < count; index += 1) {
+    const period = periodOf(scale, day);
+    out.push(period);
+    day = period.end + 1;
+  }
+  return out;
+}
+
+/** The weeks from one Monday to another, both included. */
+export function weeksBetween(fromWeek: number, toWeek: number): Period[] {
+  const out: Period[] = [];
+  for (let week = fromWeek; week <= toWeek; week += 7) out.push({ start: week, end: week + 6 });
+  return out;
+}
+
+/** The first day of the period a day falls in, or undefined for a day in none of them. */
+export function periodLookup(periods: readonly Period[]): (day: number) => number | undefined {
+  if (periods.length === 0) return () => undefined;
+  const first = Math.min(...periods.map((period) => period.start));
+  const last = Math.max(...periods.map((period) => period.end));
+  const starts: (number | undefined)[] = new Array(last - first + 1);
+  for (const period of periods) for (let day = period.start; day <= period.end; day += 1) starts[day - first] = period.start;
+  return (day) => (day < first || day > last ? undefined : starts[day - first]);
+}
+
 /* -------------------------------------------------------------------------- */
 /* Weekly load                                                                */
 /* -------------------------------------------------------------------------- */
@@ -271,10 +328,10 @@ export interface Contribution {
   hours: number;
 }
 
-/** One carrier's week: what they have, and what falls on them. */
+/** One carrier's week — or day, or month — what they have, and what falls on them. */
 export interface CarrierWeek {
   carrier: string;
-  /** The Monday. */
+  /** The Monday: the period's first day. */
   week: number;
   /** Hours available: from today in the current week. */
   available: number;
@@ -305,15 +362,30 @@ export function weeklyLoads(
   toWeek: number,
   today: number,
 ): Map<string, Map<number, CarrierWeek>> {
+  return periodLoads(items, availability, carriers, weeksBetween(fromWeek, toWeek), today);
+}
+
+/**
+ * `weeklyLoads` for any periods — days, weeks or months — keyed by each
+ * period's first day, which `week` then holds. The period with today in it
+ * counts from today, both sides; earlier ones have no demand.
+ */
+export function periodLoads(
+  items: readonly DemandItem[],
+  availability: AvailabilityModel,
+  carriers: Iterable<string>,
+  periods: readonly Period[],
+  today: number,
+): Map<string, Map<number, CarrierWeek>> {
   const out = new Map<string, Map<number, CarrierWeek>>();
   for (const carrier of carriers) {
     const weeks = new Map<number, CarrierWeek>();
-    for (let week = fromWeek; week <= toWeek; week += 7) {
-      const first = week <= today && today <= week + 6 ? today : week;
-      weeks.set(week, {
+    for (const period of periods) {
+      const first = period.start <= today && today <= period.end ? today : period.start;
+      weeks.set(period.start, {
         carrier,
-        week,
-        available: availability.sum(carrier, first, week + 6),
+        week: period.start,
+        available: availability.sum(carrier, first, period.end),
         committed: 0,
         planned: 0,
         contributions: [],
@@ -321,6 +393,7 @@ export function weeklyLoads(
     }
     out.set(carrier, weeks);
   }
+  const periodStart = periodLookup(periods);
   const contributions = new Map<CarrierWeek, Map<string, number>>();
   for (const item of items) {
     if (!item.carrier) continue;
@@ -329,7 +402,8 @@ export function weeklyLoads(
     const days = spread(item, availability, today);
     if (!days) continue;
     for (const [day, hours] of days) {
-      const cell = weeks.get(weekOf(day));
+      const start = periodStart(day);
+      const cell = start === undefined ? undefined : weeks.get(start);
       if (!cell) continue;
       if (item.kind === 'work') cell.committed += hours;
       else cell.planned += hours;

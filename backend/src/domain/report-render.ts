@@ -293,7 +293,10 @@ export function renderPdf(content: ReportContent): Uint8Array {
       const x = from(column * (chartWidth + 12), chartWidth);
       const unit = dashboard.measures[series.measureId]?.unit;
       write(series.title, x, chartWidth, y, { size: 10, bold: true });
-      write(series.bucket === 'week' ? tr('By week') : tr('By month'), x, chartWidth, y + 13, { size: 7.5, colour: COLOURS.muted });
+      write(series.bucket === 'day' ? tr('By day') : series.bucket === 'week' ? tr('By week') : tr('By month'), x, chartWidth, y + 13, {
+        size: 7.5,
+        colour: COLOURS.muted,
+      });
       const top = y + 28;
       const height = 100;
       /** The first and last buckets' dates, under the start and the end of the axis. */

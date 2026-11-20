@@ -114,10 +114,10 @@ export default function ProjectsPage() {
   const sort = isProjectSort(storedSort) ? storedSort : DEFAULT_SORT;
   const debouncedSearch = useDebounce(search, 250);
 
-  const projectsQuery = useProjects({
-    search: debouncedSearch || undefined,
-    status: status === ALL ? undefined : [status],
-  });
+  // Every status, filtered here: the status strip counts the projects of each
+  // status, so choosing one must not empty the others' counts (it asked the
+  // server for that status alone, and every other card then read 0).
+  const projectsQuery = useProjects({ search: debouncedSearch || undefined });
   const users = useUserMap();
 
   const portfolios = useMemo(
@@ -128,17 +128,24 @@ export default function ProjectsPage() {
   // Favourites only, remembered in this browser.
   const [favouritesOnly, setFavouritesOnly] = useLocalStorage<boolean>('epm.projects.favourites', false);
 
-  const projects = useMemo(() => {
-    const sorted = sortProjects(
+  // The other filters first: what the status strip counts.
+  const inView = useMemo(
+    () =>
       (projectsQuery.data ?? []).filter(
         (project) =>
           (portfolio === ALL || project.portfolio === portfolio) && (!favouritesOnly || project.favorited),
       ),
+    [projectsQuery.data, portfolio, favouritesOnly],
+  );
+
+  const projects = useMemo(() => {
+    const sorted = sortProjects(
+      inView.filter((project) => status === ALL || project.status === status),
       sort,
     );
     // Starred projects first, each group in the chosen order.
     return [...sorted.filter((project) => project.favorited), ...sorted.filter((project) => !project.favorited)];
-  }, [projectsQuery.data, portfolio, sort, favouritesOnly]);
+  }, [inView, status, sort]);
 
   // Paging resets whenever the query behind the list, or its order, changes.
   const paged = usePagination(projects, {
@@ -151,9 +158,9 @@ export default function ProjectsPage() {
       ProjectStatus,
       number
     >;
-    for (const project of projects) counts[project.status] += 1;
+    for (const project of inView) counts[project.status] += 1;
     return counts;
-  }, [projects]);
+  }, [inView]);
 
   return (
     <div className="space-y-5">

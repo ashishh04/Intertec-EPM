@@ -221,9 +221,22 @@ async function series(context: MeasureContext, id: string, title: string, bucket
   return { id, title: t(contextLanguage(), title), measureId: id, bucket, points: await measureSeries(context, id, bucket) };
 }
 
-/** Weekly buckets for up to six months, monthly beyond. */
-const bucketFor = (period: Period): Bucket =>
-  Date.parse(period.to) - Date.parse(period.from) > 183 * 86_400_000 ? 'month' : 'week';
+const DAY_MS = 86_400_000;
+
+/**
+ * A trend's buckets. As asked: by day where the dashboard reads by the day
+ * (`finest`) and the period is under three months, by week for up to a year,
+ * or by month. Unless asked, by the period's length: by day for up to a month
+ * where the dashboard reads by the day, by week for up to six months, and by
+ * month beyond.
+ */
+const bucketFor = (period: Period, asked?: Bucket, finest: Bucket = 'week'): Bucket => {
+  const span = Date.parse(period.to) - Date.parse(period.from);
+  if (finest === 'day' && (asked === 'day' ? span < 92 * DAY_MS : !asked && span < 31 * DAY_MS)) return 'day';
+  if (asked === 'month') return 'month';
+  if (asked) return span <= 366 * DAY_MS ? 'week' : 'month';
+  return span > 183 * DAY_MS ? 'month' : 'week';
+};
 
 const projectRows = (context: MeasureContext) =>
   context.projects
@@ -240,7 +253,7 @@ const projectRows = (context: MeasureContext) =>
 /* The dashboards                                                             */
 /* -------------------------------------------------------------------------- */
 
-async function portfolioHealth(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function portfolioHealth(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = ['projects.active', 'health.greenPct', 'projects.atRisk', 'schedule.slipping', 'work.overdue', 'risk.high'];
   const tables: DashboardTable[] = [];
 
@@ -283,7 +296,7 @@ async function portfolioHealth(shared: Shared, context: MeasureContext): Promise
   }
   tables.push(projects);
 
-  const bucket = bucketFor(context.period);
+  const bucket = bucketFor(context.period, asked);
   return {
     tiles,
     tables,
@@ -295,7 +308,7 @@ async function portfolioHealth(shared: Shared, context: MeasureContext): Promise
   };
 }
 
-async function delivery(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function delivery(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = [
     'work.completed',
     'work.throughput',
@@ -386,7 +399,7 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
     );
   }
 
-  const bucket = bucketFor(period);
+  const bucket = bucketFor(period, asked);
   return {
     tiles,
     tables,
@@ -400,7 +413,7 @@ async function delivery(shared: Shared, context: MeasureContext): Promise<Partia
   };
 }
 
-async function utilisation(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function utilisation(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = ['utilisation', 'utilisation.billable', 'capacity.availableHours', 'time.logged', 'time.billable', 'time.uncosted'];
   const { facts, period, today } = context;
   const tables: DashboardTable[] = [];
@@ -481,7 +494,8 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
     }),
   );
 
-  const bucket = bucketFor(period);
+  // Logged time reads by the day: a day's hours are what a person did that day.
+  const bucket = bucketFor(period, asked, 'day');
   return {
     tiles,
     tables,
@@ -494,7 +508,7 @@ async function utilisation(shared: Shared, context: MeasureContext): Promise<Par
   };
 }
 
-async function budget(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function budget(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = ['budget.total', 'cost.actual', 'cost.plannedToDate', 'cost.variance', 'budget.consumed', 'budget.variancePct'];
   const projects = await measureTable(shared, {
     id: 'projects',
@@ -505,7 +519,7 @@ async function budget(shared: Shared, context: MeasureContext): Promise<Partial<
     period: context.period,
     today: context.today,
   });
-  const bucket = bucketFor(context.period);
+  const bucket = bucketFor(context.period, asked);
   return {
     tiles,
     tables: [projects],
@@ -571,7 +585,7 @@ async function earnedValueSeries(context: MeasureContext, bucket: Bucket): Promi
   ];
 }
 
-async function earnedValue(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function earnedValue(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = ['evm.bac', 'evm.pv', 'evm.ev', 'evm.ac', 'evm.sv', 'evm.cv', 'evm.spi', 'evm.cpi', 'evm.eac', 'evm.vac', 'evm.tcpi'];
   const now = evmOf(context);
   const tables: DashboardTable[] = [];
@@ -652,12 +666,12 @@ async function earnedValue(shared: Shared, context: MeasureContext): Promise<Par
   return {
     tiles,
     tables,
-    series: await earnedValueSeries(context, bucketFor(context.period)),
+    series: await earnedValueSeries(context, bucketFor(context.period, asked)),
     measures: await evaluateInContext(tiles, context),
   };
 }
 
-async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function risk(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = ['risk.open', 'risk.high', 'risk.overdue'];
   const { facts } = context;
   const language = contextLanguage();
@@ -723,7 +737,7 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
     );
   }
 
-  const bucket = bucketFor(context.period);
+  const bucket = bucketFor(context.period, asked);
   return {
     tiles,
     tables,
@@ -740,7 +754,7 @@ async function risk(shared: Shared, context: MeasureContext): Promise<Partial<Da
  * budget and effort against estimate, what is late, the milestones coming up,
  * each budget, and the high risks still open.
  */
-async function manager(shared: Shared, context: MeasureContext): Promise<Partial<Dashboard>> {
+async function manager(shared: Shared, context: MeasureContext, asked?: Bucket): Promise<Partial<Dashboard>> {
   const tiles = [
     'projects.active',
     'projects.atRisk',
@@ -853,7 +867,7 @@ async function manager(shared: Shared, context: MeasureContext): Promise<Partial
     },
   ];
 
-  const bucket = bucketFor(period);
+  const bucket = bucketFor(period, asked);
   return {
     tiles,
     tables,
@@ -873,7 +887,7 @@ export function dashboardsIn(language: Language): { id: DashboardId; title: stri
   return DASHBOARD_IDS.map((id) => ({ id, title: t(language, TITLES[id].title), description: t(language, TITLES[id].description) }));
 }
 
-const BUILDERS: Record<DashboardId, (shared: Shared, context: MeasureContext) => Promise<Partial<Dashboard>>> = {
+const BUILDERS: Record<DashboardId, (shared: Shared, context: MeasureContext, asked?: Bucket) => Promise<Partial<Dashboard>>> = {
   'portfolio-health': portfolioHealth,
   manager,
   delivery,
@@ -891,11 +905,13 @@ export async function buildDashboard(
   viewer: Viewer,
   today: string,
   prepared?: Shared,
+  /** The trends by day, week or month; unless asked, by the period's length. */
+  bucket?: Bucket,
 ): Promise<Dashboard> {
   const startedAt = performance.now();
   const shared = prepared ?? (await prepare(viewer));
   const context = contextFor(shared, scope, period, today);
-  const built = await BUILDERS[id](shared, context);
+  const built = await BUILDERS[id](shared, context, bucket);
   const serverMs = Math.round(performance.now() - startedAt);
   const language = contextLanguage();
 

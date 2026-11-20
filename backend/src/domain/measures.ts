@@ -1823,15 +1823,16 @@ export async function measureMembers(
 /* Series                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export type Bucket = 'week' | 'month';
+export type Bucket = 'day' | 'week' | 'month';
 
-/** The period's buckets: ISO weeks, or calendar months, clipped to the period. */
+/** The period's buckets: days, ISO weeks or calendar months, clipped to the period. */
 export function bucketsOf(period: Period, bucket: Bucket): Period[] {
   const out: Period[] = [];
-  let start = bucket === 'week' ? startOfIsoWeek(period.from) : `${period.from.slice(0, 7)}-01`;
+  let start = bucket === 'day' ? period.from : bucket === 'week' ? startOfIsoWeek(period.from) : `${period.from.slice(0, 7)}-01`;
   while (start <= period.to) {
     let end: string;
-    if (bucket === 'week') end = addDays(start, 6);
+    if (bucket === 'day') end = start;
+    else if (bucket === 'week') end = addDays(start, 6);
     else {
       const [year, month] = start.split('-').map(Number) as [number, number];
       end = addDays(new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10), -1);

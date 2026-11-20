@@ -12,6 +12,7 @@ import { cn, formatShortDate } from '@/lib/utils';
 import type { CapacityQuery } from '@/services/api/resources';
 import type { CapacityBand, ResourceThresholds } from '@/types';
 import { BAND_LABEL, BAND_TONE, bandRange, hours, percent } from './bands';
+import { currentName, periodTitle } from './periods';
 
 /** The solid fill for a band, used by the load meter and the share bars. */
 const BAND_FILL: Record<CapacityBand, string> = {
@@ -31,9 +32,10 @@ const initials = (name: string) =>
     .join('');
 
 /**
- * What is behind one cell of the heatmap (BR-314's drill-through): the work
- * and the bookings that fall in that week, how much of each, and — for weeks
- * gone — the time logged. Opens as a centred pop-up over the heatmap.
+ * What is behind one cell of the heatmap (BR-314's drill-through): for its
+ * day, week or month, the time logged — and, when the work assigned counts,
+ * the work and the bookings that fall in it, how much of each. Opens as a
+ * centred pop-up over the heatmap.
  */
 export function CellDetailSheet({
   target,
@@ -48,13 +50,21 @@ export function CellDetailSheet({
 }) {
   const detail = useCapacityCell(target?.key ?? null, target?.week ?? null, query);
   const data = detail.data;
+  const scale = query.scale ?? 'week';
+  const logged = query.measure === 'logged';
   const isGroup = target?.key.startsWith('group:') ?? false;
   const band = data?.cell.band ?? 'none';
-  // This week: the time logged so far counts alongside the work still to come.
   const current = data?.cell.basis === 'current';
-  const asked = data ? data.cell.committed + data.cell.planned + (current ? data.cell.logged : 0) : 0;
+  // What the cell sets the hours against: so far, for the current period when logged time alone counts.
+  const against = data ? (logged && current ? (data.cell.availableSoFar ?? data.cell.available) : data.cell.available) : 0;
+  // The current period counts the time logged so far alongside the work still to come.
+  const asked = data
+    ? logged
+      ? data.cell.logged
+      : data.cell.committed + data.cell.planned + (current ? data.cell.logged : 0)
+    : 0;
   // The meter runs to whichever is larger, so an overload shows past the line.
-  const scale = data ? Math.max(asked, data.cell.available, 1) : 1;
+  const meter = data ? Math.max(asked, against, 1) : 1;
   const largest = data ? Math.max(...data.contributions.map((part) => part.hours), 1) : 1;
   return (
     <Dialog open={Boolean(target)} onOpenChange={onOpenChange}>
@@ -73,7 +83,7 @@ export function CellDetailSheet({
             </DialogTitle>
             <DialogDescription className="mt-0.5 flex items-center gap-1.5">
               <CalendarClock className="h-3.5 w-3.5" />
-              {target ? t('Week of {date}', { date: formatShortDate(target.week) }) : ''}
+              {target ? periodTitle(scale, target.week) : ''}
             </DialogDescription>
           </div>
           {data ? (
@@ -82,7 +92,15 @@ export function CellDetailSheet({
                 {percent(data.cell.ratio)}
               </div>
               <div className="mt-1 text-2xs text-muted-foreground">
-                {data.cell.basis === 'actual' ? t('Utilisation') : current ? t('This week') : t('Load')}
+                {logged
+                  ? current
+                    ? t('Utilisation so far')
+                    : t('Utilisation')
+                  : data.cell.basis === 'actual'
+                    ? t('Utilisation')
+                    : current
+                      ? currentName(scale)
+                      : t('Load')}
               </div>
             </div>
           ) : null}
@@ -94,7 +112,7 @@ export function CellDetailSheet({
             isError={detail.isError}
             error={detail.error}
             onRetry={() => void detail.refetch()}
-            errorTitle={t('This week could not be loaded')}
+            errorTitle={t('This period could not be loaded')}
             skeleton={<ListSkeleton rows={5} />}
           >
             {data ? (
@@ -108,25 +126,41 @@ export function CellDetailSheet({
                   </div>
                   <div className="relative h-3 overflow-hidden rounded-full bg-muted">
                     <div className="absolute inset-y-0 start-0 flex w-full">
-                      {current ? (
-                        <div className="h-full bg-foreground/50" style={{ width: `${(data.cell.logged / scale) * 100}%` }} />
-                      ) : null}
-                      <div className={cn('h-full', BAND_FILL[band])} style={{ width: `${(data.cell.committed / scale) * 100}%` }} />
-                      <div className={cn('h-full opacity-50', BAND_FILL[band])} style={{ width: `${(data.cell.planned / scale) * 100}%` }} />
+                      {logged ? (
+                        <div className={cn('h-full', BAND_FILL[band])} style={{ width: `${(data.cell.logged / meter) * 100}%` }} />
+                      ) : (
+                        <>
+                          {current ? (
+                            <div className="h-full bg-foreground/50" style={{ width: `${(data.cell.logged / meter) * 100}%` }} />
+                          ) : null}
+                          <div className={cn('h-full', BAND_FILL[band])} style={{ width: `${(data.cell.committed / meter) * 100}%` }} />
+                          <div className={cn('h-full opacity-50', BAND_FILL[band])} style={{ width: `${(data.cell.planned / meter) * 100}%` }} />
+                        </>
+                      )}
                     </div>
-                    {asked > data.cell.available ? (
-                      <div
-                        className="absolute inset-y-0 w-0.5 bg-foreground"
-                        style={{ insetInlineStart: `${(data.cell.available / scale) * 100}%` }}
-                      />
+                    {asked > against ? (
+                      <div className="absolute inset-y-0 w-0.5 bg-foreground" style={{ insetInlineStart: `${(against / meter) * 100}%` }} />
                     ) : null}
                   </div>
-                  <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <Figure label={t('Available')} value={hours(data.cell.available)} />
-                    <Figure label={t('Work assigned')} value={hours(data.cell.committed)} swatch={BAND_FILL[band]} />
-                    <Figure label={t('Booked')} value={hours(data.cell.planned)} swatch={cn(BAND_FILL[band], 'opacity-50')} />
-                    <Figure label={t('Logged')} value={hours(data.cell.logged)} swatch={current ? 'bg-foreground/50' : undefined} />
-                  </dl>
+                  {logged ? (
+                    <dl className={cn('grid grid-cols-2 gap-3', current ? 'sm:grid-cols-3' : 'sm:grid-cols-2')}>
+                      <Figure label={t('Available')} value={hours(data.cell.available)} />
+                      {current ? <Figure label={t('Available so far')} value={hours(against)} /> : null}
+                      <Figure label={t('Logged')} value={hours(data.cell.logged)} swatch={BAND_FILL[band]} />
+                    </dl>
+                  ) : (
+                    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <Figure label={t('Available')} value={hours(data.cell.available)} />
+                      <Figure label={t('Work assigned')} value={hours(data.cell.committed)} swatch={BAND_FILL[band]} />
+                      <Figure label={t('Booked')} value={hours(data.cell.planned)} swatch={cn(BAND_FILL[band], 'opacity-50')} />
+                      <Figure label={t('Logged')} value={hours(data.cell.logged)} swatch={current ? 'bg-foreground/50' : undefined} />
+                    </dl>
+                  )}
+                  {logged ? (
+                    <p className="text-2xs text-muted-foreground">
+                      {t('Only the time logged counts here, not the work assigned.')}
+                    </p>
+                  ) : null}
                 </section>
 
                 {data.cell.over ? (
@@ -137,57 +171,59 @@ export function CellDetailSheet({
                   </p>
                 ) : null}
 
-                <section className="space-y-2">
-                  <h3 className="text-xs font-semibold text-foreground">{t('What falls in this week')}</h3>
-                  {data.contributions.length === 0 ? (
-                    <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
-                      {t('No work or bookings fall in this week.')}
-                    </p>
-                  ) : (
-                    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border" data-testid="capacity-contributions">
-                      {data.contributions.map((part) => (
-                        <li key={`${part.carrierKey}:${part.itemId}`} className="px-4 py-3 transition-colors hover:bg-muted/40">
-                          <div className="flex items-start gap-3">
-                            <div className="min-w-0 flex-1">
-                              {part.kind === 'work' ? (
-                                <Link
-                                  to={`/tasks/${part.workPackageId}`}
-                                  className="block truncate text-xs font-medium text-foreground hover:underline"
-                                  dir="auto"
-                                >
-                                  {part.subject}
-                                </Link>
-                              ) : (
-                                <span className="block truncate text-xs font-medium text-foreground">
-                                  {t('Booked {hours} a week', { hours: hours(part.hoursPerWeek ?? 0) })}
+                {logged ? null : (
+                  <section className="space-y-2">
+                    <h3 className="text-xs font-semibold text-foreground">{t('What falls in this period')}</h3>
+                    {data.contributions.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
+                        {t('No work or bookings fall in this period.')}
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border" data-testid="capacity-contributions">
+                        {data.contributions.map((part) => (
+                          <li key={`${part.carrierKey}:${part.itemId}`} className="px-4 py-3 transition-colors hover:bg-muted/40">
+                            <div className="flex items-start gap-3">
+                              <div className="min-w-0 flex-1">
+                                {part.kind === 'work' ? (
+                                  <Link
+                                    to={`/tasks/${part.workPackageId}`}
+                                    className="block truncate text-xs font-medium text-foreground hover:underline"
+                                    dir="auto"
+                                  >
+                                    {part.subject}
+                                  </Link>
+                                ) : (
+                                  <span className="block truncate text-xs font-medium text-foreground">
+                                    {t('Booked {hours} a week', { hours: hours(part.hoursPerWeek ?? 0) })}
+                                  </span>
+                                )}
+                                <span className="block truncate text-2xs text-muted-foreground" dir="auto">
+                                  {part.projectName}
+                                  {part.startDate || part.dueDate
+                                    ? ` · ${formatShortDate(part.startDate ?? part.dueDate)} – ${formatShortDate(part.dueDate ?? part.startDate)}`
+                                    : ''}
+                                  {isGroup ? ` · ${part.carrierName}` : ''}
                                 </span>
-                              )}
-                              <span className="block truncate text-2xs text-muted-foreground" dir="auto">
-                                {part.projectName}
-                                {part.startDate || part.dueDate
-                                  ? ` · ${formatShortDate(part.startDate ?? part.dueDate)} – ${formatShortDate(part.dueDate ?? part.startDate)}`
-                                  : ''}
-                                {isGroup ? ` · ${part.carrierName}` : ''}
-                              </span>
+                              </div>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground">{hours(part.hours)}</span>
                             </div>
-                            <span className="shrink-0 text-xs font-semibold tabular-nums text-foreground">{hours(part.hours)}</span>
-                          </div>
-                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={cn('h-full rounded-full bg-primary', part.kind !== 'work' && 'opacity-50')}
-                              style={{ width: `${(part.hours / largest) * 100}%` }}
-                            />
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </section>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={cn('h-full rounded-full bg-primary', part.kind !== 'work' && 'opacity-50')}
+                                style={{ width: `${(part.hours / largest) * 100}%` }}
+                              />
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </section>
+                )}
 
                 {data.logged.length > 0 ? (
                   <section className="space-y-2">
-                    <h3 className="text-xs font-semibold text-foreground">{t('Time logged in this week')}</h3>
-                    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-xs">
+                    <h3 className="text-xs font-semibold text-foreground">{t('Time logged in this period')}</h3>
+                    <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-xs" data-testid="capacity-logged">
                       {data.logged.map((line) => (
                         <li key={`${line.projectId}:${line.workPackageId}:${line.subject ?? ''}`} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
                           <span className="min-w-0 truncate" dir="auto">
@@ -206,6 +242,10 @@ export function CellDetailSheet({
                       ))}
                     </ul>
                   </section>
+                ) : logged ? (
+                  <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
+                    {t('No time logged in this period.')}
+                  </p>
                 ) : null}
               </div>
             ) : null}

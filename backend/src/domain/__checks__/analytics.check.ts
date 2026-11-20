@@ -309,7 +309,12 @@ await check('reconciliation allows a share of the source, rounded up to whole ro
   assert.equal(allowedDifference(0, 0.5), 0);
 });
 
-await check('buckets are ISO weeks or calendar months, clipped to the period', () => {
+await check('buckets are days, ISO weeks or calendar months, clipped to the period', () => {
+  assert.deepEqual(bucketsOf({ from: '2026-09-29', to: '2026-10-01' }, 'day'), [
+    { from: '2026-09-29', to: '2026-09-29' },
+    { from: '2026-09-30', to: '2026-09-30' },
+    { from: '2026-10-01', to: '2026-10-01' },
+  ]);
   assert.deepEqual(bucketsOf({ from: '2026-09-30', to: '2026-10-08' }, 'week'), [
     { from: '2026-09-30', to: '2026-10-04' },
     { from: '2026-10-05', to: '2026-10-08' },
@@ -440,6 +445,23 @@ await check('the risk dashboard and the portfolio-health dashboard agree on high
     buildDashboard('portfolio-health', { kind: 'instance' }, today, shared.viewer, TODAY, shared),
   ]);
   assert.equal(risk.measures['risk.high']?.value, portfolio.measures['risk.high']?.value);
+});
+
+await check('utilisation trends by the day over a month, and by the day, week or month asked for; other dashboards not by day', async () => {
+  const byLength = await buildDashboard('utilisation', { kind: 'instance' }, PERIOD, shared.viewer, TODAY, shared);
+  assert.ok(byLength.series.length > 0);
+  for (const series of byLength.series) assert.deepEqual([series.bucket, series.points.length], ['day', 30], series.id);
+  const weekly = await buildDashboard('utilisation', { kind: 'instance' }, PERIOD, shared.viewer, TODAY, shared, 'week');
+  for (const series of weekly.series) assert.equal(series.bucket, 'week', series.id);
+  // The hours logged by day add up to the period's.
+  const logged = byLength.series.find((series) => series.measureId === 'time.logged')!;
+  const sum = logged.points.reduce((total, point) => total + (point.value ?? 0), 0);
+  assert.ok(Math.abs(sum - (byLength.measures['time.logged']?.value ?? -1)) < 1e-6, `days ${sum}, period ${byLength.measures['time.logged']?.value}`);
+  const quarter = { from: '2026-04-01', to: TODAY };
+  const longDays = await buildDashboard('utilisation', { kind: 'instance' }, quarter, shared.viewer, TODAY, shared, 'day');
+  for (const series of longDays.series) assert.equal(series.bucket, 'week', `six months by day are by week: ${series.id}`);
+  const delivery = await buildDashboard('delivery', { kind: 'instance' }, PERIOD, shared.viewer, TODAY, shared, 'day');
+  for (const series of delivery.series) assert.equal(series.bucket, 'week', `delivery is not by day: ${series.id}`);
 });
 
 console.log('The replica’s files (BR-401)');
