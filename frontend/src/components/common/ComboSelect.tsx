@@ -69,6 +69,8 @@ interface ComboSelectProps {
   wide?: boolean;
   /** The heading for options with no `group`, when others have one. */
   ungroupedLabel?: string;
+  /** The search box's prompt, where "Search" and the accessible name do not read as one. */
+  searchPlaceholder?: string;
 }
 
 /** Options under their headings, in the order each heading first appears; the ungrouped last. */
@@ -103,6 +105,7 @@ export function ComboSelect({
   onSearch,
   wide = false,
   ungroupedLabel = t('Other'),
+  searchPlaceholder,
 }: ComboSelectProps) {
   const [open, setOpen] = useState(false);
   const selected = options.find((option) => option.id === value);
@@ -157,7 +160,7 @@ export function ComboSelect({
           align="start"
         >
           <Command>
-            <CommandInput placeholder={t('Search {label}', { label: label.toLowerCase() })} onValueChange={onSearch} />
+            <CommandInput placeholder={searchPlaceholder ?? t('Search {label}', { label: label.toLowerCase() })} onValueChange={onSearch} />
             <CommandList>
               <CommandEmpty>{emptyLabel}</CommandEmpty>
               {groupsOf(options, ungroupedLabel).map((group) => (

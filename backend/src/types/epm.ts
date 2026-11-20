@@ -896,8 +896,10 @@ export interface CreateTaskInput {
  * only resolve to a representative value. The backend turns an id into an
  * upstream link, so the browser never constructs one.
  */
-export type UpdateTaskInput = Partial<CreateTaskInput> & {
+export type UpdateTaskInput = Omit<Partial<CreateTaskInput>, 'assigneeId'> & {
   id: ID;
+  /** Null takes the task off whoever has it. */
+  assigneeId?: ID | null;
 };
 
 /**

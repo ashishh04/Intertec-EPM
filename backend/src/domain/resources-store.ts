@@ -1077,6 +1077,8 @@ async function buildShared(facts: ModelFacts): Promise<ResourceShared> {
     });
   }
   for (const allocation of allocations) {
+    // A booking on an archived project asks nothing of anyone any more.
+    if (facts.projects.get(allocation.projectId)?.active === false) continue;
     const carrier = allocation.personId ?? (allocation.placeholderId ? placeholderKey(allocation.placeholderId) : null);
     demand.push({
       id: `allocation:${allocation.id}`,
@@ -1173,12 +1175,19 @@ function unstaffedRoles(data: ResourceShared, query: GridQuery): string[] {
   return [...roles];
 }
 
+/**
+ * Time on an archived project is out of utilisation: its work is put aside, as
+ * its open work is out of the demand. Time on no project (a daily scrum) stays.
+ */
+const onArchivedProject = (data: ResourceShared, entry: TimeFact): boolean =>
+  entry.projectId !== null && data.facts.projects.get(entry.projectId)?.active === false;
+
 /** Hours each carrier logged in each period, and how many of them billable. */
 function loggedByPeriod(data: ResourceShared, carriers: ReadonlySet<string>, periods: readonly Period[]) {
   const periodStart = periodLookup(periods);
   const out = new Map<string, Map<number, { logged: number; billable: number }>>();
   for (const entry of data.facts.time) {
-    if (entry.userId === null) continue;
+    if (entry.userId === null || onArchivedProject(data, entry)) continue;
     const key = String(entry.userId);
     if (!carriers.has(key)) continue;
     const start = periodStart(dayOf(entry.spentOn));
@@ -1558,7 +1567,7 @@ export async function cellDetail(key: string, dayIso: string, query: GridQuery):
       if (isRole) continue;
     }
     for (const entry of data.facts.time) {
-      if (entry.userId === null || String(entry.userId) !== member.key) continue;
+      if (entry.userId === null || String(entry.userId) !== member.key || onArchivedProject(data, entry)) continue;
       const day = dayOf(entry.spentOn);
       if (day < period.start || day > period.end) continue;
       loggedHours += entry.hours;

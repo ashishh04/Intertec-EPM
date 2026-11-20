@@ -5,6 +5,7 @@ import { TopHeader } from './TopHeader';
 import { CommandPalette } from './CommandPalette';
 import { MobileBottomNav, MobileNavSheet } from './MobileNav';
 import { TaskDrawer } from '@/components/tasks/TaskDrawer';
+import { TaskSequenceTracker } from '@/components/tasks/TaskSequenceTracker';
 import { PragnyaWidget } from '@/components/assistant';
 import { featureFlags } from '@/config/env';
 import { ErrorBoundary } from '@/components/common/ErrorState';
@@ -194,6 +195,8 @@ export function AppShell() {
       <div className="epm-no-print">
         <MobileBottomNav />
         <CommandPalette />
+        {/* The list a task is opened from, for the arrows on its page. */}
+        <TaskSequenceTracker />
         <TaskDrawer />
         {featureFlags.pragnya ? <PragnyaWidget /> : null}
       </div>

@@ -8,7 +8,7 @@ import { requestHealthRecalc } from '../domain/health.js';
 import { requestScheduleRecalc } from '../domain/schedule.js';
 import { refuseCalculatedWrites, requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { cancelSeriesOfDeleted } from '../domain/task-series.js';
-import { assigneeOf, tellAssignee } from '../domain/assignment-mail.js';
+import { assigneeOf, tellAssignedMany, tellAssignee } from '../domain/assignment-mail.js';
 import { assertMayDoCategory, isManagersOnly, mayDoCategory, taskCategoryField, type TaskCategoryField } from '../domain/task-categories.js';
 import { EpmError } from '../lib/errors.js';
 import { taskViews, userScopedKey } from '../lib/cache.js';
@@ -436,18 +436,20 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
       const { role } = await guard.permissionsFor(request);
       const updated: EpmTask[] = [];
+      // Tasks this batch gave to someone new, by person: told once for all of them.
+      const assignedTo = new Map<string, { workPackage: Parameters<typeof tellAssignee>[0]['workPackage']; identifier?: string; previousAssigneeId?: string }[]>();
       try {
         for (const id of ids) {
           const { updated: result, previousAssigneeId } = await patchWorkPackage(id, patch, catalog, signal, role);
           updated.push(toEpmTask(result, catalog, identifiers));
           const resultProject = linkId(result._links, 'project');
-          void tellAssignee({
-            workPackage: result,
-            event: 'updated',
-            actorId: request.auth?.userId,
-            previousAssigneeId,
-            identifier: resultProject ? identifiers.get(resultProject) : undefined,
-          });
+          const identifier = resultProject ? identifiers.get(resultProject) : undefined;
+          const assigneeId = assigneeOf(result);
+          if (assigneeId && assigneeId !== previousAssigneeId) {
+            assignedTo.set(assigneeId, [...(assignedTo.get(assigneeId) ?? []), { workPackage: result, identifier, previousAssigneeId }]);
+          } else {
+            void tellAssignee({ workPackage: result, event: 'updated', actorId: request.auth?.userId, previousAssigneeId, identifier });
+          }
           await noteRuleEvent({
             source: 'epm',
             kind: 'work_package.updated',
@@ -463,6 +465,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
         requestHealthRecalc([...projects]);
         requestScheduleRecalc();
         requestCalculatedRecalc();
+        // Each person given work by this batch hears once: one task as before,
+        // several in one email. Whatever landed before a refusal counts.
+        for (const [assigneeId, items] of assignedTo) {
+          if (items.length === 1) {
+            void tellAssignee({ workPackage: items[0]!.workPackage, event: 'updated', actorId: request.auth?.userId, previousAssigneeId: items[0]!.previousAssigneeId, identifier: items[0]!.identifier });
+          } else {
+            void tellAssignedMany({ assigneeId, items, actorId: request.auth?.userId });
+          }
+        }
       }
       return updated;
     },

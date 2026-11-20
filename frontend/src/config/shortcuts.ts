@@ -77,6 +77,21 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['Enter'], get label() { return t('Open the focused row'); } },
     ],
   },
+  {
+    get title() { return t('On a task'); },
+    shortcuts: [
+      {
+        keys: ['K'],
+        get label() { return t('Previous task'); },
+        get detail() { return t('In the list the task was opened from.'); },
+      },
+      {
+        keys: ['J'],
+        get label() { return t('Next task'); },
+        get detail() { return t('In the list the task was opened from.'); },
+      },
+    ],
+  },
 ];
 
 /** True on a Mac, where the modifier is Command and the symbols differ. */

@@ -27,6 +27,7 @@ import { env } from '../config/env.js';
 import type { OpMembership, OpProject, OpVersion } from '../openproject/types.js';
 import type { HealthCriterion, HealthLevel, HealthOverride, Milestone, EpmProject } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
+import { markModelStale } from '../domain/analytics-model.js';
 import { nonPersonIds } from '../domain/service-account.js';
 import { clauses } from '../domain/notifications.js';
 import { contextLanguage, contextReader, dateOf, listOf, message, type Message } from '../lib/i18n.js';
@@ -96,6 +97,9 @@ export async function loadProjects(_signal: AbortSignal): Promise<EpmProject[]> 
 // without making that look wait.
 onOpenProjectWrite((_method, path) => {
   if (/\/(work_packages|versions|time_entries)(\/|$)/.test(path)) projectLists.expire();
+  // A project archived, restored or deleted: the analytics model reads the
+  // projects again on its next refresh, so utilisation leaves an archived one out.
+  if (/\/projects\/\d+$/.test(path)) markModelStale();
 });
 
 /**

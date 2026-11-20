@@ -12,6 +12,7 @@ import {
 } from './project-member-added.js';
 import { render as scheduledReport, type ScheduledReportPayload } from './scheduled-report.js';
 import { render as taskAssigned, type TaskAssignedPayload } from './task-assigned.js';
+import { render as tasksAssigned, type TasksAssignedPayload } from './tasks-assigned.js';
 import { render as taskDue, type TaskDuePayload } from './task-due.js';
 import { render as taskUpdated, type TaskUpdatedPayload } from './task-updated.js';
 
@@ -33,6 +34,7 @@ export interface TemplatePayloads {
   'password-reset': PasswordResetPayload;
   'security-notice': SecurityNoticePayload;
   'task-assigned': TaskAssignedPayload;
+  'tasks-assigned': TasksAssignedPayload;
   'task-due': TaskDuePayload;
   'project-member-added': ProjectMemberAddedPayload;
   'task-updated': TaskUpdatedPayload;
@@ -54,6 +56,7 @@ const renderers: Renderers = {
   'password-reset': passwordReset,
   'security-notice': securityNotice,
   'task-assigned': taskAssigned,
+  'tasks-assigned': tasksAssigned,
   'task-due': taskDue,
   'project-member-added': projectMemberAdded,
   'task-updated': taskUpdated,

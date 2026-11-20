@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Ellipsis, Pencil, Repeat, Timer, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/common/PageHeader';
+import { TaskStepper } from '@/components/tasks/TaskStepper';
 import { ErrorState } from '@/components/common/ErrorState';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ActivityTimeline, ActivityTimelineSkeleton } from '@/components/common/ActivityTimeline';
@@ -206,6 +207,8 @@ export default function TaskDetailPage() {
         }
         actions={
           <>
+            {/* Up and down the list this task was opened from. */}
+            <TaskStepper taskId={task.id} />
             {/*
               * Every field the instance defines, not a curated subset.
               *

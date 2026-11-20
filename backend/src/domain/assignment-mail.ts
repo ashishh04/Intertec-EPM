@@ -128,6 +128,46 @@ export async function tellAssignee(input: {
   }
 }
 
+/**
+ * Mails someone once about several work packages a single action gave them —
+ * a bulk assign — instead of one email each: thirty tasks assigned together
+ * were thirty emails. Same rules as `tellAssignee`: not for your own doing, and
+ * only where the "assigned" switch is on. Never throws.
+ */
+export async function tellAssignedMany(input: {
+  assigneeId: string;
+  items: { workPackage: AssignedWork; identifier?: string }[];
+  actorId?: string;
+}): Promise<EnqueueOutcome | 'skipped'> {
+  try {
+    if (input.items.length === 0) return 'skipped';
+    if (input.actorId && input.actorId === input.assigneeId) return 'skipped';
+    const recipient = await resolveRecipient(input.assigneeId);
+    if (!recipient) return 'skipped';
+    const tasks = await Promise.all(
+      input.items.map(({ workPackage, identifier }) => assignmentPayload(workPackage, input.assigneeId, recipient, identifier)),
+    );
+    const ids = input.items.map(({ workPackage }) => String(workPackage.id)).sort();
+    return await enqueueEmail({
+      recipientId: input.assigneeId,
+      template: 'tasks-assigned',
+      payload: {
+        firstName: recipient.firstName,
+        count: tasks.length,
+        tasks: tasks.map(({ taskKey, subject, projectName, url }) => ({ taskKey, subject, projectName, url })),
+        url: `${env.APP_BASE_URL}/my-work`,
+      },
+      channel: 'immediate',
+      // This action's batch: the same tasks given again later are news again.
+      dedupeKey: `assigned-many:${ids.join(',').slice(0, 120)}:${Date.now()}`,
+      gate: 'assigned',
+    });
+  } catch (error) {
+    appLog.warn({ err: error, assigneeId: input.assigneeId }, 'Could not tell the assignee about several tasks');
+    return 'error';
+  }
+}
+
 /** The assignee a work package names, for comparing before and after an edit. */
 export function assigneeOf(workPackage: AssignedWork | null | undefined): string | undefined {
   return workPackage ? linkId(workPackage._links as HalLinks | undefined, 'assignee') : undefined;

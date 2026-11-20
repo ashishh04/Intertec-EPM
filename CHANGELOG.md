@@ -226,6 +226,16 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Up and down through a list's tasks.** A task opened from a task list (a
+  project's Tasks tab, the Tasks page) has up and down arrows in its header,
+  shows where it stands ("3 of 15") and has a button back to the list. K and J
+  do the same from the keyboard when the cursor is not in a field. The arrows
+  follow the list as it was shown: its filter, sort and page.
+- **Assigning several tasks at once.** Tick tasks in a task list and choose
+  who gets them from the bar above it: a searchable list of the project's
+  members (everyone, when the tasks come from more than one project), with
+  Unassigned to take them off whoever has them. Each person gets one email
+  listing the tasks given to them, not one email per task.
 - **Pages with thousands of tasks load, and load fast the second time.** The
   Tasks page timed out once a view held about a thousand tasks: the whole tree
   was read from the delivery system on every visit, a thousand at a time one
@@ -374,6 +384,13 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Fixed
 
+- **An archived project no longer counts in utilisation.** Time logged on it,
+  and bookings on it, still counted in Resources → Capacity (the heatmap and
+  a cell's detail), in the hours logged and utilisation on Insights for
+  people, teams and departments, and in a team's "Logged this week". They now
+  drop out within about half a minute of the project being archived, and come
+  back if it is restored. Time logged on no project (meetings, support) still
+  counts.
 - **Archiving a project works on the server.** Archive (and every other
   action sent with no body: restoring, starring, archiving a team, department
   or portfolio) failed there with "Unsupported Media Type". Over HTTP/3 the browser can send

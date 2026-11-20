@@ -1569,6 +1569,8 @@ export function contextFor(
   const projectIds = new Set(projects.map((project) => project.id));
   const personIds = new Set(people.map((person) => person.id));
   const visibleIds = new Set(allVisible.map((project) => project.id));
+  // An archived project's time is out of utilisation: its work is put aside.
+  const activeIds = new Set(activeVisible.map((project) => project.id));
 
   const inScope = (item: WorkFact) =>
     projectIds.has(item.projectId) && (!byPeople || (item.assigneeId !== null && personIds.has(item.assigneeId)));
@@ -1578,7 +1580,8 @@ export function contextFor(
       entry.userId !== null &&
       personIds.has(entry.userId) &&
       // Time on no project is still the person's: it counts towards their utilisation.
-      (entry.internal === true || (entry.projectId !== null && visibleIds.has(entry.projectId))),
+      // Time on an archived project does not.
+      (entry.internal === true || (entry.projectId !== null && activeIds.has(entry.projectId))),
   );
   const time = byPeople
     ? peopleTime

@@ -105,7 +105,7 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
     // entry ever recorded and dividing that by a weekly figure is what this did
     // before, which made a year of logged time read as permanent overload — and
     // the clamp below used to hide it.
-    const [timeEntries, profiles] = await Promise.all([
+    const [timeEntries, profiles, archived] = await Promise.all([
       openProject
         .getAll<OpTimeEntry>(
           '/time_entries',
@@ -117,6 +117,11 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
         )
         .catch(() => ({ items: [] as OpTimeEntry[] })),
       optional(() => prisma.userProfile.findMany(), []),
+      // An archived project's time is out of utilisation: its work is put aside.
+      openProject
+        .getAll<{ id: number }>('/projects', { filters: [{ field: 'active', operator: '=', values: ['f'] }], pageSize: 100 }, { signal })
+        .then((found) => new Set(found.items.map((project) => String(project.id))))
+        .catch(() => new Set<string>()),
     ]);
 
     const capacityById = new Map(profiles.map((row) => [row.openProjectId, row.hoursCapacity]));
@@ -125,6 +130,8 @@ export const teamRoutes: FastifyPluginAsync = async (app) => {
     for (const entry of timeEntries.items) {
       const userId = linkId(entry._links, 'user');
       if (!userId) continue;
+      const projectId = linkId(entry._links, 'project');
+      if (projectId && archived.has(projectId)) continue;
       hoursByUser.set(userId, (hoursByUser.get(userId) ?? 0) + (durationToHours(entry.hours) ?? 0));
     }
 

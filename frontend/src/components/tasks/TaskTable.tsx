@@ -39,7 +39,9 @@ import { UserAvatarWithTooltip } from '@/components/common/UserAvatar';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Pagination } from '@/components/common/Pagination';
 import { TableCard, TableSkeleton } from '@/components/common/DataTable';
+import { ComboSelect } from '@/components/common/ComboSelect';
 import { usePriorities, useStatuses } from '@/hooks/useCatalog';
+import { useProjectMembers } from '@/hooks/useMembers';
 import {
   cn,
   describeDueDate,
@@ -450,28 +452,14 @@ export function TaskTable({
               }}
             />
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="secondary">
-                  <UserPlus className="h-3.5 w-3.5" />
-                  {t('Assign')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-                <DropdownMenuLabel>{t('Assign to')}</DropdownMenuLabel>
-                {[...users.values()].map((user) => (
-                  <DropdownMenuItem
-                    key={user.id}
-                    onSelect={() => {
-                      onBulkUpdate?.(selectedIds, { assigneeId: user.id });
-                      setSelected(new Set());
-                    }}
-                  >
-                    {user.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <BulkAssign
+              tasks={tasks.filter((task) => selected.has(task.id))}
+              users={users}
+              onPick={(assigneeId) => {
+                onBulkUpdate?.(selectedIds, { assigneeId });
+                setSelected(new Set());
+              }}
+            />
 
             {onBulkDelete ? (
               <Button
@@ -498,6 +486,7 @@ export function TaskTable({
                 ? t('{items, plural, one {# top-level item} other {# top-level items}} · {count, plural, one {# task} other {# tasks}} in all', { items: total, count: tree.rows })
                 : t('{count, plural, one {# task} other {# tasks}}', { count: total })}
             {tree?.truncated ? ` · ${t('Only the first {count} are shown as a tree: filter to narrow it.', { count: tree.rows })}` : ''}
+            {selectable && total > 1 ? ` · ${t('Tick tasks to change their status, priority or assignee together.')}` : ''}
           </p>
           <div className="flex items-center gap-1.5">
             {tree && parents.length > 0 ? (
@@ -850,6 +839,41 @@ function BulkValueMenu({
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+const NOBODY = '__nobody__';
+
+/**
+ * Assigns every selected task to one person, chosen from a searchable list: the
+ * members of their project when they share one (whom it can give work to),
+ * else everyone; or to nobody. It listed the whole directory, unsearchable, and
+ * offered people a project then refused.
+ */
+function BulkAssign({ tasks, users, onPick }: { tasks: EpmTask[]; users: Map<ID, EpmUser>; onPick: (assigneeId: ID | null) => void }) {
+  const projectIds = [...new Set(tasks.map((task) => task.projectId))];
+  const single = projectIds.length === 1 ? projectIds[0] : undefined;
+  const members = useProjectMembers(single);
+  const people = (single && members.data
+    ? members.data.map((member) => users.get(member.userId)).filter((user): user is EpmUser => Boolean(user))
+    : [...users.values()]
+  ).sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <div className="flex items-center gap-1.5">
+      <UserPlus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+      <ComboSelect
+        className="h-8 w-56"
+        label={t('Assign the selected tasks to')}
+        placeholder={t('Assign to…')}
+        searchPlaceholder={t('Search people…')}
+        loading={Boolean(single) && members.isLoading}
+        value={undefined}
+        onChange={(value) => {
+          if (value) onPick(value === NOBODY ? null : value);
+        }}
+        options={[{ id: NOBODY, name: t('Unassigned') }, ...people.map((user) => ({ id: user.id, name: user.name }))]}
+      />
+    </div>
   );
 }
 
