@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { calendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { aggregateCache, userScopedKey } from '../lib/cache.js';
-import { openProject, linkId } from '../openproject/client.js';
+import { sprintLists, userScopedKey } from '../lib/cache.js';
+import { onOpenProjectWrite, openProject, linkId } from '../openproject/client.js';
 import { versionFilter, versionIdOf } from '../openproject/versions.js';
 import { optional, prisma } from '../db/prisma.js';
 import { getCatalog } from '../mapping/catalog.js';
@@ -14,7 +14,8 @@ import type { BurndownPoint, EpmSprint, SprintSharing } from '../types/epm.js';
 
 /** Who may plan work into a sprint besides its own project, as the delivery system names it. */
 const SHARINGS = ['none', 'descendants', 'hierarchy', 'tree', 'system'] as const;
-import { sprintStateOf as stateOf } from '../domain/burndown.js';
+import { figuresIn, sprintStateOf as stateOf, sprintUnitOf } from '../domain/burndown.js';
+import { durationToHours } from '../lib/duration.js';
 
 /**
  * Sprints are OpenProject versions. The daily samples behind each burndown
@@ -45,24 +46,30 @@ interface SprintContext {
   catalog: Awaited<ReturnType<typeof getCatalog>>;
   workPackages: SprintWorkPackage[];
   overlay: { goal: string | null; committedPoints: number | null } | null;
-  samples: { sampledOn: Date; remainingPoints: number }[];
+  samples: { sampledOn: Date; remainingPoints: number; unit?: string | null }[];
 }
 
 function buildSprint(version: OpVersion, context: SprintContext): EpmSprint {
   const id = String(version.id);
   const today = new Date().toISOString().slice(0, 10);
-  const { catalog, overlay, samples } = context;
+  const { catalog, overlay } = context;
 
-  let committed = 0;
-  let completed = 0;
-  for (const workPackage of context.workPackages) {
-    const points = typeof workPackage.storyPoints === 'number' ? workPackage.storyPoints : 0;
-    committed += points;
+  // Counted in story points where the work has them, else estimated hours, else tasks.
+  const items = context.workPackages.map((workPackage) => {
     const statusId = linkId(workPackage._links, 'status');
-    if (statusId && catalog.statusById.get(statusId)?.epm === 'done') completed += points;
-  }
+    return {
+      points: workPackage.storyPoints,
+      hours: durationToHours(workPackage.estimatedTime) ?? null,
+      done: Boolean(statusId && catalog.statusById.get(statusId)?.epm === 'done'),
+    };
+  });
+  const unit = sprintUnitOf(items);
+  const { committed, completed } = figuresIn(items, unit);
+  // Samples taken in another unit — points, before the sprint was counted in hours — draw no line.
+  const samples = context.samples.filter((sample) => (sample.unit ?? 'points') === unit);
 
-  const committedPoints = overlay?.committedPoints ?? committed;
+  // The baseline taken at the start is in points.
+  const committedPoints = unit === 'points' ? (overlay?.committedPoints ?? committed) : committed;
   const start = version.startDate ?? today;
   const end = version.endDate ?? today;
   const days = eachDay(start, end);
@@ -95,6 +102,7 @@ function buildSprint(version: OpVersion, context: SprintContext): EpmSprint {
     endDate: end,
     committedPoints,
     completedPoints: completed,
+    unit,
     burndown,
     sharing: (SHARINGS as readonly string[]).includes(version.sharing) ? (version.sharing as SprintSharing) : 'none',
     canEdit: Boolean(version._links && (Object.hasOwn(version._links, 'update') || Object.hasOwn(version._links, 'updateImmediately'))),
@@ -135,9 +143,16 @@ async function contextFor(version: OpVersion, signal: AbortSignal): Promise<Spri
   return { catalog, workPackages, overlay, samples };
 }
 
+// A change to work or a version shows in the sprints on the next look, without
+// making that look wait: the list is refreshed behind it.
+onOpenProjectWrite((_method, path) => {
+  if (/\/(versions|work_packages)(\/|$)/.test(path)) sprintLists.expire();
+});
+
 /** Every sprint the caller can see. Exported for the backlog, which plans into them. */
-export async function loadSprints(signal: AbortSignal): Promise<EpmSprint[]> {
-  return aggregateCache.get(userScopedKey('sprints'), async () => {
+export async function loadSprints(_signal: AbortSignal): Promise<EpmSprint[]> {
+  // Through the sprint list cache, read with its own signal so a reader who gives up does not waste it.
+  return sprintLists.get(userScopedKey('sprints'), async (signal) => {
     const versions = await openProject
       .getAll<OpVersion>('/versions', { pageSize: 100 }, { signal })
       .catch(() => ({ items: [] as OpVersion[] }));
@@ -375,7 +390,7 @@ export const sprintRoutes: FastifyPluginAsync = async (app) => {
       throw EpmError.forbidden('You do not have permission to change this sprint.');
     }
     const updated = await openProject.request<OpVersion>(`/versions/${id}`, { method: 'PATCH', body: { sharing }, signal });
-    aggregateCache.invalidatePrefix('sprints');
+    sprintLists.clear();
     return buildSprint(updated, await contextFor(updated, signal));
   });
 

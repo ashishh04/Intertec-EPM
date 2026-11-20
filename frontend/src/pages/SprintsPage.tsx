@@ -19,6 +19,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useDeliveryTrends } from '@/hooks/useReports';
 import { usePagination } from '@/hooks/usePagination';
 import { t } from '@/lib/i18n';
+import { unitOf, unitSuffix } from '@/lib/sprint-unit';
 import { formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
 
 /** Sprint history and cadence across the delivery portfolio. */
@@ -137,12 +138,14 @@ export default function SprintsPage() {
                           <dt className="epm-eyebrow">{t('Committed')}</dt>
                           <dd className="font-mono text-sm font-semibold tabular-nums">
                             {formatNumber(sprint.committedPoints)}
+                            <span className="ms-1 font-sans text-2xs font-normal text-muted-foreground">{unitSuffix(unitOf(sprint))}</span>
                           </dd>
                         </div>
                         <div>
                           <dt className="epm-eyebrow">{t('Completed')}</dt>
                           <dd className="font-mono text-sm font-semibold tabular-nums text-success">
                             {formatNumber(sprint.completedPoints)}
+                            <span className="ms-1 font-sans text-2xs font-normal text-muted-foreground">{unitSuffix(unitOf(sprint))}</span>
                           </dd>
                         </div>
                         <div>

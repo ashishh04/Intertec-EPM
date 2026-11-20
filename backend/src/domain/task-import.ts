@@ -2,7 +2,7 @@ import type { TaskImport } from '@prisma/client';
 
 import { runAsSystem, runWithAuth, type AuthContext } from '../auth/context.js';
 import { prisma } from '../db/prisma.js';
-import { aggregateCache } from '../lib/cache.js';
+import { sprintLists } from '../lib/cache.js';
 import { parseCsv, type CsvRecord } from '../lib/csv-parse.js';
 import { today as todayIso } from '../lib/dates.js';
 import { durationToHours, hoursToDuration } from '../lib/duration.js';
@@ -1701,7 +1701,7 @@ async function execute(id: string): Promise<void> {
         }
       }
       await save();
-      aggregateCache.invalidatePrefix('sprints');
+      sprintLists.clear();
     }
     for (const row of rows) if (row.versionNew) row.versionId = results.get(`${SPRINTED}${row.versionNew.toLowerCase()}`) ?? null;
 
@@ -1941,7 +1941,7 @@ async function execute(id: string): Promise<void> {
     requestScheduleRecalc();
     requestCalculatedRecalc();
     // The sprints read their work back: what this run planned into them shows at once.
-    aggregateCache.invalidatePrefix('sprints');
+    sprintLists.clear();
   }
 }
 

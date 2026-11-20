@@ -2,6 +2,13 @@ import { apiClient } from './client';
 import type { EpmTask, ID } from '@/types';
 
 /**
+ * How long a view may take. A thousand-task tree read cold from a busy server
+ * took longer than the 20 seconds every other request is given, and the Tasks
+ * page showed "The request timed out"; the server keeps the result once read.
+ */
+const VIEW_TIMEOUT = 120_000;
+
+/**
  * Work package views, backed by OpenProject's Queries API through the EPM
  * backend.
  *
@@ -183,12 +190,12 @@ export class ApiQueryRepository {
 
   /** The default view with overrides applied — the ad-hoc filtering path. */
   runDefault(overrides: QueryOverrides = {}): Promise<QueryResult> {
-    return apiClient.get<QueryResult>('/queries/default', { ...overrides });
+    return apiClient.request<QueryResult>('/queries/default', { method: 'GET', query: { ...overrides }, timeoutMs: VIEW_TIMEOUT });
   }
 
   /** A saved view, with the same overrides available. */
   run(id: ID, overrides: QueryOverrides = {}): Promise<QueryResult> {
-    return apiClient.get<QueryResult>(`/queries/${id}`, { ...overrides });
+    return apiClient.request<QueryResult>(`/queries/${id}`, { method: 'GET', query: { ...overrides }, timeoutMs: VIEW_TIMEOUT });
   }
 
   /**

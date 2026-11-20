@@ -4,7 +4,7 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { prisma } from '../db/prisma.js';
 import { tellAssignee, type AssignedWork } from '../domain/assignment-mail.js';
-import { aggregateCache } from '../lib/cache.js';
+import { sprintLists } from '../lib/cache.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { getCatalog } from '../mapping/catalog.js';
@@ -276,7 +276,7 @@ export const backlogRoutes: FastifyPluginAsync = async (app) => {
           signal,
         })
         .catch(rethrow);
-      aggregateCache.invalidatePrefix('sprints');
+      sprintLists.clear();
     }
 
     // The list it lands in, in its order, with it in its new place; every
@@ -366,7 +366,7 @@ export const backlogRoutes: FastifyPluginAsync = async (app) => {
         })
         .catch(rethrow);
     }
-    aggregateCache.invalidatePrefix('sprints');
+    sprintLists.clear();
     // The write answers with the whole work package, assignee and all.
     void tellAssignee({ workPackage: created as AssignedWork, event: 'created', actorId: request.auth?.userId });
     const all = await impedimentsOf(request, id, body.projectId);

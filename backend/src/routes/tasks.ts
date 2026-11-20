@@ -11,6 +11,7 @@ import { cancelSeriesOfDeleted } from '../domain/task-series.js';
 import { assigneeOf, tellAssignee } from '../domain/assignment-mail.js';
 import { assertMayDoCategory, isManagersOnly, mayDoCategory, taskCategoryField, type TaskCategoryField } from '../domain/task-categories.js';
 import { EpmError } from '../lib/errors.js';
+import { taskViews, userScopedKey } from '../lib/cache.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { paginated, resolvePage } from '../lib/pagination.js';
 import { addDays } from '../lib/dates.js';
@@ -25,7 +26,7 @@ import type { EpmTask } from '../types/epm.js';
 import { noteRuleEvent } from '../domain/rule-events.js';
 import { followerDates, movedSince, movesDates, tellWhatMoved } from '../domain/successors.js';
 import { OPEN_FILTER, OVERDUE_DUE_FILTER } from '../domain/work-definitions.js';
-import { message } from '../lib/i18n.js';
+import { contextReader, message } from '../lib/i18n.js';
 
 /**
  * Work packages.
@@ -143,7 +144,12 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/tasks', async (request) => {
     const query = listQuery.parse(request.query);
-    const signal = requestSignal(request);
+    // Through the work-list cache, per person, language and request; read with
+    // its own signal, so a reader who gives up does not waste the read.
+    return taskViews.get(userScopedKey(`tasks:${contextReader()}:${JSON.stringify(query)}`), (signal) => listTasks(query, signal));
+  });
+
+  async function listTasks(query: z.infer<typeof listQuery>, signal: AbortSignal) {
     const today = new Date().toISOString().slice(0, 10);
 
     const [catalog, identifiers] = await Promise.all([
@@ -214,7 +220,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     );
 
     return paginated(items, collection.total ?? items.length, page);
-  });
+  }
 
   app.get<{ Params: { id: string } }>('/tasks/:id', async (request) => {
     const signal = requestSignal(request);

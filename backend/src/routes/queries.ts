@@ -4,8 +4,8 @@ import { z } from 'zod';
 import * as guard from '../auth/guard.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { openProject, type QueryParams } from '../openproject/client.js';
-import { referenceCache, userScopedKey } from '../lib/cache.js';
+import { onOpenProjectWrite, openProject, type QueryParams } from '../openproject/client.js';
+import { referenceCache, taskViews, userScopedKey } from '../lib/cache.js';
 import { openProjectCustomFields } from '../domain/calculated-fields.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { toEpmTask } from '../mapping/tasks.js';
@@ -20,8 +20,29 @@ import {
 } from '../mapping/queries.js';
 import type { HalCollection, OpWorkPackage } from '../openproject/types.js';
 import type { EpmTask } from '../types/epm.js';
-import { message } from '../lib/i18n.js';
+import { contextReader, message } from '../lib/i18n.js';
 import { widgetQueryIds } from './boards.js';
+
+/**
+ * Views' results, per person, language and request: fresh for half a minute,
+ * served for ten while a fresh one loads behind. A thousand-task tree took
+ * longer to read than the browser waits, so the Tasks page timed out; now it
+ * is read once and kept, and the read finishes even when the browser has given
+ * up. Any write to work, time, sprints, memberships or views drops them all,
+ * so what someone just changed is never shown as it was.
+ */
+const CHANGES_WORK = /\/(work_packages|relations|time_entries|versions|memberships|queries)(\/|$)/;
+onOpenProjectWrite((_method, path) => {
+  if (CHANGES_WORK.test(path)) taskViews.clear();
+});
+
+/** A request's parameters as a key: the same view asked the same way is one entry. */
+const paramsKey = (params: QueryParams) =>
+  JSON.stringify(Object.keys(params).sort().map((key) => [key, params[key as keyof QueryParams]]));
+
+/** A view's result through `viewResults`, for the person and language asking. */
+const cachedRun = (path: string, params: QueryParams) =>
+  taskViews.get(userScopedKey(`view:${contextReader()}:${path}:${paramsKey(params)}`), (signal) => runAndNormalize(path, params, signal));
 
 /**
  * Work package queries, backed by OpenProject's Queries API.
@@ -162,7 +183,9 @@ interface QueryResponse {
 
 /** Rows read for a tree, at most: the whole result is needed to order it. */
 const TREE_LIMIT = 5000;
-const TREE_READ = 1000;
+/** A tree is read this many tasks a page, and this many pages at once. */
+const TREE_READ = 250;
+const TREE_PARALLEL = 4;
 
 export interface TaskTree {
   /** Rows matching the query, in every top-level item, not only this page's. */
@@ -304,13 +327,22 @@ async function runAndNormalize(
   let elements = results?._embedded?.elements ?? [];
   const matched = results?.total ?? elements.length;
   if (asTree) {
-    for (let offset = 2; elements.length < Math.min(matched, TREE_LIMIT); offset += 1) {
-      const more = await openProject.request<QueryResponse>(path, { query: { ...upstream, offset: String(offset) }, signal });
-      const page = more._embedded?.results?._embedded?.elements ?? [];
-      if (page.length === 0) break;
-      elements = [...elements, ...page];
+    // The rest of the tree a few pages at a time, side by side: one after another,
+    // a thousand tasks took longer than the browser waits.
+    const pages = Math.ceil(Math.min(matched, TREE_LIMIT) / TREE_READ);
+    const rest = Array.from({ length: Math.max(0, pages - 1) }, (_, index) => index + 2);
+    const read: OpWorkPackage[][] = [];
+    for (let at = 0; at < rest.length; at += TREE_PARALLEL) {
+      const batch = await Promise.all(
+        rest.slice(at, at + TREE_PARALLEL).map(async (offset) => {
+          const more = await openProject.request<QueryResponse>(path, { query: { ...upstream, offset: String(offset) }, signal });
+          return (more._embedded?.results?._embedded?.elements ?? []) as OpWorkPackage[];
+        }),
+      );
+      read.push(...batch);
+      if (batch.some((page) => page.length === 0)) break;
     }
-    elements = elements.slice(0, TREE_LIMIT);
+    elements = [...elements, ...read.flat()].slice(0, TREE_LIMIT);
   }
 
   const catalog = await getCatalog(signal);
@@ -745,7 +777,6 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get<{ Querystring: unknown }>('/queries/default', async (request) => {
     const parsed = runQuery.parse(request.query);
-    const signal = requestSignal(request);
 
     if (parsed.projectId) await guard.require(request, 'task:view', parsed.projectId);
 
@@ -754,7 +785,7 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
       : '/queries/default';
 
     try {
-      return await runAndNormalize(path, upstreamParams(parsed), signal);
+      return await cachedRun(path, upstreamParams(parsed));
     } catch (error) {
       throw asEpmError(error);
     }
@@ -765,11 +796,7 @@ export const queryRoutes: FastifyPluginAsync = async (app) => {
     const parsed = runQuery.parse(request.query);
 
     try {
-      return await runAndNormalize(
-        `/queries/${request.params.id}`,
-        upstreamParams(parsed),
-        requestSignal(request),
-      );
+      return await cachedRun(`/queries/${request.params.id}`, upstreamParams(parsed));
     } catch (error) {
       throw asEpmError(error);
     }

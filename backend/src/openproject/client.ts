@@ -204,6 +204,24 @@ function delayFor(attempt: number, retryAfter: string | null): number {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Told of every write that went through, by method and path: for caches of what it changes. */
+type WriteListener = (method: string, path: string) => void;
+const writeListeners = new Set<WriteListener>();
+
+export function onOpenProjectWrite(listener: WriteListener): void {
+  writeListeners.add(listener);
+}
+
+function notifyWrite(method: string, path: string): void {
+  for (const listener of writeListeners) {
+    try {
+      listener(method, path);
+    } catch (error) {
+      appLog.warn({ err: error, method, path }, 'A write listener failed');
+    }
+  }
+}
+
 export class OpenProjectClient {
   private readonly baseUrl: string;
   private readonly systemAuthorization: string;
@@ -307,6 +325,7 @@ export class OpenProjectClient {
         observeUpstream(method, statusClass(response.status), seconds());
 
         if (response.ok) {
+          if (method !== 'GET') notifyWrite(method, url.pathname);
           if (response.status === 204) return undefined as T;
           return (await response.json()) as T;
         }

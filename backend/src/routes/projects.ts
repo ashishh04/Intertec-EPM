@@ -5,8 +5,8 @@ import * as guard from '../auth/guard.js';
 import { isCalendarDay } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
-import { aggregateCache, userScopedKey } from '../lib/cache.js';
-import { openProject, linkId, MAX_PAGE_SIZE } from '../openproject/client.js';
+import { aggregateCache, projectLists, userScopedKey } from '../lib/cache.js';
+import { onOpenProjectWrite, openProject, linkId, MAX_PAGE_SIZE } from '../openproject/client.js';
 import { getProjectAggregates, getProjectOverlays, toEpmProject } from '../mapping/projects.js';
 import { prisma } from '../db/prisma.js';
 import { setProjectPortfolio } from '../domain/portfolios.js';
@@ -86,9 +86,17 @@ export async function loadProjectsFor(
  * out in the language of the request (BR-605), so a list built for one
  * language must not be served to the other.
  */
-export async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
-  return aggregateCache.get(userScopedKey(`projects:${contextReader()}`), () => buildProjects(signal));
+export async function loadProjects(_signal: AbortSignal): Promise<EpmProject[]> {
+  // Through the project list cache: served at once once built, refreshed behind,
+  // and built with its own signal so a reader who gives up does not waste it.
+  return projectLists.get(userScopedKey(`projects:${contextReader()}`), (signal) => buildProjects(signal));
 }
+
+// Work changing shows in the project list on the next look (progress, counts),
+// without making that look wait.
+onOpenProjectWrite((_method, path) => {
+  if (/\/(work_packages|versions|time_entries)(\/|$)/.test(path)) projectLists.expire();
+});
 
 /**
  * Drops the cached project list for every caller.
@@ -103,6 +111,7 @@ export async function loadProjects(signal: AbortSignal): Promise<EpmProject[]> {
 export function invalidateProjects() {
   aggregateCache.invalidatePrefix('projects');
   aggregateCache.invalidatePrefix('project-aggregates');
+  projectLists.clear();
 }
 
 /**

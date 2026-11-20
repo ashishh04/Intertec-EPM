@@ -226,6 +226,27 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Pages with thousands of tasks load, and load fast the second time.** The
+  Tasks page timed out once a view held about a thousand tasks: the whole tree
+  was read from the delivery system on every visit, a thousand at a time one
+  after another, which took longer than the browser waits.
+  - Views, the task lists behind My Work, Gantt and the pickers, the project
+    list and the sprint list are now kept on the server for each person. Asked
+    again, they are answered at once and refreshed in the background.
+  - Any change to work drops the kept lists, so an edit always shows.
+  - A first read the browser gives up on is finished anyway and kept for the
+    next look.
+  - The tree is read a few pages at a time, side by side.
+  - The browser waits up to two minutes for a view. Its saved copy of the
+    pages no longer stops saving once the browser's storage fills up.
+- **Choosing a person is searchable**: Add member on a project's Team tab,
+  and a team's lead or account manager.
+- **Sprints show their numbers without story points.** Where a sprint's work
+  has no story points, it is counted in estimated hours, or in tasks where
+  there are no estimates either: committed, completed, remaining, progress and
+  the burndown, with the unit shown. Story points still count wherever the work
+  has any. A new column records each burndown sample's unit (one migration,
+  run on start).
 - **Utilisation by day, week or month, from the time logged.** Resources →
   Capacity shows everyone by day, week or calendar month, with previous and
   next to move through them, and counts the time each person logged against

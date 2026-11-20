@@ -9,6 +9,7 @@ import { SprintStateBadge } from '@/components/common/StatusBadge';
 import { BurndownChart } from '@/components/charts/EpmCharts';
 import { cn, daysFromToday, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
 import { t } from '@/lib/i18n';
+import { unitOf, unitSuffix } from '@/lib/sprint-unit';
 import type { EpmSprint } from '@/types';
 
 /** Compact sprint panel used on the dashboard and inside project pages. */
@@ -66,18 +67,21 @@ export function SprintSummary({ sprint, className }: { sprint: EpmSprint; classN
             <dt className="epm-eyebrow">{t('Committed')}</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
               {formatNumber(sprint.committedPoints)}
+              <span className="ms-1 font-sans text-2xs font-normal text-muted-foreground">{unitSuffix(unitOf(sprint))}</span>
             </dd>
           </div>
           <div>
             <dt className="epm-eyebrow">{t('Completed')}</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-success-strong">
               {formatNumber(sprint.completedPoints)}
+              <span className="ms-1 font-sans text-2xs font-normal text-muted-foreground">{unitSuffix(unitOf(sprint))}</span>
             </dd>
           </div>
           <div>
             <dt className="epm-eyebrow">{t('Remaining')}</dt>
             <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
-              {formatNumber(remaining)}
+              {formatNumber(Math.round(remaining * 100) / 100)}
+              <span className="ms-1 font-sans text-2xs font-normal text-muted-foreground">{unitSuffix(unitOf(sprint))}</span>
             </dd>
           </div>
         </dl>

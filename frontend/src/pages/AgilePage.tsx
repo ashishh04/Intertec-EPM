@@ -34,7 +34,8 @@ import { useUserMap } from '@/hooks/useUsers';
 import { useUI } from '@/providers/UIProvider';
 import { SPRINT_STATE_META } from '@/lib/domain';
 import { t } from '@/lib/i18n';
-import { daysFromToday, formatPercent, formatShortDate } from '@/lib/utils';
+import { burndownDescription, committedSupport, unitOf, unitSuffix } from '@/lib/sprint-unit';
+import { daysFromToday, formatNumber, formatPercent, formatShortDate } from '@/lib/utils';
 import type { EpmSprint, ID, SprintState, TaskStatusCategory } from '@/types';
 
 /** Agile workspace: the sprint, its burndown and its board in one place. */
@@ -185,6 +186,9 @@ export default function AgilePage() {
 
   const progress = Math.round((sprint.completedPoints / Math.max(1, sprint.committedPoints)) * 100);
   const remaining = sprint.committedPoints - sprint.completedPoints;
+  // Points, or estimated hours, or tasks: whatever the sprint's work is counted in.
+  const unit = unitOf(sprint);
+  const suffix = unitSuffix(unit);
   const daysLeft = daysFromToday(sprint.endDate) ?? 0;
   // Velocity is the semantic layer's: points delivered per sprint, over the
   // sprints of this sprint's projects that ended in the last six months.
@@ -262,10 +266,19 @@ export default function AgilePage() {
         title={t('Complete {name}?', { name: sprint.name })}
         description={
           remaining > 0
-            ? t(
-                '{count, plural, one {# point of committed work is not done.} other {# points of committed work are not done.}} The sprint closes anyway; move unfinished work to the next sprint from the board.',
-                { count: remaining },
-              )
+            ? unit === 'hours'
+              ? t('{hours} h of committed work are not done. The sprint closes anyway; move unfinished work to the next sprint from the board.', {
+                  hours: formatNumber(remaining),
+                })
+              : unit === 'tasks'
+                ? t(
+                    '{count, plural, one {# committed task is not done.} other {# committed tasks are not done.}} The sprint closes anyway; move unfinished work to the next sprint from the board.',
+                    { count: remaining },
+                  )
+                : t(
+                    '{count, plural, one {# point of committed work is not done.} other {# points of committed work are not done.}} The sprint closes anyway; move unfinished work to the next sprint from the board.',
+                    { count: remaining },
+                  )
             : t('Everything committed is done. The sprint closes and moves to history.')
         }
         confirmLabel={t('Complete sprint')}
@@ -310,23 +323,23 @@ export default function AgilePage() {
         <MetricCard
           label={t('Committed')}
           value={sprint.committedPoints}
-          suffix={t('pts')}
-          support={t('Scope agreed at planning')}
+          suffix={suffix}
+          support={committedSupport(unit)}
           icon={Target}
           tone="primary"
         />
         <MetricCard
           label={t('Completed')}
           value={sprint.completedPoints}
-          suffix={t('pts')}
+          suffix={suffix}
           support={t('{percent} of commitment', { percent: formatPercent(progress) })}
           icon={CheckCircle2}
           tone="success"
         />
         <MetricCard
           label={t('Remaining')}
-          value={remaining}
-          suffix={t('pts')}
+          value={Math.round(remaining * 100) / 100}
+          suffix={suffix}
           support={
             daysLeft >= 0
               ? t('{days, plural, one {# day left} other {# days left}}', { days: daysLeft })
@@ -351,7 +364,7 @@ export default function AgilePage() {
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title={t('Burndown')} description={t('Remaining points vs. the ideal line')} height={260}>
+        <ChartCard title={t('Burndown')} description={burndownDescription(unit)} height={260}>
           <BurndownChart data={sprint.burndown} />
         </ChartCard>
 

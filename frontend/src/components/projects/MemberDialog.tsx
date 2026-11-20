@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { ComboSelect } from '@/components/common/ComboSelect';
 import { ListSkeleton } from '@/components/common/DataTable';
 import { EmptyState } from '@/components/common/EmptyState';
 import { UserAvatar } from '@/components/common/UserAvatar';
@@ -160,18 +161,15 @@ export function MemberDialog({ open, onOpenChange, projectId, member }: MemberDi
                   description={t('Everyone in the directory is already a member of this project.')}
                 />
               ) : (
-                <Select value={userId} onValueChange={setUserId}>
-                  <SelectTrigger id="member-person" aria-label={t('Select a person')}>
-                    <SelectValue placeholder={t('Choose someone')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {available.map((candidate) => (
-                      <SelectItem key={candidate.userId} value={candidate.userId}>
-                        {candidate.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                // Searchable: a directory of hundreds is typed into, not scrolled.
+                <ComboSelect
+                  id="member-person"
+                  label={t('Select a person')}
+                  placeholder={t('Choose someone')}
+                  value={userId || undefined}
+                  onChange={(value) => setUserId(value ?? '')}
+                  options={available.map((candidate) => ({ id: candidate.userId, name: candidate.name }))}
+                />
               )}
             </div>
           )}

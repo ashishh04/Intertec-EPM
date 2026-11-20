@@ -974,9 +974,16 @@ export interface EpmSprint {
   state: SprintState;
   startDate: ISODate;
   endDate: ISODate;
+  /** In `unit`: story points, else estimated hours, else tasks. */
   committedPoints: number;
   completedPoints: number;
-  /** Ideal vs. actual remaining points, one entry per sprint day. */
+  /**
+   * What the sprint is counted in: story points where its work has them, else
+   * the estimated hours where it has those, else its tasks. Absent from an
+   * older server: points.
+   */
+  unit?: 'points' | 'hours' | 'tasks';
+  /** Ideal vs. actual remaining, in `unit`, one entry per sprint day. */
   burndown: BurndownPoint[];
   /** Which other projects may plan work into it, besides the one that defines it. */
   sharing: SprintSharing;

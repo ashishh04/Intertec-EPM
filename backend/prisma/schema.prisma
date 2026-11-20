@@ -226,6 +226,8 @@ model BurndownSample {
   sampledOn       DateTime @db.Date
   remainingPoints Float
   completedPoints Float
+  /// What the two figures count: points, hours or tasks, as the sprint is counted (EpmSprint.unit).
+  unit            String   @default("points")
   createdAt       DateTime @default(now())
 
   @@unique([sprintId, sampledOn])

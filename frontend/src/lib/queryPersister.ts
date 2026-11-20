@@ -1,5 +1,5 @@
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister';
-import type { PersistQueryClientOptions } from '@tanstack/react-query-persist-client';
+import { removeOldestQuery, type PersistQueryClientOptions } from '@tanstack/react-query-persist-client';
 import type { Query, QueryClient } from '@tanstack/react-query';
 
 import { intlLocale } from './i18n';
@@ -79,6 +79,9 @@ export const queryPersister = createSyncStoragePersister({
   // the reader can change while the page is open, and a second tab, still in
   // the old language, writes to this same key.
   serialize: (client) => JSON.stringify({ ...client, buster: busterFor(intlLocale()) }),
+  // The browser holds about 5 MB here. A thousand-task view filled it, the save
+  // failed whole, and every reload started cold: now the oldest answers make room.
+  retry: removeOldestQuery,
 });
 
 /** `reader`: who this browser is about to show the restored cache to. */

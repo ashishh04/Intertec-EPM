@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CODE_PATTERN, CODE_PROBLEM, CodeField } from '@/components/common/CodeField';
+import { ComboSelect } from '@/components/common/ComboSelect';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -260,25 +261,18 @@ export function TeamDialog({ open, onOpenChange, team, defaultKind = 'internal',
 
             <div className="space-y-1.5">
               <Label htmlFor="team-lead">{isClient ? t('Account manager') : t('Lead')}</Label>
-              <Select
-                value={users.isLoading ? '' : leadId}
-                onValueChange={setLeadId}
+              {/* Searchable: the whole directory is offered. Cleared: nobody. */}
+              <ComboSelect
+                id="team-lead"
+                label={isClient ? t('Select an account manager') : t('Select a lead')}
+                placeholder={users.isLoading ? t('Loading…') : isClient ? t('No account manager') : t('No lead')}
+                clearable
+                loading={users.isLoading}
                 disabled={users.isLoading}
-              >
-                <SelectTrigger id="team-lead" aria-label={isClient ? t('Select an account manager') : t('Select a lead')}>
-                  <SelectValue
-                    placeholder={users.isLoading ? t('Loading…') : isClient ? t('No account manager') : t('No lead')}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>{isClient ? t('No account manager') : t('No lead')}</SelectItem>
-                  {people.map((user) => (
-                    <SelectItem key={user.id} value={String(user.id)}>
-                      {user.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                value={leadId === NONE ? undefined : leadId}
+                onChange={(value) => setLeadId(value ?? NONE)}
+                options={people.map((user) => ({ id: String(user.id), name: user.name }))}
+              />
               {!users.isLoading && people.length === 0 ? (
                 <FieldHint>{t('Nobody in the directory to choose from.')}</FieldHint>
               ) : null}

@@ -1,6 +1,7 @@
 import { runAsSystem } from '../auth/context.js';
 import { optional, prisma } from '../db/prisma.js';
-import { aggregateCache } from '../lib/cache.js';
+import { sprintLists } from '../lib/cache.js';
+import { durationToHours } from '../lib/duration.js';
 import { getCatalog } from '../mapping/catalog.js';
 import { linkId, openProject } from '../openproject/client.js';
 import type { OpVersion, OpWorkPackage } from '../openproject/types.js';
@@ -59,6 +60,30 @@ export function figuresOf(items: readonly { points: number | null | undefined; d
 }
 
 /** What the chart calls remaining: the points committed at the start when fixed, else that day's, less those done. */
+/**
+ * What a sprint is counted in: story points where its work has them; else the
+ * estimated hours, where it has those; else its tasks, one each. A team that
+ * estimates in hours saw a sprint of nothing but zeros.
+ */
+export type SprintUnit = 'points' | 'hours' | 'tasks';
+
+export interface SprintItem {
+  points: number | null | undefined;
+  hours: number | null | undefined;
+  done: boolean;
+}
+
+export function sprintUnitOf(items: readonly Pick<SprintItem, 'points' | 'hours'>[]): SprintUnit {
+  if (items.some((item) => typeof item.points === 'number' && item.points > 0)) return 'points';
+  if (items.some((item) => typeof item.hours === 'number' && item.hours > 0)) return 'hours';
+  return 'tasks';
+}
+
+/** A sprint's figures in its unit: everything in it, and how much of that is done. */
+export function figuresIn(items: readonly SprintItem[], unit: SprintUnit): DayFigures {
+  return figuresOf(items.map((item) => ({ points: unit === 'points' ? item.points : unit === 'hours' ? item.hours : 1, done: item.done })));
+}
+
 export function remainingOf(figures: DayFigures, committedAtStart: number | null): number {
   return round((committedAtStart ?? figures.committed) - figures.completed);
 }
@@ -165,19 +190,29 @@ export async function sampleBurndown(now = new Date()): Promise<SampleOutcome> {
 
       // Today, from the live figures, as the chart computes it. Each task in
       // its one sprint, as the sprint list counts it (openproject/versions.ts).
+      // In the sprint's unit, as the sprint list counts it: points, else hours, else tasks.
+      const items = work.items
+        .filter((workPackage) => versionIdOf(workPackage._links) === id)
+        .map((workPackage) => ({
+          points: workPackage.storyPoints,
+          hours: durationToHours(workPackage.estimatedTime) ?? null,
+          done: isDone(linkId(workPackage._links, 'status')),
+        }));
+      const unit = sprintUnitOf(items);
       if (sprintStateOf(version, today) === 'active') {
-        const items = work.items
-          .filter((workPackage) => versionIdOf(workPackage._links) === id)
-          .map((workPackage) => ({ points: workPackage.storyPoints, done: isDone(linkId(workPackage._links, 'status')) }));
-        const figures = figuresOf(items);
+        const figures = figuresIn(items, unit);
+        // The committed baseline taken at the start is in points.
+        const base = unit === 'points' ? atStart : null;
         const sampledOn = new Date(`${today}T00:00:00Z`);
         await prisma.burndownSample.upsert({
           where: { sprintId_sampledOn: { sprintId: id, sampledOn } },
-          create: { sprintId: id, sampledOn, remainingPoints: remainingOf(figures, atStart), completedPoints: figures.completed },
-          update: { remainingPoints: remainingOf(figures, atStart), completedPoints: figures.completed },
+          create: { sprintId: id, sampledOn, remainingPoints: remainingOf(figures, base), completedPoints: figures.completed, unit },
+          update: { remainingPoints: remainingOf(figures, base), completedPoints: figures.completed, unit },
         });
         outcome.today += 1;
       }
+      // History holds story points alone: a sprint counted otherwise is sampled from today on.
+      if (unit !== 'points') continue;
 
       // Past days with no row, from history, where the history reaches them.
       const lastPast = (version.endDate && version.endDate < today ? version.endDate : null) ?? previousDay(today);
@@ -200,7 +235,7 @@ export async function sampleBurndown(now = new Date()): Promise<SampleOutcome> {
       outcome.rebuilt += written.count;
     }
 
-    if (outcome.today > 0 || outcome.rebuilt > 0) aggregateCache.invalidatePrefix('sprints');
+    if (outcome.today > 0 || outcome.rebuilt > 0) sprintLists.clear();
     return outcome;
   });
 }

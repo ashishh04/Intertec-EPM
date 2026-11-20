@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { daysBetween, figuresOf, remainingOf, sprintStateOf } from '../burndown.js';
+import { daysBetween, figuresIn, figuresOf, remainingOf, sprintStateOf, sprintUnitOf } from '../burndown.js';
 
 /**
  * The figures behind a sprint's burndown (`domain/burndown.ts`): what a day's
@@ -78,6 +78,22 @@ await check("a sprint's days include both ends, across a month's end", () => {
 
 await check('a sprint is never drawn over more than 90 days', () => {
   assert.equal(daysBetween('2026-01-01', '2026-12-31').length, 90);
+});
+
+await check('a sprint is counted in points where its work has them, else in estimated hours, else in tasks', () => {
+  const work = [
+    { points: null, hours: 8, done: true },
+    { points: null, hours: 16, done: false },
+    { points: null, hours: null, done: false },
+  ];
+  assert.equal(sprintUnitOf(work), 'hours');
+  assert.deepEqual(figuresIn(work, 'hours'), { committed: 24, completed: 8 });
+  const pointed = [...work, { points: 5, hours: 4, done: true }];
+  assert.equal(sprintUnitOf(pointed), 'points');
+  assert.deepEqual(figuresIn(pointed, 'points'), { committed: 5, completed: 5 });
+  const bare = work.map((item) => ({ ...item, hours: null }));
+  assert.equal(sprintUnitOf(bare), 'tasks');
+  assert.deepEqual(figuresIn(bare, 'tasks'), { committed: 3, completed: 1 });
 });
 
 console.log(`\n${passed} passed`);
