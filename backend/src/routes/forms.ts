@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 
 import * as guard from '../auth/guard.js';
 import { identifierProblem } from '../domain/reserved-identifiers.js';
+import { anyOpenTaskOf, findStandingTask } from '../domain/standing-tasks.js';
 import { EpmError, OpenProjectError } from '../lib/errors.js';
 import { requestSignal } from '../lib/request-signal.js';
 import { openProject } from '../openproject/client.js';
@@ -194,11 +195,20 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
    * A work package implies its project. Either is enough to shape the form,
    * and with neither OpenProject returns the unscoped schema, which is what a
    * blank timesheet row wants.
+   *
+   * `kind` (meeting or support) asks about the project's own task for that
+   * kind of time, where the entry will be written (standing-tasks.ts).
+   * OpenProject 17 lets people log their own time only on a task (or one of
+   * its meetings), so asked about the project alone it wants the right to log
+   * time for others, and someone who may log only their own time (the Member
+   * role) was refused, though they may log on every task of the project. So a
+   * refusal about the project alone is checked against one of its tasks.
    */
   app.post<{
-    Body: { projectId?: string; workPackageId?: string; payload?: Record<string, unknown> };
+    Body: { projectId?: string; workPackageId?: string; kind?: string; payload?: Record<string, unknown> };
   }>('/forms/time-entries', async (request) => {
     const { projectId, workPackageId } = request.body ?? {};
+    const kind = request.body?.kind === 'meeting' || request.body?.kind === 'support' ? request.body.kind : undefined;
 
     const links: Record<string, { href: string }> = {};
     if (projectId) {
@@ -211,6 +221,9 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
       }
       links.workPackage = { href: `/api/v3/work_packages/${workPackageId}` };
     }
+    // The project's task for scrums and meetings, or support, once it exists.
+    const standing = kind && projectId && !workPackageId ? await findStandingTask(projectId, kind, requestSignal(request)).catch(() => undefined) : undefined;
+    if (standing) links.workPackage = { href: `/api/v3/work_packages/${standing}` };
 
     const payload = {
       ...(request.body?.payload ?? {}),
@@ -219,8 +232,32 @@ export const formRoutes: FastifyPluginAsync = async (app) => {
         : {}),
     };
 
-    return requestForm('/time_entries/form', payload, requestSignal(request)).catch((error) => {
+    return requestForm('/time_entries/form', payload, requestSignal(request)).catch(async (error: unknown) => {
       if (error instanceof OpenProjectError && error.upstreamStatus === 403) {
+        // Refused about the project alone: before a task is chosen, or before
+        // the project has its task for this kind of time (the first save
+        // makes it). The form is asked about another of the project's tasks
+        // the person can see instead. A project role gives the same right to
+        // log one's own time on every task of the project, a new one too, and
+        // the activities are the project's, so Support is offered by name.
+        // With no task to see, the unscoped form, which has no activities;
+        // either way the save decides, and says who can when it cannot.
+        if (projectId && !workPackageId && !standing) {
+          const signal = requestSignal(request);
+          const sibling = await anyOpenTaskOf(projectId, signal).catch(() => undefined);
+          const fallback: Record<string, unknown> = { ...(request.body?.payload ?? {}) };
+          delete fallback._links;
+          if (sibling) {
+            fallback._links = {
+              project: { href: `/api/v3/projects/${projectId}` },
+              workPackage: { href: `/api/v3/work_packages/${sibling}` },
+            };
+          }
+          return requestForm('/time_entries/form', fallback, signal).catch((again: unknown) => {
+            if (again instanceof OpenProjectError && again.upstreamStatus === 403) throw EpmError.forbidden(again.message);
+            throw again;
+          });
+        }
         throw EpmError.forbidden(error.message);
       }
       throw error;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Briefcase, LifeBuoy, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -287,14 +287,40 @@ export function TimeEntryDialog({
    * instance may narrow the list per project — reading it once globally would
    * offer activities the write then refuses.
    */
+  // Scrums and meetings, and support, go on the project's own task for them:
+  // the form is asked about that task (the server finds it), as the entry will
+  // be written. Asked about the project alone, as before a task is chosen, the
+  // server checks one of its tasks: about a project, someone who may log only
+  // their own time (the Member role) is refused, though they may log on its
+  // tasks.
+  const formKind = !workPackageId && kind !== 'project' ? kind : undefined;
   const form = useSchemaForm(
     (payload) =>
       formService.timeEntryForm(
-        workPackageId ? { workPackageId, projectId } : { projectId },
+        workPackageId ? { workPackageId, projectId } : { projectId, ...(formKind ? { kind: formKind } : {}) },
         payload,
       ),
     { enabled: open && Boolean(projectId || workPackageId) },
   );
+
+  // Asked again when what the entry is written at changes: another project,
+  // task or kind of time can be allowed or refused, and offer other
+  // activities. The first ask is the form's own, when a project or task is
+  // first chosen.
+  const formScope = `${projectId ?? ''}|${workPackageId ?? ''}|${formKind ?? ''}`;
+  const askedScope = useRef<string | undefined>(undefined);
+  const reloadForm = form.reset;
+  useEffect(() => {
+    if (!open || !(projectId || workPackageId)) {
+      askedScope.current = undefined;
+      return;
+    }
+    if (askedScope.current === undefined) askedScope.current = formScope;
+    else if (askedScope.current !== formScope) {
+      askedScope.current = formScope;
+      reloadForm();
+    }
+  }, [open, projectId, workPackageId, formScope, reloadForm]);
 
   const activities = useMemo(() => {
     const field = schemaField(form.form, 'activity');

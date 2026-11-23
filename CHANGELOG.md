@@ -290,7 +290,8 @@ Changes since 1.1.0 (21 October 2026).
   come as well, as the heatmap did before, with the placeholders and roles
   booked with nobody named. A cell opens on the time logged in it. The browser
   remembers which view was chosen last.
-  - By day, 7 days is a calendar week, Monday to Sunday: the working week
+  - By day, the heatmap opens on 7 days, this week; 14 and 31 days are a
+    click away. 7 days is a calendar week, Monday to Sunday: the working week
     first and the weekend after. It used to count back from today, so on a
     Monday it began on the Tuesday before. 14 days is two such weeks: last
     week and this for logged time, this week and next with assigned work.
@@ -485,6 +486,21 @@ Changes since 1.1.0 (21 October 2026).
   marked; a project of more than a thousand is searched as you type. The chosen
   task's start and end dates, the time already logged on it against its
   estimate, and its description show under the list.
+- **A project's members log their time from Log time.** Log time checked
+  the project alone before letting anyone log time there, and the delivery
+  system answers that question only for those who may log time for others.
+  So a Member, who may log only their own time, had Log time greyed out with
+  "You cannot log time on this project" as soon as they chose a project: for
+  Scrums & meetings and Support, and for work on a task too, as choosing the
+  task did not ask again. The time itself would have been accepted. Scrums &
+  meetings and Support are now checked against the project's own task for
+  them, where the time goes, and a project alone against another of its
+  tasks, which a Member logs on in the same way. The project's activities
+  come with the answer, so support time is filed under Support even before
+  anyone has made the project's Support task. Someone who may not log time on
+  the project, such as a Reader, is still told before typing anything. Log
+  time also asks again when the project, the task or the kind of time
+  changes, so another project's activities and answer are never left showing.
 - **Lists inside dialogs scroll with the mouse wheel.** The project and task
   lists in Log time, the task composer and every other picker in a dialog
   could only be scrolled by dragging their scrollbar.

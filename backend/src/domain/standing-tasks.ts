@@ -59,6 +59,43 @@ async function findStanding(projectId: string, subject: string, signal?: AbortSi
 }
 
 /**
+ * The project's task for this kind of time if it has been made: found with the
+ * caller's rights, never made. What the time entry form is asked about, as the
+ * entry will be written there.
+ */
+export async function findStandingTask(projectId: string, kind: Exclude<TimeKind, 'project'>, signal?: AbortSignal): Promise<string | undefined> {
+  if (!/^\d+$/.test(projectId)) return undefined;
+  return findStanding(projectId, STANDING_TASK_SUBJECT[kind], signal);
+}
+
+/**
+ * One of the project's open tasks the caller can see: what the time entry form
+ * is asked about when it refuses the project alone, as it does to anyone who
+ * may log only their own time — before a task is chosen, or while the project
+ * has no task for this kind of time yet. A project role gives the same right
+ * to log one's own time on all of its tasks, the one the first entry makes
+ * too, and the activities are the project's.
+ */
+export async function anyOpenTaskOf(projectId: string, signal?: AbortSignal): Promise<string | undefined> {
+  if (!/^\d+$/.test(projectId)) return undefined;
+  const page = await openProject.getCollection<WorkPackageLite & { _links?: { project?: { href?: string } } }>(
+    '/work_packages',
+    {
+      filters: [
+        { field: 'project', operator: '=', values: [projectId] },
+        { field: 'status', operator: 'o', values: [] },
+      ],
+      sortBy: [['id', 'asc']],
+      pageSize: 10,
+    },
+    signal,
+  );
+  // The project's own task, not a subproject's: a role there can differ.
+  const own = (page._embedded?.elements ?? []).find((item) => item._links?.project?.href?.endsWith(`/projects/${projectId}`));
+  return own ? String(own.id) : undefined;
+}
+
+/**
  * The project's task for this kind of time: found, or made with the caller's
  * rights. One person at a time per project and kind, so two people logging
  * their first meeting together do not make two.

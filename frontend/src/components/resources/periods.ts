@@ -9,7 +9,7 @@ import type { CapacityMeasure, CapacityScale } from '@/types';
 
 /** How many columns each scale offers, and how many it shows unless chosen. */
 export const LENGTHS: Record<CapacityScale, { usual: number; options: number[] }> = {
-  day: { usual: 14, options: [7, 14, 31] },
+  day: { usual: 7, options: [7, 14, 31] },
   week: { usual: 12, options: [8, 12, 26] },
   month: { usual: 6, options: [3, 6, 12] },
 };

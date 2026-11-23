@@ -109,9 +109,11 @@ export class ApiFormRepository {
    * A work package implies its project, so either scope is enough. The call
    * also answers whether this person may log time at all — EPM has no
    * capability for it, so OpenProject decides and refuses with its own reason.
+   * With `kind`, scrums and meetings or support, it is asked about the
+   * project's own task for that kind of time, where the entry will go.
    */
   timeEntryForm(
-    scope: { projectId?: ID; workPackageId?: ID } = {},
+    scope: { projectId?: ID; workPackageId?: ID; kind?: 'meeting' | 'support' } = {},
     payload?: Record<string, unknown>,
   ): Promise<FormResult> {
     return apiClient.post<FormResult>('/forms/time-entries', { ...scope, payload });
