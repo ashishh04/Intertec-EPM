@@ -19,12 +19,21 @@ export const LENGTHS: Record<CapacityScale, { usual: number; options: number[] }
  * one last when logged time alone counts — it looks back, nothing being logged
  * ahead — and first when assigned work counts too, which looks ahead; moved
  * `offset` whole windows.
+ *
+ * Days in whole weeks (7 or 14) are calendar weeks, Monday to Sunday — the
+ * working week first, its weekend after — with the current week last (logged
+ * time) or first (assigned work). Counted back from today, seven days began on
+ * whatever weekday today is not: on a Monday, the Tuesday before.
  */
 export function firstDay(scale: CapacityScale, count: number, measure: CapacityMeasure, offset: number): string {
   const now = new Date();
   const day = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const shift = (measure === 'logged' ? 1 - count : 0) + offset * count;
-  if (scale === 'day') {
+  if (scale === 'day' && count % 7 === 0) {
+    const weeks = count / 7;
+    // This week's Monday, then whole weeks back or on.
+    day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7) + ((measure === 'logged' ? 1 - weeks : 0) + offset * weeks) * 7);
+  } else if (scale === 'day') {
     day.setUTCDate(day.getUTCDate() + shift);
   } else if (scale === 'week') {
     day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7) + shift * 7);

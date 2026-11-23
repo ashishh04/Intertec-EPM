@@ -290,6 +290,11 @@ Changes since 1.1.0 (21 October 2026).
   come as well, as the heatmap did before, with the placeholders and roles
   booked with nobody named. A cell opens on the time logged in it. The browser
   remembers which view was chosen last.
+  - By day, 7 days is a calendar week, Monday to Sunday: the working week
+    first and the weekend after. It used to count back from today, so on a
+    Monday it began on the Tuesday before. 14 days is two such weeks: last
+    week and this for logged time, this week and next with assigned work.
+    Previous and next move a whole week at a time.
 - **An import brings the whole plan.** Tasks → Import makes what the file
   names and the project lacks as the import starts, so a plan comes in without
   setting the project up by hand first.
