@@ -295,6 +295,13 @@ Changes since 1.1.0 (21 October 2026).
     Monday it began on the Tuesday before. 14 days is two such weeks: last
     week and this for logged time, this week and next with assigned work.
     Previous and next move a whole week at a time.
+  - A cell's time logged shows what people wrote on each entry, under the
+    task or kind of time it belongs to: the day, the hours and the
+    description; on a team's or role's cell, whose. Descriptions on project
+    time are read with the viewer's own access, so a manager sees those on
+    the projects whose time they may view; those on time with no project
+    (daily scrums, follow-ups, support) show to everyone who may open the
+    heatmap, as in the timesheets.
 - **An import brings the whole plan.** Tasks → Import makes what the file
   names and the project lacks as the import starts, so a plan comes in without
   setting the project up by hand first.

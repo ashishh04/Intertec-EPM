@@ -3811,12 +3811,23 @@ export interface DemandContribution {
   hoursPerWeek?: number;
 }
 
+/** A description written on one time entry behind a line of logged time. */
+export interface LoggedTimeNote {
+  spentOn: string;
+  hours: number;
+  comment: string;
+  /** Whose entry, on a group's cell. */
+  personName?: string;
+}
+
 export interface LoggedTime {
   workPackageId: string | null;
   subject: string | null;
   projectId: string | null;
   projectName: string | null;
   hours: number;
+  /** The descriptions people wrote on the entries behind the line, oldest first: those the reader may see. */
+  notes?: LoggedTimeNote[];
 }
 
 export interface CapacityCellDetail {

@@ -5,6 +5,7 @@ import { calendarDay, today as todayIso } from '../lib/dates.js';
 import { EpmError } from '../lib/errors.js';
 import { contextLanguage, message, t } from '../lib/i18n.js';
 import { getUsers } from '../mapping/users.js';
+import { openProject } from '../openproject/client.js';
 import type {
   AvailabilityWeek,
   CapacityBand,
@@ -22,6 +23,7 @@ import type {
   HrImportResult,
   HrReconcileResult,
   LoggedTime,
+  LoggedTimeNote,
   OverAllocation,
   PersonAvailability,
   ResourceAllocation,
@@ -32,7 +34,7 @@ import type {
   WorkScheduleRow,
 } from '../types/epm.js';
 import { withAudit } from './audit.js';
-import { activityLabel } from './internal-time.js';
+import { activityLabel, internalEntries } from './internal-time.js';
 import { dayOf, isoOf } from './critical-path.js';
 import { DEFAULT_WEEKLY_CAPACITY, modelFacts, type ModelFacts, type TimeFact } from './measure-facts.js';
 import {
@@ -1544,6 +1546,8 @@ export async function cellDetail(key: string, dayIso: string, query: GridQuery):
   // The current period is counted as the heatmap counts it (`currentLoads`).
   const isCurrent = period.start <= today && today <= period.end;
   const logged = new Map<string, LoggedTime>();
+  // The time entries behind each line, and whose, for the descriptions written on them.
+  const behind = new Map<string, { fact: TimeFact; person: string }[]>();
   for (const member of members) {
     const isRole = member.key.startsWith('role:');
     if (measure === 'logged') {
@@ -1587,8 +1591,14 @@ export async function cellDetail(key: string, dayIso: string, query: GridQuery):
       };
       line.hours += entry.hours;
       logged.set(lineKey, line);
+      if (!entry.internal) {
+        const list = behind.get(lineKey) ?? [];
+        list.push({ fact: entry, person: member.name });
+        behind.set(lineKey, list);
+      }
     }
   }
+  await addNotes(logged, behind, members, period, key.startsWith('group:'));
   return {
     key,
     name,
@@ -1597,6 +1607,69 @@ export async function cellDetail(key: string, dayIso: string, query: GridQuery):
     contributions: contributions.sort((a, b) => b.hours - a.hours),
     logged: [...logged.values()].map((line) => ({ ...line, hours: round2(line.hours) })).sort((a, b) => b.hours - a.hours),
   };
+}
+
+/**
+ * The descriptions people wrote on the time behind each line of a cell, added
+ * to the line. Those on project time are read from the time entries with the
+ * reader's own access, so a manager sees what viewing time entries lets them
+ * see in each project; those on time on no project are EPM's own
+ * (internal-time.ts), which the people who may open the heatmap see as they
+ * see that time in the timesheets. A read that fails leaves the hours as they
+ * are, without descriptions.
+ */
+async function addNotes(
+  logged: Map<string, LoggedTime>,
+  behind: Map<string, { fact: TimeFact; person: string }[]>,
+  members: { key: string; name: string }[],
+  period: { start: number; end: number },
+  group: boolean,
+): Promise<void> {
+  const from = isoOf(period.start);
+  const to = isoOf(period.end);
+  // Only the people whose project time is shown: each has logged time in a project, so the filter accepts them.
+  const userIds = [...new Set([...behind.values()].flat().map(({ fact }) => String(fact.userId)))];
+  const owners = members.map((member) => member.key).filter((memberKey) => /^\d+$/.test(memberKey));
+  const hasInternal = [...logged.keys()].some((lineKey) => lineKey.startsWith('internal:'));
+  const [comments, internal] = await Promise.all([
+    userIds.length === 0
+      ? new Map<number, string>()
+      : openProject
+          .getAll<{ id: number; comment?: { raw?: string | null } | null }>('/time_entries', {
+            filters: [
+              { field: 'user', operator: '=', values: userIds },
+              { field: 'spent_on', operator: '<>d', values: [from, to] },
+            ],
+            pageSize: 1000,
+          })
+          .then((found) => new Map(found.items.flatMap((entry) => (entry.comment?.raw?.trim() ? [[entry.id, entry.comment.raw.trim()] as const] : []))))
+          .catch(() => new Map<number, string>()),
+    hasInternal && owners.length > 0 ? internalEntries({ userIds: owners, from, to }) : Promise.resolve([]),
+  ]);
+  const nameOf = new Map(members.map((member) => [member.key, member.name]));
+  const notes = new Map<string, LoggedTimeNote[]>();
+  const add = (lineKey: string, note: LoggedTimeNote) => {
+    const list = notes.get(lineKey) ?? [];
+    list.push(note);
+    notes.set(lineKey, list);
+  };
+  for (const [lineKey, entries] of behind) {
+    for (const { fact, person } of entries) {
+      const comment = comments.get(fact.id);
+      if (comment) add(lineKey, { spentOn: fact.spentOn, hours: round2(fact.hours), comment, ...(group ? { personName: person } : {}) });
+    }
+  }
+  for (const entry of internal) {
+    const lineKey = `internal:${entry.activity}`;
+    const comment = entry.comment?.trim();
+    if (!comment || !logged.has(lineKey)) continue;
+    const person = nameOf.get(entry.userId);
+    add(lineKey, { spentOn: entry.spentOn, hours: round2(entry.hours), comment, ...(group && person ? { personName: person } : {}) });
+  }
+  for (const [lineKey, list] of notes) {
+    const line = logged.get(lineKey);
+    if (line) line.notes = list.sort((a, b) => a.spentOn.localeCompare(b.spentOn));
+  }
 }
 
 /* -------------------------------------------------------------------------- */

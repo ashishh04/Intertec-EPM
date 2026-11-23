@@ -225,19 +225,37 @@ export function CellDetailSheet({
                     <h3 className="text-xs font-semibold text-foreground">{t('Time logged in this period')}</h3>
                     <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border text-xs" data-testid="capacity-logged">
                       {data.logged.map((line) => (
-                        <li key={`${line.projectId}:${line.workPackageId}:${line.subject ?? ''}`} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
-                          <span className="min-w-0 truncate" dir="auto">
-                            {line.workPackageId ? (
-                              <Link to={`/tasks/${line.workPackageId}`} className="hover:underline">
-                                {line.subject ?? `#${line.workPackageId}`}
-                              </Link>
-                            ) : (
-                              // Time on no project (a daily scrum) carries its kind as the subject.
-                              (line.subject ?? t('Not on a work package'))
-                            )}
-                            <span className="ms-1.5 text-muted-foreground">{line.projectName}</span>
-                          </span>
-                          <span className="font-semibold tabular-nums">{hours(line.hours)}</span>
+                        <li key={`${line.projectId}:${line.workPackageId}:${line.subject ?? ''}`} className="px-4 py-2.5">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="min-w-0 truncate" dir="auto">
+                              {line.workPackageId ? (
+                                <Link to={`/tasks/${line.workPackageId}`} className="hover:underline">
+                                  {line.subject ?? `#${line.workPackageId}`}
+                                </Link>
+                              ) : (
+                                // Time on no project (a daily scrum) carries its kind as the subject.
+                                (line.subject ?? t('Not on a work package'))
+                              )}
+                              <span className="ms-1.5 text-muted-foreground">{line.projectName}</span>
+                            </span>
+                            <span className="font-semibold tabular-nums">{hours(line.hours)}</span>
+                          </div>
+                          {line.notes?.length ? (
+                            // What the person wrote on each entry: its day, its hours and, on a group's cell, whose.
+                            <ul className="mt-1.5 space-y-1 border-s-2 border-border ps-3" data-testid="capacity-logged-notes">
+                              {line.notes.map((note, index) => (
+                                <li key={`${note.spentOn}:${index}`} className="text-2xs leading-relaxed">
+                                  <span className="me-1.5 tabular-nums text-muted-foreground">
+                                    {formatShortDate(note.spentOn)} · {hours(note.hours)}
+                                    {note.personName ? ` · ${note.personName}` : ''}
+                                  </span>
+                                  <span className="whitespace-pre-wrap break-words text-foreground" dir="auto">
+                                    {note.comment}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
