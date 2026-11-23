@@ -7,7 +7,7 @@ import { invalidateProjectCost } from '../domain/costs.js';
 import { requestHealthRecalc } from '../domain/health.js';
 import { requestCalculatedRecalc } from '../domain/calculated-fields.js';
 import { assertPolicies, assertUnlocked, lockOn, locksIn } from '../domain/time-rules.js';
-import { standingTaskFor } from '../domain/standing-tasks.js';
+import { STANDING_TASK_SUBJECT, standingTaskFor } from '../domain/standing-tasks.js';
 import { assertMayDoCategory } from '../domain/task-categories.js';
 import { isManagementRole } from '../auth/roles.js';
 import {
@@ -18,6 +18,7 @@ import {
   internalEntry,
   isInternalId,
   updateInternal,
+  type InternalActivity,
   type InternalEntry,
 } from '../domain/internal-time.js';
 import { addDays, calendarDay, daysBetween, isoWeekLabel, startOfIsoWeek } from '../lib/dates.js';
@@ -28,7 +29,7 @@ import { requestSignal } from '../lib/request-signal.js';
 import { getUsers } from '../mapping/users.js';
 import { linkId, linkTitle, openProject, type OpFilter } from '../openproject/client.js';
 import type { HalLink } from '../openproject/types.js';
-import type { EpmTimeEntry, RunningTimer, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
+import type { EpmTimeEntry, MeetingType, RunningTimer, TimeKind, TimeReport, TimeReportGrouping, TimeReportRow } from '../types/epm.js';
 import { nonPersonIds } from '../domain/service-account.js';
 import { mayViewRates, permissionsFor } from '../auth/guard.js';
 import { message, requestLanguage, t, type Language } from '../lib/i18n.js';
@@ -109,7 +110,90 @@ const writeBody = z.object({
   meetingType: z.enum(['daily', 'follow_up', 'project']).optional(),
 });
 
-const patchBody = writeBody.omit({ kind: true, meetingType: true }).partial();
+/**
+ * A change to an entry. With `kind` it says what the entry now is, as Log time
+ * would set it, and the entry is moved there (see the route); without, only the
+ * fields sent change.
+ */
+const patchBody = writeBody.partial();
+
+/**
+ * The labels a project meeting's description starts with, saying which meeting
+ * it was ("Daily scrum: …"). Data, written in English whatever the language.
+ */
+const MEETING_LABEL = { daily: activityLabel('daily'), follow_up: activityLabel('follow_up') } as const;
+
+/** The meeting a description says it was, by the label in front of it. */
+function meetingTypeOf(comment: string | undefined): MeetingType {
+  for (const type of ['daily', 'follow_up'] as const) {
+    const label = MEETING_LABEL[type];
+    if (comment === label || comment?.startsWith(`${label}: `)) return type;
+  }
+  return 'project';
+}
+
+/** A description without the meeting label put in front of it. */
+function withoutMeetingLabel(comment: string | undefined): string | undefined {
+  for (const label of Object.values(MEETING_LABEL)) {
+    if (comment === label) return '';
+    if (comment?.startsWith(`${label}: `)) return comment.slice(label.length + 2);
+  }
+  return comment;
+}
+
+/**
+ * What time on a task was for: a project's own task for meetings or support
+ * (found by its title, as standing-tasks.ts finds it), or work on a task.
+ */
+function kindOnTask(workPackageSubject: string | undefined, comment: string | undefined): Pick<EpmTimeEntry, 'kind' | 'meetingType'> {
+  const subject = workPackageSubject?.trim().toLowerCase();
+  if (subject === STANDING_TASK_SUBJECT.support.toLowerCase()) return { kind: 'support' };
+  if (subject === STANDING_TASK_SUBJECT.meeting.toLowerCase()) return { kind: 'meeting', meetingType: meetingTypeOf(comment) };
+  return { kind: 'project' };
+}
+
+/** Where an entry goes: EPM's own time on no project, or a task in the delivery system. */
+type Target =
+  | { store: 'internal'; activity: InternalActivity }
+  | {
+      store: 'upstream';
+      workPackageId: string;
+      /** A task the person chose, as opposed to the project's own one for meetings or support, which is anyone's. */
+      chosen: boolean;
+      /** On the project's own task for meetings: which meeting, said in the description. */
+      meetingType?: MeetingType;
+    };
+
+/**
+ * Where Log time's choices put an entry, as the route that logs time decides
+ * it: the task chosen; the project's own task for meetings or support; or, for
+ * a daily scrum, a follow-up or support with no project, time on no project.
+ */
+async function targetFor(
+  choice: { kind: TimeKind; meetingType?: MeetingType; projectId?: string; workPackageId?: string },
+  signal: AbortSignal,
+): Promise<Target> {
+  if (choice.workPackageId) return { store: 'upstream', workPackageId: choice.workPackageId, chosen: true };
+  if (choice.kind === 'project') throw EpmError.validation('Time is logged against a task: choose the one it was spent on.');
+  if (choice.kind === 'meeting') {
+    const type = choice.meetingType ?? 'project';
+    if (!choice.projectId) {
+      if (type === 'project') throw EpmError.validation('Choose the project the meeting was for.');
+      return { store: 'internal', activity: type };
+    }
+    return { store: 'upstream', workPackageId: await standingTaskFor(choice.projectId, 'meeting', signal), chosen: false, meetingType: type };
+  }
+  if (!choice.projectId) return { store: 'internal', activity: 'support' };
+  return { store: 'upstream', workPackageId: await standingTaskFor(choice.projectId, 'support', signal), chosen: false };
+}
+
+/** The description as it is written at the target: on a project's meeting task, saying which meeting. */
+function labelledFor(text: string | undefined, target: Target): string | undefined {
+  const type = target.store === 'upstream' ? target.meetingType : undefined;
+  if (type !== 'daily' && type !== 'follow_up') return text;
+  const label = MEETING_LABEL[type];
+  return text?.trim() ? `${label}: ${text.trim()}` : label;
+}
 
 /** Time on no project, as the contract shows an entry. */
 function fromInternal(entry: InternalEntry, viewerId: string | undefined, language: Language): EpmTimeEntry {
@@ -127,6 +211,9 @@ function fromInternal(entry: InternalEntry, viewerId: string | undefined, langua
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     can: { update: own, delete: own },
+    ...(entry.activity === 'support'
+      ? { kind: 'support' as const }
+      : { kind: 'meeting' as const, meetingType: entry.activity === 'follow_up' ? ('follow_up' as const) : ('daily' as const) }),
   };
 }
 
@@ -259,6 +346,8 @@ function toEpmTimeEntry(entry: OpTimeEntry): EpmTimeEntry {
       update: Object.hasOwn(links, 'updateImmediately') || Object.hasOwn(links, 'update'),
       delete: Object.hasOwn(links, 'delete'),
     },
+    // What it was for, so editing it starts from the choices it was logged with.
+    ...kindOnTask(linkTitle(links, 'workPackage'), entry.comment?.raw || undefined),
   };
 }
 
@@ -876,50 +965,127 @@ export const timeEntryRoutes: FastifyPluginAsync = async (app) => {
     return entry;
   });
 
+  /**
+   * Changes an entry: anything about it, as Log time sets it.
+   *
+   * Without `kind`, only the fields sent change. With it, the request says what
+   * the entry now is — work on a task, a meeting, support; on which project and
+   * task, or on none — and the entry is moved there: to another task or
+   * project, to a project's own task for meetings or support, or between a task
+   * and time on no project, which EPM keeps itself. A move between the two
+   * stores writes the new entry first and removes the old one after, putting
+   * the new one back if that fails; the entry then has a new id.
+   */
   app.patch<{ Params: { id: string }; Body: unknown }>('/time-entries/:id', async (request) => {
-    const input = patchBody.parse(request.body ?? {});
-    if (Object.keys(input).length === 0) throw EpmError.badRequest('Nothing to change.');
-
-    // Time on no project: its owner changes it, under the same locks and rules.
-    if (isInternalId(request.params.id)) {
-      const previous = await internalEntry(request.params.id);
-      if (previous.userId !== request.auth?.userId) throw EpmError.forbidden('Only the person whose time it is can change it.');
-      const spentOn = input.spentOn ?? previous.spentOn;
-      await assertUnlocked(previous.userId, [previous.spentOn, spentOn]);
-      await assertPolicies({ personId: previous.userId, spentOn, hours: input.hours ?? previous.hours, replacingId: previous.id });
-      const updated = await updateInternal(previous.id, { spentOn: input.spentOn, hours: input.hours, comment: input.comment });
-      return fromInternal(updated, request.auth?.userId, requestLanguage(request));
-    }
-
-    // Read first so a caller who may not touch this entry is refused before
-    // anything is written, and with OpenProject's own reason.
+    const { kind, meetingType, ...input } = patchBody.parse(request.body ?? {});
+    if (Object.keys(input).length === 0 && !kind) throw EpmError.badRequest('Nothing to change.');
     const { id } = request.params;
-    const previous = toEpmTimeEntry(await entryById(request, id));
+    const callerId = request.auth!.userId;
+    const language = requestLanguage(request);
+    const signal = requestSignal(request);
 
-    // Locked where it was and where it would go; the policies hold for what it
+    // The entry as it is. Time on no project is its owner's alone to change;
+    // anything else is read first, so a caller who may not touch it is refused
+    // before anything is written, and with OpenProject's own reason.
+    const before = isInternalId(id) ? await internalEntry(id) : undefined;
+    if (before && before.userId !== callerId) throw EpmError.forbidden('Only the person whose time it is can change it.');
+    const previous = before ? fromInternal(before, callerId, language) : toEpmTimeEntry(await entryById(request, id));
+
+    // Where it goes: where it was, unless the change says what it now is.
+    const target: Target = kind
+      ? await targetFor({ kind, meetingType, projectId: input.projectId, workPackageId: input.workPackageId }, signal)
+      : before
+        ? { store: 'internal', activity: before.activity }
+        : { store: 'upstream', workPackageId: input.workPackageId ?? previous.workPackageId ?? '', chosen: input.workPackageId !== undefined };
+    // Time on no project is the person's own: only they move time there.
+    if (target.store === 'internal' && previous.userId !== callerId) {
+      throw EpmError.forbidden('Only the person whose time it is can move it to no project.');
+    }
+    const moved = before
+      ? target.store !== 'internal' || target.activity !== before.activity
+      : target.store !== 'upstream' || target.workPackageId !== previous.workPackageId;
+
+    const spentOn = input.spentOn ?? previous.spentOn;
+    const hours = input.hours ?? previous.hours;
+    // Restated with `kind`, the description says which meeting it was where that is said in it.
+    const comment = kind ? labelledFor(withoutMeetingLabel(input.comment ?? previous.comment), target) : input.comment;
+    const activityId = target.store === 'upstream' ? (input.activityId ?? (before ? undefined : previous.activityId)) : undefined;
+
+    // Locked where it was and where it goes; the policies hold for what it
     // becomes whenever its hours, day, work or activity change.
-    const result = {
-      spentOn: input.spentOn ?? previous.spentOn,
-      hours: input.hours ?? previous.hours,
-      activityId: input.activityId ?? previous.activityId,
-      workPackageId: input.workPackageId ?? previous.workPackageId,
-    };
-    await assertUnlocked(previous.userId, [previous.spentOn, result.spentOn]);
-    if (input.hours !== undefined || input.spentOn !== undefined || input.activityId !== undefined || input.workPackageId !== undefined) {
-      await assertPolicies({ personId: previous.userId, ...result, replacingId: id });
+    await assertUnlocked(previous.userId, [previous.spentOn, spentOn]);
+    if (input.hours !== undefined || input.spentOn !== undefined || input.activityId !== undefined || moved) {
+      await assertPolicies({
+        personId: previous.userId,
+        spentOn,
+        hours,
+        activityId,
+        workPackageId: target.store === 'upstream' ? target.workPackageId : undefined,
+        replacingId: previous.id,
+      });
+    }
+    // A review or management task is a manager's to log time on (task-categories.ts).
+    if (target.store === 'upstream' && target.chosen && moved) await assertMayLogOn(request, target.workPackageId);
+
+    // No project, staying so.
+    if (before && target.store === 'internal') {
+      const updated = await updateInternal(id, { spentOn, hours, comment: kind ? (comment ?? '') : comment, activity: target.activity });
+      return fromInternal(updated, callerId, language);
     }
 
-    const updated = await openProject
-      .request<OpTimeEntry>(`/time_entries/${id}`, {
-        method: 'PATCH',
-        body: toUpstreamBody(input),
-        signal: requestSignal(request),
-      })
-      .catch(rethrow('That time entry'));
+    // A task, staying on one: this task or another.
+    if (!before && target.store === 'upstream') {
+      const updated = await openProject
+        .request<OpTimeEntry>(`/time_entries/${id}`, {
+          method: 'PATCH',
+          body: toUpstreamBody({
+            hours: input.hours,
+            spentOn: input.spentOn,
+            comment: kind ? (comment ?? '') : comment,
+            activityId: input.activityId,
+            workPackageId: moved ? target.workPackageId : undefined,
+          }),
+          signal,
+        })
+        .catch(rethrow('That time entry'));
+      const entry = toEpmTimeEntry(updated);
+      // Both ends, in case the entry moved project.
+      spendChanged(previous.projectId, entry.projectId);
+      return entry;
+    }
 
-    const entry = toEpmTimeEntry(updated);
-    // Both ends, in case the entry moved project.
-    spendChanged(previous.projectId, entry.projectId);
+    // From a task to no project: EPM's from now on, then the task's entry goes.
+    if (!before && target.store === 'internal') {
+      const created = await createInternal({ userId: previous.userId, spentOn, hours, activity: target.activity, comment });
+      try {
+        await openProject.request<void>(`/time_entries/${id}`, { method: 'DELETE', signal }).catch(rethrow('That time entry'));
+      } catch (error) {
+        await deleteInternal(created.id).catch(() => undefined);
+        throw error;
+      }
+      // An incremental refresh never sees a deletion (see the delete route).
+      await prisma.$executeRaw`DELETE FROM analytics.fact_time_entry WHERE time_entry_id = ${Number(id)}`.catch(() => undefined);
+      spendChanged(previous.projectId);
+      return fromInternal(created, callerId, language);
+    }
+
+    // From no project to a task: written to the task, then EPM's copy goes.
+    if (target.store !== 'upstream') throw EpmError.internal('An entry was moved nowhere.');
+    const created = await openProject
+      .request<OpTimeEntry>('/time_entries', {
+        method: 'POST',
+        body: toUpstreamBody({ hours, spentOn, comment, activityId, workPackageId: target.workPackageId }),
+        signal,
+      })
+      .catch(rethrow('That project'));
+    try {
+      await deleteInternal(id);
+    } catch (error) {
+      await openProject.request<void>(`/time_entries/${created.id}`, { method: 'DELETE' }).catch(() => undefined);
+      throw error;
+    }
+    const entry = toEpmTimeEntry(created);
+    spendChanged(entry.projectId);
     return entry;
   });
 

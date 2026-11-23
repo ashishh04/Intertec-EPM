@@ -226,6 +226,21 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Everything about a time entry can be changed after it is logged.** Edit
+  entry, on My Time, used to fix the project and task. It now offers all of
+  Log time's choices, filled in from the entry: what the time was for (project
+  work, scrums and meetings, or support), which meeting, the project and the
+  task, the hours, the day, the activity and the description.
+  - **Where the entry goes:** to another task or project, to a project's own
+    Support or Scrums & meetings task, or to time on no project and back.
+  - **Meetings:** the description says which meeting it was, and that label
+    changes with the meeting rather than doubling up.
+  - **The same rules as logging:** a submitted timesheet's days stay locked,
+    the time policies apply, and review and management tasks remain
+    managers'.
+  - **Someone else's entry:** only the person whose time it is may move it to
+    no project. An administrator editing someone else's entry keeps it on a
+    project.
 - **Users shows each person's two-factor authentication.** A new MFA column
   says Enabled (with the date on hover, and whether codes are locked), Not
   enabled, or Required, not set up where the person's role must use it. Each

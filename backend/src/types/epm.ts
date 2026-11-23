@@ -1137,6 +1137,13 @@ export interface EpmTimeEntry {
   can: { update: boolean; delete: boolean };
   /** On a submitted or approved timesheet: nobody may change it until that is withdrawn or reopened (BR-304). */
   locked?: boolean;
+  /**
+   * What the time was: work on a task, scrums and meetings (on the project's own
+   * task for them, or on no project), or support. Absent from an older server.
+   */
+  kind?: TimeKind;
+  /** For scrums and meetings: which meeting it was. */
+  meetingType?: MeetingType;
 }
 
 export interface TimeEntryFilters {
@@ -1191,7 +1198,13 @@ export type TimeKind = 'project' | 'meeting' | 'support';
 /** Which meeting: the daily scrum, a follow-up, or one of a project's. */
 export type MeetingType = 'daily' | 'follow_up' | 'project';
 
-export type UpdateTimeEntryInput = Partial<Omit<CreateTimeEntryInput, 'kind' | 'meetingType'>>;
+/**
+ * A change to an entry. With `kind`, it says what the entry now is — work on a
+ * task, a meeting, support; on which project and task, or none — and the entry
+ * is moved there, from no project to a task or back. Without it, only the
+ * fields given change.
+ */
+export type UpdateTimeEntryInput = Partial<CreateTimeEntryInput>;
 
 /** How a time report groups its rows. */
 export type TimeReportGrouping = 'user' | 'project' | 'activity' | 'workPackage' | 'week' | 'day';

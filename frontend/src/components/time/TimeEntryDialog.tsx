@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useLogTime, useUpdateTimeEntry } from '@/hooks/useTimeEntries';
+import { useAuth } from '@/providers/AuthProvider';
 import { useProjects } from '@/hooks/useProjects';
 import { useTask, useTaskCategories, useTaskTimeline, useTasks } from '@/hooks/useTasks';
 import { useSchemaForm } from '@/hooks/useSchemaForm';
@@ -67,7 +68,11 @@ import type { EpmTask, EpmTimeEntry, ID, MeetingType, TimeKind } from '@/types';
 interface TimeEntryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Editing an existing entry. Its project and task are then fixed. */
+  /**
+   * Editing an existing entry. Everything about it can change, as when it was
+   * logged: what it was for, its project and task (or none), hours, day,
+   * activity and description. Moving time to no project is its owner's alone.
+   */
   entry?: EpmTimeEntry;
   /** Pre-filled date for a new entry, from the day column that was clicked. */
   spentOn?: string;
@@ -97,6 +102,14 @@ const MEETING_TYPES: { id: MeetingType; label: string }[] = [
   { id: 'follow_up', get label() { return t('Follow-up'); } },
   { id: 'project', get label() { return t('Project meeting'); } },
 ];
+
+/**
+ * The label a project meeting's description starts with, saying which meeting
+ * it was ("Daily scrum: …"). The server writes it, in English, from the meeting
+ * chosen; editing shows the description without it and the server writes it
+ * again for the meeting chosen then.
+ */
+const MEETING_LABEL = /^(Daily scrum|Follow-up)(: |$)/;
 
 /** A task in the picker's tree: how deep it sits, and its parent's name for the hint. */
 interface TreeRow {
@@ -211,6 +224,9 @@ export function TimeEntryDialog({
   projectId: initialProject,
 }: TimeEntryDialogProps) {
   const editing = Boolean(entry);
+  const { user } = useAuth();
+  // Time on no project is its owner's: someone else's entry stays on a project.
+  const ownEntry = !entry || entry.userId === String(user?.id ?? '');
   const log = useLogTime();
   const update = useUpdateTimeEntry();
   const pending = log.isPending || update.isPending;
@@ -227,25 +243,34 @@ export function TimeEntryDialog({
   // What the time was: work on a task, scrums and meetings, or support.
   const [kind, setKind] = useState<TimeKind>('project');
   const [meetingType, setMeetingType] = useState<MeetingType>('daily');
+  // Chosen here, rather than what an entry being edited was logged as.
+  const [kindChosen, setKindChosen] = useState(false);
   const onTask = kind === 'project';
-  // Only project work and a project's meeting need a project.
-  const projectRequired = onTask || (kind === 'meeting' && meetingType === 'project');
+  // Only project work and a project's meeting need a project — and anything of
+  // someone else's, since time on no project is the person's own.
+  const projectRequired = onTask || (kind === 'meeting' && meetingType === 'project') || !ownEntry;
 
   // Seeded each time the dialog opens, from the entry being edited or from
   // whatever the caller pre-filled. Not on every render: the person is typing
   // into these fields.
   useEffect(() => {
     if (!open) return;
-    setProjectId(entry?.projectId ?? initialProject);
-    setWorkPackageId(entry?.workPackageId);
+    const loggedAs = entry?.kind ?? 'project';
+    // Time on no project has no project id; time on a project's own task for
+    // meetings or support names the project, and the task follows from it.
+    setProjectId(entry?.projectId || initialProject || undefined);
+    setWorkPackageId(loggedAs === 'project' ? entry?.workPackageId : undefined);
     setHours(entry ? String(entry.hours) : '');
     setSpentOn(entry?.spentOn ?? initialDate ?? today());
-    setComment(entry?.comment ?? '');
+    setComment(
+      entry?.kind === 'meeting' && entry.projectId ? (entry.comment ?? '').replace(MEETING_LABEL, '') : (entry?.comment ?? ''),
+    );
     setActivityId(entry?.activityId);
     setError(undefined);
     setTaskSearch('');
-    setKind('project');
-    setMeetingType('daily');
+    setKind(loggedAs);
+    setMeetingType(entry?.meetingType ?? 'daily');
+    setKindChosen(false);
   }, [open, entry, initialDate, initialProject]);
 
   const projectsQuery = useProjects();
@@ -263,14 +288,14 @@ export function TimeEntryDialog({
    * across pages, as the project's timeline reads it (and from the same cache),
    * up to a thousand. Only once a project is chosen.
    */
-  const projectTasks = useTaskTimeline(open && !editing ? projectId : undefined);
+  const projectTasks = useTaskTimeline(open ? projectId : undefined);
   const loadedTasks = useMemo(() => projectTasks.data?.items ?? [], [projectTasks.data]);
   // Beyond what one read holds, typing searches the whole project upstream.
   const truncated = (projectTasks.data?.total ?? 0) > loadedTasks.length;
   const searching = truncated && searchTerm.length >= 2;
   const searchQuery = useTasks(
     { projectId, search: searchTerm, pageSize: SEARCH_RESULTS },
-    { enabled: open && !editing && Boolean(projectId) && searching },
+    { enabled: open && Boolean(projectId) && searching },
   );
 
   // The entry being edited, or the task just chosen, in full: its dates, the
@@ -343,13 +368,14 @@ export function TimeEntryDialog({
   }, [activityId, activities]);
 
   // Scrums and meetings, or support, take the instance's activity of that name
-  // where it has one, so the time is reported as what it was.
+  // where it has one, so the time is reported as what it was. An entry being
+  // edited keeps its own until another kind of time is chosen for it.
   useEffect(() => {
-    if (editing || kind === 'project' || activities.length === 0) return;
+    if ((editing && !kindChosen) || kind === 'project' || activities.length === 0) return;
     const pattern = kind === 'meeting' ? /meet|scrum|stand.?up/i : /support/i;
     const match = activities.find((activity) => pattern.test(activity.name));
     if (match) setActivityId(match.id);
-  }, [editing, kind, activities]);
+  }, [editing, kindChosen, kind, activities]);
 
   const projectOptions = useMemo(
     () =>
@@ -392,11 +418,11 @@ export function TimeEntryDialog({
       setError(t('Enter the hours worked, e.g. 1.5.'));
       return;
     }
-    if (!entry && projectRequired && !projectId && !workPackageId) {
+    if (projectRequired && !projectId && !workPackageId) {
       setError(kind === 'meeting' ? t('Choose the project the meeting was for.') : t('Choose the project the time was spent on.'));
       return;
     }
-    if (!entry && onTask && !workPackageId) {
+    if (onTask && !workPackageId) {
       setError(t('Choose the task the time was spent on.'));
       return;
     }
@@ -419,11 +445,21 @@ export function TimeEntryDialog({
       setError(failure instanceof Error ? failure.message : t('The entry was refused.'));
 
     if (entry) {
-      // Project and work package are deliberately not sent on an edit. They are
-      // fixed for the life of the entry here, and restating them would let a
-      // stale picker move somebody's time to another project by accident.
+      // Everything the form says the entry now is: what it was for, its project
+      // and task or none, as Log time sends them. The pickers start from the
+      // entry each time the dialog opens, so what is sent is what is shown, and
+      // the server moves the entry wherever that is. An emptied description is
+      // sent empty, so it is cleared.
       update.mutate(
-        { id: entry.id, ...body },
+        {
+          id: entry.id,
+          ...body,
+          comment: comment.trim(),
+          projectId: projectId || undefined,
+          workPackageId: onTask ? workPackageId : undefined,
+          kind,
+          meetingType: kind === 'meeting' ? meetingType : undefined,
+        },
         { onSuccess: () => done(t('Entry updated')), onError: failed },
       );
       return;
@@ -452,7 +488,7 @@ export function TimeEntryDialog({
           <DialogTitle>{editing ? t('Edit entry') : t('Log time')}</DialogTitle>
           <DialogDescription>
             {editing
-              ? t('The project and task this was logged against cannot be changed.')
+              ? t('Change anything about this entry: what it was for, its project and task, the hours, the day or the description.')
               : onTask
                 ? t('Against a task: choose the project, then the task the time was spent on.')
                 : projectRequired
@@ -463,43 +499,42 @@ export function TimeEntryDialog({
 
         <div className="space-y-4">
           {/* What the time was: work on a task, or the time no one task owns. */}
-          {!editing ? (
-            <div className="space-y-1.5">
-              <Label id="time-kind-label">{t('What was the time for?')}</Label>
-              <div
-                role="radiogroup"
-                aria-labelledby="time-kind-label"
-                className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/40 p-1"
-              >
-                {TIME_KINDS.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={kind === option.id}
-                    data-testid={`time-kind-${option.id}`}
-                    onClick={() => {
-                      setKind(option.id);
-                      setError(undefined);
-                      // A meeting or support time goes on the project's own task.
-                      if (option.id !== 'project') setWorkPackageId(undefined);
-                    }}
-                    className={cn(
-                      'flex flex-col items-center gap-0.5 rounded-md px-2 py-1.5 text-xs font-medium transition',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      kind === option.id ? 'bg-surface text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    <option.icon className="h-3.5 w-3.5" aria-hidden />
-                    {option.label}
-                  </button>
-                ))}
-              </div>
+          <div className="space-y-1.5">
+            <Label id="time-kind-label">{t('What was the time for?')}</Label>
+            <div
+              role="radiogroup"
+              aria-labelledby="time-kind-label"
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/40 p-1"
+            >
+              {TIME_KINDS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={kind === option.id}
+                  data-testid={`time-kind-${option.id}`}
+                  onClick={() => {
+                    setKind(option.id);
+                    setKindChosen(true);
+                    setError(undefined);
+                    // A meeting or support time goes on the project's own task.
+                    if (option.id !== 'project') setWorkPackageId(undefined);
+                  }}
+                  className={cn(
+                    'flex flex-col items-center gap-0.5 rounded-md px-2 py-1.5 text-xs font-medium transition',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    kind === option.id ? 'bg-surface text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <option.icon className="h-3.5 w-3.5" aria-hidden />
+                  {option.label}
+                </button>
+              ))}
             </div>
-          ) : null}
+          </div>
 
           {/* Which meeting: a daily scrum and a follow-up need no project. */}
-          {!editing && kind === 'meeting' ? (
+          {kind === 'meeting' ? (
             <div className="space-y-1.5">
               <Label id="time-meeting-label">{t('Which meeting?')}</Label>
               <div
@@ -531,91 +566,80 @@ export function TimeEntryDialog({
             </div>
           ) : null}
 
-          {editing ? (
-            <div className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-              <p className="text-2xs text-muted-foreground" dir="auto">
-                {entry?.projectName ?? t('Project')}
-              </p>
-              <p className="truncate text-xs font-medium" dir="auto">
-                {entry?.workPackageSubject ?? t('Logged to the project')}
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="space-y-1.5">
-                <Label htmlFor="time-project" required={projectRequired}>
-                  {projectRequired ? t('Project') : t('Project (optional)')}
-                </Label>
-                <ComboSelect
-                  id="time-project"
-                  label={t('Project')}
-                  options={projectOptions}
-                  value={projectId}
-                  clearable={!projectRequired}
-                  loading={projectsQuery.isLoading}
-                  emptyLabel={t('No projects match')}
-                  placeholder={projectRequired ? t('Choose a project') : t('No project')}
-                  onChange={(next) => {
-                    setProjectId(next);
-                    // The task belonged to the old project, and the activity
-                    // list may not survive the move either.
-                    setWorkPackageId(undefined);
-                    setActivityId(undefined);
-                    setTaskSearch('');
-                  }}
-                />
-              </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="time-project" required={projectRequired}>
+              {projectRequired ? t('Project') : t('Project (optional)')}
+            </Label>
+            <ComboSelect
+              id="time-project"
+              label={t('Project')}
+              options={projectOptions}
+              value={projectId}
+              clearable={!projectRequired}
+              loading={projectsQuery.isLoading}
+              emptyLabel={t('No projects match')}
+              placeholder={projectRequired ? t('Choose a project') : t('No project')}
+              onChange={(next) => {
+                setProjectId(next);
+                // The task belonged to the old project, and the activity
+                // list may not survive the move either.
+                setWorkPackageId(undefined);
+                setActivityId(undefined);
+                setTaskSearch('');
+              }}
+            />
+          </div>
 
-              {!onTask ? (
-                <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
-                  {!projectId
-                    ? projectRequired
-                      ? t('A project’s meeting is logged on that project. Choose it above.')
-                      : t('With no project, the time is yours: it counts in your week, your timesheet and utilisation, and in no project’s spend or health.')
-                    : kind === 'meeting'
-                      ? t('Logged on the project’s “Scrums & meetings” task, which is made the first time anyone logs meeting time there. Say in the description which meeting it was.')
-                      : t('Logged on the project’s “Support” task, which is made the first time anyone logs support time there. Say in the description what was supported.')}
-                </p>
-              ) : null}
+          {!onTask ? (
+            <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
+              {!projectId
+                ? !ownEntry
+                  ? t('Time on no project is the person’s own to log: someone else’s entry stays on a project. Choose it above.')
+                  : projectRequired
+                    ? t('A project’s meeting is logged on that project. Choose it above.')
+                    : t('With no project, the time is yours: it counts in your week, your timesheet and utilisation, and in no project’s spend or health.')
+                : kind === 'meeting'
+                  ? t('Logged on the project’s “Scrums & meetings” task, which is made the first time anyone logs meeting time there. Say in the description which meeting it was.')
+                  : t('Logged on the project’s “Support” task, which is made the first time anyone logs support time there. Say in the description what was supported.')}
+            </p>
+          ) : null}
 
-              <div className={cn('space-y-1.5', !onTask && 'hidden')}>
-                <Label htmlFor="time-task" required>
-                  {t('Task')}
-                </Label>
-                <ComboSelect
-                  id="time-task"
-                  label={t('Task')}
-                  options={shownTaskOptions}
-                  value={workPackageId}
-                  clearable
-                  wide
-                  disabled={!projectId}
-                  loading={Boolean(projectId) && tasksLoading}
-                  emptyLabel={
-                    truncated && !searching
-                      ? t('Type two letters or more to search all {count, number} tasks.', { count: projectTasks.data?.total ?? 0 })
-                      : t('No tasks in this project match')
-                  }
-                  placeholder={projectId ? t('Choose a task') : t('Choose a project first')}
-                  onSearch={truncated ? setTaskSearch : undefined}
-                  onChange={setWorkPackageId}
-                  ungroupedLabel={t('No category')}
-                />
-                <FieldHint>
-                  {truncated
-                    ? t('The first {shown, number} of {count, number} tasks are listed; type to search the rest.', {
-                        shown: loadedTasks.length,
-                        count: projectTasks.data?.total ?? 0,
-                      })
-                    : !loadedTasks.some((task) => task.category)
-                      ? t('Every task in the project, each under its parent, with its dates. Overheads go on a task kept for them.')
-                      : rules.barred.size > 0
-                        ? t('Every task in the project, by category, with its dates. Review and management tasks are for managers.')
-                        : t('Every task in the project, by category, with its dates.')}
-                </FieldHint>
-              </div>
-            </>
-          )}
+          <div className={cn('space-y-1.5', !onTask && 'hidden')}>
+            <Label htmlFor="time-task" required>
+              {t('Task')}
+            </Label>
+            <ComboSelect
+              id="time-task"
+              label={t('Task')}
+              options={shownTaskOptions}
+              value={workPackageId}
+              clearable
+              wide
+              disabled={!projectId}
+              loading={Boolean(projectId) && tasksLoading}
+              emptyLabel={
+                truncated && !searching
+                  ? t('Type two letters or more to search all {count, number} tasks.', { count: projectTasks.data?.total ?? 0 })
+                  : t('No tasks in this project match')
+              }
+              placeholder={projectId ? t('Choose a task') : t('Choose a project first')}
+              onSearch={truncated ? setTaskSearch : undefined}
+              onChange={setWorkPackageId}
+              ungroupedLabel={t('No category')}
+            />
+            <FieldHint>
+              {truncated
+                ? t('The first {shown, number} of {count, number} tasks are listed; type to search the rest.', {
+                    shown: loadedTasks.length,
+                    count: projectTasks.data?.total ?? 0,
+                  })
+                : !loadedTasks.some((task) => task.category)
+                  ? t('Every task in the project, each under its parent, with its dates. Overheads go on a task kept for them.')
+                  : rules.barred.size > 0
+                    ? t('Every task in the project, by category, with its dates. Review and management tasks are for managers.')
+                    : t('Every task in the project, by category, with its dates.')}
+            </FieldHint>
+          </div>
 
           {chosenTask ? <TaskSummary task={chosenTask} /> : null}
 
