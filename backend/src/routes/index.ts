@@ -61,6 +61,7 @@ import { stageGateRoutes } from './stage-gates.js';
 import { internalCommentRoutes } from './internal-comments.js';
 import { ganttPdfRoutes } from './gantt-pdf.js';
 import { feedRoutes } from './feeds.js';
+import { liveRoutes } from './live.js';
 import { sprintRoutes } from './sprints.js';
 import { taskRoutes } from './tasks.js';
 import { taskSeriesRoutes } from './task-series.js';
@@ -83,6 +84,8 @@ import { journalRoutes } from './journal.js';
  */
 export const registerRoutes: FastifyPluginAsync = async (app) => {
   await app.register(authRoutes);
+  // Live updates: what changed, said to every open page.
+  await app.register(liveRoutes);
   await app.register(userRoutes);
   await app.register(projectRoutes);
   await app.register(healthRoutes);

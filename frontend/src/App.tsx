@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { LiveUpdates } from '@/components/layout/LiveUpdates';
 import { SessionTimeout } from '@/components/layout/SessionTimeout';
 import { useAuth } from '@/providers/AuthProvider';
 import type { AppRole, Permission } from '@/types';
@@ -166,10 +167,12 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   );
 
   // Signed out after a stretch without activity, with a reminder first —
-  // wherever a signed-in person is, the doors above included.
+  // wherever a signed-in person is, the doors above included. And every screen
+  // follows changes made anywhere, without a reload.
   return (
     <>
       <SessionTimeout />
+      <LiveUpdates />
       {content}
     </>
   );

@@ -3,6 +3,7 @@ import { prisma } from '../db/prisma.js';
 import { enqueueEmail } from '../email/outbox.js';
 import { getPreferences } from '../email/preferences.js';
 import { resolveRecipient } from '../email/recipients.js';
+import { announce } from '../lib/live.js';
 import { message, render, toLanguage, type Conventions, type Language, type Message } from '../lib/i18n.js';
 import type { HealthLevel } from '../types/epm.js';
 
@@ -98,7 +99,11 @@ async function notify(input: NotificationInput): Promise<number> {
     // Only what was actually new: a repeat that wrote no row is not news in
     // the inbox either. Email is a side effect of the notification and must
     // never make it fail, so nothing here is allowed to throw.
-    if (result.count > 0) await offerByEmail(recipientId, { ...input, title, body });
+    if (result.count > 0) {
+      // Their open pages show it now: the bell, the inbox (lib/live.ts).
+      announce('notifications', { userId: recipientId });
+      await offerByEmail(recipientId, { ...input, title, body });
+    }
   }
 
   return created;

@@ -29,7 +29,7 @@ window.addEventListener('vite:preloadError', (event) => {
  * moment after, without anyone reloading. One more look is usually enough: the
  * refresh behind takes a second or two.
  */
-const LOOK_AGAIN_MS = [2_500, 6_000, 15_000, 30_000];
+const LOOK_AGAIN_MS = [1_500, 3_500, 7_000, 15_000, 30_000];
 const looksAgain = new Map<string, number>();
 const queryCache = new QueryCache({
   onSuccess: (data, query) => {

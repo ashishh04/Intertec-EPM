@@ -398,6 +398,32 @@ export async function resolveSession(
   return { sessionId, userId: session.openProjectId, accessToken };
 }
 
+/**
+ * Of these sessions, the ones still open by the policy — without touching them.
+ * For connections held open for a long time (live updates), which no request
+ * renews and which must close once their session has ended.
+ */
+export async function openSessions(sessionIds: readonly string[]): Promise<Set<string>> {
+  if (sessionIds.length === 0) return new Set();
+  const rows = await prisma.session
+    .findMany({ where: { id: { in: [...sessionIds] } }, select: { id: true, createdAt: true, expiresAt: true, lastActiveAt: true } })
+    .catch(() => null);
+  // Unreadable: kept open rather than all dropped at once; the next look decides.
+  if (!rows) return new Set(sessionIds);
+  const policy = sessionPolicy();
+  const now = Date.now();
+  return new Set(
+    rows
+      .filter(
+        (row) =>
+          row.createdAt.getTime() + policy.maxMs >= now &&
+          row.expiresAt.getTime() >= now &&
+          row.lastActiveAt.getTime() + policy.idleMs >= now,
+      )
+      .map((row) => row.id),
+  );
+}
+
 /** Where a session stands against the policy: what the page counts down from. */
 export interface SessionClock {
   idleMinutes: number;

@@ -226,6 +226,27 @@ Changes since 1.1.0 (21 October 2026).
 
 ### Improved
 
+- **Screens update by themselves.** What changes anywhere shows on every page
+  that displays it, with no reload or click: a task renamed, moved or closed by
+  someone else; time logged from another tab or a phone; a new sprint; a new
+  member; a notification; figures after the analytics refresh.
+  - **How it works:** the server tells each open page which area changed
+    (work, time, sprints, projects, people, approvals…), over one long-lived
+    connection per page (`/api/events`). The page then fetches again only
+    what it shows from that area, through the same authorised reads as
+    always.
+  - **What the connection carries:** area names only, never data. One
+    person's own changes (their notifications and preferences) reach only
+    their pages.
+  - **Bursts and timing:** a burst of changes, such as an import, is one
+    refresh, at most every three seconds. Changes made in the open page itself
+    show at once, as before; other people's typically show within seconds.
+  - **Sessions:** the connection closes when its session ends. It does not
+    count as activity, so an open page still signs out when idle.
+  - **Dropped connections:** they reconnect by themselves, and everything on
+    screen is then fetched again.
+  - **Deploying:** the web image's Caddyfile leaves this stream uncompressed,
+    so messages are not held back.
 - **Everything about a time entry can be changed after it is logged.** Edit
   entry, on My Time, used to fix the project and task. It now offers all of
   Log time's choices, filled in from the entry: what the time was for (project

@@ -8,7 +8,11 @@
 # its own, provided EPM_DOMAIN resolves to this host.
 
 {$EPM_DOMAIN} {
-	encode zstd gzip
+	# Compressed, all but the live update stream (/api/events): an encoder holds
+	# back the small messages it exists to deliver at once. The proxy below sends
+	# an event stream on as it arrives.
+	@compressible not path /api/events
+	encode @compressible zstd gzip
 
 	# The API, proxied under the same origin as the app.
 	#

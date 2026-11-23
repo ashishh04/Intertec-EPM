@@ -39,6 +39,7 @@ import { registerAuth } from './auth/hook.js';
 import { SESSION_COOKIE } from './auth/oauth.js';
 import { registerRequestSignal } from './lib/request-signal.js';
 import { aggregateCache, wasServedStale } from './lib/cache.js';
+import { announce, areaOfRequest } from './lib/live.js';
 import { openProjectReady } from './openproject/client.js';
 import { registerRoutes } from './routes/index.js';
 
@@ -403,6 +404,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     // The writer's own are dropped, so their next read has the change; everyone
     // else's expire now (display figures answered once more while they refresh).
     aggregateCache.written(request.auth ? `u${request.auth.userId}` : 'system');
+
+    // And every open page hears which area changed (lib/live.ts), so screens
+    // follow without a reload: one person's own only on their pages.
+    const changed = areaOfRequest(request.method, request.url, env.API_PREFIX);
+    if (changed) announce(changed.area, changed.own && request.auth ? { userId: request.auth.userId } : {});
 
     // The caller's permissions go with them. Creating a project grants the
     // creator rights on it, and those are cached for a minute — long enough

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { env } from '../config/env.js';
 import { prisma } from '../db/prisma.js';
 import { message, msg } from '../lib/i18n.js';
+import { announce } from '../lib/live.js';
 import { appLog } from '../lib/log.js';
 import {
   costEntryPages,
@@ -1107,6 +1108,9 @@ async function runRefresh(requested: RefreshKind, trigger: RefreshTrigger): Prom
       });
 
       invalidateModelCaches();
+      // Dashboards, utilisation and forecasts read the model: open pages show
+      // the refreshed figures now (lib/live.ts).
+      announce('insights');
       await reportProblems(run);
       return run;
     } catch (error) {
