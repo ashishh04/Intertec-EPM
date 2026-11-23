@@ -27,7 +27,7 @@ services:
   # its own it can be backed up, restored and later moved to a managed
   # Postgres by changing DATABASE_URL alone. Not published.
   openproject-db:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
     container_name: openproject-db
     restart: unless-stopped
     environment:
@@ -92,7 +92,7 @@ services:
   postgres:
     # Official image, nothing of ours in it, so it is pulled straight from the
     # library rather than rebuilt under our namespace.
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
     container_name: epm-postgres
     restart: unless-stopped
     environment:
@@ -126,7 +126,7 @@ services:
   #   npm run analytics -- role
   # (DEPLOY.md, "Analytics replica").
   postgres-replica:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
     container_name: epm-postgres-replica
     profiles: [analytics]
     restart: unless-stopped
