@@ -73,7 +73,7 @@ RUN npm prune --omit=dev
 # writes .mpp only with its licence, set at run time (EPM_ASPOSE_TASKS_LICENSE);
 # without one the export offers Microsoft Project XML instead. It needs no
 # module the runtime above lacks (jdeps: java.base, java.desktop, java.sql).
-FROM eclipse-temurin:21.0.13_9-jdk-noble@sha256:a2e61ec9e2e4d5c7aa885412400319f9299abe4d8189f42ec3bec48708c576a6 AS plans
+FROM eclipse-temurin:24.0.2_12-jdk-noble@sha256:dacac8e9a0df0d2bd24e702b4431132875c249930b70555ebd7ca285b5bee684 AS plans
 
 ARG MPXJ_VERSION=16.11.0
 ARG MPXJ_SHA256=765f0f5e459f27b7f12511bea682f13937d92ddd37d5422a693d746c6a490273
